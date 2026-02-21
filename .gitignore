@@ -1,0 +1,26 @@
+# Binary (only at root, not cmd/oktsec/)
+/oktsec
+dist/
+
+# Keys (never commit private keys)
+*.key
+keys/
+
+# Database
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Test
+testdata/
+coverage.out
+
+# Claude
+.claude/
+DOCS/

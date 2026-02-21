@@ -1,0 +1,211 @@
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+
+	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/engine"
+)
+
+type handlers struct {
+	cfg     *config.Config
+	scanner *engine.Scanner
+	audit   *audit.Store
+	logger  *slog.Logger
+}
+
+// --- Tool definitions ---
+
+func scanMessageTool() mcplib.Tool {
+	return mcplib.NewTool("scan_message",
+		mcplib.WithDescription(
+			"Scan an inter-agent message for security threats. "+
+				"Checks for prompt injection, credential leaks, PII exposure, relay injection, "+
+				"and 140+ other threat patterns.",
+		),
+		mcplib.WithString("content",
+			mcplib.Required(),
+			mcplib.Description("The message content to scan"),
+		),
+		mcplib.WithString("from",
+			mcplib.Description("Sender agent name"),
+		),
+		mcplib.WithString("to",
+			mcplib.Description("Recipient agent name"),
+		),
+		mcplib.WithReadOnlyHintAnnotation(true),
+		mcplib.WithDestructiveHintAnnotation(false),
+		mcplib.WithOpenWorldHintAnnotation(false),
+	)
+}
+
+func listAgentsTool() mcplib.Tool {
+	return mcplib.NewTool("list_agents",
+		mcplib.WithDescription(
+			"List all agents configured in the oktsec policy, including their access control rules.",
+		),
+		mcplib.WithReadOnlyHintAnnotation(true),
+		mcplib.WithDestructiveHintAnnotation(false),
+		mcplib.WithOpenWorldHintAnnotation(false),
+	)
+}
+
+func auditQueryTool() mcplib.Tool {
+	return mcplib.NewTool("audit_query",
+		mcplib.WithDescription(
+			"Query the oktsec audit log. Returns recent inter-agent messages with status, "+
+				"policy decisions, and security findings.",
+		),
+		mcplib.WithString("status",
+			mcplib.Description("Filter by status: delivered, blocked, rejected, quarantined"),
+		),
+		mcplib.WithString("agent",
+			mcplib.Description("Filter by agent name (matches from or to)"),
+		),
+		mcplib.WithNumber("limit",
+			mcplib.Description("Maximum entries to return (default 20)"),
+		),
+		mcplib.WithReadOnlyHintAnnotation(true),
+		mcplib.WithDestructiveHintAnnotation(false),
+		mcplib.WithOpenWorldHintAnnotation(false),
+	)
+}
+
+func getPolicyTool() mcplib.Tool {
+	return mcplib.NewTool("get_policy",
+		mcplib.WithDescription(
+			"Get the security policy for a specific agent, including which agents it can message "+
+				"and what content restrictions apply.",
+		),
+		mcplib.WithString("agent",
+			mcplib.Required(),
+			mcplib.Description("Agent name to look up"),
+		),
+		mcplib.WithReadOnlyHintAnnotation(true),
+		mcplib.WithDestructiveHintAnnotation(false),
+		mcplib.WithOpenWorldHintAnnotation(false),
+	)
+}
+
+// --- Handlers ---
+
+func (h *handlers) handleScanMessage(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	content := request.GetString("content", "")
+	if content == "" {
+		return mcplib.NewToolResultError("content is required"), nil
+	}
+
+	from := request.GetString("from", "")
+	to := request.GetString("to", "")
+
+	outcome, err := h.scanner.ScanContent(ctx, content)
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("scan failed: %v", err)), nil
+	}
+
+	type finding struct {
+		RuleID   string `json:"rule_id"`
+		Name     string `json:"name"`
+		Severity string `json:"severity"`
+		Match    string `json:"match"`
+	}
+
+	var findings []finding
+	for _, f := range outcome.Findings {
+		findings = append(findings, finding{
+			RuleID:   f.RuleID,
+			Name:     f.Name,
+			Severity: f.Severity,
+			Match:    f.Match,
+		})
+	}
+
+	result := map[string]any{
+		"verdict":  string(outcome.Verdict),
+		"findings": findings,
+		"from":     from,
+		"to":       to,
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (h *handlers) handleListAgents(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	type agentInfo struct {
+		Name           string   `json:"name"`
+		CanMessage     []string `json:"can_message"`
+		BlockedContent []string `json:"blocked_content,omitempty"`
+	}
+
+	var agents []agentInfo
+	for name, agent := range h.cfg.Agents {
+		agents = append(agents, agentInfo{
+			Name:           name,
+			CanMessage:     agent.CanMessage,
+			BlockedContent: agent.BlockedContent,
+		})
+	}
+
+	result := map[string]any{
+		"agents":            agents,
+		"total":             len(agents),
+		"require_signature": h.cfg.Identity.RequireSignature,
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (h *handlers) handleAuditQuery(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	status := request.GetString("status", "")
+	agent := request.GetString("agent", "")
+	limit := request.GetInt("limit", 0)
+	if limit <= 0 {
+		limit = 20
+	}
+
+	entries, err := h.audit.Query(audit.QueryOpts{
+		Status: status,
+		Agent:  agent,
+		Limit:  limit,
+	})
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
+	}
+
+	data, _ := json.MarshalIndent(entries, "", "  ")
+	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (h *handlers) handleGetPolicy(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	agentName := request.GetString("agent", "")
+	if agentName == "" {
+		return mcplib.NewToolResultError("agent is required"), nil
+	}
+
+	agent, ok := h.cfg.Agents[agentName]
+	if !ok {
+		known := make([]string, 0, len(h.cfg.Agents))
+		for name := range h.cfg.Agents {
+			known = append(known, name)
+		}
+		return mcplib.NewToolResultText(fmt.Sprintf("Agent %q not found. Known agents: %s", agentName, strings.Join(known, ", "))), nil
+	}
+
+	result := map[string]any{
+		"agent":             agentName,
+		"can_message":       agent.CanMessage,
+		"blocked_content":   agent.BlockedContent,
+		"require_signature": h.cfg.Identity.RequireSignature,
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return mcplib.NewToolResultText(string(data)), nil
+}

@@ -1,0 +1,33 @@
+version: "1"
+
+server:
+  port: 8080
+  log_level: info
+
+identity:
+  keys_dir: ./keys              # Directory with .pub files for each agent
+  require_signature: true       # Set to false for gradual onboarding
+
+agents:
+  research-agent:
+    can_message: [analysis-agent]
+    blocked_content: [credentials, pii]
+  analysis-agent:
+    can_message: [research-agent, reporting-agent]
+    blocked_content: [system-prompts]
+
+rules:
+  - id: block-relay-injection
+    severity: critical
+    action: block
+    notify: [webhook]
+  - id: quarantine-pii-leak
+    severity: high
+    action: quarantine
+  - id: flag-broad-permissions
+    severity: medium
+    action: allow-and-flag
+
+# webhooks:
+#   - url: https://hooks.slack.com/services/xxx
+#     events: [blocked, quarantined]
