@@ -7,10 +7,11 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/identity"
 )
 
 // NewServer creates an MCP server exposing oktsec tools.
-func NewServer(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.Store, logger *slog.Logger) *server.MCPServer {
+func NewServer(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.Store, keys *identity.KeyStore, logger *slog.Logger) *server.MCPServer {
 	s := server.NewMCPServer(
 		"oktsec",
 		"0.2.0",
@@ -26,6 +27,7 @@ func NewServer(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.St
 		cfg:     cfg,
 		scanner: scanner,
 		audit:   auditStore,
+		keys:    keys,
 		logger:  logger,
 	}
 
@@ -33,6 +35,7 @@ func NewServer(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.St
 	s.AddTool(listAgentsTool(), h.handleListAgents)
 	s.AddTool(auditQueryTool(), h.handleAuditQuery)
 	s.AddTool(getPolicyTool(), h.handleGetPolicy)
+	s.AddTool(verifyAgentTool(), h.handleVerifyAgent)
 
 	return s
 }

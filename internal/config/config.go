@@ -9,12 +9,13 @@ import (
 
 // Config is the top-level oktsec configuration.
 type Config struct {
-	Version  string          `yaml:"version"`
-	Server   ServerConfig    `yaml:"server"`
-	Identity IdentityConfig  `yaml:"identity"`
-	Agents   map[string]Agent `yaml:"agents"`
-	Rules    []RuleAction    `yaml:"rules"`
-	Webhooks []Webhook       `yaml:"webhooks"`
+	Version       string          `yaml:"version"`
+	Server        ServerConfig    `yaml:"server"`
+	Identity      IdentityConfig  `yaml:"identity"`
+	Agents        map[string]Agent `yaml:"agents"`
+	Rules         []RuleAction    `yaml:"rules"`
+	Webhooks      []Webhook       `yaml:"webhooks"`
+	CustomRulesDir string         `yaml:"custom_rules_dir,omitempty"`
 }
 
 // ServerConfig holds proxy server settings.
@@ -91,6 +92,18 @@ func Defaults() *Config {
 	}
 }
 
+// Save writes the config to a YAML file at the given path.
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("writing config: %w", err)
+	}
+	return nil
+}
+
 // Validate checks that the config is consistent.
 func (c *Config) Validate() error {
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
@@ -108,7 +121,7 @@ func (c *Config) Validate() error {
 	}
 	for _, ra := range c.Rules {
 		switch ra.Action {
-		case "block", "quarantine", "allow-and-flag":
+		case "block", "quarantine", "allow-and-flag", "ignore":
 			// valid
 		default:
 			return fmt.Errorf("rule %q has invalid action %q", ra.ID, ra.Action)

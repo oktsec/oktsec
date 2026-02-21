@@ -8,6 +8,7 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/identity"
 	mcpserver "github.com/oktsec/oktsec/internal/mcp"
 	"github.com/spf13/cobra"
 )
@@ -27,7 +28,7 @@ func newMCPCmd() *cobra.Command {
     }
   }
 
-Tools: scan_message, list_agents, audit_query, get_policy`,
+Tools: scan_message, list_agents, audit_query, get_policy, verify_agent`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(cfgFile)
 			if err != nil {
@@ -36,7 +37,7 @@ Tools: scan_message, list_agents, audit_query, get_policy`,
 
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
-			scanner := engine.NewScanner()
+			scanner := engine.NewScanner("")
 			defer scanner.Close()
 
 			dbPath := filepath.Join(os.TempDir(), "oktsec.db")
@@ -46,7 +47,13 @@ Tools: scan_message, list_agents, audit_query, get_policy`,
 			}
 			defer func() { _ = auditStore.Close() }()
 
-			s := mcpserver.NewServer(cfg, scanner, auditStore, logger)
+			// Load keys for verify_agent tool
+			keys := identity.NewKeyStore()
+			if cfg.Identity.KeysDir != "" {
+				_ = keys.LoadFromDir(cfg.Identity.KeysDir) // best-effort
+			}
+
+			s := mcpserver.NewServer(cfg, scanner, auditStore, keys, logger)
 			return mcpserver.Serve(s)
 		},
 	}

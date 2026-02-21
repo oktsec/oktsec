@@ -237,6 +237,13 @@ func (h *Handler) verifyIdentity(req *MessageRequest) (sigStatus int, verified b
 	if !result.Verified {
 		return -1, false, result.Fingerprint
 	}
+
+	// Check if the key has been revoked
+	if revoked, err := h.audit.IsRevoked(result.Fingerprint); err == nil && revoked {
+		h.logger.Warn("agent key is revoked", "agent", req.From, "fingerprint", result.Fingerprint)
+		return -1, false, result.Fingerprint
+	}
+
 	return 1, true, result.Fingerprint
 }
 

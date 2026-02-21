@@ -28,6 +28,8 @@ func NewRoot() *cobra.Command {
 		newUnwrapCmd(),
 		newProxyCmd(),
 		newMCPCmd(),
+		newEnforceCmd(),
+		newStatusCmd(),
 		newVersionCmd(),
 	)
 

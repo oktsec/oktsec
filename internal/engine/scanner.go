@@ -42,7 +42,8 @@ type Scanner struct {
 }
 
 // NewScanner creates a scanner with oktsec's IAP rules + Aguara's built-in rules.
-func NewScanner(extraOpts ...aguara.Option) *Scanner {
+// If customRulesDir is non-empty, rules from that directory are also loaded.
+func NewScanner(customRulesDir string, extraOpts ...aguara.Option) *Scanner {
 	s := &Scanner{}
 
 	// Extract embedded IAP rules to a temp directory
@@ -50,6 +51,10 @@ func NewScanner(extraOpts ...aguara.Option) *Scanner {
 	if err == nil && dir != "" {
 		s.tempDir = dir
 		s.opts = append(s.opts, aguara.WithCustomRules(dir))
+	}
+
+	if customRulesDir != "" {
+		s.opts = append(s.opts, aguara.WithCustomRules(customRulesDir))
 	}
 
 	s.opts = append(s.opts, extraOpts...)
@@ -104,6 +109,16 @@ func (s *Scanner) RulesCount(ctx context.Context) int {
 		return 0
 	}
 	return result.RulesLoaded
+}
+
+// ListRules returns metadata for all loaded rules (Aguara built-in + IAP + custom).
+func (s *Scanner) ListRules() []aguara.RuleInfo {
+	return aguara.ListRules(s.opts...)
+}
+
+// ExplainRule returns detailed information about a specific rule by ID.
+func (s *Scanner) ExplainRule(id string) (*aguara.RuleDetail, error) {
+	return aguara.ExplainRule(id, s.opts...)
 }
 
 // extractEmbeddedRules writes the embedded IAP rule YAMLs to a temp directory.

@@ -6,7 +6,7 @@ import (
 )
 
 func TestScanContent_Clean(t *testing.T) {
-	s := NewScanner()
+	s := NewScanner("")
 	defer s.Close()
 
 	outcome, err := s.ScanContent(context.Background(), "Please summarize the quarterly report")
@@ -22,7 +22,7 @@ func TestScanContent_Clean(t *testing.T) {
 }
 
 func TestScanContent_PromptInjection(t *testing.T) {
-	s := NewScanner()
+	s := NewScanner("")
 	defer s.Close()
 
 	outcome, err := s.ScanContent(context.Background(),
@@ -39,7 +39,7 @@ func TestScanContent_PromptInjection(t *testing.T) {
 }
 
 func TestScanContent_IAPRelayInjection(t *testing.T) {
-	s := NewScanner()
+	s := NewScanner("")
 	defer s.Close()
 
 	outcome, err := s.ScanContent(context.Background(),
@@ -63,7 +63,7 @@ func TestScanContent_IAPRelayInjection(t *testing.T) {
 }
 
 func TestScanContent_IAPCredential(t *testing.T) {
-	s := NewScanner()
+	s := NewScanner("")
 	defer s.Close()
 
 	outcome, err := s.ScanContent(context.Background(),
@@ -77,7 +77,7 @@ func TestScanContent_IAPCredential(t *testing.T) {
 }
 
 func TestScanContent_IAPPrivilegeEscalation(t *testing.T) {
-	s := NewScanner()
+	s := NewScanner("")
 	defer s.Close()
 
 	outcome, err := s.ScanContent(context.Background(),
@@ -91,7 +91,7 @@ func TestScanContent_IAPPrivilegeEscalation(t *testing.T) {
 }
 
 func TestRulesCount(t *testing.T) {
-	s := NewScanner()
+	s := NewScanner("")
 	defer s.Close()
 
 	count := s.RulesCount(context.Background())

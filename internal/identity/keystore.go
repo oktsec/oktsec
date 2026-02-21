@@ -33,6 +33,18 @@ func (ks *KeyStore) LoadFromDir(dir string) error {
 	return nil
 }
 
+// ReloadFromDir clears all keys and reloads .pub files from the directory.
+func (ks *KeyStore) ReloadFromDir(dir string) error {
+	loaded, err := LoadPublicKeys(dir)
+	if err != nil {
+		return fmt.Errorf("reloading keys from %s: %w", dir, err)
+	}
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+	ks.keys = loaded
+	return nil
+}
+
 // Get returns the public key for an agent.
 func (ks *KeyStore) Get(name string) (ed25519.PublicKey, bool) {
 	ks.mu.RLock()

@@ -28,7 +28,7 @@ func newProxyCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-			scanner := engine.NewScanner()
+			scanner := engine.NewScanner("")
 			defer scanner.Close()
 
 			// Use a shared audit store location

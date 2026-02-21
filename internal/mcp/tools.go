@@ -11,12 +11,14 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/identity"
 )
 
 type handlers struct {
 	cfg     *config.Config
 	scanner *engine.Scanner
 	audit   *audit.Store
+	keys    *identity.KeyStore
 	logger  *slog.Logger
 }
 
@@ -86,6 +88,42 @@ func getPolicyTool() mcplib.Tool {
 		mcplib.WithString("agent",
 			mcplib.Required(),
 			mcplib.Description("Agent name to look up"),
+		),
+		mcplib.WithReadOnlyHintAnnotation(true),
+		mcplib.WithDestructiveHintAnnotation(false),
+		mcplib.WithOpenWorldHintAnnotation(false),
+	)
+}
+
+func verifyAgentTool() mcplib.Tool {
+	return mcplib.NewTool("verify_agent",
+		mcplib.WithDescription(
+			"Verify an Ed25519 signature from an agent. Checks that the message was "+
+				"signed by the claimed sender using their registered public key.",
+		),
+		mcplib.WithString("agent",
+			mcplib.Required(),
+			mcplib.Description("Agent name who claims to have signed the message"),
+		),
+		mcplib.WithString("from",
+			mcplib.Required(),
+			mcplib.Description("Sender agent name (used in canonical payload)"),
+		),
+		mcplib.WithString("to",
+			mcplib.Required(),
+			mcplib.Description("Recipient agent name (used in canonical payload)"),
+		),
+		mcplib.WithString("content",
+			mcplib.Required(),
+			mcplib.Description("Message content that was signed"),
+		),
+		mcplib.WithString("timestamp",
+			mcplib.Required(),
+			mcplib.Description("Timestamp used when signing (RFC3339)"),
+		),
+		mcplib.WithString("signature",
+			mcplib.Required(),
+			mcplib.Description("Base64-encoded Ed25519 signature"),
 		),
 		mcplib.WithReadOnlyHintAnnotation(true),
 		mcplib.WithDestructiveHintAnnotation(false),
@@ -204,6 +242,49 @@ func (h *handlers) handleGetPolicy(ctx context.Context, request mcplib.CallToolR
 		"can_message":       agent.CanMessage,
 		"blocked_content":   agent.BlockedContent,
 		"require_signature": h.cfg.Identity.RequireSignature,
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (h *handlers) handleVerifyAgent(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	agentName := request.GetString("agent", "")
+	from := request.GetString("from", "")
+	to := request.GetString("to", "")
+	content := request.GetString("content", "")
+	timestamp := request.GetString("timestamp", "")
+	signature := request.GetString("signature", "")
+
+	if agentName == "" || from == "" || to == "" || content == "" || timestamp == "" || signature == "" {
+		return mcplib.NewToolResultError("agent, from, to, content, timestamp, and signature are all required"), nil
+	}
+
+	if h.keys == nil {
+		return mcplib.NewToolResultError("no keystore configured — keys are needed for verification"), nil
+	}
+
+	pubKey, ok := h.keys.Get(agentName)
+	if !ok {
+		known := h.keys.Names()
+		result := map[string]any{
+			"verified": false,
+			"error":    fmt.Sprintf("no public key for agent %q", agentName),
+			"known":    known,
+		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		return mcplib.NewToolResultText(string(data)), nil
+	}
+
+	vr := identity.VerifyMessage(pubKey, from, to, content, timestamp, signature)
+
+	result := map[string]any{
+		"verified":    vr.Verified,
+		"agent":       agentName,
+		"fingerprint": vr.Fingerprint,
+	}
+	if vr.Error != nil {
+		result["error"] = vr.Error.Error()
 	}
 
 	data, _ := json.MarshalIndent(result, "", "  ")

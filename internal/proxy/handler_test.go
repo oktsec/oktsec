@@ -66,7 +66,7 @@ func newTestSetup(t *testing.T, requireSig bool) *testSetup {
 		t.Fatal(err)
 	}
 	pol := policy.NewEvaluator(cfg)
-	scanner := engine.NewScanner()
+	scanner := engine.NewScanner("")
 	auditStore, err := audit.NewStore(filepath.Join(dir, "test.db"), logger)
 	if err != nil {
 		t.Fatal(err)

@@ -3,10 +3,12 @@ package commands
 import (
 	"crypto/ed25519"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"text/tabwriter"
 
+	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/spf13/cobra"
@@ -91,6 +93,12 @@ func newKeysRotateCmd() *cobra.Command {
 				return fmt.Errorf("no keys_dir configured")
 			}
 
+			// Get old fingerprint before moving
+			var oldFingerprint string
+			if oldPub, err := identity.LoadPublicKey(keysDir, agent); err == nil {
+				oldFingerprint = identity.Fingerprint(oldPub)
+			}
+
 			// Move old keys to revoked/
 			revokedDir := filepath.Join(keysDir, "revoked")
 			if err := os.MkdirAll(revokedDir, 0o700); err != nil {
@@ -105,6 +113,11 @@ func newKeysRotateCmd() *cobra.Command {
 						return fmt.Errorf("moving %s: %w", old, err)
 					}
 				}
+			}
+
+			// Persist revocation in audit DB
+			if oldFingerprint != "" {
+				persistRevocation(oldFingerprint, agent, "key rotated")
 			}
 
 			// Generate new keypair
@@ -147,6 +160,12 @@ func newKeysRevokeCmd() *cobra.Command {
 				return fmt.Errorf("no keys_dir configured")
 			}
 
+			// Get fingerprint before moving
+			var fp string
+			if pub, err := identity.LoadPublicKey(keysDir, agent); err == nil {
+				fp = identity.Fingerprint(pub)
+			}
+
 			revokedDir := filepath.Join(keysDir, "revoked")
 			if err := os.MkdirAll(revokedDir, 0o700); err != nil {
 				return fmt.Errorf("creating revoked directory: %w", err)
@@ -168,6 +187,11 @@ func newKeysRevokeCmd() *cobra.Command {
 				return fmt.Errorf("no keys found for agent %q in %s", agent, keysDir)
 			}
 
+			// Persist revocation in audit DB
+			if fp != "" {
+				persistRevocation(fp, agent, "manually revoked")
+			}
+
 			fmt.Printf("Revoked keys for %s\n", agent)
 			fmt.Printf("  Keys moved to: %s/\n", revokedDir)
 			fmt.Println()
@@ -178,4 +202,15 @@ func newKeysRevokeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&agent, "agent", "", "agent name to revoke")
 	_ = cmd.MarkFlagRequired("agent")
 	return cmd
+}
+
+// persistRevocation records a key revocation in the audit database.
+func persistRevocation(fingerprint, agentName, reason string) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store, err := audit.NewStore("oktsec.db", logger)
+	if err != nil {
+		return
+	}
+	defer func() { _ = store.Close() }()
+	_ = store.RevokeKey(fingerprint, agentName, reason)
 }

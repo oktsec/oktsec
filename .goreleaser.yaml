@@ -30,6 +30,34 @@ archives:
         formats: [zip]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+dockers:
+  - image_templates:
+      - "ghcr.io/oktsec/oktsec:{{ .Version }}-amd64"
+    use: buildx
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+    goos: linux
+    goarch: amd64
+  - image_templates:
+      - "ghcr.io/oktsec/oktsec:{{ .Version }}-arm64"
+    use: buildx
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+    goos: linux
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/oktsec/oktsec:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/oktsec/oktsec:{{ .Version }}-amd64"
+      - "ghcr.io/oktsec/oktsec:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/oktsec/oktsec:latest"
+    image_templates:
+      - "ghcr.io/oktsec/oktsec:{{ .Version }}-amd64"
+      - "ghcr.io/oktsec/oktsec:{{ .Version }}-arm64"
+
 checksum:
   name_template: checksums.txt
 

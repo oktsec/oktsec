@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -17,16 +21,18 @@ import (
 
 // Server is the oktsec HTTP proxy server.
 type Server struct {
-	cfg        *config.Config
-	srv        *http.Server
-	scanner    *engine.Scanner
-	audit      *audit.Store
-	dashboard  *dashboard.Server
-	logger     *slog.Logger
+	cfg       *config.Config
+	cfgPath   string
+	srv       *http.Server
+	keys      *identity.KeyStore
+	scanner   *engine.Scanner
+	audit     *audit.Store
+	dashboard *dashboard.Server
+	logger    *slog.Logger
 }
 
 // NewServer creates and wires the proxy server.
-func NewServer(cfg *config.Config, logger *slog.Logger) (*Server, error) {
+func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server, error) {
 	// Load agent public keys
 	keys := identity.NewKeyStore()
 	if cfg.Identity.KeysDir != "" {
@@ -44,7 +50,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	pol := policy.NewEvaluator(cfg)
 
 	// Aguara scanner
-	scanner := engine.NewScanner()
+	scanner := engine.NewScanner(cfg.CustomRulesDir)
 
 	// Audit store
 	auditStore, err := audit.NewStore("oktsec.db", logger)
@@ -59,7 +65,7 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 	handler := NewHandler(cfg, keys, pol, scanner, auditStore, webhooks, logger)
 
 	// Dashboard
-	dash := dashboard.NewServer(cfg, auditStore, logger)
+	dash := dashboard.NewServer(cfg, cfgPath, auditStore, keys, scanner, logger)
 
 	// Routes
 	mux := http.NewServeMux()
@@ -97,7 +103,9 @@ func NewServer(cfg *config.Config, logger *slog.Logger) (*Server, error) {
 
 	return &Server{
 		cfg:       cfg,
+		cfgPath:   cfgPath,
 		srv:       srv,
+		keys:      keys,
 		scanner:   scanner,
 		audit:     auditStore,
 		dashboard: dash,
@@ -121,6 +129,23 @@ func (s *Server) Start() error {
 		"addr", s.srv.Addr,
 		"require_signature", s.cfg.Identity.RequireSignature,
 	)
+
+	// SIGHUP handler for hot-reloading keys (Unix only)
+	if runtime.GOOS != "windows" && s.cfg.Identity.KeysDir != "" {
+		sighup := make(chan os.Signal, 1)
+		signal.Notify(sighup, syscall.SIGHUP)
+		go func() {
+			for range sighup {
+				s.logger.Info("SIGHUP received, reloading keys", "dir", s.cfg.Identity.KeysDir)
+				if err := s.keys.ReloadFromDir(s.cfg.Identity.KeysDir); err != nil {
+					s.logger.Error("failed to reload keys", "error", err)
+				} else {
+					s.logger.Info("keys reloaded", "count", s.keys.Count(), "agents", s.keys.Names())
+				}
+			}
+		}()
+	}
+
 	return s.srv.ListenAndServe()
 }
 
