@@ -152,6 +152,7 @@ func TestServer_DashboardPages(t *testing.T) {
 		{"/dashboard", "Overview"},
 		{"/dashboard/events", "Events"},
 		{"/dashboard/agents", "Agents"},
+		{"/dashboard/graph", "Graph"},
 		{"/dashboard/rules", "Rules"},
 		{"/dashboard/settings", "Settings"},
 	}
@@ -560,6 +561,169 @@ func TestServer_AgentDelete(t *testing.T) {
 
 	if _, ok := srv.cfg.Agents["test-agent"]; ok {
 		t.Error("test-agent should be deleted from config")
+	}
+}
+
+func TestServer_GraphAPI(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Log some entries to populate edges
+	srv.audit.Log(audit.Entry{
+		ID:             "graph-1",
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		FromAgent:      "test-agent",
+		ToAgent:        "other-agent",
+		ContentHash:    "h",
+		Status:         "delivered",
+		PolicyDecision: "allow",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/graph", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("graph API: status = %d, want 200", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("content-type = %q, want application/json", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "nodes") || !strings.Contains(body, "edges") {
+		t.Error("graph API response should contain nodes and edges")
+	}
+}
+
+func TestServer_EdgeDetail(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	srv.audit.Log(audit.Entry{
+		ID:             "edge-1",
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		FromAgent:      "test-agent",
+		ToAgent:        "other-agent",
+		ContentHash:    "h",
+		Status:         "delivered",
+		PolicyDecision: "allow",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/graph/edge?from=test-agent&to=other-agent", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("edge detail: status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "test-agent") {
+		t.Error("edge detail should contain 'test-agent'")
+	}
+}
+
+func TestAuditStore_QueryAgentStats(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store, err := audit.NewStore(filepath.Join(dir, "test.db"), logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	entries := []struct {
+		id, from, to, status string
+	}{
+		{"as-1", "agent-x", "agent-y", "delivered"},
+		{"as-2", "agent-x", "agent-y", "blocked"},
+		{"as-3", "agent-y", "agent-x", "rejected"},
+		{"as-4", "agent-z", "agent-x", "quarantined"},
+	}
+	for _, e := range entries {
+		store.Log(audit.Entry{
+			ID:             e.id,
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			FromAgent:      e.from,
+			ToAgent:        e.to,
+			ContentHash:    "h",
+			Status:         e.status,
+			PolicyDecision: "test",
+		})
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	stats, err := store.QueryAgentStats("agent-x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Total != 4 {
+		t.Errorf("total = %d, want 4", stats.Total)
+	}
+	if stats.Delivered != 1 {
+		t.Errorf("delivered = %d, want 1", stats.Delivered)
+	}
+	if stats.Blocked != 1 {
+		t.Errorf("blocked = %d, want 1", stats.Blocked)
+	}
+	if stats.Rejected != 1 {
+		t.Errorf("rejected = %d, want 1", stats.Rejected)
+	}
+	if stats.Quarantined != 1 {
+		t.Errorf("quarantined = %d, want 1", stats.Quarantined)
+	}
+
+	// Agent with no traffic
+	stats, err = store.QueryAgentStats("nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Total != 0 {
+		t.Errorf("nonexistent agent total = %d, want 0", stats.Total)
+	}
+}
+
+func TestAuditStore_QueryStatuses(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store, err := audit.NewStore(filepath.Join(dir, "test.db"), logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	for _, e := range []struct{ id, status string }{
+		{"qs-1", "delivered"},
+		{"qs-2", "blocked"},
+		{"qs-3", "rejected"},
+		{"qs-4", "delivered"},
+	} {
+		store.Log(audit.Entry{
+			ID: e.id, Timestamp: time.Now().UTC().Format(time.RFC3339),
+			FromAgent: "a", ToAgent: "b", ContentHash: "h",
+			Status: e.status, PolicyDecision: "test",
+		})
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	// Multi-status query: blocked + rejected
+	entries, err := store.Query(audit.QueryOpts{Statuses: []string{"blocked", "rejected"}, Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("got %d entries, want 2", len(entries))
+	}
+	for _, e := range entries {
+		if e.Status != "blocked" && e.Status != "rejected" {
+			t.Errorf("unexpected status %q", e.Status)
+		}
 	}
 }
 

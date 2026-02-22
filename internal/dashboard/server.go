@@ -68,6 +68,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/settings", s.handleSettings)
 	s.mux.HandleFunc("GET /dashboard/agents", s.handleAgents)
 
+	s.mux.HandleFunc("GET /dashboard/graph", s.handleGraph)
+	s.mux.HandleFunc("GET /dashboard/api/graph", s.handleAPIGraph)
+	s.mux.HandleFunc("GET /dashboard/api/graph/edge", s.handleEdgeDetail)
+
 	// Legacy URL redirects
 	s.mux.HandleFunc("GET /dashboard/logs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard/events", http.StatusMovedPermanently)

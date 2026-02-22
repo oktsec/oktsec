@@ -2,6 +2,17 @@ package dashboard
 
 import "html/template"
 
+// tmplFuncs is the shared FuncMap for all event-rendering templates.
+var tmplFuncs = template.FuncMap{
+	"humanDecision": humanReadableDecision,
+	"truncate": func(s string, n int) string {
+		if len(s) <= n {
+			return s
+		}
+		return s[:n] + "..."
+	},
+}
+
 var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -115,11 +126,11 @@ th{text-align:left;color:var(--text3);font-size:0.7rem;text-transform:uppercase;
 td{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--text2);font-family:var(--mono);font-size:0.78rem}
 tr:hover td{background:var(--surface2)}
 
-/* Badges */
-.badge-delivered{background:#22c55e20;color:var(--success);padding:3px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-blocked{background:#ef444420;color:var(--danger);padding:3px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-rejected{background:#f59e0b20;color:var(--warn);padding:3px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-quarantined{background:#6366f120;color:var(--accent-light);padding:3px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
+/* Status badges — pills with tinted bg (what happened to the message) */
+.badge-delivered{background:#22c55e18;color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-blocked{background:#ef444418;color:#f87171;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-rejected{background:#f9731618;color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-quarantined{background:#a855f718;color:#c084fc;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
 .badge-verified{color:var(--success)}
 .badge-unsigned{color:var(--text3)}
 .badge-invalid{color:var(--danger)}
@@ -132,17 +143,17 @@ tr:hover td{background:var(--surface2)}
 .agent-name a:hover{color:var(--accent-light)}
 .agent-targets{color:var(--text3);font-size:0.78rem}
 
-/* Severity badges */
-.sev-critical{background:#ef444420;color:var(--danger);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:700;text-transform:uppercase}
-.sev-high{background:#f59e0b20;color:var(--warn);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;text-transform:uppercase}
-.sev-medium{background:#6366f120;color:var(--accent-light);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600;text-transform:uppercase}
-.sev-low{background:var(--surface2);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:0.7rem;text-transform:uppercase}
-.sev-info{background:var(--surface2);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:0.7rem;text-transform:uppercase}
+/* Severity badges — left-bordered chips (how dangerous the rule is) */
+.sev-critical{background:var(--surface2);color:#f87171;padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;font-weight:700;text-transform:uppercase;border-left:3px solid #ef4444}
+.sev-high{background:var(--surface2);color:#fb923c;padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;font-weight:600;text-transform:uppercase;border-left:3px solid #f97316}
+.sev-medium{background:var(--surface2);color:#60a5fa;padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;font-weight:600;text-transform:uppercase;border-left:3px solid #3b82f6}
+.sev-low{background:var(--surface2);color:var(--text3);padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;text-transform:uppercase;border-left:3px solid var(--border)}
+.sev-info{background:var(--surface2);color:var(--text3);padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;text-transform:uppercase;border-left:3px solid var(--border)}
 
 /* Action badges */
-.act-block{background:#ef444420;color:var(--danger);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.act-quarantine{background:#6366f120;color:var(--accent-light);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.act-allow-and-flag{background:#f59e0b20;color:var(--warn);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.act-block{background:#ef444418;color:#f87171;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.act-quarantine{background:#a855f718;color:#c084fc;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.act-allow-and-flag{background:#f9731618;color:#fb923c;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
 .act-ignore{background:var(--surface2);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
 
 /* Chart */
@@ -235,10 +246,16 @@ tr.clickable:hover td{background:var(--surface2)}
 .q-preview{font-family:var(--mono);font-size:0.75rem;color:var(--text2);background:var(--bg);padding:8px 12px;border-radius:6px;max-height:60px;overflow:hidden;white-space:pre-wrap;word-break:break-all}
 .q-content{font-family:var(--mono);font-size:0.78rem;color:var(--text);background:var(--bg);padding:12px 16px;border-radius:6px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;border:1px solid var(--border)}
 .q-actions{display:flex;gap:8px;margin-top:8px}
-.pending-badge{background:var(--warn);color:#000;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:6px}
-.badge-pending{background:#f59e0b20;color:var(--warn);padding:3px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-approved{background:#22c55e20;color:var(--success);padding:3px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-expired{background:var(--surface2);color:var(--text3);padding:3px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.pending-badge{background:#f97316;color:#000;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:6px}
+.badge-pending{background:#f9731618;color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-approved{background:#22c55e18;color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-expired{background:var(--surface2);color:var(--text3);padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+
+/* Agent tags — outlined pills */
+.agent-tag{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.7rem;color:var(--text2);font-family:var(--sans);background:transparent}
+
+/* ACL target pills */
+.acl-target{display:inline-block;padding:2px 8px;background:rgba(99,102,241,0.1);border-radius:4px;font-size:0.72rem;color:var(--accent-light);font-family:var(--mono)}
 
 /* Risk bar */
 .risk-bar{height:8px;border-radius:4px;background:var(--surface2);position:relative;min-width:60px}
@@ -301,6 +318,14 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
 .inline-add .form-group{margin:0}
 .inline-add .form-group label{margin-bottom:2px}
 
+/* Tooltip */
+[data-tooltip]{position:relative;cursor:help;border-bottom:1px dotted var(--text3)}
+[data-tooltip]::after{content:attr(data-tooltip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:6px;font-size:0.72rem;white-space:normal;z-index:300;opacity:0;pointer-events:none;transition:opacity 0.15s;font-family:var(--sans);font-weight:400;line-height:1.4;max-width:260px;text-align:center}
+[data-tooltip]:hover::after{opacity:1}
+
+/* Stat sub-description */
+.stat .sub{color:var(--text3);font-size:0.68rem;margin-top:4px;font-family:var(--sans)}
+
 /* Responsive */
 @media(max-width:768px){
   .stats{grid-template-columns:repeat(2,1fr)}
@@ -315,11 +340,12 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
   <a href="/dashboard" class="logo">okt<span>sec</span></a>
   <a href="/dashboard" class="{{if eq .Active "overview"}}active{{end}}">Overview</a>
   <a href="/dashboard/agents" class="{{if eq .Active "agents"}}active{{end}}">Agents</a>
+  <a href="/dashboard/graph" class="{{if eq .Active "graph"}}active{{end}}">Graph</a>
   <a href="/dashboard/events" class="{{if eq .Active "events"}}active{{end}}">Events</a>
   <a href="/dashboard/rules" class="{{if eq .Active "rules"}}active{{end}}">Rules</a>
   <a href="/dashboard/settings" class="{{if eq .Active "settings"}}active{{end}}">Settings</a>
   <div class="spacer"></div>
-  <span class="badge">{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
+  <span class="badge" style="{{if .RequireSig}}background:rgba(34,197,94,0.15);color:var(--success){{else}}background:rgba(245,158,11,0.15);color:var(--warn){{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}">{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
   <form method="POST" action="/dashboard/logout" style="margin-left:8px;display:inline"><button type="submit" style="background:none;border:1px solid var(--border);color:var(--text3);padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;font-family:var(--sans);transition:all 0.2s" onmouseover="this.style.color='var(--danger)';this.style.borderColor='var(--danger)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'">Logout</button></form>
 </nav>
 <main>`
@@ -363,19 +389,38 @@ function switchTab(group, tabName) {
     c.classList.toggle('active', c.dataset.tabName === tabName);
   });
 }
+
+// Humanize timestamps (global so SSE code can call it)
+function _relTime(ts){
+  var d=new Date(ts),now=new Date(),s=Math.floor((now-d)/1000);
+  if(isNaN(s))return ts;
+  if(s<60)return 'just now';
+  if(s<3600)return Math.floor(s/60)+'m ago';
+  if(s<86400)return Math.floor(s/3600)+'h ago';
+  if(s<604800)return Math.floor(s/86400)+'d ago';
+  return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+}
+function humanizeTimestamps(){
+  document.querySelectorAll('[data-ts]').forEach(function(el){
+    var ts=el.getAttribute('data-ts');
+    if(ts){el.textContent=_relTime(ts);el.title=ts;}
+  });
+}
+humanizeTimestamps();
+document.body.addEventListener('htmx:afterSettle',humanizeTimestamps);
 </script>
 </body>
 </html>`
 
 var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
 <h1>Dashboard <span>Overview</span></h1>
-<p class="page-desc">Real-time view of agent communication and security events. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<p class="page-desc">Messages between agents are scanned for threats, verified for identity, and logged here. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 {{if .PendingReview}}
 <div class="alert-banner warn">
   <strong>{{.PendingReview}} message{{if gt .PendingReview 1}}s{{end}} pending review</strong>
   <span style="color:var(--text2);font-size:0.78rem">Quarantined content awaiting human decision</span>
-  <a href="/dashboard/quarantine" class="btn btn-sm" style="background:var(--warn);color:#000">Review Now</a>
+  <a href="/dashboard/events?tab=quarantine" class="btn btn-sm" style="background:var(--warn);color:#000">Review Now</a>
 </div>
 {{end}}
 
@@ -383,18 +428,22 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
   <div class="stat">
     <div class="label">Total Messages</div>
     <div class="value" id="stat-total">{{.Stats.TotalMessages}}</div>
+    <div class="sub">All messages processed</div>
   </div>
   <div class="stat">
     <div class="label">Delivered</div>
     <div class="value success" id="stat-delivered">{{.Stats.Delivered}}</div>
+    <div class="sub">Passed all checks</div>
   </div>
   <div class="stat">
     <div class="label">Blocked</div>
     <div class="value danger" id="stat-blocked">{{.Stats.Blocked}}</div>
+    <div class="sub">Dangerous content detected</div>
   </div>
   <div class="stat">
     <div class="label">Rejected</div>
     <div class="value warn" id="stat-rejected">{{.Stats.Rejected}}</div>
+    <div class="sub">ACL or signature failure</div>
   </div>
 </div>
 
@@ -420,11 +469,11 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
   <div id="recent-events">
     {{if .Recent}}
     <table>
-      <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Decision</th><th>Verified</th></tr></thead>
+      <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
       <tbody id="events-tbody">
       {{range .Recent}}
       <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-        <td>{{.Timestamp}}</td>
+        <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
         <td>{{.FromAgent}}</td>
         <td>{{.ToAgent}}</td>
         <td>
@@ -433,12 +482,6 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
           {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
           {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
           {{else}}{{.Status}}{{end}}
-        </td>
-        <td>{{.PolicyDecision}}</td>
-        <td>
-          {{if eq .SignatureVerified 1}}<span class="badge-verified">&#10003;</span>
-          {{else if eq .SignatureVerified -1}}<span class="badge-invalid">&#10007;</span>
-          {{else}}<span class="badge-unsigned">&mdash;</span>{{end}}
         </td>
       </tr>
       {{end}}
@@ -492,7 +535,7 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
       // If table doesn't exist yet, create it
       if (!tbody) {
         var recentDiv = document.getElementById('recent-events');
-        recentDiv.innerHTML = '<table><thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Decision</th><th>Verified</th></tr></thead><tbody id="events-tbody"></tbody></table>';
+        recentDiv.innerHTML = '<table><thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead><tbody id="events-tbody"></tbody></table>';
         tbody = document.getElementById('events-tbody');
       }
 
@@ -505,18 +548,15 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
         default: statusBadge = entry.status;
       }
 
-      var verifiedBadge = '<span class="badge-unsigned">&mdash;</span>';
-      if (entry.signature_verified === 1) verifiedBadge = '<span class="badge-verified">&#10003;</span>';
-      else if (entry.signature_verified === -1) verifiedBadge = '<span class="badge-invalid">&#10007;</span>';
-
       var row = document.createElement('tr');
       row.className = 'clickable';
       row.setAttribute('hx-get', '/dashboard/api/event/' + entry.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
-      row.innerHTML = '<td>' + entry.timestamp + '</td><td>' + entry.from_agent + '</td><td>' + entry.to_agent + '</td><td>' + statusBadge + '</td><td>' + entry.policy_decision + '</td><td>' + verifiedBadge + '</td>';
+      row.innerHTML = '<td data-ts="' + entry.timestamp + '">' + entry.timestamp + '</td><td>' + entry.from_agent + '</td><td>' + entry.to_agent + '</td><td>' + statusBadge + '</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
+      if(typeof humanizeTimestamps==='function')humanizeTimestamps();
 
       // Keep only 20 rows
       while (tbody.children.length > 20) tbody.removeChild(tbody.lastChild);
@@ -529,11 +569,11 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
 var recentPartialTmpl = template.Must(template.New("recent").Parse(`
 {{if .}}
 <table>
-  <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Decision</th><th>Verified</th></tr></thead>
+  <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
   <tbody>
   {{range .}}
   <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-    <td>{{.Timestamp}}</td>
+    <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
     <td>{{.FromAgent}}</td>
     <td>{{.ToAgent}}</td>
     <td>
@@ -542,12 +582,6 @@ var recentPartialTmpl = template.Must(template.New("recent").Parse(`
       {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
       {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
       {{else}}{{.Status}}{{end}}
-    </td>
-    <td>{{.PolicyDecision}}</td>
-    <td>
-      {{if eq .SignatureVerified 1}}<span class="badge-verified">&#10003;</span>
-      {{else if eq .SignatureVerified -1}}<span class="badge-invalid">&#10007;</span>
-      {{else}}<span class="badge-unsigned">&mdash;</span>{{end}}
     </td>
   </tr>
   {{end}}
@@ -557,14 +591,14 @@ var recentPartialTmpl = template.Must(template.New("recent").Parse(`
 <div class="empty">No events yet.</div>
 {{end}}`))
 
-var searchResultsTmpl = template.Must(template.New("search-results").Parse(`
+var searchResultsTmpl = template.Must(template.New("search-results").Funcs(tmplFuncs).Parse(`
 {{if .}}
 <table>
   <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Decision</th><th>Latency</th></tr></thead>
   <tbody>
   {{range .}}
   <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-    <td>{{.Timestamp}}</td>
+    <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
     <td>{{.FromAgent}}</td>
     <td>{{.ToAgent}}</td>
     <td>
@@ -574,7 +608,7 @@ var searchResultsTmpl = template.Must(template.New("search-results").Parse(`
       {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
       {{else}}{{.Status}}{{end}}
     </td>
-    <td>{{.PolicyDecision}}</td>
+    <td>{{humanDecision .PolicyDecision}}</td>
     <td>{{.LatencyMs}}ms</td>
   </tr>
   {{end}}
@@ -586,7 +620,7 @@ var searchResultsTmpl = template.Must(template.New("search-results").Parse(`
 
 var agentsTmpl = template.Must(template.New("agents").Parse(layoutHead + `
 <h1>Registered <span>Agents</span></h1>
-<p class="page-desc">Agents configured in oktsec.yaml with their access control rules.</p>
+<p class="page-desc">Each agent can only message destinations listed in its ACL. Manage agents, generate keypairs, and view message history.</p>
 
 <div class="card">
   {{if .Agents}}
@@ -597,8 +631,8 @@ var agentsTmpl = template.Must(template.New("agents").Parse(layoutHead + `
     <tr class="clickable" onclick="window.location='/dashboard/agents/{{$name}}'">
       <td style="font-weight:600">{{$name}}</td>
       <td style="color:var(--text2);font-family:var(--sans)">{{$agent.Description}}</td>
-      <td>{{if $agent.CanMessage}}{{range $i, $t := $agent.CanMessage}}{{if $i}}, {{end}}{{$t}}{{end}}{{else}}<span style="color:var(--text3)">no restrictions</span>{{end}}</td>
-      <td>{{range $i, $tag := $agent.Tags}}{{if $i}} {{end}}<span style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:0.7rem">{{$tag}}</span>{{end}}</td>
+      <td>{{if $agent.CanMessage}}{{range $i, $t := $agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{else}}<span style="color:var(--text3)">none</span>{{end}}</td>
+      <td>{{range $i, $tag := $agent.Tags}}{{if $i}} {{end}}<span class="agent-tag">{{$tag}}</span>{{end}}</td>
     </tr>
     {{end}}
     </tbody>
@@ -625,7 +659,7 @@ var agentsTmpl = template.Must(template.New("agents").Parse(layoutHead + `
 </div>
 ` + layoutFoot))
 
-var agentDetailTmpl = template.Must(template.New("agent-detail").Parse(layoutHead + `
+var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Agent: <span>{{.Name}}</span></h1>
 <p class="page-desc">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Detail view for agent {{.Name}}.{{end}}</p>
 
@@ -651,10 +685,10 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Parse(layoutHea
 <div class="card">
   <h2>Configuration</h2>
   <table>
-    <tr><td style="color:var(--text3)">Can message</td><td>{{range $i, $t := .Agent.CanMessage}}{{if $i}}, {{end}}{{$t}}{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">no restrictions</span>{{end}}</td></tr>
+    <tr><td style="color:var(--text3)">Can message</td><td>{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</td></tr>
     {{if .Agent.BlockedContent}}<tr><td style="color:var(--text3)">Blocked content</td><td>{{range $i, $c := .Agent.BlockedContent}}{{if $i}}, {{end}}{{$c}}{{end}}</td></tr>{{end}}
     {{if .Agent.Location}}<tr><td style="color:var(--text3)">Location</td><td>{{.Agent.Location}}</td></tr>{{end}}
-    {{if .Agent.Tags}}<tr><td style="color:var(--text3)">Tags</td><td>{{range $i, $tag := .Agent.Tags}}{{if $i}} {{end}}<span style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:0.72rem">{{$tag}}</span>{{end}}</td></tr>{{end}}
+    {{if .Agent.Tags}}<tr><td style="color:var(--text3)">Tags</td><td>{{range $i, $tag := .Agent.Tags}}{{if $i}} {{end}}<span class="agent-tag">{{$tag}}</span>{{end}}</td></tr>{{end}}
     {{if .Agent.CreatedBy}}<tr><td style="color:var(--text3)">Created by</td><td>{{.Agent.CreatedBy}}</td></tr>{{end}}
     {{if .Agent.CreatedAt}}<tr><td style="color:var(--text3)">Created at</td><td>{{.Agent.CreatedAt}}</td></tr>{{end}}
     {{if .KeyFP}}<tr><td style="color:var(--text3)">Key fingerprint</td><td class="fp">{{.KeyFP}}</td></tr>{{end}}
@@ -696,11 +730,11 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Parse(layoutHea
   <h2>Recent Messages</h2>
   {{if .Entries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Decision</th><th>Verified</th><th>Latency</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th></tr></thead>
     <tbody>
     {{range .Entries}}
     <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-      <td>{{.Timestamp}}</td>
+      <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{.FromAgent}}</td>
       <td>{{.ToAgent}}</td>
       <td>
@@ -710,13 +744,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Parse(layoutHea
         {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
         {{else}}{{.Status}}{{end}}
       </td>
-      <td>{{.PolicyDecision}}</td>
-      <td>
-        {{if eq .SignatureVerified 1}}<span class="badge-verified">&#10003;</span>
-        {{else if eq .SignatureVerified -1}}<span class="badge-invalid">&#10007;</span>
-        {{else}}<span class="badge-unsigned">&mdash;</span>{{end}}
-      </td>
-      <td>{{.LatencyMs}}ms</td>
+      <td style="text-align:right;color:var(--text3)">{{.LatencyMs}}ms</td>
     </tr>
     {{end}}
     </tbody>
@@ -729,9 +757,15 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Parse(layoutHea
 
 var rulesTmpl = template.Must(template.New("rules").Parse(layoutHead + `
 <h1>Detection <span>Rules</span></h1>
-<p class="page-desc">{{.RuleCount}} rules across {{.CatCount}} categories. Click a category to manage its rules.</p>
+<p class="page-desc">Manage built-in detection rules and create custom rules for your organization.</p>
 
 <style>
+.rules-tabs{display:flex;gap:0;margin-bottom:24px;border-bottom:1px solid var(--border)}
+.rules-tab{padding:12px 24px;color:var(--text3);font-size:0.88rem;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+.rules-tab:hover{color:var(--text)}
+.rules-tab.active{color:var(--accent-light);border-bottom-color:var(--accent-light)}
+.rules-tab .count{font-size:0.68rem;font-family:var(--mono);background:var(--surface2);padding:2px 8px;border-radius:10px;color:var(--text3)}
+.rules-tab.active .count{background:rgba(99,102,241,0.15);color:var(--accent-light)}
 .cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px}
 @media(max-width:768px){.cat-grid{grid-template-columns:1fr}}
 .cat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;cursor:pointer;transition:all 0.2s;position:relative;text-decoration:none;color:inherit;display:block}
@@ -742,16 +776,28 @@ var rulesTmpl = template.Must(template.New("rules").Parse(layoutHead + `
 .cat-card-desc{color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:14px}
 .cat-card-footer{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .cat-card-sev{display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;font-family:var(--mono);padding:3px 8px;border-radius:4px}
-.cat-card-sev.critical{background:#ef444420;color:var(--danger)}
-.cat-card-sev.high{background:#f59e0b20;color:var(--warn)}
-.cat-card-sev.medium{background:#6366f120;color:var(--accent-light)}
+.cat-card-sev.critical{background:#ef444415;color:#f87171}
+.cat-card-sev.high{background:#f9731615;color:#fb923c}
+.cat-card-sev.medium{background:#3b82f615;color:#60a5fa}
 .cat-card-sev.low{background:var(--surface2);color:var(--text3)}
 .cat-card-status{margin-left:auto;font-size:0.72rem;font-weight:600}
 .cat-card-status.all-on{color:var(--success)}
 .cat-card-status.some-off{color:var(--warn)}
 .cat-card-status.all-off{color:var(--text3)}
+.custom-rule-row{display:flex;align-items:center;gap:16px;padding:14px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:border-color 0.2s}
+.custom-rule-row:hover{border-color:var(--accent)}
+.custom-rule-id{font-family:var(--mono);font-weight:600;font-size:0.82rem;color:var(--text);min-width:200px}
+.custom-rule-file{color:var(--text3);font-size:0.75rem;font-family:var(--mono);flex:1}
 </style>
 
+<!-- Tabs -->
+<div class="rules-tabs">
+  <a href="/dashboard/rules?tab=detection" class="rules-tab {{if eq .Tab "detection"}}active{{end}}">Detection Rules{{if .RuleCount}} <span class="count">{{.RuleCount}}</span>{{end}}</a>
+  <a href="/dashboard/rules?tab=custom" class="rules-tab {{if eq .Tab "custom"}}active{{end}}">Custom Rules{{if .CustomCount}} <span class="count">{{.CustomCount}}</span>{{end}}</a>
+</div>
+
+{{if eq .Tab "detection"}}
+<!-- Detection Rules Tab -->
 {{if .Categories}}
 <div class="cat-grid">
   {{range .Categories}}
@@ -777,39 +823,78 @@ var rulesTmpl = template.Must(template.New("rules").Parse(layoutHead + `
 <div class="empty">No rules loaded.</div>
 {{end}}
 
-{{if .CustomRulesDir}}
-<div class="card">
-  <h2>Custom Rules</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px">
-    Add your own detection patterns. Custom rules are stored in <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">{{.CustomRulesDir}}</code>
+{{else}}
+<!-- Custom Rules Tab -->
+<div class="card" style="border-color:var(--accent-dim);border-width:1px">
+  <h2 style="margin-bottom:4px">Create Custom Rule</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:20px;line-height:1.6">
+    Block messages containing keywords specific to your organization. Custom rules work alongside the built-in detection engine.
   </p>
-  <div hx-get="/dashboard/rules/custom" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
-    <div class="empty">Loading...</div>
-  </div>
-  <form method="POST" action="/dashboard/rules/custom" style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+
+  <form method="POST" action="/dashboard/rules/custom">
     <div class="form-row">
-      <div class="form-group" style="flex:1">
-        <label>Rule name</label>
-        <input type="text" name="name" placeholder="e.g. Block internal secrets" required>
+      <div class="form-group" style="flex:2">
+        <label>Rule Name</label>
+        <input type="text" name="name" placeholder="e.g. Block internal API keys" required>
+        <div style="color:var(--text3);font-size:0.72rem;margin-top:4px">A short description of what this rule detects.</div>
       </div>
-      <div class="form-group" style="max-width:120px">
+      <div class="form-group" style="max-width:180px">
         <label>Severity</label>
         <select name="severity">
-          <option value="critical">Critical</option>
-          <option value="high" selected>High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
+          <option value="critical">Critical &mdash; block</option>
+          <option value="high" selected>High &mdash; quarantine</option>
+          <option value="medium">Medium &mdash; flag</option>
+          <option value="low">Low &mdash; log only</option>
         </select>
+        <div style="color:var(--text3);font-size:0.72rem;margin-top:4px">Determines the action taken.</div>
       </div>
     </div>
-    <div class="form-group" style="margin-bottom:12px">
-      <label>Patterns (one per line)</label>
-      <textarea name="patterns" placeholder="password&#10;secret_key&#10;api_token" style="min-height:60px"></textarea>
+
+    <div class="form-group" style="margin-bottom:16px">
+      <label>Keywords <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(one per line)</span></label>
+      <textarea name="patterns" required placeholder="aws_secret_access_key&#10;PRIVATE KEY&#10;password123&#10;internal_db_connection" style="min-height:110px;line-height:1.8"></textarea>
+      <div style="color:var(--text3);font-size:0.72rem;margin-top:4px;line-height:1.5">
+        Messages containing <strong style="color:var(--text2)">any</strong> of these keywords will trigger the rule. Case-insensitive substring match.
+      </div>
     </div>
+
     <input type="hidden" name="rule_id" value="">
     <input type="hidden" name="category" value="custom">
-    <button type="submit" class="btn">Create Rule</button>
+
+    <div style="display:flex;align-items:center;gap:12px">
+      <button type="submit" class="btn">Create Rule</button>
+      <span style="color:var(--text3);font-size:0.72rem">Takes effect immediately for new messages.</span>
+    </div>
   </form>
+</div>
+
+{{if .CustomFiles}}
+<h2 style="font-size:0.95rem;font-weight:600;margin:28px 0 16px">Your Rules</h2>
+{{range .CustomFiles}}
+<div class="custom-rule-row">
+  <div style="flex:1;min-width:0">
+    <div class="custom-rule-id">{{.ID}}</div>
+    {{if .Name}}<div style="color:var(--text2);font-size:0.75rem;font-family:var(--sans);margin-top:2px">{{.Name}}</div>{{end}}
+  </div>
+  {{if .Severity}}
+  <span class="sev-{{.Severity}}" style="text-transform:lowercase">{{.Severity}}</span>
+  {{end}}
+  {{if .PatternCount}}<span style="color:var(--text3);font-size:0.72rem;font-family:var(--mono)">{{.PatternCount}} pattern{{if gt .PatternCount 1}}s{{end}}</span>{{end}}
+  <button class="btn btn-sm btn-danger" hx-delete="/dashboard/rules/custom/{{.ID}}" hx-confirm="Delete custom rule {{.ID}}?" hx-target="closest .custom-rule-row" hx-swap="outerHTML swap:200ms">delete</button>
+</div>
+{{end}}
+{{end}}
+
+<div class="card" style="margin-top:24px;background:var(--bg);border-style:dashed">
+  <details>
+    <summary style="color:var(--text2);font-size:0.82rem;cursor:pointer;user-select:none;font-weight:500">How custom rules work</summary>
+    <div style="color:var(--text3);font-size:0.78rem;line-height:1.7;margin-top:14px;padding-left:4px">
+      <p style="margin-bottom:8px"><strong style="color:var(--text2)">1. Keywords are matched as substrings.</strong> If you add <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.72rem">secret_key</code>, it will match any message containing that text anywhere.</p>
+      <p style="margin-bottom:8px"><strong style="color:var(--text2)">2. Severity controls the response.</strong> Critical and High rules block or quarantine messages. Medium rules flag them but still deliver. Low rules only log.</p>
+      <p style="margin-bottom:8px"><strong style="color:var(--text2)">3. Rules are stored as YAML files</strong>{{if .CustomRulesDir}} in <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.72rem">{{.CustomRulesDir}}</code>{{end}}. You can also create them manually for advanced patterns (regex, multi-match).</p>
+      <p><strong style="color:var(--text2)">4. Disable or delete anytime.</strong> Custom rules appear in the Detection Rules tab and can be toggled on/off like built-in rules.</p>
+    </div>
+  </details>
 </div>
 {{end}}
 ` + layoutFoot))
@@ -949,7 +1034,7 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Parse(`
   <!-- Details -->
   <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Details</div>
   <table style="width:100%;font-size:0.78rem;border-collapse:collapse">
-    <tr><td style="color:var(--text3);padding:6px 0;width:120px">Time</td><td style="font-family:var(--mono);padding:6px 0">{{.Entry.Timestamp}}</td></tr>
+    <tr><td style="color:var(--text3);padding:6px 0;width:120px">Time</td><td style="font-family:var(--mono);padding:6px 0" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</td></tr>
     <tr><td style="color:var(--text3);padding:6px 0">Status</td><td style="padding:6px 0">
       {{if eq .Entry.Status "delivered"}}<span class="badge-delivered">delivered</span>
       {{else if eq .Entry.Status "blocked"}}<span class="badge-blocked">blocked</span>
@@ -1131,8 +1216,8 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Parse
   <!-- Details -->
   <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Details</div>
   <table style="width:100%;font-size:0.78rem;border-collapse:collapse">
-    <tr><td style="color:var(--text3);padding:6px 0;width:100px">Created</td><td style="font-family:var(--mono);padding:6px 0">{{.Item.CreatedAt}}</td></tr>
-    <tr><td style="color:var(--text3);padding:6px 0">Expires</td><td style="font-family:var(--mono);padding:6px 0">{{.Item.ExpiresAt}}</td></tr>
+    <tr><td style="color:var(--text3);padding:6px 0;width:100px">Created</td><td style="font-family:var(--mono);padding:6px 0" data-ts="{{.Item.CreatedAt}}">{{.Item.CreatedAt}}</td></tr>
+    <tr><td style="color:var(--text3);padding:6px 0">Expires</td><td style="font-family:var(--mono);padding:6px 0" data-ts="{{.Item.ExpiresAt}}">{{.Item.ExpiresAt}}</td></tr>
     {{if .Item.ReviewedBy}}<tr><td style="color:var(--text3);padding:6px 0">Reviewed</td><td style="padding:6px 0">{{.Item.ReviewedBy}} at {{.Item.ReviewedAt}}</td></tr>{{end}}
   </table>
 
@@ -1144,22 +1229,15 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Parse
   {{end}}
 </div>`))
 
-var quarantineRowTmpl = template.Must(template.New("quarantine-row").Funcs(template.FuncMap{
-	"truncate": func(s string, n int) string {
-		if len(s) <= n {
-			return s
-		}
-		return s[:n] + "..."
-	},
-}).Parse(`<tr id="q-row-{{.Item.ID}}">
-  <td>{{.Item.CreatedAt}}</td>
+var quarantineRowTmpl = template.Must(template.New("quarantine-row").Funcs(tmplFuncs).Parse(`<tr id="q-row-{{.Item.ID}}">
+  <td data-ts="{{.Item.CreatedAt}}">{{.Item.CreatedAt}}</td>
   <td>{{.Item.FromAgent}}</td>
   <td>{{.Item.ToAgent}}</td>
   <td><div class="q-preview">{{truncate .Item.Content 80}}</div></td>
   <td>
     {{if eq .Item.Status "pending"}}<span class="badge-pending">pending</span>
     {{else if eq .Item.Status "approved"}}<span class="badge-approved">approved</span>
-    {{else if eq .Item.Status "rejected"}}<span class="badge-blocked">rejected</span>
+    {{else if eq .Item.Status "rejected"}}<span class="badge-rejected">rejected</span>
     {{else if eq .Item.Status "expired"}}<span class="badge-expired">expired</span>
     {{else}}{{.Item.Status}}{{end}}
   </td>
@@ -1184,7 +1262,7 @@ var ruleToggleTmpl = template.Must(template.New("rule-toggle").Parse(`<span id="
 
 var settingsTmpl = template.Must(template.New("settings").Parse(layoutHead + `
 <h1>Settings</h1>
-<p class="page-desc">Configure security mode, agent identity, quarantine behavior, and server options.</p>
+<p class="page-desc">Security mode, agent identity keys, quarantine behavior, and server configuration.</p>
 
 <div class="card">
   <h2>Security Mode</h2>
@@ -1232,7 +1310,7 @@ var settingsTmpl = template.Must(template.New("settings").Parse(layoutHead + `
     <tr>
       <td style="font-weight:600">{{.Name}}</td>
       <td class="fp">{{.Fingerprint}}</td>
-      <td>{{if index $.RevokedFPs .Fingerprint}}<span class="sev-high">revoked</span>{{else}}<span style="color:var(--success);font-size:0.75rem">active</span>{{end}}</td>
+      <td>{{if index $.RevokedFPs .Fingerprint}}<span class="badge-rejected">revoked</span>{{else}}<span class="badge-delivered">active</span>{{end}}</td>
       <td>
         {{if not (index $.RevokedFPs .Fingerprint)}}
         <form method="POST" action="/dashboard/identity/revoke" style="display:inline">
@@ -1315,21 +1393,14 @@ var settingsTmpl = template.Must(template.New("settings").Parse(layoutHead + `
 
 // --- Events page (merged audit log + quarantine) ---
 
-var eventsTmpl = template.Must(template.New("events").Funcs(template.FuncMap{
-	"truncate": func(s string, n int) string {
-		if len(s) <= n {
-			return s
-		}
-		return s[:n] + "..."
-	},
-}).Parse(layoutHead + `
+var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Events</h1>
-<p class="page-desc">All security events, quarantine decisions, and message audit trail. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<p class="page-desc">Quarantined messages need human review. Blocked messages were stopped automatically. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 <div class="tabs" data-tab-group="events">
-  <button class="tab {{if eq .Tab "all"}}active{{end}}" data-tab="all" onclick="switchTab('events','all')">All Events</button>
-  <button class="tab {{if eq .Tab "quarantine"}}active{{end}}" data-tab="quarantine" onclick="switchTab('events','quarantine')">Quarantine{{if .QPending}} <span class="pending-badge">{{.QPending}}</span>{{end}}</button>
-  <button class="tab {{if eq .Tab "blocked"}}active{{end}}" data-tab="blocked" onclick="switchTab('events','blocked')">Blocked</button>
+  <a href="/dashboard/events?tab=all" class="tab {{if eq .Tab "all"}}active{{end}}">All Events</a>
+  <a href="/dashboard/events?tab=quarantine" class="tab {{if eq .Tab "quarantine"}}active{{end}}">Quarantine{{if .QPending}} <span class="pending-badge">{{.QPending}}</span>{{end}}</a>
+  <a href="/dashboard/events?tab=blocked" class="tab {{if eq .Tab "blocked"}}active{{end}}">Blocked</a>
 </div>
 
 <!-- All Events -->
@@ -1347,15 +1418,14 @@ var eventsTmpl = template.Must(template.New("events").Funcs(template.FuncMap{
     <tbody id="events-body">
     {{range .Entries}}
     <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-      <td>{{.Timestamp}}</td>
+      <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{.FromAgent}}</td>
       <td>{{.ToAgent}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
       <td>
-        {{if eq .SigStatus "verified"}}<span class="badge-verified" title="Signature verified">&#x2714;</span>
-        {{else if eq .SigStatus "unsigned"}}<span class="badge-unsigned" title="No signature">&#x2014;</span>
-        {{else if eq .SigStatus "invalid"}}<span class="badge-invalid" title="Invalid signature">&#x2718;</span>
-        {{else}}{{.SigStatus}}{{end}}
+        {{if eq .SignatureVerified 1}}<span class="badge-verified" title="Signature verified">&#10003; Verified</span>
+        {{else if eq .SignatureVerified -1}}<span class="badge-invalid" title="Invalid signature">&#10007; Invalid</span>
+        {{else}}<span class="badge-unsigned" title="Message was not signed">&mdash; Unsigned</span>{{end}}
       </td>
     </tr>
     {{end}}
@@ -1403,10 +1473,10 @@ var eventsTmpl = template.Must(template.New("events").Funcs(template.FuncMap{
     <tbody>
     {{range .QItems}}
     <tr id="q-row-{{.ID}}">
-      <td>{{.CreatedAt}}</td>
+      <td data-ts="{{.CreatedAt}}">{{.CreatedAt}}</td>
       <td>{{.FromAgent}}</td>
       <td>{{.ToAgent}}</td>
-      <td><div class="q-preview">{{truncate .Content 80}}</div></td>
+      <td><div class="q-preview" style="cursor:pointer" hx-get="/dashboard/api/quarantine/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">{{truncate .Content 80}}</div></td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
       <td>
         {{if eq .Status "pending"}}
@@ -1414,6 +1484,8 @@ var eventsTmpl = template.Must(template.New("events").Funcs(template.FuncMap{
           <button class="btn btn-sm" style="background:var(--success)" hx-post="/dashboard/api/quarantine/{{.ID}}/approve" hx-target="#q-row-{{.ID}}" hx-swap="outerHTML">Approve</button>
           <button class="btn btn-sm btn-danger" hx-post="/dashboard/api/quarantine/{{.ID}}/reject" hx-target="#q-row-{{.ID}}" hx-swap="outerHTML">Reject</button>
         </div>
+        {{else}}
+        <button class="btn btn-sm" style="padding:2px 8px;font-size:0.7rem" hx-get="/dashboard/api/quarantine/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">view</button>
         {{end}}
       </td>
     </tr>
@@ -1433,7 +1505,7 @@ var eventsTmpl = template.Must(template.New("events").Funcs(template.FuncMap{
     <tbody>
     {{range .BlockedEntries}}
     <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-      <td>{{.Timestamp}}</td>
+      <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{.FromAgent}}</td>
       <td>{{.ToAgent}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
@@ -1460,16 +1532,340 @@ var eventsTmpl = template.Must(template.New("events").Funcs(template.FuncMap{
       var ev = JSON.parse(e.data);
       var tbody = document.getElementById('events-body');
       if (!tbody) return;
+      var sigLabel = '<span class="badge-unsigned" title="Message was not signed">&mdash; Unsigned</span>';
+      if (ev.signature_verified === 1) sigLabel = '<span class="badge-verified" title="Signature verified">&#10003; Verified</span>';
+      else if (ev.signature_verified === -1) sigLabel = '<span class="badge-invalid" title="Invalid signature">&#10007; Invalid</span>';
       var row = document.createElement('tr');
       row.className = 'clickable';
       row.setAttribute('hx-get', '/dashboard/api/event/' + ev.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
-      row.innerHTML = '<td>' + ev.timestamp + '</td><td>' + (ev.from_agent||'') + '</td><td>' + (ev.to_agent||'') + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td><td></td>';
+      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + (ev.from_agent||'') + '</td><td>' + (ev.to_agent||'') + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td><td>' + sigLabel + '</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
+      if(typeof humanizeTimestamps==='function')humanizeTimestamps();
     } catch(err) {}
   };
 })();
 </script>
 ` + layoutFoot))
+
+var graphTmpl = template.Must(template.New("graph").Parse(layoutHead + `
+<h1>Agent Interaction <span>Graph</span></h1>
+<p class="page-desc">Red nodes have high threat scores. Shadow edges indicate traffic outside ACL policy. Data covers the last 24 hours.</p>
+
+<div class="stats">
+  <div class="stat"><div class="label">Nodes</div><div class="value">{{.Graph.TotalNodes}}</div></div>
+  <div class="stat"><div class="label" data-tooltip="Connections with observed traffic between agents">Active Edges</div><div class="value">{{.Graph.TotalEdges}}</div></div>
+  <div class="stat"><div class="label" data-tooltip="Traffic between agents not defined in ACL policy — may indicate misconfiguration">Shadow Edges</div><div class="value{{if .Graph.ShadowEdges}} warn{{end}}">{{len .Graph.ShadowEdges}}</div></div>
+  <div class="stat"><div class="label" data-tooltip="ACL entries with no observed traffic — consider tightening permissions">Unused ACL</div><div class="value{{if .Graph.UnusedACL}} warn{{end}}">{{len .Graph.UnusedACL}}</div></div>
+</div>
+
+{{if .Graph.ShadowEdges}}
+<div class="alert-banner warn">
+  <strong>Shadow communications detected</strong> — {{len .Graph.ShadowEdges}} edge(s) with traffic not defined in ACL policy.
+</div>
+{{end}}
+
+<div class="card">
+  <h2>Network Topology</h2>
+  <div id="graph-container" style="width:100%;height:500px;background:var(--bg);border-radius:8px;border:1px solid var(--border);position:relative;overflow:hidden"></div>
+  <div style="display:flex;gap:20px;margin-top:12px;font-size:0.72rem;color:var(--text3)">
+    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#22c55e" fill-opacity="0.3" stroke="#22c55e" stroke-width="1.5"/></svg> Low threat</span>
+    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#f59e0b" fill-opacity="0.3" stroke="#f59e0b" stroke-width="1.5"/></svg> Medium threat</span>
+    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#ef4444" fill-opacity="0.3" stroke="#ef4444" stroke-width="1.5"/></svg> High threat</span>
+    <span style="margin-left:12px"><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#22c55e" stroke-width="2"/></svg> Healthy edge</span>
+    <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#f59e0b" stroke-width="2"/></svg> Degraded</span>
+    <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#ef4444" stroke-width="2"/></svg> Unhealthy</span>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+  <div class="card">
+    <h2>Node Threat Scores</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Higher scores mean more blocked or quarantined messages originating from this agent.</p>
+    {{if .Graph.Nodes}}
+    <table>
+      <thead><tr><th>Agent</th><th data-tooltip="Score based on ratio of blocked and quarantined messages">Threat</th><th>Sent</th><th>Recv</th><th data-tooltip="How central this agent is in the network — high values mean many paths go through it">Betweenness</th></tr></thead>
+      <tbody>
+      {{range .Graph.Nodes}}
+      <tr class="clickable" onclick="location.href='/dashboard/agents/{{.Name}}'">
+        <td style="font-weight:600">{{.Name}}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="risk-bar" style="width:60px">
+              <div class="risk-bar-fill {{if gt .ThreatScore 60.0}}risk-high{{else if gt .ThreatScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .ThreatScore}}%"></div>
+            </div>
+            <span>{{printf "%.1f" .ThreatScore}}</span>
+          </div>
+        </td>
+        <td>{{.TotalSent}}</td>
+        <td>{{.TotalRecv}}</td>
+        <td>{{if eq .Betweenness -1.0}}—{{else}}{{printf "%.3f" .Betweenness}}{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No agents detected in the last 24h</p>{{end}}
+  </div>
+
+  <div class="card">
+    <h2>Edge Health</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Percentage of messages on each connection that were delivered successfully.</p>
+    {{if .Graph.Edges}}
+    <table>
+      <thead><tr><th>From</th><th>To</th><th>Total</th><th data-tooltip="Ratio of delivered messages to total — lower scores indicate more blocked or quarantined traffic">Health</th></tr></thead>
+      <tbody>
+      {{range .Graph.Edges}}
+      <tr class="clickable" hx-get="/dashboard/api/graph/edge?from={{.From}}&amp;to={{.To}}" hx-target="#panel-content" hx-swap="innerHTML">
+        <td>{{.From}}</td>
+        <td>{{.To}}</td>
+        <td>{{.Total}}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="risk-bar" style="width:60px">
+              <div class="risk-bar-fill {{if lt .HealthScore 40.0}}risk-high{{else if lt .HealthScore 70.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .HealthScore}}%"></div>
+            </div>
+            <span>{{printf "%.0f" .HealthScore}}%</span>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No traffic in the last 24h</p>{{end}}
+  </div>
+</div>
+
+{{if .Graph.ShadowEdges}}
+<div class="card">
+  <h2 style="color:var(--warn)">Shadow Edges</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not defined in ACL policy. May indicate misconfiguration or unauthorized communication.</p>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>Messages</th></tr></thead>
+    <tbody>
+    {{range .Graph.ShadowEdges}}
+    <tr><td>{{.From}}</td><td>{{.To}}</td><td>{{.Total}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{if .Graph.UnusedACL}}
+<div class="card">
+  <h2>Unused ACL Permissions</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">ACL entries with no observed traffic. Consider tightening permissions.</p>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>Status</th></tr></thead>
+    <tbody>
+    {{range .Graph.UnusedACL}}
+    <tr><td>{{.From}}</td><td>{{.To}}</td><td><span style="color:var(--text3)">no traffic</span></td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+<script>
+(function() {
+  var container = document.getElementById('graph-container');
+  if (!container) return;
+
+  fetch('/dashboard/api/graph')
+    .then(function(r) { return r.json(); })
+    .then(function(data) { renderGraph(container, data); });
+
+  function renderGraph(el, data) {
+    if (!data.nodes || data.nodes.length === 0) {
+      el.innerHTML = '<p style="color:var(--text3);text-align:center;padding-top:200px">No graph data available</p>';
+      return;
+    }
+
+    var W = el.clientWidth, H = el.clientHeight;
+    var nodes = data.nodes.map(function(n) {
+      return {name: n.name, threat: n.threat_score, x: W/2 + (Math.random()-0.5)*W*0.6, y: H/2 + (Math.random()-0.5)*H*0.6, vx: 0, vy: 0};
+    });
+    var nodeIdx = {};
+    nodes.forEach(function(n, i) { nodeIdx[n.name] = i; });
+
+    var links = (data.edges || []).filter(function(e) {
+      return nodeIdx[e.from] !== undefined && nodeIdx[e.to] !== undefined;
+    }).map(function(e) {
+      return {from: nodeIdx[e.from], to: nodeIdx[e.to], health: e.health_score, total: e.total, fromName: e.from, toName: e.to};
+    });
+
+    // Fruchterman-Reingold layout
+    var k = Math.sqrt(W * H / Math.max(nodes.length, 1)) * 0.8;
+    var temp = W / 4;
+    for (var iter = 0; iter < 100; iter++) {
+      for (var i = 0; i < nodes.length; i++) {
+        nodes[i].vx = 0; nodes[i].vy = 0;
+        for (var j = 0; j < nodes.length; j++) {
+          if (i === j) continue;
+          var dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
+          var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+          var f = (k * k) / dist;
+          nodes[i].vx += (dx / dist) * f;
+          nodes[i].vy += (dy / dist) * f;
+        }
+      }
+      for (var e = 0; e < links.length; e++) {
+        var s = nodes[links[e].from], t = nodes[links[e].to];
+        var dx = t.x - s.x, dy = t.y - s.y;
+        var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+        var f = (dist * dist) / k;
+        var fx = (dx / dist) * f, fy = (dy / dist) * f;
+        s.vx += fx; s.vy += fy;
+        t.vx -= fx; t.vy -= fy;
+      }
+      for (var i = 0; i < nodes.length; i++) {
+        var d = Math.sqrt(nodes[i].vx*nodes[i].vx + nodes[i].vy*nodes[i].vy) || 1;
+        var c = Math.min(d, temp);
+        nodes[i].x += (nodes[i].vx / d) * c;
+        nodes[i].y += (nodes[i].vy / d) * c;
+        nodes[i].x = Math.max(50, Math.min(W-50, nodes[i].x));
+        nodes[i].y = Math.max(50, Math.min(H-50, nodes[i].y));
+      }
+      temp *= 0.95;
+    }
+
+    // Build SVG
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.style.width = '100%'; svg.style.height = '100%';
+
+    // Arrow markers
+    var defs = document.createElementNS(NS, 'defs');
+    var colors = ['#22c55e','#f59e0b','#ef4444'];
+    colors.forEach(function(c, ci) {
+      var m = document.createElementNS(NS, 'marker');
+      m.setAttribute('id', 'arr'+ci); m.setAttribute('viewBox', '0 0 10 6');
+      m.setAttribute('refX', '10'); m.setAttribute('refY', '3');
+      m.setAttribute('markerWidth', '8'); m.setAttribute('markerHeight', '6');
+      m.setAttribute('orient', 'auto');
+      var p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', 'M0,0 L10,3 L0,6 Z'); p.setAttribute('fill', c);
+      m.appendChild(p); defs.appendChild(m);
+    });
+    svg.appendChild(defs);
+
+    var lineEls = [];
+    // Draw edges
+    links.forEach(function(e) {
+      var s = nodes[e.from], t = nodes[e.to];
+      var ci = e.health >= 70 ? 0 : (e.health >= 40 ? 1 : 2);
+      var dx = t.x - s.x, dy = t.y - s.y;
+      var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      var ex = t.x - (dx/dist)*16, ey = t.y - (dy/dist)*16;
+
+      var ln = document.createElementNS(NS, 'line');
+      ln.setAttribute('x1', s.x); ln.setAttribute('y1', s.y);
+      ln.setAttribute('x2', ex); ln.setAttribute('y2', ey);
+      ln.setAttribute('stroke', colors[ci]);
+      ln.setAttribute('stroke-width', Math.max(1.5, Math.min(4, Math.log2(e.total+1))));
+      ln.setAttribute('stroke-opacity', '0.7');
+      ln.setAttribute('marker-end', 'url(#arr'+ci+')');
+      ln.style.cursor = 'pointer';
+      ln.addEventListener('click', function() {
+        htmx.ajax('GET', '/dashboard/api/graph/edge?from='+encodeURIComponent(e.fromName)+'&to='+encodeURIComponent(e.toName), {target:'#panel-content', swap:'innerHTML'});
+      });
+      svg.appendChild(ln);
+      lineEls.push({el: ln, link: e});
+    });
+
+    // Draw nodes
+    nodes.forEach(function(n, i) {
+      var g = document.createElementNS(NS, 'g');
+      g.style.cursor = 'pointer';
+      var color = n.threat > 60 ? '#ef4444' : (n.threat > 30 ? '#f59e0b' : '#22c55e');
+
+      var circle = document.createElementNS(NS, 'circle');
+      circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y); circle.setAttribute('r', 14);
+      circle.setAttribute('fill', color); circle.setAttribute('fill-opacity', '0.2');
+      circle.setAttribute('stroke', color); circle.setAttribute('stroke-width', '2');
+
+      var label = document.createElementNS(NS, 'text');
+      label.setAttribute('x', n.x); label.setAttribute('y', n.y + 28);
+      label.setAttribute('text-anchor', 'middle'); label.setAttribute('fill', '#8888aa');
+      label.setAttribute('font-size', '11'); label.setAttribute('font-family', 'SF Mono, Fira Code, monospace');
+      label.textContent = n.name;
+
+      g.appendChild(circle); g.appendChild(label);
+      g.addEventListener('click', function(ev) { if (!ev.defaultPrevented) location.href='/dashboard/agents/'+encodeURIComponent(n.name); });
+
+      // Drag support
+      var dragging = false;
+      circle.addEventListener('mousedown', function(ev) { dragging = true; ev.preventDefault(); });
+      svg.addEventListener('mousemove', function(ev) {
+        if (!dragging) return;
+        var rect = svg.getBoundingClientRect();
+        n.x = ev.clientX - rect.left; n.y = ev.clientY - rect.top;
+        circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y);
+        label.setAttribute('x', n.x); label.setAttribute('y', n.y + 28);
+        lineEls.forEach(function(le) {
+          var s = nodes[le.link.from], t = nodes[le.link.to];
+          var dx = t.x - s.x, dy = t.y - s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
+          le.el.setAttribute('x1', s.x); le.el.setAttribute('y1', s.y);
+          le.el.setAttribute('x2', t.x-(dx/d)*16); le.el.setAttribute('y2', t.y-(dy/d)*16);
+        });
+      });
+      svg.addEventListener('mouseup', function() { dragging = false; });
+
+      svg.appendChild(g);
+    });
+
+    el.appendChild(svg);
+  }
+})();
+</script>
+` + layoutFoot))
+
+var edgeDetailTmpl = template.Must(template.New("edge-detail").Parse(`
+<div class="panel-header">
+  <h3>{{.From}} &rarr; {{.To}}</h3>
+  <button class="panel-close" onclick="closePanel()">&times;</button>
+</div>
+<div class="panel-body">
+  {{if .Rules}}
+  <div class="field">
+    <div class="field-label">Top Triggered Rules</div>
+    <table style="margin-top:8px">
+      <thead><tr><th>Rule</th><th>Severity</th><th>Count</th></tr></thead>
+      <tbody>
+      {{range .Rules}}
+      <tr>
+        <td><span style="font-weight:600">{{.RuleID}}</span><br><span style="color:var(--text3);font-size:0.72rem">{{.Name}}</span></td>
+        <td><span class="sev-{{.Severity}}">{{.Severity}}</span></td>
+        <td>{{.Count}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="field">
+    <div class="field-label">Rules</div>
+    <p style="color:var(--text3);font-size:0.82rem">No rules triggered on this edge</p>
+  </div>
+  {{end}}
+
+  {{if .Entries}}
+  <div class="field" style="margin-top:20px">
+    <div class="field-label">Recent Messages</div>
+    <table style="margin-top:8px">
+      <thead><tr><th>Time</th><th>Status</th></tr></thead>
+      <tbody>
+      {{range .Entries}}
+      <tr>
+        <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+        <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{end}}
+</div>
+`))

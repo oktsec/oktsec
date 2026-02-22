@@ -13,6 +13,7 @@ import (
 
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/graph"
 	"github.com/oktsec/oktsec/internal/identity"
 )
 
@@ -166,88 +167,135 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
-	// Build set of disabled rule IDs (rules with action "ignore")
-	disabledRules := make(map[string]bool)
-	for _, ra := range s.cfg.Rules {
-		if ra.Action == "ignore" {
-			disabledRules[ra.ID] = true
-		}
+	tab := r.URL.Query().Get("tab")
+	if tab == "" {
+		tab = "detection"
 	}
 
-	var allRules []ruleRow
-	catMap := make(map[string]*ruleCategory)
-	var catOrder []string
-
-	if s.scanner != nil {
-		for _, ri := range s.scanner.ListRules() {
-			// Fetch description (cheap — in-memory lookup)
-			var desc string
-			if detail, err := s.scanner.ExplainRule(ri.ID); err == nil && detail != nil {
-				desc = detail.Description
-			}
-
-			row := ruleRow{
-				ID:          ri.ID,
-				Name:        ri.Name,
-				Severity:    ri.Severity,
-				Category:    ri.Category,
-				Description: desc,
-				Disabled:    disabledRules[ri.ID],
-			}
-			allRules = append(allRules, row)
-
-			cat, ok := catMap[ri.Category]
-			if !ok {
-				cat = &ruleCategory{
-					Name:        ri.Category,
-					Description: categoryDescriptions[ri.Category],
-				}
-				catMap[ri.Category] = cat
-				catOrder = append(catOrder, ri.Category)
-			}
-			cat.Rules = append(cat.Rules, row)
-			cat.Total++
-			if row.Disabled {
-				cat.Disabled++
-			}
-			switch ri.Severity {
-			case "critical":
-				cat.Critical++
-			case "high":
-				cat.High++
-			case "medium":
-				cat.Medium++
-			case "low":
-				cat.Low++
+	// Always count custom rules for the badge
+	var customCount int
+	if s.cfg.CustomRulesDir != "" {
+		entries, _ := os.ReadDir(s.cfg.CustomRulesDir)
+		for _, e := range entries {
+			ext := filepath.Ext(e.Name())
+			if ext == ".yaml" || ext == ".yml" {
+				customCount++
 			}
 		}
-	}
-
-	// Sort categories: highest severity weight first
-	sort.Slice(catOrder, func(i, j int) bool {
-		ci, cj := catMap[catOrder[i]], catMap[catOrder[j]]
-		wi := ci.Critical*4 + ci.High*3 + ci.Medium*2 + ci.Low
-		wj := cj.Critical*4 + cj.High*3 + cj.Medium*2 + cj.Low
-		if wi != wj {
-			return wi > wj
-		}
-		return catOrder[i] < catOrder[j]
-	})
-
-	var categories []ruleCategory
-	for _, name := range catOrder {
-		categories = append(categories, *catMap[name])
 	}
 
 	data := map[string]any{
 		"Active":         "rules",
-		"AllRules":       allRules,
-		"Categories":     categories,
-		"Overrides":      s.cfg.Rules,
-		"RuleCount":      len(allRules),
-		"CatCount":       len(categories),
+		"Tab":            tab,
 		"CustomRulesDir": s.cfg.CustomRulesDir,
+		"CustomCount":    customCount,
 		"RequireSig":     s.cfg.Identity.RequireSignature,
+	}
+
+	// Only build category data for detection tab
+	if tab == "detection" {
+		disabledRules := make(map[string]bool)
+		for _, ra := range s.cfg.Rules {
+			if ra.Action == "ignore" {
+				disabledRules[ra.ID] = true
+			}
+		}
+
+		var allRules []ruleRow
+		catMap := make(map[string]*ruleCategory)
+		var catOrder []string
+
+		if s.scanner != nil {
+			for _, ri := range s.scanner.ListRules() {
+				var desc string
+				if detail, err := s.scanner.ExplainRule(ri.ID); err == nil && detail != nil {
+					desc = detail.Description
+				}
+
+				row := ruleRow{
+					ID:          ri.ID,
+					Name:        ri.Name,
+					Severity:    ri.Severity,
+					Category:    ri.Category,
+					Description: desc,
+					Disabled:    disabledRules[ri.ID],
+				}
+				allRules = append(allRules, row)
+
+				cat, ok := catMap[ri.Category]
+				if !ok {
+					cat = &ruleCategory{
+						Name:        ri.Category,
+						Description: categoryDescriptions[ri.Category],
+					}
+					catMap[ri.Category] = cat
+					catOrder = append(catOrder, ri.Category)
+				}
+				cat.Rules = append(cat.Rules, row)
+				cat.Total++
+				if row.Disabled {
+					cat.Disabled++
+				}
+				switch ri.Severity {
+				case "critical":
+					cat.Critical++
+				case "high":
+					cat.High++
+				case "medium":
+					cat.Medium++
+				case "low":
+					cat.Low++
+				}
+			}
+		}
+
+		sort.Slice(catOrder, func(i, j int) bool {
+			ci, cj := catMap[catOrder[i]], catMap[catOrder[j]]
+			wi := ci.Critical*4 + ci.High*3 + ci.Medium*2 + ci.Low
+			wj := cj.Critical*4 + cj.High*3 + cj.Medium*2 + cj.Low
+			if wi != wj {
+				return wi > wj
+			}
+			return catOrder[i] < catOrder[j]
+		})
+
+		var categories []ruleCategory
+		for _, name := range catOrder {
+			categories = append(categories, *catMap[name])
+		}
+
+		data["AllRules"] = allRules
+		data["Categories"] = categories
+		data["RuleCount"] = len(allRules)
+		data["CatCount"] = len(categories)
+	}
+
+	// Only build custom rules list for custom tab
+	if tab == "custom" {
+		var customFiles []customRuleFile
+		if s.cfg.CustomRulesDir != "" {
+			entries, _ := os.ReadDir(s.cfg.CustomRulesDir)
+			for _, e := range entries {
+				ext := filepath.Ext(e.Name())
+				if ext == ".yaml" || ext == ".yml" {
+					cf := customRuleFile{
+						Filename: e.Name(),
+						ID:       strings.TrimSuffix(e.Name(), ext),
+					}
+					// Enrich from scanner cache (cheap in-memory lookup)
+					if s.scanner != nil {
+						ruleID := strings.ToUpper(cf.ID)
+						if detail, err := s.scanner.ExplainRule(ruleID); err == nil && detail != nil {
+							cf.Name = detail.Name
+							cf.Severity = detail.Severity
+							cf.PatternCount = len(detail.Patterns)
+						}
+					}
+					customFiles = append(customFiles, cf)
+				}
+			}
+		}
+		data["CustomFiles"] = customFiles
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -371,18 +419,10 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	// Get recent messages for this agent
 	entries, _ := s.audit.Query(audit.QueryOpts{Agent: name, Limit: 20})
 
-	// Count stats for this agent
-	all, _ := s.audit.Query(audit.QueryOpts{Agent: name, Limit: 10000})
-	var delivered, blocked, rejected int
-	for _, e := range all {
-		switch e.Status {
-		case "delivered":
-			delivered++
-		case "blocked":
-			blocked++
-		case "rejected":
-			rejected++
-		}
+	// Single SQL query for status counts (replaces loading 10k rows)
+	stats, _ := s.audit.QueryAgentStats(name)
+	if stats == nil {
+		stats = &audit.StatusCounts{}
 	}
 
 	// Check if key exists
@@ -393,24 +433,16 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Count quarantined
-	var quarantined int
-	for _, e := range all {
-		if e.Status == "quarantined" {
-			quarantined++
-		}
-	}
-
 	data := map[string]any{
 		"Active":      "agents",
 		"Name":        name,
 		"Agent":       agent,
 		"Entries":     entries,
-		"TotalMsgs":   len(all),
-		"Delivered":   delivered,
-		"Blocked":     blocked,
-		"Rejected":    rejected,
-		"Quarantined": quarantined,
+		"TotalMsgs":   stats.Total,
+		"Delivered":   stats.Delivered,
+		"Blocked":     stats.Blocked,
+		"Rejected":    stats.Rejected,
+		"Quarantined": stats.Quarantined,
 		"KeyFP":       keyFP,
 		"RequireSig":  s.cfg.Identity.RequireSignature,
 	}
@@ -708,10 +740,19 @@ func (s *Server) handleCustomRules(w http.ResponseWriter, r *http.Request) {
 		for _, e := range entries {
 			ext := filepath.Ext(e.Name())
 			if ext == ".yaml" || ext == ".yml" {
-				customFiles = append(customFiles, customRuleFile{
+				cf := customRuleFile{
 					Filename: e.Name(),
 					ID:       strings.TrimSuffix(e.Name(), ext),
-				})
+				}
+				if s.scanner != nil {
+					ruleID := strings.ToUpper(cf.ID)
+					if detail, err := s.scanner.ExplainRule(ruleID); err == nil && detail != nil {
+						cf.Name = detail.Name
+						cf.Severity = detail.Severity
+						cf.PatternCount = len(detail.Patterns)
+					}
+				}
+				customFiles = append(customFiles, cf)
 			}
 		}
 	}
@@ -728,14 +769,29 @@ func (s *Server) handleCustomRules(w http.ResponseWriter, r *http.Request) {
 }
 
 type customRuleFile struct {
-	Filename string
-	ID       string
+	Filename     string
+	ID           string
+	Name         string
+	Severity     string
+	PatternCount int
 }
 
 func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) {
+	// Auto-provision custom_rules_dir if not configured
 	if s.cfg.CustomRulesDir == "" {
-		http.Error(w, "custom_rules_dir not configured", http.StatusBadRequest)
-		return
+		dir := "custom-rules"
+		if s.cfgPath != "" {
+			dir = filepath.Join(filepath.Dir(s.cfgPath), "custom-rules")
+		}
+		s.cfg.CustomRulesDir = dir
+		if s.cfgPath != "" {
+			if err := s.cfg.Save(s.cfgPath); err != nil {
+				s.logger.Error("failed to save config after auto-provisioning custom_rules_dir", "error", err)
+			}
+		}
+		if s.scanner != nil {
+			s.scanner.AddCustomRulesDir(dir)
+		}
 	}
 
 	name := strings.TrimSpace(r.FormValue("name"))
@@ -744,8 +800,13 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ruleID := normalizeCustomRuleID(strings.TrimSpace(r.FormValue("rule_id")), name)
 	patterns := splitNonEmpty(r.FormValue("patterns"), "\n")
+	if len(patterns) == 0 {
+		http.Error(w, "at least one pattern is required", http.StatusBadRequest)
+		return
+	}
+
+	ruleID := normalizeCustomRuleID(strings.TrimSpace(r.FormValue("rule_id")), name)
 	yamlContent := buildCustomRuleYAML(ruleID, name, r.FormValue("severity"), strings.TrimSpace(r.FormValue("category")), patterns)
 
 	if err := os.MkdirAll(s.cfg.CustomRulesDir, 0o755); err != nil {
@@ -759,7 +820,12 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	http.Redirect(w, r, "/dashboard/rules", http.StatusFound)
+	// Invalidate rule cache so the new rule appears immediately
+	if s.scanner != nil {
+		s.scanner.InvalidateCache()
+	}
+
+	http.Redirect(w, r, "/dashboard/rules?tab=custom", http.StatusFound)
 }
 
 func normalizeCustomRuleID(ruleID, name string) string {
@@ -817,7 +883,7 @@ func buildCustomRuleYAML(ruleID, name, severity, category string, patterns []str
 func (s *Server) handleDeleteCustomRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if s.cfg.CustomRulesDir == "" {
-		http.Error(w, "custom_rules_dir not configured", http.StatusBadRequest)
+		http.Error(w, "no custom rules configured", http.StatusBadRequest)
 		return
 	}
 
@@ -829,7 +895,12 @@ func (s *Server) handleDeleteCustomRule(w http.ResponseWriter, r *http.Request) 
 				http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
+			if s.scanner != nil {
+				s.scanner.InvalidateCache()
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(nil) // empty response — HTMX removes the row
 			return
 		}
 	}
@@ -1163,24 +1234,29 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		tab = "all"
 	}
 
-	// All events
-	entries, _ := s.audit.Query(audit.QueryOpts{Limit: 50})
-
-	// Quarantine
-	qStatusFilter := r.URL.Query().Get("status")
-	if tab == "quarantine" && qStatusFilter == "" {
-		qStatusFilter = "pending"
-	}
-	qItems, _ := s.audit.QuarantineQuery(qStatusFilter, "", 50)
+	// Quarantine stats always loaded (cheap query, needed for badge count)
 	qStats, _ := s.audit.QuarantineStats()
 	if qStats == nil {
 		qStats = &audit.QuarantineStats{}
 	}
 
-	// Blocked entries
-	blockedEntries, _ := s.audit.Query(audit.QueryOpts{Status: "blocked", Limit: 50})
-	rejectedEntries, _ := s.audit.Query(audit.QueryOpts{Status: "rejected", Limit: 50})
-	allBlocked := append(blockedEntries, rejectedEntries...)
+	var entries []audit.Entry
+	var qItems []audit.QuarantineItem
+	var blockedEntries []audit.Entry
+	qStatusFilter := r.URL.Query().Get("status")
+
+	// Only query data for the active tab
+	switch tab {
+	case "quarantine":
+		if qStatusFilter == "" {
+			qStatusFilter = "pending"
+		}
+		qItems, _ = s.audit.QuarantineQuery(qStatusFilter, "", 50)
+	case "blocked":
+		blockedEntries, _ = s.audit.Query(audit.QueryOpts{Statuses: []string{"blocked", "rejected"}, Limit: 50})
+	default: // "all"
+		entries, _ = s.audit.Query(audit.QueryOpts{Limit: 50})
+	}
 
 	data := map[string]any{
 		"Active":         "events",
@@ -1190,7 +1266,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		"QStats":         qStats,
 		"QStatusFilter":  qStatusFilter,
 		"QPending":       qStats.Pending,
-		"BlockedEntries": allBlocked,
+		"BlockedEntries": blockedEntries,
 		"RequireSig":     s.cfg.Identity.RequireSignature,
 	}
 
@@ -1285,4 +1361,82 @@ func (s *Server) getStats() dashboardStats {
 func (s *Server) getRecentEvents(n int) []audit.Entry {
 	entries, _ := s.audit.Query(audit.QueryOpts{Limit: n})
 	return entries
+}
+
+// --- Graph handlers ---
+
+func (s *Server) buildGraph() *graph.AgentGraph {
+	var agents []graph.AgentMeta
+	for name, a := range s.cfg.Agents {
+		agents = append(agents, graph.AgentMeta{
+			Name:        name,
+			Description: a.Description,
+			Location:    a.Location,
+			Tags:        a.Tags,
+			CanMessage:  a.CanMessage,
+		})
+	}
+
+	edgeStats, _ := s.audit.QueryEdgeStats()
+	edges := make([]graph.EdgeInput, len(edgeStats))
+	for i, es := range edgeStats {
+		edges[i] = graph.EdgeInput{
+			From:        es.From,
+			To:          es.To,
+			Delivered:   es.Delivered,
+			Blocked:     es.Blocked,
+			Quarantined: es.Quarantined,
+			Rejected:    es.Rejected,
+			Total:       es.Total,
+		}
+	}
+
+	return graph.Build(agents, edges)
+}
+
+func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	g := s.buildGraph()
+	data := map[string]any{
+		"Active":     "graph",
+		"Graph":      g,
+		"RequireSig": s.cfg.Identity.RequireSignature,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = graphTmpl.Execute(w, data)
+}
+
+func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
+	g := s.buildGraph()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(g)
+}
+
+func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+	if from == "" || to == "" {
+		http.Error(w, "from and to required", http.StatusBadRequest)
+		return
+	}
+
+	rules, _ := s.audit.QueryEdgeRules(from, to, 10)
+	entries, _ := s.audit.Query(audit.QueryOpts{Agent: from, Limit: 20})
+
+	// Filter entries to only this edge
+	var edgeEntries []audit.Entry
+	for _, e := range entries {
+		if e.FromAgent == from && e.ToAgent == to {
+			edgeEntries = append(edgeEntries, e)
+		}
+	}
+
+	data := map[string]any{
+		"From":    from,
+		"To":      to,
+		"Rules":   rules,
+		"Entries": edgeEntries,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = edgeDetailTmpl.Execute(w, data)
 }
