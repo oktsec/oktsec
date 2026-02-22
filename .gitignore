@@ -1,5 +1,6 @@
 # Binary (only at root, not cmd/oktsec/)
 /oktsec
+oktsec.yaml
 *.exe
 dist/
 
