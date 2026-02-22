@@ -12,14 +12,14 @@ import (
 
 func main() {
 	dir, _ := os.MkdirTemp("", "oktsec-bench-*")
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	store, err := audit.NewStore(filepath.Join(dir, "bench.db"), logger, 30)
 	if err != nil {
 		panic(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	statuses := []string{"delivered", "delivered", "delivered", "blocked", "quarantined", "rejected"}
 	rules := `[{"rule_id":"IAP-001","name":"Inter-agent relay injection","severity":"HIGH","match":"test data"}]`
@@ -69,19 +69,19 @@ func main() {
 		insertRate := float64(toWrite) / fillTime.Seconds()
 
 		// Update query planner statistics after bulk insert
-		store.DB().Exec("ANALYZE")
+		_, _ = store.DB().Exec("ANALYZE")
 
 		type benchmark struct {
 			name string
 			fn   func()
 		}
 		benchmarks := []benchmark{
-			{"Recent 50", func() { store.Query(audit.QueryOpts{Limit: 50}) }},
-			{"Stats (all rows)", func() { store.QueryStats() }},
-			{"Search LIKE", func() { store.Query(audit.QueryOpts{Search: "agent-3", Limit: 50}) }},
-			{"Hourly stats (24h)", func() { store.QueryHourlyStats() }},
-			{"Top rules (24h)", func() { store.QueryTopRules(15) }},
-			{"Agent risk (24h)", func() { store.QueryAgentRisk() }},
+			{"Recent 50", func() { _, _ = store.Query(audit.QueryOpts{Limit: 50}) }},
+			{"Stats (all rows)", func() { _, _ = store.QueryStats() }},
+			{"Search LIKE", func() { _, _ = store.Query(audit.QueryOpts{Search: "agent-3", Limit: 50}) }},
+			{"Hourly stats (24h)", func() { _, _ = store.QueryHourlyStats() }},
+			{"Top rules (24h)", func() { _, _ = store.QueryTopRules(15) }},
+			{"Agent risk (24h)", func() { _, _ = store.QueryAgentRisk() }},
 		}
 
 		fi, _ := os.Stat(filepath.Join(dir, "bench.db"))

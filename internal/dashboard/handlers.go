@@ -154,19 +154,6 @@ func (s *Server) getHourlyChart() []hourlyBar {
 	return bars
 }
 
-func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
-	entries, _ := s.audit.Query(audit.QueryOpts{Limit: 50})
-
-	data := map[string]any{
-		"Active":     "logs",
-		"Entries":    entries,
-		"RequireSig": s.cfg.Identity.RequireSignature,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = logsTmpl.Execute(w, data)
-}
-
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Active":     "agents",
@@ -447,38 +434,6 @@ func (s *Server) handleAPIRecent(w http.ResponseWriter, r *http.Request) {
 	_ = recentPartialTmpl.Execute(w, recent)
 }
 
-func (s *Server) handleIdentity(w http.ResponseWriter, r *http.Request) {
-	type keyInfo struct {
-		Name        string
-		Fingerprint string
-	}
-
-	var keys []keyInfo
-	if s.keys != nil {
-		for _, name := range s.keys.Names() {
-			pub, _ := s.keys.Get(name)
-			keys = append(keys, keyInfo{
-				Name:        name,
-				Fingerprint: identity.Fingerprint(pub),
-			})
-		}
-		sort.Slice(keys, func(i, j int) bool { return keys[i].Name < keys[j].Name })
-	}
-
-	revoked, _ := s.audit.ListRevokedKeys()
-
-	data := map[string]any{
-		"Active":     "identity",
-		"Keys":       keys,
-		"Revoked":    revoked,
-		"RequireSig": s.cfg.Identity.RequireSignature,
-		"KeysDir":    s.cfg.Identity.KeysDir,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = identityTmpl.Execute(w, data)
-}
-
 func (s *Server) handleIdentityRevoke(w http.ResponseWriter, r *http.Request) {
 	agentName := r.FormValue("agent")
 	if agentName == "" {
@@ -551,7 +506,7 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			data, _ := json.Marshal(entry)
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 			flusher.Flush()
 		}
 	}
@@ -877,30 +832,6 @@ func (s *Server) handleDeleteCustomRule(w http.ResponseWriter, r *http.Request) 
 
 // --- Quarantine handlers ---
 
-func (s *Server) handleQuarantine(w http.ResponseWriter, r *http.Request) {
-	statusFilter := r.URL.Query().Get("status")
-	if statusFilter == "" {
-		statusFilter = "pending"
-	}
-
-	items, _ := s.audit.QuarantineQuery(statusFilter, "", 50)
-	stats, _ := s.audit.QuarantineStats()
-	if stats == nil {
-		stats = &audit.QuarantineStats{}
-	}
-
-	data := map[string]any{
-		"Active":       "quarantine",
-		"Items":        items,
-		"Stats":        stats,
-		"StatusFilter": statusFilter,
-		"RequireSig":   s.cfg.Identity.RequireSignature,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = quarantineTmpl.Execute(w, data)
-}
-
 func (s *Server) handleQuarantineDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	item, err := s.audit.QuarantineByID(id)
@@ -1086,47 +1017,6 @@ func (s *Server) handleAgentKeygen(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/agents/"+name, http.StatusFound)
 }
 
-// --- Analytics handler ---
-
-func (s *Server) handleAnalytics(w http.ResponseWriter, r *http.Request) {
-	topRules, _ := s.audit.QueryTopRules(15)
-	agentRisk, _ := s.audit.QueryAgentRisk()
-	qStats, _ := s.audit.QuarantineStats()
-	if qStats == nil {
-		qStats = &audit.QuarantineStats{}
-	}
-
-	// Severity distribution from top rules
-	var criticalCount, highCount, mediumCount, lowCount int
-	for _, rs := range topRules {
-		switch rs.Severity {
-		case "critical":
-			criticalCount += rs.Count
-		case "high":
-			highCount += rs.Count
-		case "medium":
-			mediumCount += rs.Count
-		case "low":
-			lowCount += rs.Count
-		}
-	}
-
-	data := map[string]any{
-		"Active":        "analytics",
-		"TopRules":      topRules,
-		"AgentRisk":     agentRisk,
-		"QStats":        qStats,
-		"CriticalCount": criticalCount,
-		"HighCount":     highCount,
-		"MediumCount":   mediumCount,
-		"LowCount":      lowCount,
-		"RequireSig":    s.cfg.Identity.RequireSignature,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = analyticsTmpl.Execute(w, data)
-}
-
 // --- Rule toggle handlers ---
 
 func (s *Server) handleToggleRule(w http.ResponseWriter, r *http.Request) {
@@ -1145,7 +1035,7 @@ func (s *Server) handleToggleRule(w http.ResponseWriter, r *http.Request) {
 		// Enable: remove the "ignore" override
 		filtered := s.cfg.Rules[:0]
 		for _, ra := range s.cfg.Rules {
-			if !(ra.ID == id && ra.Action == "ignore") {
+			if ra.ID != id || ra.Action != "ignore" {
 				filtered = append(filtered, ra)
 			}
 		}
@@ -1226,7 +1116,7 @@ func (s *Server) handleToggleCategory(w http.ResponseWriter, r *http.Request) {
 		}
 		filtered := s.cfg.Rules[:0]
 		for _, ra := range s.cfg.Rules {
-			if !(catRuleSet[ra.ID] && ra.Action == "ignore") {
+			if !catRuleSet[ra.ID] || ra.Action != "ignore" {
 				filtered = append(filtered, ra)
 			}
 		}

@@ -188,7 +188,7 @@ func TestServer_SSEEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Extract session cookie from the 302 response
 	var sessionCookie *http.Cookie
@@ -212,7 +212,7 @@ func TestServer_SSEEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sseResp.Body.Close()
+	defer func() { _ = sseResp.Body.Close() }()
 
 	if ct := sseResp.Header.Get("Content-Type"); ct != "text/event-stream" {
 		t.Errorf("SSE content-type = %q, want text/event-stream", ct)
