@@ -131,6 +131,31 @@ func verifyAgentTool() mcplib.Tool {
 	)
 }
 
+func reviewQuarantineTool() mcplib.Tool {
+	return mcplib.NewTool("review_quarantine",
+		mcplib.WithDescription(
+			"Review and manage quarantined messages. List pending items, view details, "+
+				"or approve/reject messages held for human review.",
+		),
+		mcplib.WithString("action",
+			mcplib.Required(),
+			mcplib.Description("Action to perform: list, detail, approve, reject"),
+		),
+		mcplib.WithString("id",
+			mcplib.Description("Quarantine item ID (required for detail, approve, reject)"),
+		),
+		mcplib.WithNumber("limit",
+			mcplib.Description("Maximum items to return for list action (default 20)"),
+		),
+		mcplib.WithString("status",
+			mcplib.Description("Filter by status for list action: pending, approved, rejected, expired"),
+		),
+		mcplib.WithReadOnlyHintAnnotation(false),
+		mcplib.WithDestructiveHintAnnotation(false),
+		mcplib.WithOpenWorldHintAnnotation(false),
+	)
+}
+
 // --- Handlers ---
 
 func (h *handlers) handleScanMessage(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -289,4 +314,86 @@ func (h *handlers) handleVerifyAgent(ctx context.Context, request mcplib.CallToo
 
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (h *handlers) handleReviewQuarantine(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	action := request.GetString("action", "")
+	id := request.GetString("id", "")
+	limit := request.GetInt("limit", 0)
+	if limit <= 0 {
+		limit = 20
+	}
+	status := request.GetString("status", "pending")
+
+	switch action {
+	case "list":
+		items, err := h.audit.QuarantineQuery(status, "", limit)
+		if err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
+		}
+		type itemSummary struct {
+			ID        string `json:"id"`
+			From      string `json:"from"`
+			To        string `json:"to"`
+			Status    string `json:"status"`
+			Preview   string `json:"content_preview"`
+			CreatedAt string `json:"created_at"`
+			ExpiresAt string `json:"expires_at"`
+		}
+		var summaries []itemSummary
+		for _, item := range items {
+			preview := item.Content
+			if len(preview) > 100 {
+				preview = preview[:100] + "..."
+			}
+			summaries = append(summaries, itemSummary{
+				ID:        item.ID,
+				From:      item.FromAgent,
+				To:        item.ToAgent,
+				Status:    item.Status,
+				Preview:   preview,
+				CreatedAt: item.CreatedAt,
+				ExpiresAt: item.ExpiresAt,
+			})
+		}
+		out, _ := json.MarshalIndent(map[string]any{"items": summaries, "count": len(summaries)}, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+
+	case "detail":
+		if id == "" {
+			return mcplib.NewToolResultError("id is required for detail action"), nil
+		}
+		item, err := h.audit.QuarantineByID(id)
+		if err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
+		}
+		if item == nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("quarantine item %q not found", id)), nil
+		}
+		out, _ := json.MarshalIndent(item, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+
+	case "approve":
+		if id == "" {
+			return mcplib.NewToolResultError("id is required for approve action"), nil
+		}
+		if err := h.audit.QuarantineApprove(id, "mcp"); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("approve failed: %v", err)), nil
+		}
+		out, _ := json.MarshalIndent(map[string]string{"status": "approved", "id": id}, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+
+	case "reject":
+		if id == "" {
+			return mcplib.NewToolResultError("id is required for reject action"), nil
+		}
+		if err := h.audit.QuarantineReject(id, "mcp"); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("reject failed: %v", err)), nil
+		}
+		out, _ := json.MarshalIndent(map[string]string{"status": "rejected", "id": id}, "", "  ")
+		return mcplib.NewToolResultText(string(out)), nil
+
+	default:
+		return mcplib.NewToolResultError("action must be one of: list, detail, approve, reject"), nil
+	}
 }

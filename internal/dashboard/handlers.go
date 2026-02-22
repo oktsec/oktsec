@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,12 +22,40 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+
+	// Check rate limit before processing
+	allowed, retryAfter := s.auth.CheckRateLimit(ip)
+	if !allowed {
+		s.logger.Warn("login rate-limited",
+			"ip", ip,
+			"retry_after", retryAfter.Round(time.Second).String(),
+		)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		msg := fmt.Sprintf("Too many failed attempts. Try again in %d minutes.", int(retryAfter.Minutes())+1)
+		_ = loginTmpl.Execute(w, map[string]any{"Error": msg})
+		return
+	}
+
 	code := r.FormValue("code")
 	if !s.auth.ValidateCode(code) {
+		lockout := s.auth.RecordFailure(ip)
+		if lockout > 0 {
+			s.logger.Warn("login lockout triggered",
+				"ip", ip,
+				"lockout_duration", lockout.String(),
+			)
+		} else {
+			s.logger.Info("login failed", "ip", ip)
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = loginTmpl.Execute(w, map[string]any{"Error": "Invalid access code. Check your terminal."})
 		return
 	}
+
+	// Success — clear rate limit and create session
+	s.auth.RecordSuccess(ip)
+	s.logger.Info("login success", "ip", ip)
 
 	token := s.auth.CreateSession()
 	http.SetCookie(w, &http.Cookie{
@@ -40,18 +69,45 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
 
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err == nil {
+		s.auth.InvalidateSession(cookie.Value)
+	}
+
+	// Clear the cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/dashboard",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   -1, // delete cookie
+	})
+
+	s.logger.Info("logout", "ip", clientIP(r))
+	http.Redirect(w, r, "/dashboard/login", http.StatusFound)
+}
+
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	stats := s.getStats()
 	recent := s.getRecentEvents(5)
 	chart := s.getHourlyChart()
 
+	qStats, _ := s.audit.QuarantineStats()
+	var pendingReview int
+	if qStats != nil {
+		pendingReview = qStats.Pending
+	}
+
 	data := map[string]any{
-		"Active":     "overview",
-		"Stats":      stats,
-		"Recent":     recent,
-		"Chart":      chart,
-		"AgentCount": len(s.cfg.Agents),
-		"RequireSig": s.cfg.Identity.RequireSignature,
+		"Active":        "overview",
+		"Stats":         stats,
+		"Recent":        recent,
+		"Chart":         chart,
+		"AgentCount":    len(s.cfg.Agents),
+		"RequireSig":    s.cfg.Identity.RequireSignature,
+		"PendingReview": pendingReview,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -123,24 +179,88 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
-	var allRules []ruleRow
-	if s.scanner != nil {
-		for _, ri := range s.scanner.ListRules() {
-			allRules = append(allRules, ruleRow{
-				ID:       ri.ID,
-				Name:     ri.Name,
-				Severity: ri.Severity,
-				Category: ri.Category,
-			})
+	// Build set of disabled rule IDs (rules with action "ignore")
+	disabledRules := make(map[string]bool)
+	for _, ra := range s.cfg.Rules {
+		if ra.Action == "ignore" {
+			disabledRules[ra.ID] = true
 		}
 	}
 
+	var allRules []ruleRow
+	catMap := make(map[string]*ruleCategory)
+	var catOrder []string
+
+	if s.scanner != nil {
+		for _, ri := range s.scanner.ListRules() {
+			// Fetch description (cheap — in-memory lookup)
+			var desc string
+			if detail, err := s.scanner.ExplainRule(ri.ID); err == nil && detail != nil {
+				desc = detail.Description
+			}
+
+			row := ruleRow{
+				ID:          ri.ID,
+				Name:        ri.Name,
+				Severity:    ri.Severity,
+				Category:    ri.Category,
+				Description: desc,
+				Disabled:    disabledRules[ri.ID],
+			}
+			allRules = append(allRules, row)
+
+			cat, ok := catMap[ri.Category]
+			if !ok {
+				cat = &ruleCategory{
+					Name:        ri.Category,
+					Description: categoryDescriptions[ri.Category],
+				}
+				catMap[ri.Category] = cat
+				catOrder = append(catOrder, ri.Category)
+			}
+			cat.Rules = append(cat.Rules, row)
+			cat.Total++
+			if row.Disabled {
+				cat.Disabled++
+			}
+			switch ri.Severity {
+			case "critical":
+				cat.Critical++
+			case "high":
+				cat.High++
+			case "medium":
+				cat.Medium++
+			case "low":
+				cat.Low++
+			}
+		}
+	}
+
+	// Sort categories: highest severity weight first
+	sort.Slice(catOrder, func(i, j int) bool {
+		ci, cj := catMap[catOrder[i]], catMap[catOrder[j]]
+		wi := ci.Critical*4 + ci.High*3 + ci.Medium*2 + ci.Low
+		wj := cj.Critical*4 + cj.High*3 + cj.Medium*2 + cj.Low
+		if wi != wj {
+			return wi > wj
+		}
+		return catOrder[i] < catOrder[j]
+	})
+
+	var categories []ruleCategory
+	for _, name := range catOrder {
+		categories = append(categories, *catMap[name])
+	}
+
 	data := map[string]any{
-		"Active":       "rules",
-		"AllRules":     allRules,
-		"Overrides":    s.cfg.Rules,
-		"RuleCount":    len(allRules),
-		"RequireSig":   s.cfg.Identity.RequireSignature,
+		"Active":         "rules",
+		"AllRules":       allRules,
+		"Categories":     categories,
+		"Overrides":      s.cfg.Rules,
+		"RuleCount":      len(allRules),
+		"CatCount":       len(categories),
+		"CustomRulesDir": s.cfg.CustomRulesDir,
+		"RequireSig":     s.cfg.Identity.RequireSignature,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -148,10 +268,109 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 }
 
 type ruleRow struct {
-	ID       string
-	Name     string
-	Severity string
-	Category string
+	ID          string
+	Name        string
+	Severity    string
+	Category    string
+	Description string
+	Disabled    bool
+}
+
+type ruleCategory struct {
+	Name        string
+	Description string
+	Rules       []ruleRow
+	Critical    int
+	High        int
+	Medium      int
+	Low         int
+	Disabled    int // count of disabled rules in this category
+	Total       int
+}
+
+// categoryDescriptions maps Aguara category names to human-readable descriptions.
+var categoryDescriptions = map[string]string{
+	"command-execution":   "Detects attempts to execute system commands, shell scripts, or invoke interpreters through agent messages.",
+	"credential-leak":     "Catches leaked passwords, API keys, tokens, and other secrets being passed between agents.",
+	"exfiltration":        "Identifies patterns of data theft: sending files, databases, or sensitive content to external destinations.",
+	"external-download":   "Flags attempts to download or fetch resources from external URLs, which could introduce malicious payloads.",
+	"indirect-injection":  "Detects prompt injection attacks hidden in data that agents process, targeting downstream LLMs.",
+	"inter-agent":         "Monitors trust boundaries between agents: privilege escalation, impersonation, and unauthorized delegation.",
+	"mcp-attack":          "Catches attacks targeting MCP (Model Context Protocol) servers: tool abuse, parameter injection, SSRF.",
+	"mcp-config":          "Detects manipulation of MCP server configuration: adding malicious servers, changing tool permissions.",
+	"prompt-injection":    "Identifies direct prompt injection attempts designed to override agent instructions or system prompts.",
+	"ssrf-cloud":          "Detects Server-Side Request Forgery targeting cloud metadata endpoints (AWS, GCP, Azure).",
+	"supply-chain":        "Flags attempts to install malicious packages, modify dependencies, or compromise build pipelines.",
+	"third-party-content": "Detects loading of untrusted third-party content that could contain injection payloads.",
+	"unicode-attack":      "Catches unicode-based attacks: homoglyphs, invisible characters, and bidirectional text manipulation.",
+}
+
+func (s *Server) handleCategoryRules(w http.ResponseWriter, r *http.Request) {
+	catName := r.PathValue("category")
+
+	// Build disabled rules set
+	disabledRules := make(map[string]bool)
+	for _, ra := range s.cfg.Rules {
+		if ra.Action == "ignore" {
+			disabledRules[ra.ID] = true
+		}
+	}
+
+	// Find category
+	cat := &ruleCategory{
+		Name:        catName,
+		Description: categoryDescriptions[catName],
+	}
+
+	if s.scanner != nil {
+		for _, ri := range s.scanner.ListRules() {
+			if ri.Category != catName {
+				continue
+			}
+			var desc string
+			if detail, err := s.scanner.ExplainRule(ri.ID); err == nil && detail != nil {
+				desc = detail.Description
+			}
+			row := ruleRow{
+				ID:          ri.ID,
+				Name:        ri.Name,
+				Severity:    ri.Severity,
+				Category:    ri.Category,
+				Description: desc,
+				Disabled:    disabledRules[ri.ID],
+			}
+			cat.Rules = append(cat.Rules, row)
+			cat.Total++
+			if row.Disabled {
+				cat.Disabled++
+			}
+			switch ri.Severity {
+			case "critical":
+				cat.Critical++
+			case "high":
+				cat.High++
+			case "medium":
+				cat.Medium++
+			case "low":
+				cat.Low++
+			}
+		}
+	}
+
+	if cat.Total == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	data := map[string]any{
+		"Active":       "rules",
+		"Category":     cat,
+		"EnabledCount": cat.Total - cat.Disabled,
+		"RequireSig":   s.cfg.Identity.RequireSignature,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = categoryDetailTmpl.Execute(w, data)
 }
 
 func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
@@ -187,17 +406,26 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Count quarantined
+	var quarantined int
+	for _, e := range all {
+		if e.Status == "quarantined" {
+			quarantined++
+		}
+	}
+
 	data := map[string]any{
-		"Active":     "agents",
-		"Name":       name,
-		"Agent":      agent,
-		"Entries":    entries,
-		"TotalMsgs":  len(all),
-		"Delivered":  delivered,
-		"Blocked":    blocked,
-		"Rejected":   rejected,
-		"KeyFP":      keyFP,
-		"RequireSig": s.cfg.Identity.RequireSignature,
+		"Active":      "agents",
+		"Name":        name,
+		"Agent":       agent,
+		"Entries":     entries,
+		"TotalMsgs":   len(all),
+		"Delivered":   delivered,
+		"Blocked":     blocked,
+		"Rejected":    rejected,
+		"Quarantined": quarantined,
+		"KeyFP":       keyFP,
+		"RequireSig":  s.cfg.Identity.RequireSignature,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -341,6 +569,14 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 // --- Event detail handler ---
 
+type triggeredRule struct {
+	RuleID   string `json:"rule_id"`
+	Name     string `json:"name"`
+	Severity string `json:"severity"`
+	Match    string `json:"match"`
+	Category string `json:"category"`
+}
+
 func (s *Server) handleEventDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	entry, err := s.audit.QueryByID(id)
@@ -349,23 +585,59 @@ func (s *Server) handleEventDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse rules triggered into a list
-	var rulesList []string
+	// Parse rules triggered into structured objects
+	var rules []triggeredRule
 	if entry.RulesTriggered != "" {
-		// Try JSON array first
-		if err := json.Unmarshal([]byte(entry.RulesTriggered), &rulesList); err != nil {
-			// Fall back to comma-separated
-			for _, r := range strings.Split(entry.RulesTriggered, ",") {
-				if t := strings.TrimSpace(r); t != "" {
-					rulesList = append(rulesList, t)
+		if err := json.Unmarshal([]byte(entry.RulesTriggered), &rules); err != nil {
+			// Fall back: try as string array or comma-separated
+			var ids []string
+			if err2 := json.Unmarshal([]byte(entry.RulesTriggered), &ids); err2 != nil {
+				ids = strings.Split(entry.RulesTriggered, ",")
+			}
+			for _, rid := range ids {
+				if t := strings.TrimSpace(rid); t != "" {
+					rules = append(rules, triggeredRule{RuleID: t, Name: t})
 				}
 			}
 		}
 	}
 
+	// Resolve categories for each rule (so we can link to the category page)
+	if s.scanner != nil {
+		ruleMap := make(map[string]string) // rule_id → category
+		for _, ri := range s.scanner.ListRules() {
+			ruleMap[ri.ID] = ri.Category
+		}
+		for i := range rules {
+			if cat, ok := ruleMap[rules[i].RuleID]; ok {
+				rules[i].Category = cat
+			}
+		}
+	}
+
+	// Human-readable decision
+	decision := entry.PolicyDecision
+	switch decision {
+	case "allow":
+		decision = "Message delivered normally"
+	case "content_blocked":
+		decision = "Blocked — dangerous content detected"
+	case "content_quarantined":
+		decision = "Held for review — suspicious content detected"
+	case "quarantine_approved":
+		decision = "Reviewed and approved for delivery"
+	case "quarantine_rejected":
+		decision = "Reviewed and rejected"
+	case "signature_required":
+		decision = "Rejected — message was not signed"
+	case "acl_denied":
+		decision = "Rejected — agent not authorized for this destination"
+	}
+
 	data := map[string]any{
-		"Entry": entry,
-		"Rules": rulesList,
+		"Entry":    entry,
+		"Rules":    rules,
+		"Decision": decision,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -510,9 +782,22 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 	category := strings.TrimSpace(r.FormValue("category"))
 	patternsRaw := r.FormValue("patterns")
 
-	if ruleID == "" || name == "" {
-		http.Error(w, "rule_id and name required", http.StatusBadRequest)
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
 		return
+	}
+
+	// Auto-generate rule ID from name if not provided
+	if ruleID == "" {
+		slug := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(name), " ", "-"))
+		// Keep only alphanumeric and hyphens
+		var clean []byte
+		for _, b := range []byte(slug) {
+			if (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' {
+				clean = append(clean, b)
+			}
+		}
+		ruleID = "CUSTOM-" + string(clean)
 	}
 
 	// Ensure ID starts with CUSTOM-
@@ -588,6 +873,480 @@ func (s *Server) handleDeleteCustomRule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	http.NotFound(w, r)
+}
+
+// --- Quarantine handlers ---
+
+func (s *Server) handleQuarantine(w http.ResponseWriter, r *http.Request) {
+	statusFilter := r.URL.Query().Get("status")
+	if statusFilter == "" {
+		statusFilter = "pending"
+	}
+
+	items, _ := s.audit.QuarantineQuery(statusFilter, "", 50)
+	stats, _ := s.audit.QuarantineStats()
+	if stats == nil {
+		stats = &audit.QuarantineStats{}
+	}
+
+	data := map[string]any{
+		"Active":       "quarantine",
+		"Items":        items,
+		"Stats":        stats,
+		"StatusFilter": statusFilter,
+		"RequireSig":   s.cfg.Identity.RequireSignature,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = quarantineTmpl.Execute(w, data)
+}
+
+func (s *Server) handleQuarantineDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	item, err := s.audit.QuarantineByID(id)
+	if err != nil || item == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Parse rules triggered into structured objects
+	var rules []triggeredRule
+	if item.RulesTriggered != "" {
+		_ = json.Unmarshal([]byte(item.RulesTriggered), &rules)
+	}
+
+	// Resolve categories
+	if s.scanner != nil {
+		ruleMap := make(map[string]string)
+		for _, ri := range s.scanner.ListRules() {
+			ruleMap[ri.ID] = ri.Category
+		}
+		for i := range rules {
+			if cat, ok := ruleMap[rules[i].RuleID]; ok {
+				rules[i].Category = cat
+			}
+		}
+	}
+
+	data := map[string]any{
+		"Item":  item,
+		"Rules": rules,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = quarantineDetailTmpl.Execute(w, data)
+}
+
+func (s *Server) handleQuarantineApprove(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.audit.QuarantineApprove(id, "dashboard"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	item, _ := s.audit.QuarantineByID(id)
+	data := map[string]any{"Item": item}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = quarantineRowTmpl.Execute(w, data)
+}
+
+func (s *Server) handleQuarantineReject(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.audit.QuarantineReject(id, "dashboard"); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	item, _ := s.audit.QuarantineByID(id)
+	data := map[string]any{"Item": item}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = quarantineRowTmpl.Execute(w, data)
+}
+
+// --- Agent CRUD handlers ---
+
+var agentNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" || !agentNameRe.MatchString(name) {
+		http.Error(w, "invalid agent name (alphanumeric, hyphens, underscores)", http.StatusBadRequest)
+		return
+	}
+	if _, exists := s.cfg.Agents[name]; exists {
+		http.Error(w, "agent already exists", http.StatusConflict)
+		return
+	}
+
+	if s.cfg.Agents == nil {
+		s.cfg.Agents = make(map[string]config.Agent)
+	}
+
+	canMessage := strings.Fields(strings.ReplaceAll(r.FormValue("can_message"), ",", " "))
+	tags := strings.Fields(strings.ReplaceAll(r.FormValue("tags"), ",", " "))
+
+	s.cfg.Agents[name] = config.Agent{
+		CanMessage:  canMessage,
+		Description: strings.TrimSpace(r.FormValue("description")),
+		CreatedBy:   "dashboard",
+		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+		Location:    strings.TrimSpace(r.FormValue("location")),
+		Tags:        tags,
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after agent create", "error", err)
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/agents/"+name, http.StatusFound)
+}
+
+func (s *Server) handleEditAgent(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	agent, ok := s.cfg.Agents[name]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	agent.Description = strings.TrimSpace(r.FormValue("description"))
+	agent.Location = strings.TrimSpace(r.FormValue("location"))
+	agent.Tags = strings.Fields(strings.ReplaceAll(r.FormValue("tags"), ",", " "))
+	canMessage := strings.Fields(strings.ReplaceAll(r.FormValue("can_message"), ",", " "))
+	if len(canMessage) > 0 {
+		agent.CanMessage = canMessage
+	}
+
+	s.cfg.Agents[name] = agent
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after agent edit", "error", err)
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/agents/"+name, http.StatusFound)
+}
+
+func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := s.cfg.Agents[name]; !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	delete(s.cfg.Agents, name)
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after agent delete", "error", err)
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleAgentKeygen(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := s.cfg.Agents[name]; !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	if s.cfg.Identity.KeysDir == "" {
+		http.Error(w, "keys_dir not configured", http.StatusBadRequest)
+		return
+	}
+
+	kp, err := identity.GenerateKeypair(name)
+	if err != nil {
+		http.Error(w, "keygen failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := os.MkdirAll(s.cfg.Identity.KeysDir, 0o700); err != nil {
+		http.Error(w, "cannot create keys dir: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if err := kp.Save(s.cfg.Identity.KeysDir); err != nil {
+		http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Reload keystore
+	if s.keys != nil {
+		if err := s.keys.ReloadFromDir(s.cfg.Identity.KeysDir); err != nil {
+			s.logger.Error("failed to reload keys after keygen", "error", err)
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/agents/"+name, http.StatusFound)
+}
+
+// --- Analytics handler ---
+
+func (s *Server) handleAnalytics(w http.ResponseWriter, r *http.Request) {
+	topRules, _ := s.audit.QueryTopRules(15)
+	agentRisk, _ := s.audit.QueryAgentRisk()
+	qStats, _ := s.audit.QuarantineStats()
+	if qStats == nil {
+		qStats = &audit.QuarantineStats{}
+	}
+
+	// Severity distribution from top rules
+	var criticalCount, highCount, mediumCount, lowCount int
+	for _, rs := range topRules {
+		switch rs.Severity {
+		case "critical":
+			criticalCount += rs.Count
+		case "high":
+			highCount += rs.Count
+		case "medium":
+			mediumCount += rs.Count
+		case "low":
+			lowCount += rs.Count
+		}
+	}
+
+	data := map[string]any{
+		"Active":        "analytics",
+		"TopRules":      topRules,
+		"AgentRisk":     agentRisk,
+		"QStats":        qStats,
+		"CriticalCount": criticalCount,
+		"HighCount":     highCount,
+		"MediumCount":   mediumCount,
+		"LowCount":      lowCount,
+		"RequireSig":    s.cfg.Identity.RequireSignature,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = analyticsTmpl.Execute(w, data)
+}
+
+// --- Rule toggle handlers ---
+
+func (s *Server) handleToggleRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	// Check if rule is currently disabled (has "ignore" override)
+	isDisabled := false
+	for _, ra := range s.cfg.Rules {
+		if ra.ID == id && ra.Action == "ignore" {
+			isDisabled = true
+			break
+		}
+	}
+
+	if isDisabled {
+		// Enable: remove the "ignore" override
+		filtered := s.cfg.Rules[:0]
+		for _, ra := range s.cfg.Rules {
+			if !(ra.ID == id && ra.Action == "ignore") {
+				filtered = append(filtered, ra)
+			}
+		}
+		s.cfg.Rules = filtered
+	} else {
+		// Disable: add "ignore" override
+		s.cfg.Rules = append(s.cfg.Rules, config.RuleAction{
+			ID:     id,
+			Action: "ignore",
+		})
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after rule toggle", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Return the updated toggle button
+	enabled := isDisabled // flipped
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = ruleToggleTmpl.Execute(w, map[string]any{"ID": id, "Enabled": enabled})
+}
+
+func (s *Server) handleToggleCategory(w http.ResponseWriter, r *http.Request) {
+	catName := r.PathValue("name")
+
+	// Find all rules in this category
+	var ruleIDs []string
+	if s.scanner != nil {
+		for _, ri := range s.scanner.ListRules() {
+			if ri.Category == catName {
+				ruleIDs = append(ruleIDs, ri.ID)
+			}
+		}
+	}
+
+	if len(ruleIDs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Check how many are disabled
+	disabledSet := make(map[string]bool)
+	for _, ra := range s.cfg.Rules {
+		if ra.Action == "ignore" {
+			disabledSet[ra.ID] = true
+		}
+	}
+
+	disabledCount := 0
+	for _, id := range ruleIDs {
+		if disabledSet[id] {
+			disabledCount++
+		}
+	}
+
+	// If most are enabled → disable all; if most disabled → enable all
+	shouldDisable := disabledCount < len(ruleIDs)/2+1
+
+	if shouldDisable {
+		// Add ignore overrides for all rules in category
+		for _, id := range ruleIDs {
+			if !disabledSet[id] {
+				s.cfg.Rules = append(s.cfg.Rules, config.RuleAction{
+					ID:     id,
+					Action: "ignore",
+				})
+			}
+		}
+	} else {
+		// Remove ignore overrides for all rules in category
+		catRuleSet := make(map[string]bool)
+		for _, id := range ruleIDs {
+			catRuleSet[id] = true
+		}
+		filtered := s.cfg.Rules[:0]
+		for _, ra := range s.cfg.Rules {
+			if !(catRuleSet[ra.ID] && ra.Action == "ignore") {
+				filtered = append(filtered, ra)
+			}
+		}
+		s.cfg.Rules = filtered
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after category toggle", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Redirect to reload the rules page (simplest approach for category-level change)
+	w.Header().Set("HX-Redirect", "/dashboard/rules")
+	w.WriteHeader(http.StatusOK)
+}
+
+// --- Events handler (merged audit log + quarantine) ---
+
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	tab := r.URL.Query().Get("tab")
+	if tab == "" {
+		tab = "all"
+	}
+
+	// All events
+	entries, _ := s.audit.Query(audit.QueryOpts{Limit: 50})
+
+	// Quarantine
+	qStatusFilter := r.URL.Query().Get("status")
+	if tab == "quarantine" && qStatusFilter == "" {
+		qStatusFilter = "pending"
+	}
+	qItems, _ := s.audit.QuarantineQuery(qStatusFilter, "", 50)
+	qStats, _ := s.audit.QuarantineStats()
+	if qStats == nil {
+		qStats = &audit.QuarantineStats{}
+	}
+
+	// Blocked entries
+	blockedEntries, _ := s.audit.Query(audit.QueryOpts{Status: "blocked", Limit: 50})
+	rejectedEntries, _ := s.audit.Query(audit.QueryOpts{Status: "rejected", Limit: 50})
+	allBlocked := append(blockedEntries, rejectedEntries...)
+
+	data := map[string]any{
+		"Active":         "events",
+		"Tab":            tab,
+		"Entries":        entries,
+		"QItems":         qItems,
+		"QStats":         qStats,
+		"QStatusFilter":  qStatusFilter,
+		"QPending":       qStats.Pending,
+		"BlockedEntries": allBlocked,
+		"RequireSig":     s.cfg.Identity.RequireSignature,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = eventsTmpl.Execute(w, data)
+}
+
+// --- Settings handler ---
+
+func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	type keyInfo struct {
+		Name        string
+		Fingerprint string
+	}
+
+	var keys []keyInfo
+	if s.keys != nil {
+		for _, name := range s.keys.Names() {
+			pub, _ := s.keys.Get(name)
+			keys = append(keys, keyInfo{
+				Name:        name,
+				Fingerprint: identity.Fingerprint(pub),
+			})
+		}
+		sort.Slice(keys, func(i, j int) bool { return keys[i].Name < keys[j].Name })
+	}
+
+	revoked, _ := s.audit.ListRevokedKeys()
+
+	// Build revoked fingerprint set for template lookup
+	revokedFPs := make(map[string]bool)
+	for _, rk := range revoked {
+		revokedFPs[rk.Fingerprint] = true
+	}
+
+	qStats, _ := s.audit.QuarantineStats()
+	var qPending int
+	if qStats != nil {
+		qPending = qStats.Pending
+	}
+
+	serverBind := s.cfg.Server.Bind
+	if serverBind == "" {
+		serverBind = "127.0.0.1"
+	}
+
+	data := map[string]any{
+		"Active":         "settings",
+		"RequireSig":     s.cfg.Identity.RequireSignature,
+		"Keys":           keys,
+		"KeysDir":        s.cfg.Identity.KeysDir,
+		"Revoked":        revoked,
+		"RevokedFPs":     revokedFPs,
+		"QEnabled":       s.cfg.Quarantine.Enabled,
+		"QExpiryHours":   s.cfg.Quarantine.ExpiryHours,
+		"QPending":       qPending,
+		"ServerPort":     s.cfg.Server.Port,
+		"ServerBind":     serverBind,
+		"LogLevel":       s.cfg.Server.LogLevel,
+		"CustomRulesDir": s.cfg.CustomRulesDir,
+		"WebhookCount":   len(s.cfg.Webhooks),
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = settingsTmpl.Execute(w, data)
 }
 
 // --- Stats helpers ---

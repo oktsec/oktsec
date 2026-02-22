@@ -53,7 +53,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	scanner := engine.NewScanner(cfg.CustomRulesDir)
 
 	// Audit store
-	auditStore, err := audit.NewStore("oktsec.db", logger)
+	auditStore, err := audit.NewStore("oktsec.db", logger, cfg.Quarantine.RetentionDays)
 	if err != nil {
 		return nil, fmt.Errorf("opening audit store: %w", err)
 	}
@@ -75,6 +75,19 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 			"status":  "ok",
 			"version": "0.1.0",
 		})
+	})
+	mux.HandleFunc("GET /v1/quarantine/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		item, err := auditStore.QuarantineByID(id)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if item == nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, item)
 	})
 	// Mount dashboard (auth middleware applied internally)
 	mux.Handle("/dashboard/", dash.Handler())

@@ -36,6 +36,7 @@ func NewServer(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.St
 	s.AddTool(auditQueryTool(), h.handleAuditQuery)
 	s.AddTool(getPolicyTool(), h.handleGetPolicy)
 	s.AddTool(verifyAgentTool(), h.handleVerifyAgent)
+	s.AddTool(reviewQuarantineTool(), h.handleReviewQuarantine)
 
 	return s
 }

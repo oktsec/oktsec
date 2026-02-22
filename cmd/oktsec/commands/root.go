@@ -31,6 +31,7 @@ func NewRoot() *cobra.Command {
 		newEnforceCmd(),
 		newStatusCmd(),
 		newVersionCmd(),
+		newQuarantineCmd(),
 	)
 
 	return root

@@ -30,11 +30,12 @@ type MessageRequest struct {
 
 // MessageResponse is returned to the sending agent.
 type MessageResponse struct {
-	Status         string                   `json:"status"`
-	MessageID      string                   `json:"message_id"`
-	PolicyDecision string                   `json:"policy_decision"`
-	RulesTriggered []engine.FindingSummary   `json:"rules_triggered"`
-	VerifiedSender bool                     `json:"verified_sender"`
+	Status         string                 `json:"status"`
+	MessageID      string                 `json:"message_id"`
+	PolicyDecision string                 `json:"policy_decision"`
+	RulesTriggered []engine.FindingSummary `json:"rules_triggered"`
+	VerifiedSender bool                   `json:"verified_sender"`
+	QuarantineID   string                 `json:"quarantine_id,omitempty"`
 }
 
 // Handler processes /v1/message requests through the full pipeline.
@@ -176,7 +177,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case engine.VerdictQuarantine:
 		status = "quarantined"
 		policyDecision = "content_quarantined"
-		httpStatus = http.StatusOK
+		httpStatus = http.StatusAccepted
 	case engine.VerdictFlag:
 		status = "delivered"
 		policyDecision = "content_flagged"
@@ -201,6 +202,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	entry.LatencyMs = time.Since(start).Milliseconds()
 	h.audit.Log(entry)
 
+	// Enqueue quarantined content for human review
+	var quarantineID string
+	if outcome.Verdict == engine.VerdictQuarantine {
+		expiryHours := h.cfg.Quarantine.ExpiryHours
+		if expiryHours <= 0 {
+			expiryHours = 24
+		}
+		qItem := audit.QuarantineItem{
+			ID:             msgID,
+			AuditEntryID:   msgID,
+			Content:        req.Content,
+			FromAgent:      req.From,
+			ToAgent:        req.To,
+			Status:         "pending",
+			ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
+			CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+			RulesTriggered: rulesJSON,
+			Signature:      req.Signature,
+			Timestamp:      req.Timestamp,
+		}
+		if err := h.audit.Enqueue(qItem); err != nil {
+			h.logger.Error("quarantine enqueue failed", "error", err, "id", msgID)
+		} else {
+			quarantineID = msgID
+		}
+	}
+
 	// Send webhook notifications for blocked/quarantined
 	if outcome.Verdict == engine.VerdictBlock || outcome.Verdict == engine.VerdictQuarantine {
 		h.webhooks.Notify(WebhookEvent{
@@ -219,6 +247,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		PolicyDecision: policyDecision,
 		RulesTriggered: outcome.Findings,
 		VerifiedSender: verified,
+		QuarantineID:   quarantineID,
 	})
 }
 

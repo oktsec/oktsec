@@ -150,9 +150,10 @@ func TestServer_DashboardPages(t *testing.T) {
 		contains string
 	}{
 		{"/dashboard", "Overview"},
-		{"/dashboard/logs", "Audit"},
+		{"/dashboard/events", "Events"},
 		{"/dashboard/agents", "Agents"},
 		{"/dashboard/rules", "Rules"},
+		{"/dashboard/settings", "Settings"},
 	}
 
 	for _, p := range pages {
@@ -407,6 +408,158 @@ func TestAuditStore_Search(t *testing.T) {
 	}
 	if entries[0].FromAgent != "alpha" {
 		t.Errorf("from_agent = %q, want 'alpha'", entries[0].FromAgent)
+	}
+}
+
+func TestServer_QuarantinePageLoads(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/events?tab=quarantine", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("quarantine page: status = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Quarantine") {
+		t.Error("quarantine page should contain 'Quarantine'")
+	}
+}
+
+func TestServer_QuarantineApproveReject(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Insert audit entry and quarantine item
+	srv.audit.Log(audit.Entry{
+		ID:             "q-test-1",
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		FromAgent:      "a",
+		ToAgent:        "b",
+		ContentHash:    "h",
+		Status:         "quarantined",
+		PolicyDecision: "content_quarantined",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	_ = srv.audit.Enqueue(audit.QuarantineItem{
+		ID:           "q-test-1",
+		AuditEntryID: "q-test-1",
+		Content:      "test content",
+		FromAgent:    "a",
+		ToAgent:      "b",
+		Status:       "pending",
+		ExpiresAt:    time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339),
+		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+	})
+
+	// Approve
+	req := httptest.NewRequest("POST", "/dashboard/api/quarantine/q-test-1/approve", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("approve: status = %d, want 200", w.Code)
+	}
+
+	item, _ := srv.audit.QuarantineByID("q-test-1")
+	if item.Status != "approved" {
+		t.Errorf("status = %q, want approved", item.Status)
+	}
+}
+
+func TestServer_LegacyRedirects(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	redirects := []struct {
+		from string
+		to   string
+	}{
+		{"/dashboard/logs", "/dashboard/events"},
+		{"/dashboard/quarantine", "/dashboard/events?tab=quarantine"},
+		{"/dashboard/analytics", "/dashboard"},
+		{"/dashboard/identity", "/dashboard/settings"},
+	}
+
+	for _, r := range redirects {
+		req := httptest.NewRequest("GET", r.from, nil)
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusMovedPermanently {
+			t.Errorf("%s: status = %d, want 301", r.from, w.Code)
+		}
+		loc := w.Header().Get("Location")
+		if loc != r.to {
+			t.Errorf("%s: redirect to %q, want %q", r.from, loc, r.to)
+		}
+	}
+}
+
+func TestServer_AgentCreate(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{
+		"name":        {"new-agent"},
+		"description": {"Test agent"},
+		"can_message": {"target-agent"},
+		"location":    {"test-runner"},
+		"tags":        {"test, dev"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/agents", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("create agent: status = %d, want 302", w.Code)
+	}
+
+	agent, ok := srv.cfg.Agents["new-agent"]
+	if !ok {
+		t.Fatal("agent should exist in config")
+	}
+	if agent.Description != "Test agent" {
+		t.Errorf("description = %q, want 'Test agent'", agent.Description)
+	}
+	if agent.Location != "test-runner" {
+		t.Errorf("location = %q, want 'test-runner'", agent.Location)
+	}
+}
+
+func TestServer_AgentDelete(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Verify test-agent exists
+	if _, ok := srv.cfg.Agents["test-agent"]; !ok {
+		t.Fatal("test-agent should exist before delete")
+	}
+
+	req := httptest.NewRequest("DELETE", "/dashboard/agents/test-agent", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete agent: status = %d, want 200", w.Code)
+	}
+
+	if _, ok := srv.cfg.Agents["test-agent"]; ok {
+		t.Error("test-agent should be deleted from config")
 	}
 }
 

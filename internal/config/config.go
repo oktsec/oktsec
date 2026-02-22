@@ -9,13 +9,14 @@ import (
 
 // Config is the top-level oktsec configuration.
 type Config struct {
-	Version       string          `yaml:"version"`
-	Server        ServerConfig    `yaml:"server"`
-	Identity      IdentityConfig  `yaml:"identity"`
-	Agents        map[string]Agent `yaml:"agents"`
-	Rules         []RuleAction    `yaml:"rules"`
-	Webhooks      []Webhook       `yaml:"webhooks"`
-	CustomRulesDir string         `yaml:"custom_rules_dir,omitempty"`
+	Version        string           `yaml:"version"`
+	Server         ServerConfig     `yaml:"server"`
+	Identity       IdentityConfig   `yaml:"identity"`
+	Agents         map[string]Agent `yaml:"agents"`
+	Rules          []RuleAction     `yaml:"rules"`
+	Webhooks       []Webhook        `yaml:"webhooks"`
+	CustomRulesDir string           `yaml:"custom_rules_dir,omitempty"`
+	Quarantine     QuarantineConfig `yaml:"quarantine,omitempty"`
 }
 
 // ServerConfig holds proxy server settings.
@@ -31,10 +32,22 @@ type IdentityConfig struct {
 	RequireSignature bool   `yaml:"require_signature"`
 }
 
-// Agent defines per-agent access control.
+// Agent defines per-agent access control and metadata.
 type Agent struct {
 	CanMessage     []string `yaml:"can_message"`
 	BlockedContent []string `yaml:"blocked_content"`
+	Description    string   `yaml:"description,omitempty"`
+	CreatedBy      string   `yaml:"created_by,omitempty"`
+	CreatedAt      string   `yaml:"created_at,omitempty"`
+	Location       string   `yaml:"location,omitempty"`
+	Tags           []string `yaml:"tags,omitempty"`
+}
+
+// QuarantineConfig configures the quarantine queue behavior.
+type QuarantineConfig struct {
+	Enabled       bool `yaml:"enabled"`
+	ExpiryHours   int  `yaml:"expiry_hours"`
+	RetentionDays int  `yaml:"retention_days"` // auto-purge audit entries older than N days (0 = keep forever)
 }
 
 // RuleAction maps a rule ID to an enforcement action.
@@ -67,10 +80,19 @@ func Load(path string) (*Config, error) {
 		Identity: IdentityConfig{
 			RequireSignature: true,
 		},
+		Quarantine: QuarantineConfig{
+			Enabled:     true,
+			ExpiryHours: 24,
+		},
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
+	}
+
+	// Apply zero-value defaults after unmarshal
+	if cfg.Quarantine.ExpiryHours == 0 {
+		cfg.Quarantine.ExpiryHours = 24
 	}
 
 	return cfg, nil
@@ -89,6 +111,10 @@ func Defaults() *Config {
 			RequireSignature: true,
 		},
 		Agents: make(map[string]Agent),
+		Quarantine: QuarantineConfig{
+			Enabled:     true,
+			ExpiryHours: 24,
+		},
 	}
 }
 
