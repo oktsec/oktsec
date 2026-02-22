@@ -91,11 +91,11 @@ func newQuarantineDetailCmd() *cobra.Command {
 
 			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 			fmt.Fprintf(tw, "ID:\t%s\n", item.ID)             //nolint:errcheck
-			fmt.Fprintf(tw, "From:\t%s\n", item.FromAgent)     //nolint:errcheck
-			fmt.Fprintf(tw, "To:\t%s\n", item.ToAgent)         //nolint:errcheck
-			fmt.Fprintf(tw, "Status:\t%s\n", item.Status)      //nolint:errcheck
-			fmt.Fprintf(tw, "Created:\t%s\n", item.CreatedAt)  //nolint:errcheck
-			fmt.Fprintf(tw, "Expires:\t%s\n", item.ExpiresAt)  //nolint:errcheck
+			fmt.Fprintf(tw, "From:\t%s\n", item.FromAgent)    //nolint:errcheck
+			fmt.Fprintf(tw, "To:\t%s\n", item.ToAgent)        //nolint:errcheck
+			fmt.Fprintf(tw, "Status:\t%s\n", item.Status)     //nolint:errcheck
+			fmt.Fprintf(tw, "Created:\t%s\n", item.CreatedAt) //nolint:errcheck
+			fmt.Fprintf(tw, "Expires:\t%s\n", item.ExpiresAt) //nolint:errcheck
 			if item.ReviewedBy != "" {
 				fmt.Fprintf(tw, "Reviewed By:\t%s\n", item.ReviewedBy) //nolint:errcheck
 				fmt.Fprintf(tw, "Reviewed At:\t%s\n", item.ReviewedAt) //nolint:errcheck

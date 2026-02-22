@@ -1317,7 +1317,9 @@ var settingsTmpl = template.Must(template.New("settings").Parse(layoutHead + `
 
 var eventsTmpl = template.Must(template.New("events").Funcs(template.FuncMap{
 	"truncate": func(s string, n int) string {
-		if len(s) <= n { return s }
+		if len(s) <= n {
+			return s
+		}
 		return s[:n] + "..."
 	},
 }).Parse(layoutHead + `

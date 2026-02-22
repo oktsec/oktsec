@@ -30,12 +30,12 @@ type MessageRequest struct {
 
 // MessageResponse is returned to the sending agent.
 type MessageResponse struct {
-	Status         string                 `json:"status"`
-	MessageID      string                 `json:"message_id"`
-	PolicyDecision string                 `json:"policy_decision"`
+	Status         string                  `json:"status"`
+	MessageID      string                  `json:"message_id"`
+	PolicyDecision string                  `json:"policy_decision"`
 	RulesTriggered []engine.FindingSummary `json:"rules_triggered"`
-	VerifiedSender bool                   `json:"verified_sender"`
-	QuarantineID   string                 `json:"quarantine_id,omitempty"`
+	VerifiedSender bool                    `json:"verified_sender"`
+	QuarantineID   string                  `json:"quarantine_id,omitempty"`
 }
 
 // Handler processes /v1/message requests through the full pipeline.
@@ -71,89 +71,40 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req MessageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
+	req, err := h.parseRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
-	}
-
-	if req.From == "" || req.To == "" || req.Content == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "from, to, and content are required"})
-		return
-	}
-
-	if req.Timestamp == "" {
-		req.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
 
 	msgID := uuid.New().String()
-	contentHash := sha256Hash(req.Content)
-
-	// Build audit entry (will be completed at the end)
 	entry := audit.Entry{
 		ID:          msgID,
 		Timestamp:   req.Timestamp,
 		FromAgent:   req.From,
 		ToAgent:     req.To,
-		ContentHash: contentHash,
+		ContentHash: sha256Hash(req.Content),
 	}
 
 	// Step 1: Identity verification
-	sigStatus, verified, fingerprint := h.verifyIdentity(&req)
+	sigStatus, verified, fingerprint := h.verifyIdentity(req)
 	entry.SignatureVerified = sigStatus
 	entry.PubkeyFingerprint = fingerprint
 
-	if sigStatus == -1 {
-		// Invalid signature → reject immediately
-		entry.Status = "rejected"
-		entry.PolicyDecision = "identity_rejected"
-		entry.LatencyMs = time.Since(start).Milliseconds()
-		h.audit.Log(entry)
-		writeJSON(w, http.StatusForbidden, MessageResponse{
-			Status:         "rejected",
-			MessageID:      msgID,
-			PolicyDecision: "identity_rejected",
-			VerifiedSender: false,
-		})
-		return
-	}
-
-	if sigStatus == 0 && h.cfg.Identity.RequireSignature {
-		// Unsigned message when signatures are required
-		entry.Status = "rejected"
-		entry.PolicyDecision = "signature_required"
-		entry.LatencyMs = time.Since(start).Milliseconds()
-		h.audit.Log(entry)
-		writeJSON(w, http.StatusUnauthorized, MessageResponse{
-			Status:         "rejected",
-			MessageID:      msgID,
-			PolicyDecision: "signature_required",
-			VerifiedSender: false,
-		})
+	if code, resp := h.checkIdentity(sigStatus, msgID); resp != nil {
+		h.rejectAndLog(w, code, *resp, &entry, start)
 		return
 	}
 
 	// Step 2: ACL check
-	decision := h.policy.CheckACL(req.From, req.To)
-	if !decision.Allowed {
-		entry.Status = "rejected"
-		entry.PolicyDecision = "acl_denied"
-		entry.LatencyMs = time.Since(start).Milliseconds()
-		h.audit.Log(entry)
-		writeJSON(w, http.StatusForbidden, MessageResponse{
-			Status:         "rejected",
-			MessageID:      msgID,
-			PolicyDecision: "acl_denied",
-			VerifiedSender: verified,
-		})
+	if !h.policy.CheckACL(req.From, req.To).Allowed {
+		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "acl_denied", VerifiedSender: verified}
+		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
 		return
 	}
 
-	// Step 3: Content scan with Aguara
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	outcome, err := h.scanner.ScanContent(ctx, req.Content)
+	// Step 3: Content scan
+	outcome, err := h.scanContent(r.Context(), req.Content)
 	if err != nil {
 		h.logger.Error("scan failed", "error", err, "message_id", msgID)
 		entry.Status = "error"
@@ -165,36 +116,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 4: Apply verdict
-	var status string
-	var policyDecision string
-	var httpStatus int
-
-	switch outcome.Verdict {
-	case engine.VerdictBlock:
-		status = "blocked"
-		policyDecision = "content_blocked"
-		httpStatus = http.StatusForbidden
-	case engine.VerdictQuarantine:
-		status = "quarantined"
-		policyDecision = "content_quarantined"
-		httpStatus = http.StatusAccepted
-	case engine.VerdictFlag:
-		status = "delivered"
-		policyDecision = "content_flagged"
-		httpStatus = http.StatusOK
-	default:
-		status = "delivered"
-		policyDecision = "allow"
-		httpStatus = http.StatusOK
-	}
-
-	// Encode triggered rules
-	rulesJSON := "[]"
-	if len(outcome.Findings) > 0 {
-		if b, err := json.Marshal(outcome.Findings); err == nil {
-			rulesJSON = string(b)
-		}
-	}
+	status, policyDecision, httpStatus := verdictToResponse(outcome.Verdict)
+	rulesJSON := encodeFindings(outcome.Findings)
 
 	entry.Status = status
 	entry.PolicyDecision = policyDecision
@@ -202,44 +125,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	entry.LatencyMs = time.Since(start).Milliseconds()
 	h.audit.Log(entry)
 
-	// Enqueue quarantined content for human review
-	var quarantineID string
-	if outcome.Verdict == engine.VerdictQuarantine {
-		expiryHours := h.cfg.Quarantine.ExpiryHours
-		if expiryHours <= 0 {
-			expiryHours = 24
-		}
-		qItem := audit.QuarantineItem{
-			ID:             msgID,
-			AuditEntryID:   msgID,
-			Content:        req.Content,
-			FromAgent:      req.From,
-			ToAgent:        req.To,
-			Status:         "pending",
-			ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
-			CreatedAt:      time.Now().UTC().Format(time.RFC3339),
-			RulesTriggered: rulesJSON,
-			Signature:      req.Signature,
-			Timestamp:      req.Timestamp,
-		}
-		if err := h.audit.Enqueue(qItem); err != nil {
-			h.logger.Error("quarantine enqueue failed", "error", err, "id", msgID)
-		} else {
-			quarantineID = msgID
-		}
-	}
-
-	// Send webhook notifications for blocked/quarantined
-	if outcome.Verdict == engine.VerdictBlock || outcome.Verdict == engine.VerdictQuarantine {
-		h.webhooks.Notify(WebhookEvent{
-			Event:     fmt.Sprintf("message_%s", status),
-			MessageID: msgID,
-			From:      req.From,
-			To:        req.To,
-			Severity:  topSeverity(outcome.Findings),
-			Timestamp: req.Timestamp,
-		})
-	}
+	quarantineID := h.enqueueIfQuarantined(outcome.Verdict, msgID, req, rulesJSON)
+	h.notifyIfSevere(outcome.Verdict, status, msgID, req, outcome.Findings)
 
 	writeJSON(w, httpStatus, MessageResponse{
 		Status:         status,
@@ -248,6 +135,111 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RulesTriggered: outcome.Findings,
 		VerifiedSender: verified,
 		QuarantineID:   quarantineID,
+	})
+}
+
+func (h *Handler) parseRequest(r *http.Request) (*MessageRequest, error) {
+	var req MessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+	if req.From == "" || req.To == "" || req.Content == "" {
+		return nil, fmt.Errorf("from, to, and content are required")
+	}
+	if req.Timestamp == "" {
+		req.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	}
+	return &req, nil
+}
+
+func (h *Handler) checkIdentity(sigStatus int, msgID string) (int, *MessageResponse) {
+	if sigStatus == -1 {
+		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "identity_rejected"}
+		return http.StatusForbidden, &resp
+	}
+	if sigStatus == 0 && h.cfg.Identity.RequireSignature {
+		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "signature_required"}
+		return http.StatusUnauthorized, &resp
+	}
+	return 0, nil
+}
+
+func (h *Handler) rejectAndLog(w http.ResponseWriter, httpStatus int, resp MessageResponse, entry *audit.Entry, start time.Time) {
+	entry.Status = resp.Status
+	entry.PolicyDecision = resp.PolicyDecision
+	entry.LatencyMs = time.Since(start).Milliseconds()
+	h.audit.Log(*entry)
+	writeJSON(w, httpStatus, resp)
+}
+
+func (h *Handler) scanContent(ctx context.Context, content string) (*engine.ScanOutcome, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return h.scanner.ScanContent(ctx, content)
+}
+
+func verdictToResponse(v engine.ScanVerdict) (status, policyDecision string, httpStatus int) {
+	switch v {
+	case engine.VerdictBlock:
+		return "blocked", "content_blocked", http.StatusForbidden
+	case engine.VerdictQuarantine:
+		return "quarantined", "content_quarantined", http.StatusAccepted
+	case engine.VerdictFlag:
+		return "delivered", "content_flagged", http.StatusOK
+	default:
+		return "delivered", "allow", http.StatusOK
+	}
+}
+
+func encodeFindings(findings []engine.FindingSummary) string {
+	if len(findings) == 0 {
+		return "[]"
+	}
+	if b, err := json.Marshal(findings); err == nil {
+		return string(b)
+	}
+	return "[]"
+}
+
+func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string, req *MessageRequest, rulesJSON string) string {
+	if verdict != engine.VerdictQuarantine {
+		return ""
+	}
+	expiryHours := h.cfg.Quarantine.ExpiryHours
+	if expiryHours <= 0 {
+		expiryHours = 24
+	}
+	qItem := audit.QuarantineItem{
+		ID:             msgID,
+		AuditEntryID:   msgID,
+		Content:        req.Content,
+		FromAgent:      req.From,
+		ToAgent:        req.To,
+		Status:         "pending",
+		ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		RulesTriggered: rulesJSON,
+		Signature:      req.Signature,
+		Timestamp:      req.Timestamp,
+	}
+	if err := h.audit.Enqueue(qItem); err != nil {
+		h.logger.Error("quarantine enqueue failed", "error", err, "id", msgID)
+		return ""
+	}
+	return msgID
+}
+
+func (h *Handler) notifyIfSevere(verdict engine.ScanVerdict, status, msgID string, req *MessageRequest, findings []engine.FindingSummary) {
+	if verdict != engine.VerdictBlock && verdict != engine.VerdictQuarantine {
+		return
+	}
+	h.webhooks.Notify(WebhookEvent{
+		Event:     fmt.Sprintf("message_%s", status),
+		MessageID: msgID,
+		From:      req.From,
+		To:        req.To,
+		Severity:  topSeverity(findings),
+		Timestamp: req.Timestamp,
 	})
 }
 

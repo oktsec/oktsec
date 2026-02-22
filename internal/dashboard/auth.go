@@ -30,8 +30,8 @@ type session struct {
 
 // loginAttempt tracks failed login attempts from an IP address.
 type loginAttempt struct {
-	failures    int       // failures since last reset
-	tier        int       // escalation tier: 0→5min, 1→30min, 2→2h
+	failures    int // failures since last reset
+	tier        int // escalation tier: 0→5min, 1→30min, 2→2h
 	firstFail   time.Time
 	lastFail    time.Time
 	lockedUntil time.Time

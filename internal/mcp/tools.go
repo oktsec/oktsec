@@ -319,81 +319,87 @@ func (h *handlers) handleVerifyAgent(ctx context.Context, request mcplib.CallToo
 func (h *handlers) handleReviewQuarantine(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	action := request.GetString("action", "")
 	id := request.GetString("id", "")
+
+	switch action {
+	case "list":
+		return h.quarantineList(request)
+	case "detail":
+		return h.quarantineDetail(id)
+	case "approve":
+		return h.quarantineDecide(id, "approve")
+	case "reject":
+		return h.quarantineDecide(id, "reject")
+	default:
+		return mcplib.NewToolResultError("action must be one of: list, detail, approve, reject"), nil
+	}
+}
+
+type quarantineSummary struct {
+	ID        string `json:"id"`
+	From      string `json:"from"`
+	To        string `json:"to"`
+	Status    string `json:"status"`
+	Preview   string `json:"content_preview"`
+	CreatedAt string `json:"created_at"`
+	ExpiresAt string `json:"expires_at"`
+}
+
+func (h *handlers) quarantineList(request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 	limit := request.GetInt("limit", 0)
 	if limit <= 0 {
 		limit = 20
 	}
 	status := request.GetString("status", "pending")
 
-	switch action {
-	case "list":
-		items, err := h.audit.QuarantineQuery(status, "", limit)
-		if err != nil {
-			return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
-		}
-		type itemSummary struct {
-			ID        string `json:"id"`
-			From      string `json:"from"`
-			To        string `json:"to"`
-			Status    string `json:"status"`
-			Preview   string `json:"content_preview"`
-			CreatedAt string `json:"created_at"`
-			ExpiresAt string `json:"expires_at"`
-		}
-		var summaries []itemSummary
-		for _, item := range items {
-			preview := item.Content
-			if len(preview) > 100 {
-				preview = preview[:100] + "..."
-			}
-			summaries = append(summaries, itemSummary{
-				ID:        item.ID,
-				From:      item.FromAgent,
-				To:        item.ToAgent,
-				Status:    item.Status,
-				Preview:   preview,
-				CreatedAt: item.CreatedAt,
-				ExpiresAt: item.ExpiresAt,
-			})
-		}
-		out, _ := json.MarshalIndent(map[string]any{"items": summaries, "count": len(summaries)}, "", "  ")
-		return mcplib.NewToolResultText(string(out)), nil
-
-	case "detail":
-		if id == "" {
-			return mcplib.NewToolResultError("id is required for detail action"), nil
-		}
-		item, err := h.audit.QuarantineByID(id)
-		if err != nil {
-			return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
-		}
-		if item == nil {
-			return mcplib.NewToolResultError(fmt.Sprintf("quarantine item %q not found", id)), nil
-		}
-		out, _ := json.MarshalIndent(item, "", "  ")
-		return mcplib.NewToolResultText(string(out)), nil
-
-	case "approve":
-		if id == "" {
-			return mcplib.NewToolResultError("id is required for approve action"), nil
-		}
-		if err := h.audit.QuarantineApprove(id, "mcp"); err != nil {
-			return mcplib.NewToolResultError(fmt.Sprintf("approve failed: %v", err)), nil
-		}
-		out, _ := json.MarshalIndent(map[string]string{"status": "approved", "id": id}, "", "  ")
-		return mcplib.NewToolResultText(string(out)), nil
-
-	case "reject":
-		if id == "" {
-			return mcplib.NewToolResultError("id is required for reject action"), nil
-		}
-		if err := h.audit.QuarantineReject(id, "mcp"); err != nil {
-			return mcplib.NewToolResultError(fmt.Sprintf("reject failed: %v", err)), nil
-		}
-		out, _ := json.MarshalIndent(map[string]string{"status": "rejected", "id": id}, "", "  ")
-		return mcplib.NewToolResultText(string(out)), nil
-
-	default:
-		return mcplib.NewToolResultError("action must be one of: list, detail, approve, reject"), nil
+	items, err := h.audit.QuarantineQuery(status, "", limit)
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
 	}
+	var summaries []quarantineSummary
+	for _, item := range items {
+		preview := item.Content
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
+		}
+		summaries = append(summaries, quarantineSummary{
+			ID: item.ID, From: item.FromAgent, To: item.ToAgent,
+			Status: item.Status, Preview: preview,
+			CreatedAt: item.CreatedAt, ExpiresAt: item.ExpiresAt,
+		})
+	}
+	out, _ := json.MarshalIndent(map[string]any{"items": summaries, "count": len(summaries)}, "", "  ")
+	return mcplib.NewToolResultText(string(out)), nil
+}
+
+func (h *handlers) quarantineDetail(id string) (*mcplib.CallToolResult, error) {
+	if id == "" {
+		return mcplib.NewToolResultError("id is required for detail action"), nil
+	}
+	item, err := h.audit.QuarantineByID(id)
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
+	}
+	if item == nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("quarantine item %q not found", id)), nil
+	}
+	out, _ := json.MarshalIndent(item, "", "  ")
+	return mcplib.NewToolResultText(string(out)), nil
+}
+
+func (h *handlers) quarantineDecide(id, action string) (*mcplib.CallToolResult, error) {
+	if id == "" {
+		return mcplib.NewToolResultError(fmt.Sprintf("id is required for %s action", action)), nil
+	}
+	var err error
+	if action == "approve" {
+		err = h.audit.QuarantineApprove(id, "mcp")
+	} else {
+		err = h.audit.QuarantineReject(id, "mcp")
+	}
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("%s failed: %v", action, err)), nil
+	}
+	status := action + "d" // approved or rejected
+	out, _ := json.MarshalIndent(map[string]string{"status": status, "id": id}, "", "  ")
+	return mcplib.NewToolResultText(string(out)), nil
 }

@@ -9,17 +9,17 @@ import (
 
 // MCPServer represents a discovered MCP server from a client config.
 type MCPServer struct {
-	Name    string   `json:"name"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
+	Name    string            `json:"name"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args"`
 	Env     map[string]string `json:"env,omitempty"`
 }
 
 // ClientResult holds the discovered MCP servers for a single client.
 type ClientResult struct {
-	Client   string      `json:"client"`
-	Path     string      `json:"path"`
-	Servers  []MCPServer `json:"servers"`
+	Client  string      `json:"client"`
+	Path    string      `json:"path"`
+	Servers []MCPServer `json:"servers"`
 }
 
 // Result holds the full discovery output.

@@ -16,7 +16,7 @@ func newWrapCmd() *cobra.Command {
 		Long:  "Modifies the MCP config of the specified client so each server runs through 'oktsec proxy'. A backup is saved as .bak.",
 		Example: `  oktsec wrap claude-desktop
   oktsec wrap cursor`,
-		Args: cobra.ExactArgs(1),
+		Args:      cobra.ExactArgs(1),
 		ValidArgs: supportedClients,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := args[0]
@@ -54,7 +54,7 @@ func newUnwrapCmd() *cobra.Command {
 		Long:  "Restores the original MCP config file from the .bak backup created by 'oktsec wrap'.",
 		Example: `  oktsec unwrap claude-desktop
   oktsec unwrap cursor`,
-		Args: cobra.ExactArgs(1),
+		Args:      cobra.ExactArgs(1),
 		ValidArgs: supportedClients,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := args[0]

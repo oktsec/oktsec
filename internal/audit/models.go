@@ -9,7 +9,7 @@ type Entry struct {
 	ContentHash       string `json:"content_hash"`
 	SignatureVerified int    `json:"signature_verified"` // 1=verified, 0=unsigned, -1=invalid
 	PubkeyFingerprint string `json:"pubkey_fingerprint,omitempty"`
-	Status            string `json:"status"` // delivered, blocked, quarantined, rejected
+	Status            string `json:"status"`                    // delivered, blocked, quarantined, rejected
 	RulesTriggered    string `json:"rules_triggered,omitempty"` // JSON array
 	PolicyDecision    string `json:"policy_decision"`
 	LatencyMs         int64  `json:"latency_ms"`

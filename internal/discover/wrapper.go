@@ -6,24 +6,24 @@ import (
 	"os"
 )
 
-// WrapClient modifies a client's MCP config to route servers through oktsec proxy.
-// It saves a backup of the original config as <path>.bak.
-func WrapClient(clientName string) (wrapped int, err error) {
-	clients := KnownClients()
-	var configPath string
-
-	for _, c := range clients {
+// findClientConfig returns the config file path for a client, or empty string if not found.
+func findClientConfig(clientName string) string {
+	for _, c := range KnownClients() {
 		if c.Name == clientName {
 			for _, p := range c.Paths {
 				if _, err := os.Stat(p); err == nil {
-					configPath = p
-					break
+					return p
 				}
 			}
-			break
 		}
 	}
+	return ""
+}
 
+// WrapClient modifies a client's MCP config to route servers through oktsec proxy.
+// It saves a backup of the original config as <path>.bak.
+func WrapClient(clientName string) (wrapped int, err error) {
+	configPath := findClientConfig(clientName)
 	if configPath == "" {
 		return 0, fmt.Errorf("no config found for client %q", clientName)
 	}
@@ -33,80 +33,73 @@ func WrapClient(clientName string) (wrapped int, err error) {
 		return 0, fmt.Errorf("reading config: %w", err)
 	}
 
-	// Save backup
-	backupPath := configPath + ".bak"
-	if err := os.WriteFile(backupPath, data, 0o644); err != nil {
+	if err := os.WriteFile(configPath+".bak", data, 0o644); err != nil {
 		return 0, fmt.Errorf("writing backup: %w", err)
 	}
 
-	// Parse config
+	raw, servers, err := parseMCPConfig(data)
+	if err != nil {
+		return 0, err
+	}
+
+	wrapped = wrapServers(servers)
+
+	return wrapped, writeMCPConfig(configPath, raw, servers)
+}
+
+func parseMCPConfig(data []byte) (map[string]json.RawMessage, map[string]mcpServerJSON, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return 0, fmt.Errorf("parsing config: %w", err)
+		return nil, nil, fmt.Errorf("parsing config: %w", err)
 	}
-
 	serversRaw, ok := raw["mcpServers"]
 	if !ok {
-		return 0, fmt.Errorf("no mcpServers key in config")
+		return nil, nil, fmt.Errorf("no mcpServers key in config")
 	}
-
 	var servers map[string]mcpServerJSON
 	if err := json.Unmarshal(serversRaw, &servers); err != nil {
-		return 0, fmt.Errorf("parsing mcpServers: %w", err)
+		return nil, nil, fmt.Errorf("parsing mcpServers: %w", err)
 	}
+	return raw, servers, nil
+}
 
-	// Wrap each server
+func wrapServers(servers map[string]mcpServerJSON) int {
+	wrapped := 0
 	for name, srv := range servers {
 		if srv.Command == "oktsec" {
-			continue // Already wrapped
+			continue
 		}
-
 		newArgs := []string{"proxy", "--agent", name, "--"}
 		newArgs = append(newArgs, srv.Command)
 		newArgs = append(newArgs, srv.Args...)
-
 		srv.Command = "oktsec"
 		srv.Args = newArgs
 		servers[name] = srv
 		wrapped++
 	}
+	return wrapped
+}
 
-	// Marshal back
+func writeMCPConfig(path string, raw map[string]json.RawMessage, servers map[string]mcpServerJSON) error {
 	serversJSON, err := json.MarshalIndent(servers, "  ", "  ")
 	if err != nil {
-		return 0, fmt.Errorf("marshaling servers: %w", err)
+		return fmt.Errorf("marshaling servers: %w", err)
 	}
 	raw["mcpServers"] = serversJSON
 
 	out, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
-		return 0, fmt.Errorf("marshaling config: %w", err)
+		return fmt.Errorf("marshaling config: %w", err)
 	}
-
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
-		return 0, fmt.Errorf("writing config: %w", err)
+	if err := os.WriteFile(path, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("writing config: %w", err)
 	}
-
-	return wrapped, nil
+	return nil
 }
 
 // UnwrapClient restores the original MCP config from the .bak backup.
 func UnwrapClient(clientName string) error {
-	clients := KnownClients()
-	var configPath string
-
-	for _, c := range clients {
-		if c.Name == clientName {
-			for _, p := range c.Paths {
-				if _, err := os.Stat(p); err == nil {
-					configPath = p
-					break
-				}
-			}
-			break
-		}
-	}
-
+	configPath := findClientConfig(clientName)
 	if configPath == "" {
 		return fmt.Errorf("no config found for client %q", clientName)
 	}
@@ -130,14 +123,5 @@ func UnwrapClient(clientName string) error {
 
 // ClientConfigPath returns the config file path for a client, or empty string if not found.
 func ClientConfigPath(clientName string) string {
-	for _, c := range KnownClients() {
-		if c.Name == clientName {
-			for _, p := range c.Paths {
-				if _, err := os.Stat(p); err == nil {
-					return p
-				}
-			}
-		}
-	}
-	return ""
+	return findClientConfig(clientName)
 }

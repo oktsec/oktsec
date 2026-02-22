@@ -540,63 +540,70 @@ func (s *Server) handleEventDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse rules triggered into structured objects
-	var rules []triggeredRule
-	if entry.RulesTriggered != "" {
-		if err := json.Unmarshal([]byte(entry.RulesTriggered), &rules); err != nil {
-			// Fall back: try as string array or comma-separated
-			var ids []string
-			if err2 := json.Unmarshal([]byte(entry.RulesTriggered), &ids); err2 != nil {
-				ids = strings.Split(entry.RulesTriggered, ",")
-			}
-			for _, rid := range ids {
-				if t := strings.TrimSpace(rid); t != "" {
-					rules = append(rules, triggeredRule{RuleID: t, Name: t})
-				}
-			}
-		}
-	}
-
-	// Resolve categories for each rule (so we can link to the category page)
-	if s.scanner != nil {
-		ruleMap := make(map[string]string) // rule_id → category
-		for _, ri := range s.scanner.ListRules() {
-			ruleMap[ri.ID] = ri.Category
-		}
-		for i := range rules {
-			if cat, ok := ruleMap[rules[i].RuleID]; ok {
-				rules[i].Category = cat
-			}
-		}
-	}
-
-	// Human-readable decision
-	decision := entry.PolicyDecision
-	switch decision {
-	case "allow":
-		decision = "Message delivered normally"
-	case "content_blocked":
-		decision = "Blocked — dangerous content detected"
-	case "content_quarantined":
-		decision = "Held for review — suspicious content detected"
-	case "quarantine_approved":
-		decision = "Reviewed and approved for delivery"
-	case "quarantine_rejected":
-		decision = "Reviewed and rejected"
-	case "signature_required":
-		decision = "Rejected — message was not signed"
-	case "acl_denied":
-		decision = "Rejected — agent not authorized for this destination"
-	}
+	rules := parseTriggeredRules(entry.RulesTriggered)
+	s.resolveRuleCategories(rules)
 
 	data := map[string]any{
 		"Entry":    entry,
 		"Rules":    rules,
-		"Decision": decision,
+		"Decision": humanReadableDecision(entry.PolicyDecision),
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = eventDetailTmpl.Execute(w, data)
+}
+
+func parseTriggeredRules(raw string) []triggeredRule {
+	if raw == "" {
+		return nil
+	}
+	var rules []triggeredRule
+	if err := json.Unmarshal([]byte(raw), &rules); err == nil {
+		return rules
+	}
+	// Fall back: try as string array or comma-separated
+	var ids []string
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		ids = strings.Split(raw, ",")
+	}
+	for _, rid := range ids {
+		if t := strings.TrimSpace(rid); t != "" {
+			rules = append(rules, triggeredRule{RuleID: t, Name: t})
+		}
+	}
+	return rules
+}
+
+func (s *Server) resolveRuleCategories(rules []triggeredRule) {
+	if s.scanner == nil {
+		return
+	}
+	ruleMap := make(map[string]string)
+	for _, ri := range s.scanner.ListRules() {
+		ruleMap[ri.ID] = ri.Category
+	}
+	for i := range rules {
+		if cat, ok := ruleMap[rules[i].RuleID]; ok {
+			rules[i].Category = cat
+		}
+	}
+}
+
+var decisionLabels = map[string]string{
+	"allow":               "Message delivered normally",
+	"content_blocked":     "Blocked — dangerous content detected",
+	"content_quarantined": "Held for review — suspicious content detected",
+	"quarantine_approved": "Reviewed and approved for delivery",
+	"quarantine_rejected": "Reviewed and rejected",
+	"signature_required":  "Rejected — message was not signed",
+	"acl_denied":          "Rejected — agent not authorized for this destination",
+}
+
+func humanReadableDecision(decision string) string {
+	if label, ok := decisionLabels[decision]; ok {
+		return label
+	}
+	return decision
 }
 
 // --- Rule detail handler ---
@@ -710,10 +717,10 @@ func (s *Server) handleCustomRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Active":        "rules",
-		"CustomFiles":   customFiles,
+		"Active":         "rules",
+		"CustomFiles":    customFiles,
 		"CustomRulesDir": s.cfg.CustomRulesDir,
-		"RequireSig":    s.cfg.Identity.RequireSignature,
+		"RequireSig":     s.cfg.Identity.RequireSignature,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -731,68 +738,16 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ruleID := strings.TrimSpace(r.FormValue("rule_id"))
 	name := strings.TrimSpace(r.FormValue("name"))
-	severity := r.FormValue("severity")
-	category := strings.TrimSpace(r.FormValue("category"))
-	patternsRaw := r.FormValue("patterns")
-
 	if name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
 
-	// Auto-generate rule ID from name if not provided
-	if ruleID == "" {
-		slug := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(name), " ", "-"))
-		// Keep only alphanumeric and hyphens
-		var clean []byte
-		for _, b := range []byte(slug) {
-			if (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' {
-				clean = append(clean, b)
-			}
-		}
-		ruleID = "CUSTOM-" + string(clean)
-	}
+	ruleID := normalizeCustomRuleID(strings.TrimSpace(r.FormValue("rule_id")), name)
+	patterns := splitNonEmpty(r.FormValue("patterns"), "\n")
+	yamlContent := buildCustomRuleYAML(ruleID, name, r.FormValue("severity"), strings.TrimSpace(r.FormValue("category")), patterns)
 
-	// Ensure ID starts with CUSTOM-
-	if !strings.HasPrefix(strings.ToUpper(ruleID), "CUSTOM-") {
-		ruleID = "CUSTOM-" + ruleID
-	}
-	ruleID = strings.ToUpper(ruleID)
-
-	// Build patterns list
-	var patterns []string
-	for _, line := range strings.Split(patternsRaw, "\n") {
-		if t := strings.TrimSpace(line); t != "" {
-			patterns = append(patterns, t)
-		}
-	}
-
-	// Build YAML content
-	yamlContent := fmt.Sprintf(`rules:
-  - id: %s
-    name: "%s"
-    severity: %s
-    category: %s
-    description: "Custom rule created via dashboard"
-    target: "*.md"
-    match_mode: any
-    patterns:
-`, ruleID, name, severity, category)
-
-	for _, p := range patterns {
-		yamlContent += fmt.Sprintf("      - type: contains\n        value: \"%s\"\n", strings.ReplaceAll(p, `"`, `\"`))
-	}
-
-	yamlContent += fmt.Sprintf(`    examples:
-      true_positive:
-        - "%s test content"
-      false_positive:
-        - "benign content"
-`, name)
-
-	// Ensure directory exists
 	if err := os.MkdirAll(s.cfg.CustomRulesDir, 0o755); err != nil {
 		http.Error(w, "cannot create custom rules dir", http.StatusInternalServerError)
 		return
@@ -805,6 +760,58 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	http.Redirect(w, r, "/dashboard/rules", http.StatusFound)
+}
+
+func normalizeCustomRuleID(ruleID, name string) string {
+	if ruleID == "" {
+		slug := strings.ToUpper(strings.ReplaceAll(name, " ", "-"))
+		var clean []byte
+		for _, b := range []byte(slug) {
+			if (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' {
+				clean = append(clean, b)
+			}
+		}
+		ruleID = "CUSTOM-" + string(clean)
+	}
+	if !strings.HasPrefix(strings.ToUpper(ruleID), "CUSTOM-") {
+		ruleID = "CUSTOM-" + ruleID
+	}
+	return strings.ToUpper(ruleID)
+}
+
+func splitNonEmpty(s, sep string) []string {
+	var result []string
+	for _, line := range strings.Split(s, sep) {
+		if t := strings.TrimSpace(line); t != "" {
+			result = append(result, t)
+		}
+	}
+	return result
+}
+
+func buildCustomRuleYAML(ruleID, name, severity, category string, patterns []string) string {
+	yaml := fmt.Sprintf(`rules:
+  - id: %s
+    name: "%s"
+    severity: %s
+    category: %s
+    description: "Custom rule created via dashboard"
+    target: "*.md"
+    match_mode: any
+    patterns:
+`, ruleID, name, severity, category)
+
+	for _, p := range patterns {
+		yaml += fmt.Sprintf("      - type: contains\n        value: \"%s\"\n", strings.ReplaceAll(p, `"`, `\"`))
+	}
+
+	yaml += fmt.Sprintf(`    examples:
+      true_positive:
+        - "%s test content"
+      false_positive:
+        - "benign content"
+`, name)
+	return yaml
 }
 
 func (s *Server) handleDeleteCustomRule(w http.ResponseWriter, r *http.Request) {
@@ -1065,62 +1072,20 @@ func (s *Server) handleToggleRule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleToggleCategory(w http.ResponseWriter, r *http.Request) {
 	catName := r.PathValue("name")
 
-	// Find all rules in this category
-	var ruleIDs []string
-	if s.scanner != nil {
-		for _, ri := range s.scanner.ListRules() {
-			if ri.Category == catName {
-				ruleIDs = append(ruleIDs, ri.ID)
-			}
-		}
-	}
-
+	ruleIDs := s.categoryRuleIDs(catName)
 	if len(ruleIDs) == 0 {
 		http.NotFound(w, r)
 		return
 	}
 
-	// Check how many are disabled
-	disabledSet := make(map[string]bool)
-	for _, ra := range s.cfg.Rules {
-		if ra.Action == "ignore" {
-			disabledSet[ra.ID] = true
-		}
-	}
-
-	disabledCount := 0
-	for _, id := range ruleIDs {
-		if disabledSet[id] {
-			disabledCount++
-		}
-	}
+	disabledSet := s.disabledRuleSet()
+	disabledCount := countInSet(ruleIDs, disabledSet)
 
 	// If most are enabled → disable all; if most disabled → enable all
-	shouldDisable := disabledCount < len(ruleIDs)/2+1
-
-	if shouldDisable {
-		// Add ignore overrides for all rules in category
-		for _, id := range ruleIDs {
-			if !disabledSet[id] {
-				s.cfg.Rules = append(s.cfg.Rules, config.RuleAction{
-					ID:     id,
-					Action: "ignore",
-				})
-			}
-		}
+	if disabledCount < len(ruleIDs)/2+1 {
+		s.disableCategoryRules(ruleIDs, disabledSet)
 	} else {
-		// Remove ignore overrides for all rules in category
-		catRuleSet := make(map[string]bool)
-		for _, id := range ruleIDs {
-			catRuleSet[id] = true
-		}
-		filtered := s.cfg.Rules[:0]
-		for _, ra := range s.cfg.Rules {
-			if !catRuleSet[ra.ID] || ra.Action != "ignore" {
-				filtered = append(filtered, ra)
-			}
-		}
-		s.cfg.Rules = filtered
+		s.enableCategoryRules(ruleIDs)
 	}
 
 	if s.cfgPath != "" {
@@ -1131,9 +1096,63 @@ func (s *Server) handleToggleCategory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Redirect to reload the rules page (simplest approach for category-level change)
 	w.Header().Set("HX-Redirect", "/dashboard/rules")
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) categoryRuleIDs(category string) []string {
+	if s.scanner == nil {
+		return nil
+	}
+	var ids []string
+	for _, ri := range s.scanner.ListRules() {
+		if ri.Category == category {
+			ids = append(ids, ri.ID)
+		}
+	}
+	return ids
+}
+
+func (s *Server) disabledRuleSet() map[string]bool {
+	set := make(map[string]bool)
+	for _, ra := range s.cfg.Rules {
+		if ra.Action == "ignore" {
+			set[ra.ID] = true
+		}
+	}
+	return set
+}
+
+func countInSet(ids []string, set map[string]bool) int {
+	n := 0
+	for _, id := range ids {
+		if set[id] {
+			n++
+		}
+	}
+	return n
+}
+
+func (s *Server) disableCategoryRules(ruleIDs []string, alreadyDisabled map[string]bool) {
+	for _, id := range ruleIDs {
+		if !alreadyDisabled[id] {
+			s.cfg.Rules = append(s.cfg.Rules, config.RuleAction{ID: id, Action: "ignore"})
+		}
+	}
+}
+
+func (s *Server) enableCategoryRules(ruleIDs []string) {
+	catRuleSet := make(map[string]bool)
+	for _, id := range ruleIDs {
+		catRuleSet[id] = true
+	}
+	filtered := s.cfg.Rules[:0]
+	for _, ra := range s.cfg.Rules {
+		if !catRuleSet[ra.ID] || ra.Action != "ignore" {
+			filtered = append(filtered, ra)
+		}
+	}
+	s.cfg.Rules = filtered
 }
 
 // --- Events handler (merged audit log + quarantine) ---
