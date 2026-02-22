@@ -1,5 +1,6 @@
 # Binary (only at root, not cmd/oktsec/)
 /oktsec
+*.exe
 dist/
 
 # Keys (never commit private keys)
@@ -8,14 +9,18 @@ keys/
 
 # Database
 *.db
+*.db-shm
+*.db-wal
 
 # IDE
 .idea/
 .vscode/
 *.swp
+*.swo
 
 # OS
 .DS_Store
+Thumbs.db
 
 # Test
 testdata/
