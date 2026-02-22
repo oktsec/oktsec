@@ -21,6 +21,51 @@ func newTestStore(t *testing.T) *Store {
 	return store
 }
 
+func TestQueryEdgeStats(t *testing.T) {
+	store := newTestStore(t)
+
+	entries := []Entry{
+		{ID: "e1", Timestamp: time.Now().UTC().Format(time.RFC3339), FromAgent: "a", ToAgent: "b", ContentHash: "h", Status: "delivered", PolicyDecision: "allow"},
+		{ID: "e2", Timestamp: time.Now().UTC().Format(time.RFC3339), FromAgent: "a", ToAgent: "b", ContentHash: "h", Status: "delivered", PolicyDecision: "allow"},
+		{ID: "e3", Timestamp: time.Now().UTC().Format(time.RFC3339), FromAgent: "a", ToAgent: "b", ContentHash: "h", Status: "blocked", PolicyDecision: "content_blocked"},
+		{ID: "e4", Timestamp: time.Now().UTC().Format(time.RFC3339), FromAgent: "b", ToAgent: "c", ContentHash: "h", Status: "delivered", PolicyDecision: "allow"},
+		{ID: "e5", Timestamp: time.Now().UTC().Format(time.RFC3339), FromAgent: "c", ToAgent: "a", ContentHash: "h", Status: "quarantined", PolicyDecision: "content_quarantined"},
+	}
+	for _, e := range entries {
+		store.Log(e)
+	}
+	time.Sleep(150 * time.Millisecond)
+
+	stats, err := store.QueryEdgeStats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 3 {
+		t.Fatalf("got %d edges, want 3", len(stats))
+	}
+
+	// Find a→b edge (should have highest total = 3)
+	var ab *EdgeStat
+	for i := range stats {
+		if stats[i].From == "a" && stats[i].To == "b" {
+			ab = &stats[i]
+			break
+		}
+	}
+	if ab == nil {
+		t.Fatal("a→b edge not found")
+	}
+	if ab.Total != 3 {
+		t.Errorf("a→b total = %d, want 3", ab.Total)
+	}
+	if ab.Delivered != 2 {
+		t.Errorf("a→b delivered = %d, want 2", ab.Delivered)
+	}
+	if ab.Blocked != 1 {
+		t.Errorf("a→b blocked = %d, want 1", ab.Blocked)
+	}
+}
+
 func TestStoreLogAndQuery(t *testing.T) {
 	store := newTestStore(t)
 

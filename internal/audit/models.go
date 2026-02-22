@@ -57,6 +57,17 @@ type RuleStat struct {
 	Count    int    `json:"count"`
 }
 
+// EdgeStat holds aggregated message counts for a single from→to edge.
+type EdgeStat struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Delivered   int    `json:"delivered"`
+	Blocked     int    `json:"blocked"`
+	Quarantined int    `json:"quarantined"`
+	Rejected    int    `json:"rejected"`
+	Total       int    `json:"total"`
+}
+
 // AgentRisk holds risk scoring for an agent based on audit history.
 type AgentRisk struct {
 	Agent       string  `json:"agent"`

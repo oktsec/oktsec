@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/garagon/aguara"
 	"github.com/oktsec/oktsec/rules"
@@ -35,10 +36,18 @@ type FindingSummary struct {
 	Match    string `json:"match,omitempty"`
 }
 
+// ruleCache holds pre-loaded rule metadata.
+type ruleCache struct {
+	list    []aguara.RuleInfo
+	details map[string]*aguara.RuleDetail
+}
+
 // Scanner wraps the Aguara engine for in-process content scanning.
 type Scanner struct {
+	mu      sync.RWMutex
 	opts    []aguara.Option
 	tempDir string // temp dir for embedded IAP rules
+	cache   *ruleCache
 }
 
 // NewScanner creates a scanner with oktsec's IAP rules + Aguara's built-in rules.
@@ -111,14 +120,59 @@ func (s *Scanner) RulesCount(ctx context.Context) int {
 	return result.RulesLoaded
 }
 
+// ensureCache builds the rule cache if it hasn't been built yet.
+func (s *Scanner) ensureCache() *ruleCache {
+	s.mu.RLock()
+	c := s.cache
+	s.mu.RUnlock()
+	if c != nil {
+		return c
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cache != nil {
+		return s.cache
+	}
+
+	list := aguara.ListRules(s.opts...)
+	details := make(map[string]*aguara.RuleDetail, len(list))
+	for _, ri := range list {
+		if d, err := aguara.ExplainRule(ri.ID, s.opts...); err == nil {
+			details[ri.ID] = d
+		}
+	}
+	s.cache = &ruleCache{list: list, details: details}
+	return s.cache
+}
+
+// InvalidateCache forces the next ListRules/ExplainRule call to reload from disk.
+func (s *Scanner) InvalidateCache() {
+	s.mu.Lock()
+	s.cache = nil
+	s.mu.Unlock()
+}
+
+// AddCustomRulesDir appends a custom rules directory and invalidates the cache.
+func (s *Scanner) AddCustomRulesDir(dir string) {
+	s.mu.Lock()
+	s.opts = append(s.opts, aguara.WithCustomRules(dir))
+	s.cache = nil
+	s.mu.Unlock()
+}
+
 // ListRules returns metadata for all loaded rules (Aguara built-in + IAP + custom).
 func (s *Scanner) ListRules() []aguara.RuleInfo {
-	return aguara.ListRules(s.opts...)
+	return s.ensureCache().list
 }
 
 // ExplainRule returns detailed information about a specific rule by ID.
 func (s *Scanner) ExplainRule(id string) (*aguara.RuleDetail, error) {
-	return aguara.ExplainRule(id, s.opts...)
+	c := s.ensureCache()
+	if d, ok := c.details[id]; ok {
+		return d, nil
+	}
+	return nil, fmt.Errorf("rule %q not found", id)
 }
 
 // extractEmbeddedRules writes the embedded IAP rule YAMLs to a temp directory.

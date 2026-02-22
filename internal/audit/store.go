@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS quarantine_queue (
 CREATE INDEX IF NOT EXISTS idx_quarantine_status ON quarantine_queue(status);
 CREATE INDEX IF NOT EXISTS idx_quarantine_expires ON quarantine_queue(expires_at);
 CREATE INDEX IF NOT EXISTS idx_audit_ts_agent_status ON audit_log(timestamp, from_agent, status);
+CREATE INDEX IF NOT EXISTS idx_audit_ts_from_to_status ON audit_log(timestamp, from_agent, to_agent, status);
 `
 
 // Hub broadcasts new audit entries to connected SSE clients.
@@ -179,6 +181,14 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 	if opts.Status != "" {
 		query += " AND status = ?"
 		args = append(args, opts.Status)
+	}
+	if len(opts.Statuses) > 0 {
+		placeholders := make([]string, len(opts.Statuses))
+		for i, st := range opts.Statuses {
+			placeholders[i] = "?"
+			args = append(args, st)
+		}
+		query += " AND status IN (" + strings.Join(placeholders, ",") + ")"
 	}
 	if opts.Agent != "" {
 		query += " AND (from_agent = ? OR to_agent = ?)"
@@ -320,6 +330,39 @@ type StatusCounts struct {
 	Quarantined int `json:"quarantined"`
 }
 
+// QueryAgentStats returns message counts grouped by status for a specific agent.
+func (s *Store) QueryAgentStats(agent string) (*StatusCounts, error) {
+	rows, err := s.db.Query(
+		`SELECT status, COUNT(*) FROM audit_log WHERE from_agent = ? OR to_agent = ? GROUP BY status`,
+		agent, agent,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying agent stats: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	sc := &StatusCounts{}
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("scanning agent stats: %w", err)
+		}
+		sc.Total += count
+		switch status {
+		case "delivered":
+			sc.Delivered = count
+		case "blocked":
+			sc.Blocked = count
+		case "rejected":
+			sc.Rejected = count
+		case "quarantined":
+			sc.Quarantined = count
+		}
+	}
+	return sc, rows.Err()
+}
+
 // QueryStats returns message counts grouped by status without loading all rows.
 func (s *Store) QueryStats() (*StatusCounts, error) {
 	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM audit_log GROUP BY status`)
@@ -384,6 +427,7 @@ func (s *Store) writeLoop() {
 // QueryOpts holds filters for audit log queries.
 type QueryOpts struct {
 	Status     string
+	Statuses   []string // multi-status filter (e.g. blocked + rejected)
 	Agent      string
 	Unverified bool
 	Since      string
@@ -659,6 +703,116 @@ func (s *Store) QueryAgentRisk() ([]AgentRisk, error) {
 		}
 	}
 
+	return result, rows.Err()
+}
+
+// QueryEdgeStats returns aggregated message counts per from→to edge for the last 24 hours.
+func (s *Store) QueryEdgeStats() ([]EdgeStat, error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	rows, err := s.db.Query(`SELECT from_agent, to_agent, status, COUNT(*) FROM audit_log WHERE timestamp >= ? GROUP BY from_agent, to_agent, status`, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("query edge stats: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type key struct{ from, to string }
+	edges := make(map[key]*EdgeStat)
+	for rows.Next() {
+		var from, to, status string
+		var count int
+		if err := rows.Scan(&from, &to, &status, &count); err != nil {
+			continue
+		}
+		k := key{from, to}
+		es, ok := edges[k]
+		if !ok {
+			es = &EdgeStat{From: from, To: to}
+			edges[k] = es
+		}
+		es.Total += count
+		switch status {
+		case "delivered":
+			es.Delivered += count
+		case "blocked":
+			es.Blocked += count
+		case "quarantined":
+			es.Quarantined += count
+		case "rejected":
+			es.Rejected += count
+		}
+	}
+
+	result := make([]EdgeStat, 0, len(edges))
+	for _, es := range edges {
+		result = append(result, *es)
+	}
+
+	// Sort by total descending for deterministic output
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].Total > result[i].Total {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	return result, rows.Err()
+}
+
+// QueryEdgeRules returns the top triggered rules for a specific from→to edge.
+func (s *Store) QueryEdgeRules(from, to string, limit int) ([]RuleStat, error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	rows, err := s.db.Query(
+		`SELECT rules_triggered FROM audit_log WHERE timestamp >= ? AND from_agent = ? AND to_agent = ? AND rules_triggered IS NOT NULL AND rules_triggered != '' AND rules_triggered != '[]'`,
+		cutoff, from, to,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query edge rules: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type findingJSON struct {
+		RuleID   string `json:"rule_id"`
+		Name     string `json:"name"`
+		Severity string `json:"severity"`
+	}
+
+	counts := make(map[string]*RuleStat)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			continue
+		}
+		var findings []findingJSON
+		if err := json.Unmarshal([]byte(raw), &findings); err != nil {
+			continue
+		}
+		for _, f := range findings {
+			if rs, ok := counts[f.RuleID]; ok {
+				rs.Count++
+			} else {
+				counts[f.RuleID] = &RuleStat{RuleID: f.RuleID, Name: f.Name, Severity: f.Severity, Count: 1}
+			}
+		}
+	}
+
+	result := make([]RuleStat, 0, len(counts))
+	for _, rs := range counts {
+		result = append(result, *rs)
+	}
+
+	// Sort by count descending
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].Count > result[i].Count {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
 	return result, rows.Err()
 }
 
