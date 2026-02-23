@@ -184,7 +184,7 @@ All tools except `review_quarantine` are read-only.
 
 ## Detection Rules
 
-151 built-in rules across 15 categories. Key inter-agent rules:
+151 built-in rules across 14 categories. Key inter-agent rules:
 
 | ID | Name | Severity |
 |---|---|---|
