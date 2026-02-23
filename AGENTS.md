@@ -220,7 +220,7 @@ Use `oktsec rules` to list all rules. Use `oktsec rules --explain <id>` for patt
 ## Health Check
 
 ```
-GET /health -> {"status": "ok", "version": "0.4.0"}
+GET /health -> {"status": "ok", "version": "0.4.1"}
 ```
 
 ## Webhook Events

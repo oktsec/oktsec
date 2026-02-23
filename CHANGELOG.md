@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-02-23
+
+### Added
+
+- **Per-agent tool allowlist**: New `allowed_tools` config field restricts which MCP tools an agent can invoke via `tools/call` requests in the stdio proxy. Unlisted tools are blocked with a JSON-RPC error. Empty list means all tools allowed (ASI05).
+- **MCP tool tests**: 19 tests covering all 6 MCP tools (`scan_message`, `list_agents`, `audit_query`, `get_policy`, `verify_agent`, `review_quarantine`).
+- Documented tool allowlist in AGENTS.md with config example and JSON-RPC error format.
+
+### Fixed
+
+- **Flaky SQLITE_BUSY in tests**: Replaced `time.Sleep` with deterministic `Store.Flush()` that waits for async write channel to drain. Fixes intermittent CI failures on slow runners.
+
+---
+
 ## [0.4.0] - 2026-02-23
 
 OWASP agentic hardening release. Aligned with [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/). All changes are backward-compatible.
