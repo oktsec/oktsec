@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/proxy"
 	"github.com/spf13/cobra"
@@ -42,6 +43,17 @@ func newProxyCmd() *cobra.Command {
 			defer func() { _ = auditStore.Close() }()
 
 			p := proxy.NewStdioProxy(agent, scanner, auditStore, logger, enforce)
+
+			// Load allowed_tools from config if available
+			configPath, _ := cmd.Flags().GetString("config")
+			if configPath != "" {
+				if cfg, err := config.Load(configPath); err == nil {
+					if agentCfg, ok := cfg.Agents[agent]; ok && len(agentCfg.AllowedTools) > 0 {
+						p.SetAllowedTools(agentCfg.AllowedTools)
+						logger.Info("tool allowlist active", "agent", agent, "tools", len(agentCfg.AllowedTools))
+					}
+				}
+			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

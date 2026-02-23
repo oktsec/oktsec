@@ -175,6 +175,108 @@ func TestStdioProxy_ServerResponsesAlwaysForwarded(t *testing.T) {
 	<-done
 }
 
+func TestStdioProxy_ToolAllowlistBlocks(t *testing.T) {
+	p := newStdioTestSetup(t, true) // enforce mode
+	p.SetAllowedTools([]string{"read_file", "list_dir"})
+
+	// tools/call for a tool NOT in the allowlist
+	blocked := `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"exec_command","arguments":{"cmd":"ls"}}}`
+
+	clientRead, clientWrite := io.Pipe()
+	_, serverWrite := io.Pipe()
+	errClientRead, errClientWrite := io.Pipe()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.proxyClientToServer(clientRead, serverWrite, errClientWrite)
+	}()
+
+	_, _ = io.WriteString(clientWrite, blocked+"\n")
+	_ = clientWrite.Close()
+
+	buf := make([]byte, 4096)
+	n, _ := errClientRead.Read(buf)
+	response := strings.TrimSpace(string(buf[:n]))
+
+	var errResp jsonrpcError
+	if err := json.Unmarshal([]byte(response), &errResp); err != nil {
+		t.Fatalf("expected JSON-RPC error, got: %s", response)
+	}
+	if errResp.Error.Code != -32600 {
+		t.Errorf("error code = %d, want -32600", errResp.Error.Code)
+	}
+	if !strings.Contains(errResp.Error.Message, "tool_allowlist") {
+		t.Errorf("error message = %q, should contain 'tool_allowlist'", errResp.Error.Message)
+	}
+
+	_ = serverWrite.Close()
+	_ = errClientRead.Close()
+	<-done
+}
+
+func TestStdioProxy_ToolAllowlistPermits(t *testing.T) {
+	p := newStdioTestSetup(t, true) // enforce mode
+	p.SetAllowedTools([]string{"read_file", "list_dir"})
+
+	// tools/call for a tool IN the allowlist — should be forwarded
+	allowed := `{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"read_file","arguments":{"path":"/etc/hosts"}}}`
+
+	clientRead, clientWrite := io.Pipe()
+	serverRead, serverWrite := io.Pipe()
+	errClientRead, errClientWrite := io.Pipe()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.proxyClientToServer(clientRead, serverWrite, errClientWrite)
+	}()
+
+	_, _ = io.WriteString(clientWrite, allowed+"\n")
+	_ = clientWrite.Close()
+
+	buf := make([]byte, len(allowed)+100)
+	n, _ := serverRead.Read(buf)
+	output := strings.TrimSpace(string(buf[:n]))
+
+	if output != allowed {
+		t.Errorf("allowed tool should be forwarded\ngot:  %s\nwant: %s", output, allowed)
+	}
+
+	_ = serverRead.Close()
+	_ = errClientRead.Close()
+	<-done
+}
+
+func TestStdioProxy_ToolAllowlistEmptyAllowsAll(t *testing.T) {
+	p := newStdioTestSetup(t, true) // enforce mode
+	// No SetAllowedTools call — empty allowlist means all tools allowed
+
+	any_tool := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"exec_command","arguments":{"cmd":"ls"}}}`
+
+	clientRead, clientWrite := io.Pipe()
+	serverRead, serverWrite := io.Pipe()
+	errClientRead, errClientWrite := io.Pipe()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- p.proxyClientToServer(clientRead, serverWrite, errClientWrite)
+	}()
+
+	_, _ = io.WriteString(clientWrite, any_tool+"\n")
+	_ = clientWrite.Close()
+
+	buf := make([]byte, len(any_tool)+100)
+	n, _ := serverRead.Read(buf)
+	output := strings.TrimSpace(string(buf[:n]))
+
+	if output != any_tool {
+		t.Errorf("empty allowlist should forward all tools\ngot:  %s\nwant: %s", output, any_tool)
+	}
+
+	_ = serverRead.Close()
+	_ = errClientRead.Close()
+	<-done
+}
+
 func TestStdioProxy_EnforceModeNotificationDropped(t *testing.T) {
 	p := newStdioTestSetup(t, true) // enforce mode
 

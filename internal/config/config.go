@@ -39,6 +39,7 @@ type IdentityConfig struct {
 type Agent struct {
 	CanMessage     []string `yaml:"can_message"`
 	BlockedContent []string `yaml:"blocked_content"`
+	AllowedTools   []string `yaml:"allowed_tools,omitempty"` // tool names the agent can call (empty = all)
 	Suspended      bool     `yaml:"suspended,omitempty"`
 	Description    string   `yaml:"description,omitempty"`
 	CreatedBy      string   `yaml:"created_by,omitempty"`

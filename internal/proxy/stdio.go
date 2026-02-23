@@ -19,11 +19,12 @@ import (
 
 // StdioProxy wraps an MCP server process, intercepting stdio JSON-RPC messages.
 type StdioProxy struct {
-	agent   string
-	enforce bool
-	scanner *engine.Scanner
-	audit   *audit.Store
-	logger  *slog.Logger
+	agent        string
+	enforce      bool
+	allowedTools map[string]bool // nil or empty = all tools allowed
+	scanner      *engine.Scanner
+	audit        *audit.Store
+	logger       *slog.Logger
 
 	// stdoutMu protects os.Stdout writes when both goroutines may write
 	// (enforce mode: error injection writes to client stdout).
@@ -41,6 +42,20 @@ func NewStdioProxy(agent string, scanner *engine.Scanner, auditStore *audit.Stor
 		audit:   auditStore,
 		logger:  logger,
 	}
+}
+
+// SetAllowedTools configures a tool allowlist. When set, only listed tool
+// names are permitted in tools/call requests. Empty list means all tools allowed.
+func (p *StdioProxy) SetAllowedTools(tools []string) {
+	if len(tools) == 0 {
+		p.allowedTools = nil
+		return
+	}
+	m := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		m[t] = true
+	}
+	p.allowedTools = m
 }
 
 // Run starts the child process and proxies stdin/stdout, scanning each message.
@@ -174,6 +189,30 @@ func (p *StdioProxy) inspectAndDecide(line []byte, from, to string) (bool, json.
 		return false, nil, ""
 	}
 
+	// Tool allowlist check: block tools/call for tools not in the allowlist
+	if p.enforce && msg.Method == "tools/call" && len(p.allowedTools) > 0 {
+		toolName := extractToolName(msg)
+		if toolName != "" && !p.allowedTools[toolName] {
+			p.logger.Warn("tool not allowed",
+				"tool", toolName,
+				"agent", p.agent,
+			)
+			entry := audit.Entry{
+				ID:             msgID,
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+				FromAgent:      from,
+				ToAgent:        to,
+				ContentHash:    sha256Hash(toolName),
+				Status:         "blocked",
+				PolicyDecision: "tool_not_allowed",
+				RulesTriggered: fmt.Sprintf(`[{"rule":"tool_allowlist","tool":"%s"}]`, toolName),
+				LatencyMs:      time.Since(start).Milliseconds(),
+			}
+			p.audit.Log(entry)
+			return true, msg.ID, "tool_allowlist:" + toolName
+		}
+	}
+
 	content := extractContent(msg)
 	if content == "" {
 		return false, msg.ID, ""
@@ -248,6 +287,20 @@ func encodeStdioFindings(findings []engine.FindingSummary) string {
 		return string(b)
 	}
 	return "[]"
+}
+
+// extractToolName returns the tool name from a tools/call request, or "".
+func extractToolName(msg jsonrpcMessage) string {
+	if len(msg.Params) == 0 {
+		return ""
+	}
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(msg.Params, &params); err == nil {
+		return params.Name
+	}
+	return ""
 }
 
 // extractContent pulls scannable text from a JSON-RPC message.
