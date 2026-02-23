@@ -19,12 +19,17 @@ import (
 
 // StdioProxy wraps an MCP server process, intercepting stdio JSON-RPC messages.
 type StdioProxy struct {
-	agent        string
-	enforce      bool
-	allowedTools map[string]bool // nil or empty = all tools allowed
-	scanner      *engine.Scanner
-	audit        *audit.Store
-	logger       *slog.Logger
+	agent            string
+	enforce          bool
+	inspectResponses bool            // when true + enforce, block malicious server responses
+	allowedTools     map[string]bool // nil or empty = all tools allowed
+	scanner          *engine.Scanner
+	audit            *audit.Store
+	logger           *slog.Logger
+
+	// pendingIDs tracks request IDs sent client→server so we can correlate
+	// server responses and inspect them when inspectResponses is enabled.
+	pendingIDs sync.Map // map[string]struct{}
 
 	// stdoutMu protects os.Stdout writes when both goroutines may write
 	// (enforce mode: error injection writes to client stdout).
@@ -42,6 +47,13 @@ func NewStdioProxy(agent string, scanner *engine.Scanner, auditStore *audit.Stor
 		audit:   auditStore,
 		logger:  logger,
 	}
+}
+
+// SetInspectResponses enables server→client response inspection. When enabled
+// in enforce mode, malicious server responses are replaced with a JSON-RPC
+// error (code -32001) instead of being forwarded to the client.
+func (p *StdioProxy) SetInspectResponses(enabled bool) {
+	p.inspectResponses = enabled
 }
 
 // SetAllowedTools configures a tool allowlist. When set, only listed tool
@@ -127,6 +139,11 @@ func (p *StdioProxy) proxyClientToServer(clientRead io.Reader, serverWrite io.Wr
 
 		blocked, rpcID, rule := p.inspectAndDecide(line, "client", p.agent)
 
+		// Track request IDs for response correlation
+		if rpcID != nil && p.inspectResponses {
+			p.pendingIDs.Store(string(rpcID), struct{}{})
+		}
+
 		if blocked && p.enforce {
 			// Inject JSON-RPC error back to client if this is a request (has id)
 			if rpcID != nil {
@@ -154,7 +171,8 @@ func (p *StdioProxy) proxyClientToServer(clientRead io.Reader, serverWrite io.Wr
 }
 
 // proxyServerToClient handles server→client traffic.
-// Always forwards (observe-only) — we never block server responses.
+// By default, always forwards (observe-only). When inspectResponses is enabled
+// in enforce mode, malicious responses are replaced with JSON-RPC errors.
 func (p *StdioProxy) proxyServerToClient(serverRead io.Reader, clientWrite io.Writer) error {
 	sc := bufio.NewScanner(serverRead)
 	sc.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
@@ -162,8 +180,22 @@ func (p *StdioProxy) proxyServerToClient(serverRead io.Reader, clientWrite io.Wr
 	for sc.Scan() {
 		line := sc.Bytes()
 
-		// Observe only — inspect but never block
-		p.inspectAndLog(line, p.agent, "client")
+		if p.enforce && p.inspectResponses {
+			blocked, rpcID, rule := p.inspectAndDecide(line, p.agent, "client")
+			if blocked && rpcID != nil {
+				// Replace malicious response with JSON-RPC error
+				errResp := jsonrpcError{JSONRPC: "2.0", ID: rpcID}
+				errResp.Error.Code = -32001
+				errResp.Error.Message = "blocked by oktsec (response): " + rule
+				if data, err := json.Marshal(errResp); err == nil {
+					p.writeToClient(clientWrite, data)
+				}
+				continue
+			}
+		} else {
+			// Observe only — inspect but never block
+			p.inspectAndLog(line, p.agent, "client")
+		}
 
 		p.writeToClient(clientWrite, line)
 	}

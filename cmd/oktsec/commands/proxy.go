@@ -18,6 +18,7 @@ import (
 func newProxyCmd() *cobra.Command {
 	var agent string
 	var enforce bool
+	var inspectResponses bool
 
 	cmd := &cobra.Command{
 		Use:   "proxy --agent <name> -- <command> [args...]",
@@ -43,6 +44,9 @@ func newProxyCmd() *cobra.Command {
 			defer func() { _ = auditStore.Close() }()
 
 			p := proxy.NewStdioProxy(agent, scanner, auditStore, logger, enforce)
+			if inspectResponses {
+				p.SetInspectResponses(true)
+			}
 
 			// Load allowed_tools from config if available
 			configPath, _ := cmd.Flags().GetString("config")
@@ -70,6 +74,7 @@ func newProxyCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&agent, "agent", "", "agent name for this MCP server")
 	cmd.Flags().BoolVar(&enforce, "enforce", false, "block malicious requests instead of observe-only")
+	cmd.Flags().BoolVar(&inspectResponses, "inspect-responses", false, "also inspect and block malicious server responses (requires --enforce)")
 	_ = cmd.MarkFlagRequired("agent")
 	return cmd
 }

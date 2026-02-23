@@ -47,6 +47,7 @@ type Handler struct {
 	audit       *audit.Store
 	webhooks    *WebhookNotifier
 	rateLimiter *RateLimiter
+	window      *MessageWindow
 	logger      *slog.Logger
 }
 
@@ -60,6 +61,7 @@ func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluat
 		audit:       auditStore,
 		webhooks:    webhooks,
 		rateLimiter: NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
+		window:      NewMessageWindow(10, time.Hour),
 		logger:      logger,
 	}
 }
@@ -140,10 +142,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Step 5: Apply BlockedContent per-agent filter
 	h.applyBlockedContent(req.From, outcome)
 
-	// Step 6: Multi-message verdict escalation
+	// Step 6: Split injection detection (multi-message window)
+	h.scanConcatenated(r.Context(), req.From, req.Content, outcome)
+
+	// Step 7: Multi-message verdict escalation
 	h.escalateByHistory(req.From, outcome)
 
-	// Step 7: Apply verdict
+	// Step 8: Apply verdict
 	status, policyDecision, httpStatus := verdictToResponse(outcome.Verdict)
 	rulesJSON := encodeFindings(outcome.Findings)
 
@@ -252,6 +257,49 @@ func (h *Handler) escalateByHistory(agent string, outcome *engine.ScanOutcome) {
 		outcome.Verdict = engine.VerdictBlock
 	} else if recentBlocks >= 3 && outcome.Verdict == engine.VerdictFlag {
 		outcome.Verdict = engine.VerdictQuarantine
+	}
+}
+
+// scanConcatenated adds the current message to the sliding window and, if the
+// individual verdict is not already severe (block/quarantine), scans the
+// concatenation of recent messages from the same sender. If the concatenated
+// scan produces a more severe verdict, it escalates the outcome.
+func (h *Handler) scanConcatenated(ctx context.Context, agent, content string, outcome *engine.ScanOutcome) {
+	h.window.Add(agent, content)
+
+	// Skip if already severe — no point rescanning
+	if verdictSeverity(outcome.Verdict) >= verdictSeverity(engine.VerdictQuarantine) {
+		return
+	}
+
+	concat := h.window.Concatenated(agent)
+	if concat == "" {
+		return // single message, nothing to cross-check
+	}
+
+	concatOutcome, err := h.scanContent(ctx, concat)
+	if err != nil {
+		h.logger.Error("concatenated scan failed", "error", err, "agent", agent)
+		return
+	}
+
+	if verdictSeverity(concatOutcome.Verdict) > verdictSeverity(outcome.Verdict) {
+		outcome.Verdict = concatOutcome.Verdict
+		outcome.Findings = concatOutcome.Findings
+	}
+}
+
+// verdictSeverity maps a verdict to a numeric severity for comparison.
+func verdictSeverity(v engine.ScanVerdict) int {
+	switch v {
+	case engine.VerdictBlock:
+		return 3
+	case engine.VerdictQuarantine:
+		return 2
+	case engine.VerdictFlag:
+		return 1
+	default:
+		return 0
 	}
 }
 

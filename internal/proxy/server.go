@@ -144,7 +144,9 @@ func listenAutoPort(bind string, port int, logger *slog.Logger) (net.Listener, i
 	addr := fmt.Sprintf("%s:%d", bind, port)
 	ln, err := net.Listen("tcp", addr)
 	if err == nil {
-		return ln, port, nil
+		// When port is 0, the OS assigns a random port — return the actual port.
+		actual := ln.Addr().(*net.TCPAddr).Port
+		return ln, actual, nil
 	}
 
 	// Check if the error is "address already in use"
