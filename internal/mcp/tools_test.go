@@ -108,7 +108,9 @@ func TestScanMessage_PromptInjection(t *testing.T) {
 
 	var data map[string]any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &data)
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if data["verdict"] == "clean" {
 		t.Error("prompt injection should not be clean")
@@ -145,7 +147,9 @@ func TestListAgents(t *testing.T) {
 
 	var data map[string]any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &data)
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	total := int(data["total"].(float64))
 	if total != 2 {
@@ -172,7 +176,9 @@ func TestAuditQuery_Empty(t *testing.T) {
 
 	var entries []any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &entries)
+	if err := json.Unmarshal([]byte(text), &entries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if len(entries) != 0 {
 		t.Errorf("expected empty audit log, got %d entries", len(entries))
 	}
