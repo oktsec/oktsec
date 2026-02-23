@@ -99,6 +99,7 @@ agents:
   coordinator:
     can_message: ["researcher", "reporter"]  # ["*"] = any agent
     blocked_content: []                       # Aguara categories that force block
+    allowed_tools: []                         # MCP tool names allowed via stdio proxy (empty = all)
     suspended: false
     description: "Orchestrator agent"
 
@@ -174,6 +175,23 @@ When running as an MCP server (`oktsec mcp`), these tools are available:
 | `review_quarantine` | `action` (required: list/detail/approve/reject), `id`, `limit`, `status` | Manage quarantined messages. |
 
 All tools except `review_quarantine` are read-only.
+
+## Tool Allowlist (Stdio Proxy)
+
+When `allowed_tools` is set for an agent in config, only listed MCP tools are permitted in `tools/call` requests. Any unlisted tool is blocked with a JSON-RPC error:
+
+```json
+{"jsonrpc":"2.0","id":5,"error":{"code":-32600,"message":"blocked by oktsec: tool_allowlist:exec_command"}}
+```
+
+Config example:
+```yaml
+agents:
+  filesystem:
+    allowed_tools: ["read_file", "list_dir", "search_files"]
+```
+
+Empty list (or omitted) means all tools are allowed. The check runs before content scanning (cheapest check first).
 
 ## Verdict Escalation
 
