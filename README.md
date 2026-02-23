@@ -353,7 +353,7 @@ oktsec serve
 
 ```
   ┌──────────────────────────────────────┐
-  │           OKTSEC v0.3.0              │
+  │           OKTSEC v0.4.0              │
   │   Security Proxy for AI Agents       │
   ├──────────────────────────────────────┤
   │  API:       http://127.0.0.1:8080   │
@@ -559,6 +559,7 @@ oktsec quarantine list|detail|approve|reject [--status <status>] [<id>]
 oktsec agent list                                        # List agents with status
 oktsec agent suspend <name>                              # Suspend an agent
 oktsec agent unsuspend <name>                            # Unsuspend an agent
+oktsec enforce [on|off]                                  # Toggle enforce/observe mode
 oktsec status                                            # Show proxy status
 oktsec version
 ```
@@ -586,7 +587,7 @@ Poll quarantine status for a held message.
 
 ### `GET /health`
 
-Returns `{"status": "ok", "version": "0.3.0"}`.
+Returns `{"status": "ok", "version": "0.4.0"}`.
 
 ### `GET /dashboard`
 
