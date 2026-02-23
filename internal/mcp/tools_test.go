@@ -207,7 +207,9 @@ func TestAuditQuery_WithEntries(t *testing.T) {
 
 	var entries []any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &entries)
+	if err := json.Unmarshal([]byte(text), &entries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if len(entries) != 2 {
 		t.Errorf("got %d entries, want 2", len(entries))
 	}
@@ -233,7 +235,9 @@ func TestAuditQuery_FilterByStatus(t *testing.T) {
 
 	var entries []any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &entries)
+	if err := json.Unmarshal([]byte(text), &entries); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if len(entries) != 1 {
 		t.Errorf("got %d blocked entries, want 1", len(entries))
 	}
@@ -252,7 +256,9 @@ func TestGetPolicy_KnownAgent(t *testing.T) {
 
 	var data map[string]any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &data)
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if data["agent"] != "coordinator" {
 		t.Errorf("agent = %v, want coordinator", data["agent"])
@@ -348,7 +354,9 @@ func TestVerifyAgent_UnknownAgent(t *testing.T) {
 
 	var data map[string]any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &data)
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if data["verified"] != false {
 		t.Error("expected verified=false for unknown agent")
 	}
@@ -389,7 +397,9 @@ func TestVerifyAgent_ValidSignature(t *testing.T) {
 
 	var data map[string]any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &data)
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	if data["verified"] != true {
 		t.Errorf("expected verified=true, got %v", data["verified"])
 	}
@@ -421,7 +431,9 @@ func TestReviewQuarantine_ListEmpty(t *testing.T) {
 
 	var data map[string]any
 	text := result.Content[0].(mcplib.TextContent).Text
-	json.Unmarshal([]byte(text), &data)
+	if err := json.Unmarshal([]byte(text), &data); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 	count := int(data["count"].(float64))
 	if count != 0 {
 		t.Errorf("count = %d, want 0", count)
