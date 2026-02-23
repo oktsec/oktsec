@@ -23,15 +23,16 @@ import (
 
 // Server is the oktsec HTTP proxy server.
 type Server struct {
-	cfg       *config.Config
-	cfgPath   string
-	srv       *http.Server
-	ln        net.Listener
-	keys      *identity.KeyStore
-	scanner   *engine.Scanner
-	audit     *audit.Store
-	dashboard *dashboard.Server
-	logger    *slog.Logger
+	cfg           *config.Config
+	cfgPath       string
+	srv           *http.Server
+	ln            net.Listener
+	keys          *identity.KeyStore
+	scanner       *engine.Scanner
+	audit         *audit.Store
+	dashboard     *dashboard.Server
+	logger        *slog.Logger
+	anomalyCancel context.CancelFunc
 }
 
 // NewServer creates and wires the proxy server.
@@ -193,12 +194,91 @@ func (s *Server) Port() int {
 	return s.cfg.Server.Port
 }
 
+// anomalyLoop periodically checks agent risk scores and fires alerts or suspends agents.
+func (s *Server) anomalyLoop(ctx context.Context) {
+	interval := s.cfg.Anomaly.CheckIntervalS
+	if interval <= 0 {
+		interval = 60
+	}
+	ticker := time.NewTicker(time.Duration(interval) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.checkAnomalies()
+		}
+	}
+}
+
+func (s *Server) checkAnomalies() {
+	if s.cfg.Anomaly.RiskThreshold <= 0 {
+		return
+	}
+
+	risks, err := s.audit.QueryAgentRisk()
+	if err != nil {
+		s.logger.Error("anomaly check failed", "error", err)
+		return
+	}
+
+	minMsgs := s.cfg.Anomaly.MinMessages
+	if minMsgs <= 0 {
+		minMsgs = 5
+	}
+
+	webhooks := NewWebhookNotifier(s.cfg.Webhooks, s.logger)
+
+	for _, ar := range risks {
+		if ar.Total < minMsgs || ar.RiskScore <= s.cfg.Anomaly.RiskThreshold {
+			continue
+		}
+
+		s.logger.Warn("agent risk elevated",
+			"agent", ar.Agent,
+			"risk_score", ar.RiskScore,
+			"total", ar.Total,
+			"blocked", ar.Blocked,
+		)
+
+		webhooks.Notify(WebhookEvent{
+			Event:     "agent_risk_elevated",
+			From:      ar.Agent,
+			Severity:  "high",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+
+		if s.cfg.Anomaly.AutoSuspend {
+			if agent, ok := s.cfg.Agents[ar.Agent]; ok && !agent.Suspended {
+				agent.Suspended = true
+				s.cfg.Agents[ar.Agent] = agent
+				s.logger.Warn("agent auto-suspended", "agent", ar.Agent, "risk_score", ar.RiskScore)
+
+				if s.cfgPath != "" {
+					if err := s.cfg.Save(s.cfgPath); err != nil {
+						s.logger.Error("failed to save config after auto-suspend", "error", err)
+					}
+				}
+			}
+		}
+	}
+}
+
 // Start begins listening. Blocks until the server is shut down.
 func (s *Server) Start() error {
 	s.logger.Info("oktsec proxy starting",
 		"addr", s.ln.Addr().String(),
 		"require_signature", s.cfg.Identity.RequireSignature,
 	)
+
+	// Start anomaly detection loop if configured
+	if s.cfg.Anomaly.RiskThreshold > 0 {
+		ctx, cancel := context.WithCancel(context.Background())
+		s.anomalyCancel = cancel
+		go s.anomalyLoop(ctx)
+	}
 
 	// SIGHUP handler for hot-reloading keys (Unix only)
 	if runtime.GOOS != "windows" && s.cfg.Identity.KeysDir != "" {
@@ -222,6 +302,9 @@ func (s *Server) Start() error {
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("shutting down")
+	if s.anomalyCancel != nil {
+		s.anomalyCancel()
+	}
 	err := s.srv.Shutdown(ctx)
 	s.scanner.Close()
 	if cerr := s.audit.Close(); cerr != nil && err == nil {

@@ -83,3 +83,32 @@ func TestCheckACL_NoRestrictions(t *testing.T) {
 		t.Error("agent with no can_message should be allowed to message anyone")
 	}
 }
+
+func TestCheckACL_DefaultDeny_UnknownSender(t *testing.T) {
+	cfg := &config.Config{
+		DefaultPolicy: "deny",
+		Agents: map[string]config.Agent{
+			"a": {CanMessage: []string{"b"}},
+		},
+	}
+	e := NewEvaluator(cfg)
+
+	d := e.CheckACL("unknown", "b")
+	if d.Allowed {
+		t.Error("unknown sender should be denied when default_policy is deny")
+	}
+}
+
+func TestCheckACL_DefaultDeny_EmptyAgents(t *testing.T) {
+	cfg := &config.Config{
+		DefaultPolicy: "deny",
+		Agents:        map[string]config.Agent{},
+	}
+	e := NewEvaluator(cfg)
+
+	// Empty agents map still allows (no ACL configured) — deny only for unknown senders when agents exist
+	d := e.CheckACL("anyone", "other")
+	if !d.Allowed {
+		t.Error("empty agents map should allow all (no ACL configured)")
+	}
+}

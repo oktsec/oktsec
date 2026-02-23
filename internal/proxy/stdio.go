@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,15 +20,23 @@ import (
 // StdioProxy wraps an MCP server process, intercepting stdio JSON-RPC messages.
 type StdioProxy struct {
 	agent   string
+	enforce bool
 	scanner *engine.Scanner
 	audit   *audit.Store
 	logger  *slog.Logger
+
+	// stdoutMu protects os.Stdout writes when both goroutines may write
+	// (enforce mode: error injection writes to client stdout).
+	stdoutMu sync.Mutex
 }
 
 // NewStdioProxy creates a proxy for intercepting MCP stdio communication.
-func NewStdioProxy(agent string, scanner *engine.Scanner, auditStore *audit.Store, logger *slog.Logger) *StdioProxy {
+// When enforce is true, malicious client→server requests are blocked and a
+// JSON-RPC error response is injected back to the client.
+func NewStdioProxy(agent string, scanner *engine.Scanner, auditStore *audit.Store, logger *slog.Logger, enforce bool) *StdioProxy {
 	return &StdioProxy{
 		agent:   agent,
+		enforce: enforce,
 		scanner: scanner,
 		audit:   auditStore,
 		logger:  logger,
@@ -54,15 +63,15 @@ func (p *StdioProxy) Run(ctx context.Context, command string, args []string) err
 
 	errCh := make(chan error, 2)
 
-	// Client → oktsec → Server (stdin)
+	// Client → oktsec → Server (stdin): can block + inject errors
 	go func() {
-		errCh <- p.proxyStream(os.Stdin, childIn, "client", p.agent)
+		errCh <- p.proxyClientToServer(os.Stdin, childIn, os.Stdout)
 		_ = childIn.Close()
 	}()
 
-	// Server → oktsec → Client (stdout)
+	// Server → oktsec → Client (stdout): observe-only, always forwards
 	go func() {
-		errCh <- p.proxyStream(childOut, os.Stdout, p.agent, "client")
+		errCh <- p.proxyServerToClient(childOut, os.Stdout)
 	}()
 
 	// Wait for first stream to end
@@ -81,71 +90,109 @@ type jsonrpcMessage struct {
 	Result  json.RawMessage `json:"result,omitempty"`
 }
 
-func (p *StdioProxy) proxyStream(src io.Reader, dst io.Writer, from, to string) error {
-	scanner := bufio.NewScanner(src)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024) // 10MB max line
+// jsonrpcError is a JSON-RPC 2.0 error response injected when a request is blocked.
+type jsonrpcError struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id"`
+	Error   struct {
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
+// proxyClientToServer handles client→server traffic.
+// In enforce mode, blocked requests are not forwarded and a JSON-RPC error is
+// injected back to the client.
+func (p *StdioProxy) proxyClientToServer(clientRead io.Reader, serverWrite io.Writer, clientWrite io.Writer) error {
+	sc := bufio.NewScanner(clientRead)
+	sc.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024) // 10MB max line
 
-		p.inspectMessage(line, from, to)
+	for sc.Scan() {
+		line := sc.Bytes()
+
+		blocked, rpcID, rule := p.inspectAndDecide(line, "client", p.agent)
+
+		if blocked && p.enforce {
+			// Inject JSON-RPC error back to client if this is a request (has id)
+			if rpcID != nil {
+				errResp := jsonrpcError{JSONRPC: "2.0", ID: rpcID}
+				errResp.Error.Code = -32600
+				errResp.Error.Message = "blocked by oktsec: " + rule
+
+				if data, err := json.Marshal(errResp); err == nil {
+					p.writeToClient(clientWrite, data)
+				}
+			}
+			// Notifications (no id) are silently dropped
+			continue
+		}
 
 		// Forward line as-is (transparent proxy)
-		if _, err := dst.Write(line); err != nil {
+		if _, err := serverWrite.Write(line); err != nil {
 			return err
 		}
-		if _, err := dst.Write([]byte("\n")); err != nil {
+		if _, err := serverWrite.Write([]byte("\n")); err != nil {
 			return err
 		}
 	}
-	return scanner.Err()
+	return sc.Err()
 }
 
-func (p *StdioProxy) inspectMessage(line []byte, from, to string) {
+// proxyServerToClient handles server→client traffic.
+// Always forwards (observe-only) — we never block server responses.
+func (p *StdioProxy) proxyServerToClient(serverRead io.Reader, clientWrite io.Writer) error {
+	sc := bufio.NewScanner(serverRead)
+	sc.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
+
+	for sc.Scan() {
+		line := sc.Bytes()
+
+		// Observe only — inspect but never block
+		p.inspectAndLog(line, p.agent, "client")
+
+		p.writeToClient(clientWrite, line)
+	}
+	return sc.Err()
+}
+
+// writeToClient writes a line + newline to the client, protected by mutex.
+func (p *StdioProxy) writeToClient(w io.Writer, data []byte) {
+	p.stdoutMu.Lock()
+	defer p.stdoutMu.Unlock()
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte("\n"))
+}
+
+// inspectAndDecide scans a message and returns whether it should be blocked.
+// Returns (blocked, rpcID, topRule).
+func (p *StdioProxy) inspectAndDecide(line []byte, from, to string) (bool, json.RawMessage, string) {
 	start := time.Now()
 	msgID := uuid.New().String()
 
 	var msg jsonrpcMessage
 	if err := json.Unmarshal(line, &msg); err != nil {
-		// Not valid JSON-RPC, pass through silently
-		return
+		return false, nil, ""
 	}
 
-	// Extract content to scan
 	content := extractContent(msg)
 	if content == "" {
-		// Structural messages (notifications, results with no scannable content)
-		return
+		return false, msg.ID, ""
 	}
 
-	// Scan content
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	outcome, err := p.scanner.ScanContent(ctx, content)
 	if err != nil {
 		p.logger.Error("scan failed", "error", err, "method", msg.Method)
-		return
+		return false, msg.ID, ""
 	}
 
-	status := "delivered"
-	decision := "allow"
-	switch outcome.Verdict {
-	case engine.VerdictBlock:
-		status = "blocked"
-		decision = "content_blocked"
-	case engine.VerdictQuarantine:
-		status = "quarantined"
-		decision = "content_quarantined"
-	case engine.VerdictFlag:
-		decision = "content_flagged"
-	}
-
-	rulesJSON := "[]"
+	status, decision := verdictToStdio(outcome.Verdict)
+	rulesJSON := encodeStdioFindings(outcome.Findings)
+	topRule := ""
 	if len(outcome.Findings) > 0 {
-		if b, err := json.Marshal(outcome.Findings); err == nil {
-			rulesJSON = string(b)
-		}
+		topRule = outcome.Findings[0].RuleID
 	}
 
 	entry := audit.Entry{
@@ -170,6 +217,37 @@ func (p *StdioProxy) inspectMessage(line []byte, from, to string) {
 			"verdict", outcome.Verdict,
 		)
 	}
+
+	shouldBlock := outcome.Verdict == engine.VerdictBlock || outcome.Verdict == engine.VerdictQuarantine
+	return shouldBlock, msg.ID, topRule
+}
+
+// inspectAndLog is the observe-only version for server→client traffic.
+func (p *StdioProxy) inspectAndLog(line []byte, from, to string) {
+	p.inspectAndDecide(line, from, to)
+}
+
+func verdictToStdio(v engine.ScanVerdict) (status, decision string) {
+	switch v {
+	case engine.VerdictBlock:
+		return "blocked", "content_blocked"
+	case engine.VerdictQuarantine:
+		return "quarantined", "content_quarantined"
+	case engine.VerdictFlag:
+		return "delivered", "content_flagged"
+	default:
+		return "delivered", "allow"
+	}
+}
+
+func encodeStdioFindings(findings []engine.FindingSummary) string {
+	if len(findings) == 0 {
+		return "[]"
+	}
+	if b, err := json.Marshal(findings); err == nil {
+		return string(b)
+	}
+	return "[]"
 }
 
 // extractContent pulls scannable text from a JSON-RPC message.

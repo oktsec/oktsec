@@ -33,6 +33,7 @@ type FindingSummary struct {
 	RuleID   string `json:"rule_id"`
 	Name     string `json:"name"`
 	Severity string `json:"severity"`
+	Category string `json:"category,omitempty"`
 	Match    string `json:"match,omitempty"`
 }
 
@@ -86,6 +87,7 @@ func (s *Scanner) ScanContent(ctx context.Context, content string) (*ScanOutcome
 			RuleID:   f.RuleID,
 			Name:     f.RuleName,
 			Severity: f.Severity.String(),
+			Category: f.Category,
 			Match:    truncate(f.MatchedText, 200),
 		}
 		outcome.Findings = append(outcome.Findings, summary)

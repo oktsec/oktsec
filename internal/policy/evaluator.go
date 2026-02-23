@@ -14,13 +14,19 @@ type Decision struct {
 
 // Evaluator checks access control policies.
 type Evaluator struct {
-	agents map[string]config.Agent
+	agents        map[string]config.Agent
+	defaultPolicy string // "allow" or "deny"
 }
 
 // NewEvaluator creates a policy evaluator from the config.
 func NewEvaluator(cfg *config.Config) *Evaluator {
+	dp := cfg.DefaultPolicy
+	if dp == "" {
+		dp = "allow"
+	}
 	return &Evaluator{
-		agents: cfg.Agents,
+		agents:        cfg.Agents,
+		defaultPolicy: dp,
 	}
 }
 
@@ -33,7 +39,9 @@ func (e *Evaluator) CheckACL(from, to string) Decision {
 
 	agent, exists := e.agents[from]
 	if !exists {
-		// Unknown sender — allow by default (they're not restricted)
+		if e.defaultPolicy == "deny" {
+			return Decision{Allowed: false, Reason: fmt.Sprintf("unknown sender %q denied by default policy", from)}
+		}
 		return Decision{Allowed: true, Reason: "sender not in policy"}
 	}
 

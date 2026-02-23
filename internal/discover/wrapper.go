@@ -63,13 +63,20 @@ func parseMCPConfig(data []byte) (map[string]json.RawMessage, map[string]mcpServ
 	return raw, servers, nil
 }
 
+// WrapServersWithEnforce controls whether --enforce flag is included.
+var WrapServersWithEnforce bool
+
 func wrapServers(servers map[string]mcpServerJSON) int {
 	wrapped := 0
 	for name, srv := range servers {
 		if srv.Command == "oktsec" {
 			continue
 		}
-		newArgs := []string{"proxy", "--agent", name, "--"}
+		newArgs := []string{"proxy", "--agent", name}
+		if WrapServersWithEnforce {
+			newArgs = append(newArgs, "--enforce")
+		}
+		newArgs = append(newArgs, "--")
 		newArgs = append(newArgs, srv.Command)
 		newArgs = append(newArgs, srv.Args...)
 		srv.Command = "oktsec"

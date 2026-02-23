@@ -12,11 +12,14 @@ type Config struct {
 	Version        string           `yaml:"version"`
 	Server         ServerConfig     `yaml:"server"`
 	Identity       IdentityConfig   `yaml:"identity"`
+	DefaultPolicy  string           `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
 	Agents         map[string]Agent `yaml:"agents"`
 	Rules          []RuleAction     `yaml:"rules"`
 	Webhooks       []Webhook        `yaml:"webhooks"`
 	CustomRulesDir string           `yaml:"custom_rules_dir,omitempty"`
 	Quarantine     QuarantineConfig `yaml:"quarantine,omitempty"`
+	RateLimit      RateLimitConfig  `yaml:"rate_limit,omitempty"`
+	Anomaly        AnomalyConfig    `yaml:"anomaly,omitempty"`
 }
 
 // ServerConfig holds proxy server settings.
@@ -36,6 +39,7 @@ type IdentityConfig struct {
 type Agent struct {
 	CanMessage     []string `yaml:"can_message"`
 	BlockedContent []string `yaml:"blocked_content"`
+	Suspended      bool     `yaml:"suspended,omitempty"`
 	Description    string   `yaml:"description,omitempty"`
 	CreatedBy      string   `yaml:"created_by,omitempty"`
 	CreatedAt      string   `yaml:"created_at,omitempty"`
@@ -56,6 +60,20 @@ type RuleAction struct {
 	Severity string   `yaml:"severity"`
 	Action   string   `yaml:"action"` // block, quarantine, allow-and-flag
 	Notify   []string `yaml:"notify"`
+}
+
+// RateLimitConfig controls per-agent message rate limiting.
+type RateLimitConfig struct {
+	PerAgent int `yaml:"per_agent"` // max messages per window (0 = disabled)
+	WindowS  int `yaml:"window"`    // window size in seconds (default: 60)
+}
+
+// AnomalyConfig controls automatic risk-based alerting and suspension.
+type AnomalyConfig struct {
+	CheckIntervalS int     `yaml:"check_interval"` // seconds between checks (default: 60)
+	RiskThreshold  float64 `yaml:"risk_threshold"` // risk score to trigger alert (0-100)
+	MinMessages    int     `yaml:"min_messages"`   // min messages before evaluating risk
+	AutoSuspend    bool    `yaml:"auto_suspend"`   // suspend agent when threshold exceeded
 }
 
 // Webhook defines an outgoing notification endpoint.
@@ -137,6 +155,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Identity.RequireSignature && c.Identity.KeysDir == "" {
 		return fmt.Errorf("keys_dir is required when require_signature is true")
+	}
+	switch c.DefaultPolicy {
+	case "", "allow", "deny":
+		// valid
+	default:
+		return fmt.Errorf("invalid default_policy %q (must be allow or deny)", c.DefaultPolicy)
 	}
 	for name, agent := range c.Agents {
 		for _, target := range agent.CanMessage {

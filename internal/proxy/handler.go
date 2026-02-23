@@ -40,25 +40,27 @@ type MessageResponse struct {
 
 // Handler processes /v1/message requests through the full pipeline.
 type Handler struct {
-	cfg      *config.Config
-	keys     *identity.KeyStore
-	policy   *policy.Evaluator
-	scanner  *engine.Scanner
-	audit    *audit.Store
-	webhooks *WebhookNotifier
-	logger   *slog.Logger
+	cfg         *config.Config
+	keys        *identity.KeyStore
+	policy      *policy.Evaluator
+	scanner     *engine.Scanner
+	audit       *audit.Store
+	webhooks    *WebhookNotifier
+	rateLimiter *RateLimiter
+	logger      *slog.Logger
 }
 
 // NewHandler creates a message handler with all dependencies.
 func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluator, scanner *engine.Scanner, auditStore *audit.Store, webhooks *WebhookNotifier, logger *slog.Logger) *Handler {
 	return &Handler{
-		cfg:      cfg,
-		keys:     keys,
-		policy:   pol,
-		scanner:  scanner,
-		audit:    auditStore,
-		webhooks: webhooks,
-		logger:   logger,
+		cfg:         cfg,
+		keys:        keys,
+		policy:      pol,
+		scanner:     scanner,
+		audit:       auditStore,
+		webhooks:    webhooks,
+		rateLimiter: NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
+		logger:      logger,
 	}
 }
 
@@ -74,6 +76,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req, err := h.parseRequest(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Rate limit check (before any expensive operations)
+	if !h.rateLimiter.Allow(req.From) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{
+			"error": fmt.Sprintf("rate limit exceeded for agent %q", req.From),
+		})
 		return
 	}
 
@@ -96,14 +106,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 2: ACL check
+	// Step 2: Agent suspension check
+	if agent, ok := h.cfg.Agents[req.From]; ok && agent.Suspended {
+		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "agent_suspended", VerifiedSender: verified}
+		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
+		return
+	}
+	if agent, ok := h.cfg.Agents[req.To]; ok && agent.Suspended {
+		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "recipient_suspended", VerifiedSender: verified}
+		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
+		return
+	}
+
+	// Step 3: ACL check
 	if !h.policy.CheckACL(req.From, req.To).Allowed {
 		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "acl_denied", VerifiedSender: verified}
 		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
 		return
 	}
 
-	// Step 3: Content scan
+	// Step 4: Content scan
 	outcome, err := h.scanContent(r.Context(), req.Content)
 	if err != nil {
 		h.logger.Error("scan failed", "error", err, "message_id", msgID)
@@ -115,7 +137,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step 4: Apply verdict
+	// Step 5: Apply BlockedContent per-agent filter
+	h.applyBlockedContent(req.From, outcome)
+
+	// Step 6: Multi-message verdict escalation
+	h.escalateByHistory(req.From, outcome)
+
+	// Step 7: Apply verdict
 	status, policyDecision, httpStatus := verdictToResponse(outcome.Verdict)
 	rulesJSON := encodeFindings(outcome.Findings)
 
@@ -172,6 +200,59 @@ func (h *Handler) rejectAndLog(w http.ResponseWriter, httpStatus int, resp Messa
 	entry.LatencyMs = time.Since(start).Milliseconds()
 	h.audit.Log(*entry)
 	writeJSON(w, httpStatus, resp)
+}
+
+// applyBlockedContent escalates verdict to block if any finding's category
+// matches the agent's blocked_content list.
+func (h *Handler) applyBlockedContent(agentName string, outcome *engine.ScanOutcome) {
+	agent, ok := h.cfg.Agents[agentName]
+	if !ok || len(agent.BlockedContent) == 0 || len(outcome.Findings) == 0 {
+		return
+	}
+	blocked := make(map[string]bool, len(agent.BlockedContent))
+	for _, cat := range agent.BlockedContent {
+		blocked[cat] = true
+	}
+	for _, f := range outcome.Findings {
+		if blocked[f.Category] {
+			outcome.Verdict = engine.VerdictBlock
+			return
+		}
+	}
+}
+
+// escalateByHistory checks recent audit history for the sender and escalates
+// the current verdict if the agent has been repeatedly blocked.
+func (h *Handler) escalateByHistory(agent string, outcome *engine.ScanOutcome) {
+	// Only escalate if current verdict is flag or quarantine
+	if outcome.Verdict != engine.VerdictFlag && outcome.Verdict != engine.VerdictQuarantine {
+		return
+	}
+
+	since := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	entries, err := h.audit.Query(audit.QueryOpts{
+		Agent:    agent,
+		Statuses: []string{"blocked", "quarantined"},
+		Since:    since,
+		Limit:    100,
+	})
+	if err != nil {
+		return
+	}
+
+	// Count entries where this agent was the sender
+	recentBlocks := 0
+	for _, e := range entries {
+		if e.FromAgent == agent {
+			recentBlocks++
+		}
+	}
+
+	if recentBlocks >= 5 && outcome.Verdict == engine.VerdictQuarantine {
+		outcome.Verdict = engine.VerdictBlock
+	} else if recentBlocks >= 3 && outcome.Verdict == engine.VerdictFlag {
+		outcome.Verdict = engine.VerdictQuarantine
+	}
 }
 
 func (h *Handler) scanContent(ctx context.Context, content string) (*engine.ScanOutcome, error) {

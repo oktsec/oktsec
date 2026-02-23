@@ -10,12 +10,15 @@ import (
 var supportedClients = []string{"claude-desktop", "cursor", "vscode", "cline", "windsurf", "openclaw"}
 
 func newWrapCmd() *cobra.Command {
-	return &cobra.Command{
+	var enforce bool
+
+	cmd := &cobra.Command{
 		Use:   "wrap <client>",
 		Short: "Route a client's MCP servers through oktsec proxy",
 		Long:  "Modifies the MCP config of the specified client so each server runs through 'oktsec proxy'. A backup is saved as .bak.",
 		Example: `  oktsec wrap claude-desktop
-  oktsec wrap cursor`,
+  oktsec wrap cursor
+  oktsec wrap --enforce claude-desktop`,
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: supportedClients,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -30,6 +33,8 @@ func newWrapCmd() *cobra.Command {
 				return fmt.Errorf("no config found for %q — is it installed?", client)
 			}
 
+			discover.WrapServersWithEnforce = enforce
+
 			fmt.Printf("Wrapping %s MCP servers...\n\n", clientDisplay(client))
 
 			wrapped, err := discover.WrapClient(client)
@@ -41,6 +46,9 @@ func newWrapCmd() *cobra.Command {
 				fmt.Println("  All servers already wrapped.")
 			} else {
 				fmt.Printf("  %d server(s) wrapped.\n", wrapped)
+				if enforce {
+					fmt.Println("  Enforcement mode: malicious requests will be blocked.")
+				}
 			}
 
 			fmt.Printf("\n  Backup saved: %s.bak\n", path)
@@ -49,6 +57,9 @@ func newWrapCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&enforce, "enforce", false, "enable enforcement mode (block malicious requests)")
+	return cmd
 }
 
 func newUnwrapCmd() *cobra.Command {

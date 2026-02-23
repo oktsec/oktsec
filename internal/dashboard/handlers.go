@@ -438,6 +438,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"Active":      "agents",
 		"Name":        name,
 		"Agent":       agent,
+		"Suspended":   agent.Suspended,
 		"Entries":     entries,
 		"TotalMsgs":   stats.Total,
 		"Delivered":   stats.Delivered,
@@ -631,6 +632,9 @@ var decisionLabels = map[string]string{
 	"quarantine_rejected": "Reviewed and rejected",
 	"signature_required":  "Rejected — message was not signed",
 	"acl_denied":          "Rejected — agent not authorized for this destination",
+	"agent_suspended":     "Rejected — sender agent is suspended",
+	"recipient_suspended": "Rejected — recipient agent is suspended",
+	"identity_rejected":   "Rejected — identity verification failed",
 }
 
 func humanReadableDecision(decision string) string {
@@ -1240,6 +1244,26 @@ func (s *Server) enableCategoryRules(ruleIDs []string) {
 		}
 	}
 	s.cfg.Rules = filtered
+}
+
+func (s *Server) handleSuspendToggle(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	agent, ok := s.cfg.Agents[name]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	agent.Suspended = !agent.Suspended
+	s.cfg.Agents[name] = agent
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after suspend toggle", "error", err)
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/agents/"+name, http.StatusFound)
 }
 
 // --- Events handler (merged audit log + quarantine) ---

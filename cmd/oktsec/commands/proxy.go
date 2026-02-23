@@ -16,13 +16,15 @@ import (
 
 func newProxyCmd() *cobra.Command {
 	var agent string
+	var enforce bool
 
 	cmd := &cobra.Command{
 		Use:   "proxy --agent <name> -- <command> [args...]",
 		Short: "Wrap an MCP server with oktsec interception",
 		Long:  "Starts a child process and intercepts its stdio (JSON-RPC 2.0), scanning each message through the Aguara engine and logging to the audit trail.",
 		Example: `  oktsec proxy --agent filesystem -- npx @mcp/server-filesystem /data
-  oktsec proxy --agent database -- node ./db-server.js`,
+  oktsec proxy --agent database -- node ./db-server.js
+  oktsec proxy --enforce --agent filesystem -- npx @mcp/server-filesystem /data`,
 		Args:               cobra.MinimumNArgs(1),
 		DisableFlagParsing: false,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -39,7 +41,7 @@ func newProxyCmd() *cobra.Command {
 			}
 			defer func() { _ = auditStore.Close() }()
 
-			p := proxy.NewStdioProxy(agent, scanner, auditStore, logger)
+			p := proxy.NewStdioProxy(agent, scanner, auditStore, logger, enforce)
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
@@ -55,6 +57,7 @@ func newProxyCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&agent, "agent", "", "agent name for this MCP server")
+	cmd.Flags().BoolVar(&enforce, "enforce", false, "block malicious requests instead of observe-only")
 	_ = cmd.MarkFlagRequired("agent")
 	return cmd
 }

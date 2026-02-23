@@ -127,6 +127,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /dashboard/agents/{name}/edit", s.handleEditAgent)
 	s.mux.HandleFunc("DELETE /dashboard/agents/{name}", s.handleDeleteAgent)
 	s.mux.HandleFunc("POST /dashboard/agents/{name}/keygen", s.handleAgentKeygen)
+	s.mux.HandleFunc("POST /dashboard/agents/{name}/suspend", s.handleSuspendToggle)
 
 	// Rule toggles (inline enable/disable)
 	s.mux.HandleFunc("POST /dashboard/api/rule/{id}/toggle", s.handleToggleRule)
