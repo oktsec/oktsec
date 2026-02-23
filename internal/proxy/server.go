@@ -2,8 +2,10 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,6 +26,7 @@ type Server struct {
 	cfg       *config.Config
 	cfgPath   string
 	srv       *http.Server
+	ln        net.Listener
 	keys      *identity.KeyStore
 	scanner   *engine.Scanner
 	audit     *audit.Store
@@ -95,6 +98,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 
 	// Apply middleware
 	var h http.Handler = mux
+	h = securityHeaders(h)
 	h = logging(logger)(h)
 	h = recovery(logger)(h)
 	h = requestID(h)
@@ -106,24 +110,72 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		bind = "127.0.0.1"
 	}
 
+	// Try configured port, auto-find next available if busy.
+	ln, actualPort, err := listenAutoPort(bind, cfg.Server.Port, logger)
+	if err != nil {
+		return nil, fmt.Errorf("binding port: %w", err)
+	}
+	cfg.Server.Port = actualPort
+
 	srv := &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", bind, cfg.Server.Port),
-		Handler:      h,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Handler:        h,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1 MB
 	}
 
 	return &Server{
 		cfg:       cfg,
 		cfgPath:   cfgPath,
 		srv:       srv,
+		ln:        ln,
 		keys:      keys,
 		scanner:   scanner,
 		audit:     auditStore,
 		dashboard: dash,
 		logger:    logger,
 	}, nil
+}
+
+// listenAutoPort tries the configured port; if busy, scans up to 10 higher ports.
+func listenAutoPort(bind string, port int, logger *slog.Logger) (net.Listener, int, error) {
+	addr := fmt.Sprintf("%s:%d", bind, port)
+	ln, err := net.Listen("tcp", addr)
+	if err == nil {
+		return ln, port, nil
+	}
+
+	// Check if the error is "address already in use"
+	if !errors.Is(err, syscall.EADDRINUSE) && !isAddrInUse(err) {
+		return nil, 0, err
+	}
+
+	logger.Warn("port in use, searching for available port", "port", port)
+	for offset := 1; offset <= 10; offset++ {
+		tryPort := port + offset
+		addr = fmt.Sprintf("%s:%d", bind, tryPort)
+		ln, err = net.Listen("tcp", addr)
+		if err == nil {
+			logger.Info("using alternative port", "original", port, "actual", tryPort)
+			return ln, tryPort, nil
+		}
+	}
+	return nil, 0, fmt.Errorf("port %d and next 10 ports are all in use", port)
+}
+
+func isAddrInUse(err error) bool {
+	// Portable check: look for "address already in use" in error string
+	return err != nil && (errors.Is(err, syscall.EADDRINUSE) ||
+		fmt.Sprintf("%v", err) == "address already in use" ||
+		// net.OpError wraps the syscall error
+		func() bool {
+			var opErr *net.OpError
+			if errors.As(err, &opErr) {
+				return errors.Is(opErr.Err, syscall.EADDRINUSE)
+			}
+			return false
+		}())
 }
 
 // AuditStore returns the audit store for CLI queries.
@@ -136,10 +188,15 @@ func (s *Server) DashboardCode() string {
 	return s.dashboard.AccessCode()
 }
 
+// Port returns the actual port the server is bound to.
+func (s *Server) Port() int {
+	return s.cfg.Server.Port
+}
+
 // Start begins listening. Blocks until the server is shut down.
 func (s *Server) Start() error {
 	s.logger.Info("oktsec proxy starting",
-		"addr", s.srv.Addr,
+		"addr", s.ln.Addr().String(),
 		"require_signature", s.cfg.Identity.RequireSignature,
 	)
 
@@ -159,7 +216,7 @@ func (s *Server) Start() error {
 		}()
 	}
 
-	return s.srv.ListenAndServe()
+	return s.srv.Serve(s.ln)
 }
 
 // Shutdown gracefully stops the server.

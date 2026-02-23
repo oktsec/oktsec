@@ -11,6 +11,8 @@ var tmplFuncs = template.FuncMap{
 		}
 		return s[:n] + "..."
 	},
+	"avatar":    agentAvatar,
+	"agentCell": agentCell,
 }
 
 var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
@@ -253,6 +255,8 @@ tr.clickable:hover td{background:var(--surface2)}
 
 /* Agent tags — outlined pills */
 .agent-tag{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.7rem;color:var(--text2);font-family:var(--sans);background:transparent}
+.avatar{border-radius:50%;vertical-align:middle;flex-shrink:0}
+.agent-cell{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 
 /* ACL target pills */
 .acl-target{display:inline-block;padding:2px 8px;background:rgba(99,102,241,0.1);border-radius:4px;font-size:0.72rem;color:var(--accent-light);font-family:var(--mono)}
@@ -408,11 +412,36 @@ function humanizeTimestamps(){
 }
 humanizeTimestamps();
 document.body.addEventListener('htmx:afterSettle',humanizeTimestamps);
+
+// Agent avatar generator (mirrors Go agentAvatar — pastel palette, abstract patterns)
+var _avPal=['#7ec8e3','#a78bda','#c9a9e0','#e8a0bf','#f4b183','#b5d99c','#8cc5b2','#d6c28e'];
+var _avN=0;
+function _fnv(s){var h=2166136261>>>0;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}return h>>>0;}
+function agentAvatar(name,sz){
+  if(!name)return'';
+  var h=_fnv(name),uid='av'+(++_avN),pl=_avPal.length;
+  var i1=h%pl,i2=Math.floor(h/pl)%pl,i3=Math.floor(h/pl/pl)%pl;
+  if(i2===i1)i2=(i2+1)%pl;
+  if(i3===i1||i3===i2)i3=(i3+2)%pl;
+  var c1=_avPal[i1],c2=_avPal[i2],c3=_avPal[i3],b='';
+  switch((h>>>16)%8){
+  case 0:b='<defs><radialGradient id="'+uid+'"><stop offset="0%" stop-color="'+c1+'"/><stop offset="100%" stop-color="'+c2+'"/></radialGradient></defs><circle cx="20" cy="20" r="20" fill="url(#'+uid+')"/>';break;
+  case 1:b='<clipPath id="'+uid+'"><circle cx="20" cy="20" r="20"/></clipPath><g clip-path="url(#'+uid+')">';var cc=[c1,c2,c3,c1];for(var r=0;r<4;r++)for(var c=0;c<4;c++){b+='<rect x="'+(c*10)+'" y="'+(r*10)+'" width="11" height="11" fill="'+cc[(h>>>(r*4+c))&3]+'"/>';}b+='</g>';break;
+  case 2:b='<circle cx="20" cy="20" r="20" fill="'+c1+'"/><circle cx="20" cy="20" r="13" fill="'+c2+'"/><circle cx="20" cy="20" r="7" fill="'+c3+'"/>';break;
+  case 3:b='<defs><radialGradient id="'+uid+'"><stop offset="0%" stop-color="'+c3+'"/><stop offset="40%" stop-color="'+c3+'"/><stop offset="70%" stop-color="'+c1+'"/><stop offset="100%" stop-color="'+c2+'"/></radialGradient></defs><circle cx="20" cy="20" r="20" fill="url(#'+uid+')"/>';break;
+  case 4:b='<defs><clipPath id="'+uid+'"><circle cx="20" cy="20" r="20"/></clipPath></defs><circle cx="20" cy="20" r="20" fill="'+c1+'"/><line x1="-2" y1="28" x2="42" y2="12" stroke="'+c2+'" stroke-width="6" clip-path="url(#'+uid+')" opacity="0.6"/>';break;
+  case 5:b='<defs><clipPath id="'+uid+'"><circle cx="20" cy="20" r="20"/></clipPath></defs><g clip-path="url(#'+uid+')"><rect x="0" y="0" width="20" height="20" fill="'+c1+'"/><rect x="20" y="0" width="20" height="20" fill="'+c2+'"/><rect x="0" y="20" width="20" height="20" fill="'+c3+'"/><rect x="20" y="20" width="20" height="20" fill="'+c1+'"/></g>';break;
+  case 6:b='<defs><clipPath id="'+uid+'"><circle cx="20" cy="20" r="20"/></clipPath></defs><circle cx="20" cy="20" r="20" fill="'+c1+'"/><rect x="0" y="14" width="40" height="12" fill="'+c2+'" clip-path="url(#'+uid+')" opacity="0.55"/>';break;
+  case 7:var cx=30+(h>>>20)%40,cy=30+(h>>>24)%40;b='<defs><radialGradient id="'+uid+'" cx="'+cx+'%" cy="'+cy+'%"><stop offset="0%" stop-color="'+c1+'"/><stop offset="50%" stop-color="'+c2+'"/><stop offset="100%" stop-color="'+c3+'"/></radialGradient></defs><circle cx="20" cy="20" r="20" fill="url(#'+uid+')"/>';break;
+  }
+  return '<svg class="avatar" width="'+sz+'" height="'+sz+'" viewBox="0 0 40 40">'+b+'</svg>';
+}
+function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">'+agentAvatar(name,20)+' '+name+'</span>';}
 </script>
 </body>
 </html>`
 
-var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
+var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Dashboard <span>Overview</span></h1>
 <p class="page-desc">Messages between agents are scanned for threats, verified for identity, and logged here. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
@@ -474,8 +503,8 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
       {{range .Recent}}
       <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
         <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-        <td>{{.FromAgent}}</td>
-        <td>{{.ToAgent}}</td>
+        <td>{{agentCell .FromAgent}}</td>
+        <td>{{agentCell .ToAgent}}</td>
         <td>
           {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
           {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
@@ -553,7 +582,7 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
       row.setAttribute('hx-get', '/dashboard/api/event/' + entry.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
-      row.innerHTML = '<td data-ts="' + entry.timestamp + '">' + entry.timestamp + '</td><td>' + entry.from_agent + '</td><td>' + entry.to_agent + '</td><td>' + statusBadge + '</td>';
+      row.innerHTML = '<td data-ts="' + entry.timestamp + '">' + entry.timestamp + '</td><td>' + agentCellHTML(entry.from_agent) + '</td><td>' + agentCellHTML(entry.to_agent) + '</td><td>' + statusBadge + '</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
@@ -566,7 +595,7 @@ var overviewTmpl = template.Must(template.New("overview").Parse(layoutHead + `
 </script>
 ` + layoutFoot))
 
-var recentPartialTmpl = template.Must(template.New("recent").Parse(`
+var recentPartialTmpl = template.Must(template.New("recent").Funcs(tmplFuncs).Parse(`
 {{if .}}
 <table>
   <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
@@ -574,8 +603,8 @@ var recentPartialTmpl = template.Must(template.New("recent").Parse(`
   {{range .}}
   <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
     <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-    <td>{{.FromAgent}}</td>
-    <td>{{.ToAgent}}</td>
+    <td>{{agentCell .FromAgent}}</td>
+    <td>{{agentCell .ToAgent}}</td>
     <td>
       {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
       {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
@@ -599,8 +628,8 @@ var searchResultsTmpl = template.Must(template.New("search-results").Funcs(tmplF
   {{range .}}
   <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
     <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-    <td>{{.FromAgent}}</td>
-    <td>{{.ToAgent}}</td>
+    <td>{{agentCell .FromAgent}}</td>
+    <td>{{agentCell .ToAgent}}</td>
     <td>
       {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
       {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
@@ -618,7 +647,7 @@ var searchResultsTmpl = template.Must(template.New("search-results").Funcs(tmplF
 <div class="empty">No results found.</div>
 {{end}}`))
 
-var agentsTmpl = template.Must(template.New("agents").Parse(layoutHead + `
+var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Registered <span>Agents</span></h1>
 <p class="page-desc">Each agent can only message destinations listed in its ACL. Manage agents, generate keypairs, and view message history.</p>
 
@@ -629,7 +658,7 @@ var agentsTmpl = template.Must(template.New("agents").Parse(layoutHead + `
     <tbody>
     {{range $name, $agent := .Agents}}
     <tr class="clickable" onclick="window.location='/dashboard/agents/{{$name}}'">
-      <td style="font-weight:600">{{$name}}</td>
+      <td style="font-weight:600">{{agentCell $name}}</td>
       <td style="color:var(--text2);font-family:var(--sans)">{{$agent.Description}}</td>
       <td>{{if $agent.CanMessage}}{{range $i, $t := $agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{else}}<span style="color:var(--text3)">none</span>{{end}}</td>
       <td>{{range $i, $tag := $agent.Tags}}{{if $i}} {{end}}<span class="agent-tag">{{$tag}}</span>{{end}}</td>
@@ -660,8 +689,13 @@ var agentsTmpl = template.Must(template.New("agents").Parse(layoutHead + `
 ` + layoutFoot))
 
 var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
-<h1>Agent: <span>{{.Name}}</span></h1>
-<p class="page-desc">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Detail view for agent {{.Name}}.{{end}}</p>
+<div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+  {{avatar .Name 40}}
+  <div style="min-width:0">
+    <h1 style="margin:0;font-size:1.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Agent: <span>{{.Name}}</span></h1>
+    <p style="color:var(--text2);font-size:0.82rem;margin:2px 0 0">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Detail view for agent {{.Name}}.{{end}}</p>
+  </div>
+</div>
 
 <div class="stats">
   <div class="stat">
@@ -735,8 +769,8 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     {{range .Entries}}
     <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-      <td>{{.FromAgent}}</td>
-      <td>{{.ToAgent}}</td>
+      <td>{{agentCell .FromAgent}}</td>
+      <td>{{agentCell .ToAgent}}</td>
       <td>
         {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
         {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
@@ -981,7 +1015,7 @@ var categoryDetailTmpl = template.Must(template.New("category-detail").Parse(lay
 </div>
 ` + layoutFoot))
 
-var eventDetailTmpl = template.Must(template.New("event-detail").Parse(`
+var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs).Parse(`
 <div class="panel-header">
   <h3>Event Detail</h3>
   <button class="panel-close" onclick="closePanel()">&times;</button>
@@ -1000,9 +1034,9 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Parse(`
 
   <!-- Message flow -->
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;padding:12px 16px;background:var(--surface2);border-radius:8px">
-    <span style="font-family:var(--mono);font-weight:600;font-size:0.85rem">{{.Entry.FromAgent}}</span>
+    <span class="agent-cell" style="font-family:var(--mono);font-weight:600;font-size:0.85rem">{{avatar .Entry.FromAgent 24}} {{.Entry.FromAgent}}</span>
     <span style="color:var(--text3);font-size:0.82rem">&rarr;</span>
-    <span style="font-family:var(--mono);font-weight:600;font-size:0.85rem">{{.Entry.ToAgent}}</span>
+    <span class="agent-cell" style="font-family:var(--mono);font-weight:600;font-size:0.85rem">{{avatar .Entry.ToAgent 24}} {{.Entry.ToAgent}}</span>
     <span style="margin-left:auto;color:var(--text3);font-size:0.72rem;font-family:var(--mono)">{{.Entry.LatencyMs}}ms</span>
   </div>
 
@@ -1155,7 +1189,7 @@ var customRulesTmpl = template.Must(template.New("custom-rules").Parse(`
 
 // --- Quarantine templates ---
 
-var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Parse(`
+var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs(tmplFuncs).Parse(`
 <div class="panel-header">
   <h3>Quarantined Message</h3>
   <button class="panel-close" onclick="closePanel()">&times;</button>
@@ -1177,9 +1211,9 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Parse
 
   <!-- Message flow -->
   <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;padding:12px 16px;background:var(--surface2);border-radius:8px">
-    <span style="font-family:var(--mono);font-weight:600;font-size:0.85rem">{{.Item.FromAgent}}</span>
+    <span class="agent-cell" style="font-family:var(--mono);font-weight:600;font-size:0.85rem">{{avatar .Item.FromAgent 24}} {{.Item.FromAgent}}</span>
     <span style="color:var(--text3);font-size:0.82rem">&rarr;</span>
-    <span style="font-family:var(--mono);font-weight:600;font-size:0.85rem">{{.Item.ToAgent}}</span>
+    <span class="agent-cell" style="font-family:var(--mono);font-weight:600;font-size:0.85rem">{{avatar .Item.ToAgent 24}} {{.Item.ToAgent}}</span>
   </div>
 
   <!-- Message content -->
@@ -1231,8 +1265,8 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Parse
 
 var quarantineRowTmpl = template.Must(template.New("quarantine-row").Funcs(tmplFuncs).Parse(`<tr id="q-row-{{.Item.ID}}">
   <td data-ts="{{.Item.CreatedAt}}">{{.Item.CreatedAt}}</td>
-  <td>{{.Item.FromAgent}}</td>
-  <td>{{.Item.ToAgent}}</td>
+  <td>{{agentCell .Item.FromAgent}}</td>
+  <td>{{agentCell .Item.ToAgent}}</td>
   <td><div class="q-preview">{{truncate .Item.Content 80}}</div></td>
   <td>
     {{if eq .Item.Status "pending"}}<span class="badge-pending">pending</span>
@@ -1419,8 +1453,8 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
     {{range .Entries}}
     <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-      <td>{{.FromAgent}}</td>
-      <td>{{.ToAgent}}</td>
+      <td>{{agentCell .FromAgent}}</td>
+      <td>{{agentCell .ToAgent}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
       <td>
         {{if eq .SignatureVerified 1}}<span class="badge-verified" title="Signature verified">&#10003; Verified</span>
@@ -1474,8 +1508,8 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
     {{range .QItems}}
     <tr id="q-row-{{.ID}}">
       <td data-ts="{{.CreatedAt}}">{{.CreatedAt}}</td>
-      <td>{{.FromAgent}}</td>
-      <td>{{.ToAgent}}</td>
+      <td>{{agentCell .FromAgent}}</td>
+      <td>{{agentCell .ToAgent}}</td>
       <td><div class="q-preview" style="cursor:pointer" hx-get="/dashboard/api/quarantine/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">{{truncate .Content 80}}</div></td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
       <td>
@@ -1506,8 +1540,8 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
     {{range .BlockedEntries}}
     <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-      <td>{{.FromAgent}}</td>
-      <td>{{.ToAgent}}</td>
+      <td>{{agentCell .FromAgent}}</td>
+      <td>{{agentCell .ToAgent}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.RulesTriggered}}</td>
     </tr>
@@ -1540,7 +1574,7 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
       row.setAttribute('hx-get', '/dashboard/api/event/' + ev.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
-      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + (ev.from_agent||'') + '</td><td>' + (ev.to_agent||'') + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td><td>' + sigLabel + '</td>';
+      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + agentCellHTML(ev.to_agent||'') + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td><td>' + sigLabel + '</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
@@ -1550,7 +1584,7 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
 </script>
 ` + layoutFoot))
 
-var graphTmpl = template.Must(template.New("graph").Parse(layoutHead + `
+var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Agent Interaction <span>Graph</span></h1>
 <p class="page-desc">Red nodes have high threat scores. Shadow edges indicate traffic outside ACL policy. Data covers the last 24 hours.</p>
 
@@ -1590,7 +1624,7 @@ var graphTmpl = template.Must(template.New("graph").Parse(layoutHead + `
       <tbody>
       {{range .Graph.Nodes}}
       <tr class="clickable" onclick="location.href='/dashboard/agents/{{.Name}}'">
-        <td style="font-weight:600">{{.Name}}</td>
+        <td style="font-weight:600">{{agentCell .Name}}</td>
         <td>
           <div style="display:flex;align-items:center;gap:8px">
             <div class="risk-bar" style="width:60px">
@@ -1683,8 +1717,10 @@ var graphTmpl = template.Must(template.New("graph").Parse(layoutHead + `
     }
 
     var W = el.clientWidth, H = el.clientHeight;
+    var NR = 18; // node radius
+    var PAD = 60;
     var nodes = data.nodes.map(function(n) {
-      return {name: n.name, threat: n.threat_score, x: W/2 + (Math.random()-0.5)*W*0.6, y: H/2 + (Math.random()-0.5)*H*0.6, vx: 0, vy: 0};
+      return {name: n.name, threat: n.threat_score, x: PAD + Math.random()*(W-2*PAD), y: PAD + Math.random()*(H-2*PAD), vx: 0, vy: 0};
     });
     var nodeIdx = {};
     nodes.forEach(function(n, i) { nodeIdx[n.name] = i; });
@@ -1696,9 +1732,9 @@ var graphTmpl = template.Must(template.New("graph").Parse(layoutHead + `
     });
 
     // Fruchterman-Reingold layout
-    var k = Math.sqrt(W * H / Math.max(nodes.length, 1)) * 0.8;
-    var temp = W / 4;
-    for (var iter = 0; iter < 100; iter++) {
+    var k = Math.sqrt(W * H / Math.max(nodes.length, 1)) * 0.9;
+    var temp = W / 3;
+    for (var iter = 0; iter < 150; iter++) {
       for (var i = 0; i < nodes.length; i++) {
         nodes[i].vx = 0; nodes[i].vy = 0;
         for (var j = 0; j < nodes.length; j++) {
@@ -1724,8 +1760,8 @@ var graphTmpl = template.Must(template.New("graph").Parse(layoutHead + `
         var c = Math.min(d, temp);
         nodes[i].x += (nodes[i].vx / d) * c;
         nodes[i].y += (nodes[i].vy / d) * c;
-        nodes[i].x = Math.max(50, Math.min(W-50, nodes[i].x));
-        nodes[i].y = Math.max(50, Math.min(H-50, nodes[i].y));
+        nodes[i].x = Math.max(PAD, Math.min(W-PAD, nodes[i].x));
+        nodes[i].y = Math.max(PAD, Math.min(H-PAD, nodes[i].y));
       }
       temp *= 0.95;
     }
@@ -1734,81 +1770,127 @@ var graphTmpl = template.Must(template.New("graph").Parse(layoutHead + `
     var NS = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('width', W); svg.setAttribute('height', H);
+    svg.setAttribute('viewBox', '0 0 '+W+' '+H);
     svg.style.width = '100%'; svg.style.height = '100%';
 
-    // Arrow markers
+    // Arrow markers — smaller, refined
     var defs = document.createElementNS(NS, 'defs');
-    var colors = ['#22c55e','#f59e0b','#ef4444'];
-    colors.forEach(function(c, ci) {
+    var edgeColors = {ok:'#4ade80', warn:'#fbbf24', bad:'#f87171'};
+    ['ok','warn','bad'].forEach(function(k) {
       var m = document.createElementNS(NS, 'marker');
-      m.setAttribute('id', 'arr'+ci); m.setAttribute('viewBox', '0 0 10 6');
-      m.setAttribute('refX', '10'); m.setAttribute('refY', '3');
-      m.setAttribute('markerWidth', '8'); m.setAttribute('markerHeight', '6');
+      m.setAttribute('id', 'arr-'+k); m.setAttribute('viewBox', '0 0 8 6');
+      m.setAttribute('refX', '8'); m.setAttribute('refY', '3');
+      m.setAttribute('markerWidth', '6'); m.setAttribute('markerHeight', '5');
       m.setAttribute('orient', 'auto');
       var p = document.createElementNS(NS, 'path');
-      p.setAttribute('d', 'M0,0 L10,3 L0,6 Z'); p.setAttribute('fill', c);
+      p.setAttribute('d', 'M0,0.5 L7,3 L0,5.5'); p.setAttribute('fill', edgeColors[k]);
       m.appendChild(p); defs.appendChild(m);
     });
     svg.appendChild(defs);
 
     var lineEls = [];
-    // Draw edges
+    // Draw edges — curved paths for parallel edges
+    var edgePairs = {};
+    links.forEach(function(e) {
+      var key = Math.min(e.from,e.to)+'-'+Math.max(e.from,e.to);
+      edgePairs[key] = (edgePairs[key]||0)+1;
+    });
+    var edgePairCount = {};
     links.forEach(function(e) {
       var s = nodes[e.from], t = nodes[e.to];
-      var ci = e.health >= 70 ? 0 : (e.health >= 40 ? 1 : 2);
+      var hk = e.health >= 70 ? 'ok' : (e.health >= 40 ? 'warn' : 'bad');
       var dx = t.x - s.x, dy = t.y - s.y;
       var dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      var ex = t.x - (dx/dist)*16, ey = t.y - (dy/dist)*16;
 
-      var ln = document.createElementNS(NS, 'line');
-      ln.setAttribute('x1', s.x); ln.setAttribute('y1', s.y);
-      ln.setAttribute('x2', ex); ln.setAttribute('y2', ey);
-      ln.setAttribute('stroke', colors[ci]);
-      ln.setAttribute('stroke-width', Math.max(1.5, Math.min(4, Math.log2(e.total+1))));
-      ln.setAttribute('stroke-opacity', '0.7');
-      ln.setAttribute('marker-end', 'url(#arr'+ci+')');
-      ln.style.cursor = 'pointer';
-      ln.addEventListener('click', function() {
+      // Offset for parallel edges
+      var key = Math.min(e.from,e.to)+'-'+Math.max(e.from,e.to);
+      var pairTotal = edgePairs[key]||1;
+      edgePairCount[key] = (edgePairCount[key]||0)+1;
+      var curveOffset = 0;
+      if (pairTotal > 1) curveOffset = (edgePairCount[key]%2===0?1:-1) * 20;
+
+      var sx = s.x, sy = s.y;
+      var ex = t.x - (dx/dist)*(NR+6), ey = t.y - (dy/dist)*(NR+6);
+
+      var el;
+      if (curveOffset !== 0) {
+        var mx = (sx+ex)/2 + (-dy/dist)*curveOffset;
+        var my = (sy+ey)/2 + (dx/dist)*curveOffset;
+        el = document.createElementNS(NS, 'path');
+        el.setAttribute('d', 'M'+sx+','+sy+' Q'+mx+','+my+' '+ex+','+ey);
+        el.setAttribute('fill', 'none');
+      } else {
+        el = document.createElementNS(NS, 'line');
+        el.setAttribute('x1', sx); el.setAttribute('y1', sy);
+        el.setAttribute('x2', ex); el.setAttribute('y2', ey);
+      }
+      el.setAttribute('stroke', edgeColors[hk]);
+      el.setAttribute('stroke-width', '1.5');
+      el.setAttribute('stroke-opacity', '0.5');
+      el.setAttribute('marker-end', 'url(#arr-'+hk+')');
+      el.style.cursor = 'pointer';
+      el.addEventListener('click', function() {
         htmx.ajax('GET', '/dashboard/api/graph/edge?from='+encodeURIComponent(e.fromName)+'&to='+encodeURIComponent(e.toName), {target:'#panel-content', swap:'innerHTML'});
       });
-      svg.appendChild(ln);
-      lineEls.push({el: ln, link: e});
+      el.addEventListener('mouseenter', function(){ this.setAttribute('stroke-opacity','0.9'); this.setAttribute('stroke-width','2.5'); });
+      el.addEventListener('mouseleave', function(){ this.setAttribute('stroke-opacity','0.5'); this.setAttribute('stroke-width','1.5'); });
+      svg.appendChild(el);
+      lineEls.push({el: el, link: e, curved: curveOffset!==0});
     });
 
-    // Draw nodes
+    // Draw nodes — avatar circle + label below
     nodes.forEach(function(n, i) {
       var g = document.createElementNS(NS, 'g');
       g.style.cursor = 'pointer';
-      var color = n.threat > 60 ? '#ef4444' : (n.threat > 30 ? '#f59e0b' : '#22c55e');
 
-      var circle = document.createElementNS(NS, 'circle');
-      circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y); circle.setAttribute('r', 14);
-      circle.setAttribute('fill', color); circle.setAttribute('fill-opacity', '0.2');
-      circle.setAttribute('stroke', color); circle.setAttribute('stroke-width', '2');
+      // Threat-based ring color
+      var ringColor = n.threat > 60 ? '#f87171' : (n.threat > 30 ? '#fbbf24' : '#4ade80');
 
+      // Outer ring (threat indicator)
+      var ring = document.createElementNS(NS, 'circle');
+      ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y); ring.setAttribute('r', NR+2);
+      ring.setAttribute('fill', 'none');
+      ring.setAttribute('stroke', ringColor); ring.setAttribute('stroke-width', '1.5');
+      ring.setAttribute('stroke-opacity', '0.6');
+
+      // Avatar as foreignObject
+      var fo = document.createElementNS(NS, 'foreignObject');
+      fo.setAttribute('x', n.x-NR); fo.setAttribute('y', n.y-NR);
+      fo.setAttribute('width', NR*2); fo.setAttribute('height', NR*2);
+      var avDiv = document.createElement('div');
+      avDiv.innerHTML = agentAvatar(n.name, NR*2);
+      fo.appendChild(avDiv);
+
+      // Label below node
       var label = document.createElementNS(NS, 'text');
-      label.setAttribute('x', n.x); label.setAttribute('y', n.y + 28);
-      label.setAttribute('text-anchor', 'middle'); label.setAttribute('fill', '#8888aa');
-      label.setAttribute('font-size', '11'); label.setAttribute('font-family', 'SF Mono, Fira Code, monospace');
+      label.setAttribute('x', n.x); label.setAttribute('y', n.y + NR + 14);
+      label.setAttribute('text-anchor', 'middle'); label.setAttribute('fill', '#b0b0cc');
+      label.setAttribute('font-size', '10'); label.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, sans-serif');
       label.textContent = n.name;
 
-      g.appendChild(circle); g.appendChild(label);
+      g.appendChild(ring); g.appendChild(fo); g.appendChild(label);
       g.addEventListener('click', function(ev) { if (!ev.defaultPrevented) location.href='/dashboard/agents/'+encodeURIComponent(n.name); });
 
       // Drag support
       var dragging = false;
-      circle.addEventListener('mousedown', function(ev) { dragging = true; ev.preventDefault(); });
+      fo.addEventListener('mousedown', function(ev) { dragging = true; ev.preventDefault(); });
       svg.addEventListener('mousemove', function(ev) {
         if (!dragging) return;
         var rect = svg.getBoundingClientRect();
         n.x = ev.clientX - rect.left; n.y = ev.clientY - rect.top;
-        circle.setAttribute('cx', n.x); circle.setAttribute('cy', n.y);
-        label.setAttribute('x', n.x); label.setAttribute('y', n.y + 28);
+        ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y);
+        fo.setAttribute('x', n.x-NR); fo.setAttribute('y', n.y-NR);
+        label.setAttribute('x', n.x); label.setAttribute('y', n.y + NR + 14);
         lineEls.forEach(function(le) {
           var s = nodes[le.link.from], t = nodes[le.link.to];
           var dx = t.x - s.x, dy = t.y - s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
-          le.el.setAttribute('x1', s.x); le.el.setAttribute('y1', s.y);
-          le.el.setAttribute('x2', t.x-(dx/d)*16); le.el.setAttribute('y2', t.y-(dy/d)*16);
+          var ex = t.x-(dx/d)*(NR+6), ey = t.y-(dy/d)*(NR+6);
+          if (le.curved) {
+            le.el.setAttribute('d', 'M'+s.x+','+s.y+' Q'+((s.x+ex)/2+(-dy/d)*20)+','+((s.y+ey)/2+(dx/d)*20)+' '+ex+','+ey);
+          } else {
+            le.el.setAttribute('x1', s.x); le.el.setAttribute('y1', s.y);
+            le.el.setAttribute('x2', ex); le.el.setAttribute('y2', ey);
+          }
         });
       });
       svg.addEventListener('mouseup', function() { dragging = false; });
@@ -1822,9 +1904,9 @@ var graphTmpl = template.Must(template.New("graph").Parse(layoutHead + `
 </script>
 ` + layoutFoot))
 
-var edgeDetailTmpl = template.Must(template.New("edge-detail").Parse(`
+var edgeDetailTmpl = template.Must(template.New("edge-detail").Funcs(tmplFuncs).Parse(`
 <div class="panel-header">
-  <h3>{{.From}} &rarr; {{.To}}</h3>
+  <h3><span class="agent-cell">{{avatar .From 20}} {{.From}}</span> &rarr; <span class="agent-cell">{{avatar .To 20}} {{.To}}</span></h3>
   <button class="panel-close" onclick="closePanel()">&times;</button>
 </div>
 <div class="panel-body">

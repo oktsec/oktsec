@@ -486,7 +486,8 @@ func (s *Server) handleIdentityRevoke(w http.ResponseWriter, r *http.Request) {
 
 	fp := identity.Fingerprint(pub)
 	if err := s.audit.RevokeKey(fp, agentName, "revoked via dashboard"); err != nil {
-		http.Error(w, "revoke failed: "+err.Error(), http.StatusInternalServerError)
+		s.logger.Error("revoke failed", "error", err)
+		http.Error(w, "revoke failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -816,7 +817,8 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 
 	filename := filepath.Join(s.cfg.CustomRulesDir, ruleID+".yaml")
 	if err := os.WriteFile(filename, []byte(yamlContent), 0o644); err != nil {
-		http.Error(w, "write failed: "+err.Error(), http.StatusInternalServerError)
+		s.logger.Error("write failed", "error", err)
+		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -880,8 +882,15 @@ func buildCustomRuleYAML(ruleID, name, severity, category string, patterns []str
 	return yaml
 }
 
+// safeRuleID validates that a rule ID contains only safe characters.
+var safeRuleIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+
 func (s *Server) handleDeleteCustomRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if !safeRuleIDRe.MatchString(id) {
+		http.Error(w, "invalid rule ID", http.StatusBadRequest)
+		return
+	}
 	if s.cfg.CustomRulesDir == "" {
 		http.Error(w, "no custom rules configured", http.StatusBadRequest)
 		return
@@ -892,7 +901,8 @@ func (s *Server) handleDeleteCustomRule(w http.ResponseWriter, r *http.Request) 
 		path := filepath.Join(s.cfg.CustomRulesDir, id+ext)
 		if _, err := os.Stat(path); err == nil {
 			if err := os.Remove(path); err != nil {
-				http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
+				s.logger.Error("delete failed", "error", err)
+				http.Error(w, "delete failed", http.StatusInternalServerError)
 				return
 			}
 			if s.scanner != nil {
@@ -949,7 +959,8 @@ func (s *Server) handleQuarantineDetail(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleQuarantineApprove(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.audit.QuarantineApprove(id, "dashboard"); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.logger.Error("quarantine approve failed", "id", id, "error", err)
+		http.Error(w, "approve failed", http.StatusBadRequest)
 		return
 	}
 
@@ -962,7 +973,8 @@ func (s *Server) handleQuarantineApprove(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleQuarantineReject(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if err := s.audit.QuarantineReject(id, "dashboard"); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		s.logger.Error("quarantine reject failed", "id", id, "error", err)
+		http.Error(w, "reject failed", http.StatusBadRequest)
 		return
 	}
 
@@ -1071,17 +1083,20 @@ func (s *Server) handleAgentKeygen(w http.ResponseWriter, r *http.Request) {
 
 	kp, err := identity.GenerateKeypair(name)
 	if err != nil {
-		http.Error(w, "keygen failed: "+err.Error(), http.StatusInternalServerError)
+		s.logger.Error("keygen failed", "error", err)
+		http.Error(w, "keygen failed", http.StatusInternalServerError)
 		return
 	}
 
 	if err := os.MkdirAll(s.cfg.Identity.KeysDir, 0o700); err != nil {
-		http.Error(w, "cannot create keys dir: "+err.Error(), http.StatusInternalServerError)
+		s.logger.Error("cannot create keys dir", "error", err)
+		http.Error(w, "cannot create keys directory", http.StatusInternalServerError)
 		return
 	}
 
 	if err := kp.Save(s.cfg.Identity.KeysDir); err != nil {
-		http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
+		s.logger.Error("save failed", "error", err)
+		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
 	}
 

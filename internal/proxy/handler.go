@@ -139,6 +139,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) parseRequest(r *http.Request) (*MessageRequest, error) {
+	// Limit request body to 10 MB to prevent resource exhaustion.
+	r.Body = http.MaxBytesReader(nil, r.Body, 10<<20)
 	var req MessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		return nil, fmt.Errorf("invalid JSON: %w", err)

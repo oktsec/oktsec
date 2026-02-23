@@ -3,8 +3,11 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
@@ -29,14 +32,48 @@ type WebhookNotifier struct {
 }
 
 // NewWebhookNotifier creates a notifier from config.
+// Invalid URLs (private IPs, non-HTTPS) are logged and skipped.
 func NewWebhookNotifier(webhooks []config.Webhook, logger *slog.Logger) *WebhookNotifier {
+	var valid []config.Webhook
+	for _, wh := range webhooks {
+		if err := validateWebhookURL(wh.URL); err != nil {
+			logger.Warn("skipping invalid webhook URL", "url", wh.URL, "error", err)
+			continue
+		}
+		valid = append(valid, wh)
+	}
 	return &WebhookNotifier{
-		webhooks: webhooks,
+		webhooks: valid,
 		client: &http.Client{
 			Timeout: 5 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 2 {
+					return errors.New("too many redirects")
+				}
+				return nil
+			},
 		},
 		logger: logger,
 	}
+}
+
+// validateWebhookURL rejects private/loopback IPs to prevent SSRF.
+func validateWebhookURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return errors.New("webhook URL must use http or https")
+	}
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return errors.New("webhook URL must not point to private/loopback addresses")
+		}
+	}
+	return nil
 }
 
 // Notify sends the event to all matching webhooks (fire-and-forget).
