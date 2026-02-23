@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-02-23
+
+OWASP agentic hardening release. Aligned with [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/). All changes are backward-compatible.
+
+### Added
+
+- **Default-deny policy**: New `default_policy: deny` config option rejects messages from unknown senders not listed in the agents map. Defaults to `allow` for backward compatibility (ASI03).
+- **Agent suspension**: Agents can be suspended via CLI (`oktsec agent suspend <name>`) or dashboard toggle. Suspended agents have all messages rejected immediately — both as sender and recipient. New `suspended` field in agent config (ASI10).
+- **`oktsec agent` command**: New subcommands `suspend`, `unsuspend`, and `list` for managing agent lifecycle from the CLI.
+- **Enforcement mode for stdio proxy**: New `--enforce` flag on `oktsec proxy` and `oktsec wrap`. When enabled, malicious client→server requests are blocked and a JSON-RPC 2.0 error response is injected back to the MCP client (`{"jsonrpc":"2.0","id":<id>,"error":{"code":-32600,"message":"blocked by oktsec: <rule>"}}`). Server→client responses are always forwarded. Notifications are silently dropped when blocked. Without `--enforce`, behavior is observe-only (backward compatible) (ASI02, ASI05).
+- **BlockedContent enforcement**: The `blocked_content` agent config field (previously dead code) is now enforced. When a scan finding's category matches an entry in the agent's `blocked_content` list, the verdict is escalated to block (ASI02).
+- **Category field in FindingSummary**: Scan findings now include the Aguara rule category, enabling per-agent category-based filtering.
+- **Per-agent rate limiting**: New `rate_limit` config section with `per_agent` (max messages per window) and `window` (seconds). Uses a sliding-window counter. Returns HTTP 429 when exceeded. Checked before any expensive operations. Disabled when `per_agent` is 0 (ASI02, ASI10).
+- **Anomaly detection loop**: Background goroutine periodically queries `QueryAgentRisk()` and fires `agent_risk_elevated` webhook events when an agent's risk score exceeds the configured threshold. Configurable via `anomaly.check_interval`, `anomaly.risk_threshold`, `anomaly.min_messages`. Optional `anomaly.auto_suspend` automatically suspends high-risk agents (ASI10).
+- **Multi-message verdict escalation**: Before applying the final verdict, the handler queries the last hour of audit entries for the sender. If 3+ recent blocks exist and the current verdict is flag → escalates to quarantine. If 5+ recent blocks and current verdict is quarantine → escalates to block. Uses the existing `idx_audit_ts_agent_status` index (ASI01).
+- **Dashboard suspend toggle**: New `POST /dashboard/agents/{name}/suspend` route toggles agent suspension from the dashboard UI.
+- **New decision labels**: Dashboard event detail now shows human-readable labels for `agent_suspended`, `recipient_suspended`, and `identity_rejected` policy decisions.
+
+### Changed
+
+- Handler pipeline expanded from 4 steps to 7: rate limit → identity → suspension → ACL → scan → blocked content → escalation → verdict.
+- Stdio proxy refactored: split into `proxyClientToServer()` (can block + inject errors) and `proxyServerToClient()` (observe-only, always forwards). Mutex-protected stdout writes for concurrent goroutine safety.
+- `FindingSummary` struct now includes `Category` field (populated from Aguara's `Finding.Category`).
+- `NewStdioProxy()` signature updated to accept `enforce bool` parameter.
+
+### OWASP Coverage
+
+| Category | Before | After |
+|----------|--------|-------|
+| ASI01 - Goal Hijack | Partial | **Partial+** |
+| ASI02 - Tool Misuse | Partial | **Strong** |
+| ASI03 - Identity/Privilege | Strong | **Strong+** |
+| ASI05 - Code Execution | Weak | **Partial** |
+| ASI10 - Rogue Agents | Partial | **Strong** |
+
 ## [0.3.0] - 2026-02-22
 
 ### Added

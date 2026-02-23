@@ -21,19 +21,24 @@
 
 ---
 
-Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients and OpenClaw. No LLM. Single binary. **151 detection rules.**
+Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients and OpenClaw. No LLM. Single binary. **151 detection rules.** Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 
-Oktsec sits between AI agents and enforces three layers of security:
+Oktsec sits between AI agents and enforces a multi-layer security pipeline:
 
-1. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing.
-2. **Policy** — YAML-based ACLs control which agent can message which. Unauthorized routes are blocked.
-3. **Content scanning** — 151 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, supply chain risks, and more.
-4. **Audit** — Every message is logged to SQLite with content hash, sender verification status, policy decision, and triggered rules.
+1. **Rate limiting** — Per-agent sliding-window throttling prevents message flooding (ASI02, ASI10).
+2. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing (ASI03).
+3. **Agent suspension** — Suspended agents are immediately rejected, no further processing (ASI10).
+4. **Policy** — YAML-based ACLs control which agent can message which. Default-deny mode rejects unknown senders (ASI03).
+5. **Content scanning** — 151 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, supply chain risks, and more (ASI01, ASI02, ASI05).
+6. **BlockedContent enforcement** — Per-agent category-based content blocking escalates verdicts when findings match blocked categories (ASI02).
+7. **Multi-message escalation** — Agents with repeated blocks get their verdicts escalated automatically (ASI01, ASI10).
+8. **Audit** — Every message is logged to SQLite with content hash, sender verification status, policy decision, and triggered rules.
+9. **Anomaly detection** — Background risk scoring with automatic alerts and optional auto-suspension (ASI10).
 
 ```
-Agent A → sign → POST /v1/message → [Oktsec] → verify → ACL → scan → deliver/block/quarantine → audit
+Agent A → sign → POST /v1/message → [Oktsec] → rate limit → verify → suspend check → ACL → scan → blocked content → escalation → deliver/block/quarantine → audit → anomaly check
 ```
 
 ### Supported platforms
@@ -87,6 +92,14 @@ oktsec serve
 ```
 
 Oktsec starts in **observe mode** — it logs everything but blocks nothing. Review activity in the dashboard at `http://127.0.0.1:8080/dashboard` using the access code shown in your terminal.
+
+To enable **enforcement mode** (block malicious requests with JSON-RPC errors):
+
+```bash
+oktsec wrap --enforce cursor
+# or for a single server:
+oktsec proxy --enforce --agent filesystem -- npx @mcp/server-filesystem /data
+```
 
 ### Manual setup
 
@@ -263,8 +276,9 @@ Each server is auto-classified by risk level based on its capabilities:
 Modifies MCP client configs to route server traffic through `oktsec proxy`:
 
 ```bash
-oktsec wrap cursor          # Backs up config, rewrites to use oktsec proxy
-oktsec unwrap cursor        # Restores the original config from .bak
+oktsec wrap cursor                # Observe mode (log only)
+oktsec wrap --enforce cursor      # Enforcement mode (block malicious requests)
+oktsec unwrap cursor              # Restore original client config
 ```
 
 Before wrap:
@@ -277,16 +291,27 @@ After wrap:
 { "command": "oktsec", "args": ["proxy", "--agent", "filesystem", "--", "npx", "-y", "@mcp/server-filesystem", "/data"] }
 ```
 
+With `--enforce`:
+```json
+{ "command": "oktsec", "args": ["proxy", "--agent", "filesystem", "--enforce", "--", "npx", "-y", "@mcp/server-filesystem", "/data"] }
+```
+
 ### Stdio proxy
 
 The `proxy` command wraps an MCP server process, intercepting its JSON-RPC 2.0 stdio traffic. Every message is scanned through the Aguara engine and logged to the audit trail:
 
 ```bash
 oktsec proxy --agent filesystem -- npx @mcp/server-filesystem /data
-oktsec proxy --agent database -- node ./db-server.js
+oktsec proxy --enforce --agent database -- node ./db-server.js
 ```
 
-This is what `oktsec wrap` configures automatically for each server.
+In **observe mode** (default), all messages are forwarded regardless of scan results. In **enforcement mode** (`--enforce`), blocked client→server requests are not forwarded — instead, a JSON-RPC 2.0 error response is injected back to the client:
+
+```json
+{"jsonrpc":"2.0","id":42,"error":{"code":-32600,"message":"blocked by oktsec: IAP-001"}}
+```
+
+Server→client responses are always forwarded (observe-only). This is what `oktsec wrap` configures automatically for each server.
 
 ## MCP server mode
 
@@ -405,19 +430,32 @@ identity:
   keys_dir: ./keys         # Directory with .pub files
   require_signature: true  # Reject unsigned messages
 
+default_policy: deny       # "allow" (default) or "deny" — reject unknown senders
+
 agents:
   research-agent:
     can_message: [analysis-agent]        # ACL: allowed recipients
-    blocked_content: [credentials, pii]  # Content categories to block
+    blocked_content: [credentials, pii]  # Content categories to always block for this agent
     description: "Research and data gathering"
     tags: [research, data]
   analysis-agent:
     can_message: [research-agent, reporting-agent]
+    suspended: false                     # Set to true to reject all messages
 
 quarantine:
   enabled: true
   expiry_hours: 24         # Auto-expire pending items
   retention_days: 30       # Auto-purge audit entries older than N days (0 = keep forever)
+
+rate_limit:
+  per_agent: 100           # Max messages per window (0 = disabled)
+  window: 60               # Window size in seconds
+
+anomaly:
+  check_interval: 60       # Seconds between risk checks
+  risk_threshold: 50       # Risk score (0-100) to trigger alert
+  min_messages: 5          # Minimum messages before evaluating risk
+  auto_suspend: false      # Suspend agent when threshold exceeded
 
 rules:
   - id: block-relay-injection
@@ -427,7 +465,7 @@ rules:
 
 webhooks:
   - url: https://hooks.slack.com/services/xxx
-    events: [blocked, quarantined]
+    events: [blocked, quarantined, agent_risk_elevated]
 ```
 
 Validate your config:
@@ -506,10 +544,10 @@ Analytics queries use a 24-hour time window with covering indexes. All dashboard
 ```
 oktsec discover                                          # Scan for MCP servers + OpenClaw
 oktsec init [--keys ./keys] [--config oktsec.yaml]       # Auto-generate config + keypairs
-oktsec wrap <client>                                     # Route MCP client through oktsec proxy
+oktsec wrap [--enforce] <client>                         # Route MCP client through oktsec proxy
 oktsec unwrap <client>                                   # Restore original client config
 oktsec scan-openclaw [--path ~/.openclaw/openclaw.json]  # Analyze OpenClaw installation
-oktsec proxy --agent <name> -- <command> [args...]       # Stdio proxy for single MCP server
+oktsec proxy [--enforce] --agent <name> -- <cmd> [args]  # Stdio proxy for single MCP server
 oktsec serve [--config oktsec.yaml] [--port 8080] [--bind 127.0.0.1]
 oktsec mcp [--config oktsec.yaml]                        # Run as MCP tool server
 oktsec keygen --agent <name> [--agent <name>...] --out <dir>
@@ -518,6 +556,9 @@ oktsec verify [--config oktsec.yaml]
 oktsec logs [--status <status>] [--agent <name>] [--unverified] [--since <duration>]
 oktsec rules [--explain <rule-id>]
 oktsec quarantine list|detail|approve|reject [--status <status>] [<id>]
+oktsec agent list                                        # List agents with status
+oktsec agent suspend <name>                              # Suspend an agent
+oktsec agent unsuspend <name>                            # Unsuspend an agent
 oktsec status                                            # Show proxy status
 oktsec version
 ```
@@ -550,6 +591,20 @@ Returns `{"status": "ok", "version": "0.3.0"}`.
 ### `GET /dashboard`
 
 Web UI for monitoring agent activity. Protected by access code shown at startup.
+
+## OWASP Top 10 for Agentic Applications
+
+Oktsec is aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/):
+
+| # | Category | Coverage | How |
+|---|----------|----------|-----|
+| ASI01 | Excessive Agency / Goal Hijack | Partial | Multi-message verdict escalation, content scanning |
+| ASI02 | Tool Misuse | **Strong** | Stdio enforcement, BlockedContent per-agent, rate limiting |
+| ASI03 | Privilege Escalation | **Strong** | Ed25519 identity, default-deny policy, ACLs |
+| ASI04 | Supply Chain | Weak | Architecture limit (proxy, not package scanner) |
+| ASI05 | Unsafe Code Execution | Partial | Stdio enforcement blocks tool calls (e.g. exec) |
+| ASI07 | Inter-Agent Communication | **Strong** | Signed messages, ACLs, content scanning, audit trail |
+| ASI10 | Rogue Agents | **Strong** | Agent suspension, rate limiting, anomaly detection, auto-suspend |
 
 ## Built on
 
