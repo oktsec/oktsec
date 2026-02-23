@@ -50,7 +50,7 @@ func TestSendMessage_OK(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(MessageResponse{
+		_ = json.NewEncoder(w).Encode(MessageResponse{
 			Status:         "delivered",
 			MessageID:      "msg-123",
 			PolicyDecision: "allow",
@@ -75,7 +75,7 @@ func TestSendMessage_Blocked(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(MessageResponse{
+		_ = json.NewEncoder(w).Encode(MessageResponse{
 			Status:         "blocked",
 			MessageID:      "msg-456",
 			PolicyDecision: "content_blocked",
@@ -115,7 +115,7 @@ func TestSendMessage_Quarantined(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		json.NewEncoder(w).Encode(MessageResponse{
+		_ = json.NewEncoder(w).Encode(MessageResponse{
 			Status:         "quarantined",
 			MessageID:      "msg-789",
 			PolicyDecision: "content_quarantined",
@@ -155,7 +155,7 @@ func TestSendMessage_WithSignature(t *testing.T) {
 		gotSig = req.Signature
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(MessageResponse{
+		_ = json.NewEncoder(w).Encode(MessageResponse{
 			Status:         "delivered",
 			MessageID:      "msg-signed",
 			PolicyDecision: "allow",
@@ -187,7 +187,7 @@ func TestSendMessage_WithMetadata(t *testing.T) {
 		gotMeta = req.Metadata
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(MessageResponse{
+		_ = json.NewEncoder(w).Encode(MessageResponse{
 			Status: "delivered", MessageID: "msg-meta", PolicyDecision: "allow",
 		})
 	}))
@@ -210,7 +210,7 @@ func TestHealth(t *testing.T) {
 			t.Errorf("path = %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(HealthResponse{Status: "ok", Version: "0.4.1"})
+		_ = json.NewEncoder(w).Encode(HealthResponse{Status: "ok", Version: "0.4.1"})
 	}))
 	defer srv.Close()
 

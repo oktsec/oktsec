@@ -129,7 +129,7 @@ func (c *Client) SendMessageWithMetadata(ctx context.Context, to, content string
 	if err != nil {
 		return nil, fmt.Errorf("sending request: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	var resp MessageResponse
 	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
@@ -155,7 +155,7 @@ func (c *Client) Health(ctx context.Context) (*HealthResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("health check: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	var resp HealthResponse
 	if err := json.NewDecoder(httpResp.Body).Decode(&resp); err != nil {
