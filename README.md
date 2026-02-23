@@ -1,5 +1,5 @@
 <p align="center">
-  <strong>Oktsec</strong> — Security proxy for AI agent communication
+  <strong>Oktsec</strong> — Security layer for AI agent-to-agent communication
 </p>
 
 <p align="center">
