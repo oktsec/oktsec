@@ -399,6 +399,13 @@ func EntryJSON(e Entry) []byte {
 	return b
 }
 
+// Flush blocks until all pending writes have been processed.
+func (s *Store) Flush() {
+	for len(s.writes) > 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // Close flushes pending writes and closes the database.
 func (s *Store) Close() error {
 	s.cancel()

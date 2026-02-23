@@ -95,7 +95,7 @@ func TestApproveReject(t *testing.T) {
 		Status:         "quarantined",
 		PolicyDecision: "content_quarantined",
 	})
-	time.Sleep(100 * time.Millisecond)
+	store.Flush()
 
 	if err := store.Enqueue(QuarantineItem{
 		ID:           "q-approve",
@@ -255,7 +255,7 @@ func TestPurgeOldEntries(t *testing.T) {
 	} {
 		store.Log(e)
 	}
-	time.Sleep(100 * time.Millisecond) // wait for async writes
+	store.Flush() // wait for async writes
 
 	// Purge entries older than 30 days
 	n, err := store.PurgeOldEntries(30)

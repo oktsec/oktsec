@@ -34,7 +34,7 @@ func TestQueryEdgeStats(t *testing.T) {
 	for _, e := range entries {
 		store.Log(e)
 	}
-	time.Sleep(150 * time.Millisecond)
+	store.Flush()
 
 	stats, err := store.QueryEdgeStats()
 	if err != nil {
@@ -95,7 +95,7 @@ func TestStoreLogAndQuery(t *testing.T) {
 	})
 
 	// Wait for async writes
-	time.Sleep(100 * time.Millisecond)
+	store.Flush()
 
 	// Query all
 	entries, err := store.Query(QueryOpts{Limit: 10})
