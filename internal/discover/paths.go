@@ -36,6 +36,10 @@ func KnownClients() []Client {
 			Name:  "windsurf",
 			Paths: []string{filepath.Join(home, ".windsurf", "mcp.json")},
 		},
+		{
+			Name:  "openclaw",
+			Paths: []string{filepath.Join(home, ".openclaw", "openclaw.json")},
+		},
 	}
 	return clients
 }

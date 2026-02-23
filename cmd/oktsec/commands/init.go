@@ -136,6 +136,8 @@ func assessRisk(srv discover.MCPServer) string {
 		return "medium"
 	case containsAny(cmdLine, "browser", "puppeteer", "playwright", "fetch", "http"):
 		return "high"
+	case containsAny(cmdLine, "openclaw"):
+		return "high"
 	default:
 		return "unknown"
 	}

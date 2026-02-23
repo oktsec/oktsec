@@ -73,6 +73,16 @@ func Scan() (*Result, error) {
 
 	for _, client := range KnownClients() {
 		for _, path := range client.Paths {
+			if client.Name == "openclaw" {
+				cr, err := scanOpenClawConfig(path)
+				if err != nil {
+					continue
+				}
+				if len(cr.Servers) > 0 {
+					result.Clients = append(result.Clients, *cr)
+				}
+				continue
+			}
 			servers, err := parseConfigFile(path)
 			if err != nil {
 				continue // File doesn't exist or can't be parsed
@@ -127,7 +137,7 @@ func parseConfigFile(path string) ([]MCPServer, error) {
 // FormatTree returns a human-readable tree of discovered MCP servers.
 func FormatTree(result *Result) string {
 	if len(result.Clients) == 0 {
-		return "No MCP configurations found.\n\nChecked paths for: Claude Desktop, Cursor, VS Code, Cline, Windsurf"
+		return "No MCP configurations found.\n\nChecked paths for: Claude Desktop, Cursor, VS Code, Cline, Windsurf, OpenClaw"
 	}
 
 	var b strings.Builder
@@ -166,6 +176,8 @@ func clientDisplayName(name string) string {
 		return "Cline"
 	case "windsurf":
 		return "Windsurf"
+	case "openclaw":
+		return "OpenClaw"
 	default:
 		return name
 	}

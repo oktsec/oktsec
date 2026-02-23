@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-02-22
+
+### Added
+
+- **OpenClaw detection**: Discover and analyze OpenClaw AI agent installations. OpenClaw uses a WebSocket gateway and JSON5 config (`~/.openclaw/openclaw.json`) instead of MCP — oktsec now parses both.
+- **`oktsec scan-openclaw`**: New command that assesses OpenClaw config risk (7 checks) and scans workspace files (SOUL.md, AGENTS.md, TOOLS.md, USER.md) with the Aguara engine.
+- **7 OCLAW detection rules** (OCLAW-001 through OCLAW-007) in new `openclaw-config` category:
+  - OCLAW-001: Full tool profile without restrictions (critical)
+  - OCLAW-002: Gateway exposed to network (high)
+  - OCLAW-003: Open DM policy (high)
+  - OCLAW-004: Exec/shell tool without sandbox (critical)
+  - OCLAW-005: Path traversal in `$include` (critical)
+  - OCLAW-006: Gateway missing authentication (high)
+  - OCLAW-007: Hardcoded credentials in config (high)
+- **`oktsec discover`** now detects OpenClaw installations and prints risk summary when found.
+- **`oktsec wrap openclaw`** returns a clear error explaining the WebSocket architecture difference and points to `scan-openclaw`.
+- **Dashboard** shows `openclaw-config` category on the rules page.
+- **JSON5 support**: Config parser strips `//` and `/* */` comments from OpenClaw configs.
+- **Risk assessor**: `discover.AssessOpenClawRisk()` checks 7 patterns: full tool profiles, exposed gateways, open DM policies, unsandboxed agents, path traversal in includes, exec tools, and messaging channel attack surface.
+
+### Changed
+
+- `oktsec init` now assigns risk level "high" to OpenClaw-sourced agents.
+- Discovery fallback text updated to include OpenClaw.
+- Total rule count: 151 (138 Aguara + 6 IAP + 7 OCLAW).
+
 ## [0.2.0] - 2026-02-22
 
 ### Added

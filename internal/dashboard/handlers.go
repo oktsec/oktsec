@@ -338,6 +338,7 @@ var categoryDescriptions = map[string]string{
 	"supply-chain":        "Flags attempts to install malicious packages, modify dependencies, or compromise build pipelines.",
 	"third-party-content": "Detects loading of untrusted third-party content that could contain injection payloads.",
 	"unicode-attack":      "Catches unicode-based attacks: homoglyphs, invisible characters, and bidirectional text manipulation.",
+	"openclaw-config":     "Detects risky configurations in OpenClaw agent deployments: exposed gateways, overprivileged tool profiles, open DM policies, and credential leaks.",
 }
 
 func (s *Server) handleCategoryRules(w http.ResponseWriter, r *http.Request) {

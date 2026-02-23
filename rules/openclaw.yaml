@@ -1,0 +1,167 @@
+id: OCLAW-001
+name: "Full tool profile without restrictions"
+description: >
+  OpenClaw's tools.profile is set to "full" without a deny list, granting agents
+  unrestricted access to all tools including filesystem, shell, email, and
+  messaging channels. This is the equivalent of running as root.
+severity: critical
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?profile[\"']?\\s*:\\s*[\"']full[\"']"
+examples:
+  true_positive:
+    - '"profile": "full"'
+    - "'profile': 'full'"
+    - "profile: full"
+  false_positive:
+    - '"profile": "standard"'
+    - '"profile": "minimal"'
+    - '"fullName": "John Doe"'
+---
+id: OCLAW-002
+name: "Gateway exposed to network"
+description: >
+  OpenClaw's WebSocket gateway is bound to 0.0.0.0 or a LAN address instead of
+  localhost. This exposes the gateway to the network, allowing remote attackers
+  to send messages directly to agents.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?bind[\"']?\\s*:\\s*[\"']0\\.0\\.0\\.0[\"']"
+  - type: regex
+    value: "(?i)[\"']?bind[\"']?\\s*:\\s*[\"']lan[\"']"
+  - type: regex
+    value: "(?i)[\"']?bind[\"']?\\s*:\\s*[\"']::[\"']"
+examples:
+  true_positive:
+    - '"bind": "0.0.0.0"'
+    - '"bind": "lan"'
+    - '"bind": "::"'
+  false_positive:
+    - '"bind": "127.0.0.1"'
+    - '"bind": "localhost"'
+---
+id: OCLAW-003
+name: "Open DM policy"
+description: >
+  OpenClaw's dmPolicy is set to "open", allowing any external message (WhatsApp,
+  Telegram, Slack, Discord, email) to reach agents without filtering. Every DM
+  becomes a prompt injection vector.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?dmPolicy[\"']?\\s*:\\s*[\"']open[\"']"
+examples:
+  true_positive:
+    - '"dmPolicy": "open"'
+    - "'dmPolicy': 'open'"
+  false_positive:
+    - '"dmPolicy": "restricted"'
+    - '"dmPolicy": "allowlist"'
+---
+id: OCLAW-004
+name: "Exec/shell tool without sandbox"
+description: >
+  OpenClaw's tool configuration allows exec, shell, terminal, or bash tools
+  while agents are configured without sandbox isolation. This enables arbitrary
+  code execution on the host system via prompt injection through any channel.
+severity: critical
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"'](exec|shell|terminal|bash)[\"']"
+examples:
+  true_positive:
+    - '"allow": ["read", "exec", "write"]'
+    - '"allow": ["shell"]'
+    - '"tools": ["terminal", "browser"]'
+  false_positive:
+    - '"allow": ["read", "write", "search"]'
+    - '"executable": "/usr/bin/node"'
+---
+id: OCLAW-005
+name: "Path traversal in $include"
+description: >
+  OpenClaw's $include directive references a path containing ".." which could
+  be used to include configuration files outside the intended directory,
+  potentially loading attacker-controlled settings.
+severity: critical
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?\\$include[\"']?\\s*:\\s*\\[?\\s*[\"'][^\"']*\\.\\.[^\"']*[\"']"
+examples:
+  true_positive:
+    - '"$include": ["../../../etc/secrets.json"]'
+    - '"$include": ["../../malicious/config.json"]'
+  false_positive:
+    - '"$include": ["./plugins/extra.json"]'
+    - '"$include": ["plugins/tools.json"]'
+---
+id: OCLAW-006
+name: "Gateway missing authentication"
+description: >
+  OpenClaw's WebSocket gateway has no authentication configured. Any process
+  on the machine (or network, if exposed) can connect and send commands to
+  agents. Combined with messaging channels, this is a critical attack vector.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?auth[\"']?\\s*:\\s*[\"'](none|disabled|false|off)[\"']"
+  - type: regex
+    value: "(?i)[\"']?auth[\"']?\\s*:\\s*false"
+examples:
+  true_positive:
+    - '"auth": "none"'
+    - '"auth": "disabled"'
+    - '"auth": false'
+  false_positive:
+    - '"auth": "token"'
+    - '"auth": "bearer"'
+    - '"auth": true'
+---
+id: OCLAW-007
+name: "Hardcoded credentials in config"
+description: >
+  OpenClaw configuration contains hardcoded tokens, API keys, or passwords.
+  These credentials are stored in plaintext and accessible to any process
+  that can read the config file.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?token[\"']?\\s*:\\s*[\"']xoxb-[A-Za-z0-9\\-]+"
+  - type: regex
+    value: "(?i)[\"']?token[\"']?\\s*:\\s*[\"']xapp-[A-Za-z0-9\\-]+"
+  - type: regex
+    value: "(?i)[\"']?(api[_-]?key|secret|password|passwd)[\"']?\\s*:\\s*[\"'][^\"']{8,}[\"']"
+  - type: regex
+    value: "(?i)[\"']?token[\"']?\\s*:\\s*[\"'][A-Za-z0-9]{30,}[\"']"
+examples:
+  true_positive:
+    - '"token": "xoxb-123456789-abcdefghij"'
+    - '"api_key": "sk_live_abcdef1234567890"'
+    - '"password": "SuperSecret123!"'
+    - '"token": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"'
+  false_positive:
+    - '"token": "env:SLACK_TOKEN"'
+    - '"api_key": "vault:secret/key"'
+    - '"password": "***"'

@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var supportedClients = []string{"claude-desktop", "cursor", "vscode", "cline", "windsurf"}
+var supportedClients = []string{"claude-desktop", "cursor", "vscode", "cline", "windsurf", "openclaw"}
 
 func newWrapCmd() *cobra.Command {
 	return &cobra.Command{
@@ -20,6 +20,10 @@ func newWrapCmd() *cobra.Command {
 		ValidArgs: supportedClients,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := args[0]
+
+			if client == "openclaw" {
+				return fmt.Errorf("OpenClaw uses a WebSocket gateway (not MCP stdio), so 'wrap' is not supported.\n\nUse 'oktsec scan-openclaw' to analyze your OpenClaw installation instead")
+			}
 
 			path := discover.ClientConfigPath(client)
 			if path == "" {
@@ -82,6 +86,8 @@ func clientDisplay(name string) string {
 		return "Cline"
 	case "windsurf":
 		return "Windsurf"
+	case "openclaw":
+		return "OpenClaw"
 	default:
 		return name
 	}
