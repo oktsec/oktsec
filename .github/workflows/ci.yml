@@ -28,5 +28,8 @@ jobs:
       - name: Test
         run: make test
 
+      - name: Integration Test
+        run: make integration-test
+
       - name: Vet
         run: make vet

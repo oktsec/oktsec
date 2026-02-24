@@ -1,3 +1,5 @@
+// Package identity provides Ed25519 key generation, message signing,
+// and signature verification for agent-to-agent authentication.
 package identity
 
 import (

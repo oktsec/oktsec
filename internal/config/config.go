@@ -1,3 +1,4 @@
+// Package config loads and validates the oktsec YAML configuration file.
 package config
 
 import (

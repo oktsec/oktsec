@@ -1,3 +1,5 @@
+// Package mcp implements an MCP tool server that exposes security operations
+// (scan, audit query, agent verification, quarantine review) to AI agents.
 package mcp
 
 import (

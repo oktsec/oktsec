@@ -1,3 +1,5 @@
+// Package audit provides the SQLite-backed audit trail for message events,
+// key revocation tracking, and quarantine queue management.
 package audit
 
 // Entry represents a single audit log record.
