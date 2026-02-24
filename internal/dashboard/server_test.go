@@ -794,3 +794,174 @@ func TestAuditStore_Hub(t *testing.T) {
 		t.Fatal("timeout waiting for broadcast")
 	}
 }
+
+func TestServer_EnforcementTabLoads(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/rules?tab=enforcement", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("enforcement tab: status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Add Override") {
+		t.Error("enforcement tab should contain 'Add Override'")
+	}
+	if !strings.Contains(body, "Webhook Message") {
+		t.Error("enforcement tab should contain 'Webhook Message' label")
+	}
+}
+
+func TestServer_EnforcementSaveAndDisplay(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "oktsec.yaml")
+	srv.cfgPath = cfgPath
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Save an override with template
+	form := url.Values{
+		"rule_id":  {"CRED_001"},
+		"action":   {"block"},
+		"severity": {"critical"},
+		"notify":   {"https://hooks.slack.com/test"},
+		"template": {"Alert: {{RULE}} fired with {{SEVERITY}}"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/rules/enforcement", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("save enforcement: status = %d, want 302", w.Code)
+	}
+
+	// Verify in-memory config
+	if len(srv.cfg.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(srv.cfg.Rules))
+	}
+	rule := srv.cfg.Rules[0]
+	if rule.ID != "CRED_001" {
+		t.Errorf("rule ID = %q, want CRED_001", rule.ID)
+	}
+	if rule.Action != "block" {
+		t.Errorf("action = %q, want block", rule.Action)
+	}
+	if rule.Template != "Alert: {{RULE}} fired with {{SEVERITY}}" {
+		t.Errorf("template = %q, want plain text template", rule.Template)
+	}
+	if len(rule.Notify) != 1 || rule.Notify[0] != "https://hooks.slack.com/test" {
+		t.Errorf("notify = %v, want [https://hooks.slack.com/test]", rule.Notify)
+	}
+
+	// Verify persisted to YAML
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if len(loaded.Rules) != 1 || loaded.Rules[0].Template != "Alert: {{RULE}} fired with {{SEVERITY}}" {
+		t.Errorf("persisted template mismatch: %+v", loaded.Rules)
+	}
+
+	// Verify the override card renders on the enforcement tab
+	req = httptest.NewRequest("GET", "/dashboard/rules?tab=enforcement", nil)
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "CRED_001") {
+		t.Error("enforcement tab should show CRED_001 override")
+	}
+	if !strings.Contains(body, "block") {
+		t.Error("enforcement tab should show 'block' action")
+	}
+	if !strings.Contains(body, "template") {
+		t.Error("enforcement tab should show template tag")
+	}
+}
+
+func TestServer_EnforcementUpdate(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Create initial override
+	form := url.Values{
+		"rule_id":  {"PI-001"},
+		"action":   {"quarantine"},
+		"severity": {"high"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/rules/enforcement", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if srv.cfg.Rules[0].Action != "quarantine" {
+		t.Fatalf("initial action = %q, want quarantine", srv.cfg.Rules[0].Action)
+	}
+
+	// Update same rule to block with template
+	form = url.Values{
+		"rule_id":  {"PI-001"},
+		"action":   {"block"},
+		"severity": {"critical"},
+		"template": {"Blocked: {{RULE}}"},
+	}
+	req = httptest.NewRequest("POST", "/dashboard/rules/enforcement", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// Should still be 1 rule, not 2
+	if len(srv.cfg.Rules) != 1 {
+		t.Fatalf("expected 1 rule after update, got %d", len(srv.cfg.Rules))
+	}
+	if srv.cfg.Rules[0].Action != "block" {
+		t.Errorf("updated action = %q, want block", srv.cfg.Rules[0].Action)
+	}
+	if srv.cfg.Rules[0].Template != "Blocked: {{RULE}}" {
+		t.Errorf("updated template = %q", srv.cfg.Rules[0].Template)
+	}
+}
+
+func TestServer_EnforcementDelete(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+	srv.cfg.Rules = []config.RuleAction{
+		{ID: "CRED_001", Action: "block"},
+		{ID: "PI-001", Action: "quarantine"},
+	}
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("DELETE", "/dashboard/rules/enforcement/CRED_001", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete: status = %d, want 200", w.Code)
+	}
+	if len(srv.cfg.Rules) != 1 {
+		t.Fatalf("expected 1 rule after delete, got %d", len(srv.cfg.Rules))
+	}
+	if srv.cfg.Rules[0].ID != "PI-001" {
+		t.Errorf("remaining rule = %q, want PI-001", srv.cfg.Rules[0].ID)
+	}
+}

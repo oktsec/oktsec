@@ -62,6 +62,7 @@ type RuleAction struct {
 	Severity string   `yaml:"severity"`
 	Action   string   `yaml:"action"` // block, quarantine, allow-and-flag
 	Notify   []string `yaml:"notify"`
+	Template string   `yaml:"template,omitempty"` // webhook body template with {{RULE}}, {{ACTION}}, etc.
 }
 
 // RateLimitConfig controls per-agent message rate limiting.
@@ -181,7 +182,12 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
+	seen := make(map[string]bool, len(c.Rules))
 	for _, ra := range c.Rules {
+		if seen[ra.ID] {
+			return fmt.Errorf("duplicate rule override for %q", ra.ID)
+		}
+		seen[ra.ID] = true
 		switch ra.Action {
 		case "block", "quarantine", "allow-and-flag", "ignore":
 			// valid

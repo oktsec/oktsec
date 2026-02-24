@@ -338,12 +338,21 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Count non-toggle overrides (exclude "ignore" which are just toggles)
+	var enforcementCount int
+	for _, ra := range s.cfg.Rules {
+		if ra.Action != "ignore" {
+			enforcementCount++
+		}
+	}
+
 	data := map[string]any{
-		"Active":         "rules",
-		"Tab":            tab,
-		"CustomRulesDir": s.cfg.CustomRulesDir,
-		"CustomCount":    customCount,
-		"RequireSig":     s.cfg.Identity.RequireSignature,
+		"Active":           "rules",
+		"Tab":              tab,
+		"CustomRulesDir":   s.cfg.CustomRulesDir,
+		"CustomCount":      customCount,
+		"EnforcementCount": enforcementCount,
+		"RequireSig":       s.cfg.Identity.RequireSignature,
 	}
 
 	// Only build category data for detection tab
@@ -452,6 +461,60 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		data["CustomFiles"] = customFiles
 	}
 
+	// Build enforcement data for enforcement tab
+	if tab == "enforcement" {
+		// Build rule info map for enriching overrides + JSON for search
+		ruleInfoMap := make(map[string]ruleRow)
+		if s.scanner != nil {
+			for _, ri := range s.scanner.ListRules() {
+				ruleInfoMap[ri.ID] = ruleRow{
+					ID:       ri.ID,
+					Name:     ri.Name,
+					Severity: ri.Severity,
+					Category: ri.Category,
+				}
+			}
+		}
+
+		// Build enriched overrides
+		var enriched []enforcementOverride
+		for _, ra := range s.cfg.Rules {
+			eo := enforcementOverride{
+				ID:       ra.ID,
+				Action:   ra.Action,
+				Notify:   ra.Notify,
+				Template: ra.Template,
+			}
+			if info, ok := ruleInfoMap[ra.ID]; ok {
+				eo.Name = info.Name
+				eo.Category = info.Category
+				eo.DefaultSeverity = info.Severity
+				if s.scanner != nil {
+					if detail, err := s.scanner.ExplainRule(ra.ID); err == nil && detail != nil {
+						eo.Description = detail.Description
+					}
+				}
+			}
+			enriched = append(enriched, eo)
+		}
+
+		// Serialize rule list as JSON for the JS combobox
+		type ruleOption struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Severity string `json:"severity"`
+			Category string `json:"category"`
+		}
+		var opts []ruleOption
+		for _, ri := range ruleInfoMap {
+			opts = append(opts, ruleOption{ID: ri.ID, Name: ri.Name, Severity: ri.Severity, Category: ri.Category})
+		}
+		sort.Slice(opts, func(i, j int) bool { return opts[i].ID < opts[j].ID })
+		rulesJSON, _ := json.Marshal(opts)
+		data["RulesJSON"] = string(rulesJSON)
+		data["Overrides"] = enriched
+	}
+
 	s.renderTemplate(w, rulesTmpl, data)
 }
 
@@ -462,6 +525,17 @@ type ruleRow struct {
 	Category    string
 	Description string
 	Disabled    bool
+}
+
+type enforcementOverride struct {
+	ID              string
+	Action          string
+	Notify          []string
+	Template        string
+	Name            string // from scanner
+	Description     string // from scanner
+	Category        string // from scanner
+	DefaultSeverity string // from scanner
 }
 
 type ruleCategory struct {
@@ -834,12 +908,24 @@ func (s *Server) handleSaveEnforcement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse notify URLs (one per line, skip blanks)
+	var notify []string
+	for _, line := range strings.Split(r.FormValue("notify"), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			notify = append(notify, line)
+		}
+	}
+	tmpl := strings.TrimSpace(r.FormValue("template"))
+
 	// Update existing or append new
 	found := false
 	for i := range s.cfg.Rules {
 		if s.cfg.Rules[i].ID == ruleID {
 			s.cfg.Rules[i].Severity = severity
 			s.cfg.Rules[i].Action = action
+			s.cfg.Rules[i].Notify = notify
+			s.cfg.Rules[i].Template = tmpl
 			found = true
 			break
 		}
@@ -849,6 +935,8 @@ func (s *Server) handleSaveEnforcement(w http.ResponseWriter, r *http.Request) {
 			ID:       ruleID,
 			Severity: severity,
 			Action:   action,
+			Notify:   notify,
+			Template: tmpl,
 		})
 	}
 
@@ -860,7 +948,7 @@ func (s *Server) handleSaveEnforcement(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Redirect(w, r, "/dashboard/rules", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/rules?tab=enforcement", http.StatusFound)
 }
 
 func (s *Server) handleDeleteEnforcement(w http.ResponseWriter, r *http.Request) {
