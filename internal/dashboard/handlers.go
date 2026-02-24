@@ -3,6 +3,7 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,9 +19,22 @@ import (
 	"github.com/oktsec/oktsec/internal/identity"
 )
 
-func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) renderTemplate(w http.ResponseWriter, tmpl *template.Template, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = loginTmpl.Execute(w, nil)
+	if err := tmpl.Execute(w, data); err != nil {
+		s.logger.Error("template render failed", "template", tmpl.Name(), "error", err)
+	}
+}
+
+func (s *Server) renderJSON(w http.ResponseWriter, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		s.logger.Error("json encode failed", "error", err)
+	}
+}
+
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	s.renderTemplate(w, loginTmpl, nil)
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -33,9 +47,8 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 			"ip", ip,
 			"retry_after", retryAfter.Round(time.Second).String(),
 		)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		msg := fmt.Sprintf("Too many failed attempts. Try again in %d minutes.", int(retryAfter.Minutes())+1)
-		_ = loginTmpl.Execute(w, map[string]any{"Error": msg})
+		s.renderTemplate(w, loginTmpl, map[string]any{"Error": msg})
 		return
 	}
 
@@ -50,8 +63,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		} else {
 			s.logger.Info("login failed", "ip", ip)
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = loginTmpl.Execute(w, map[string]any{"Error": "Invalid access code. Check your terminal."})
+		s.renderTemplate(w, loginTmpl, map[string]any{"Error": "Invalid access code. Check your terminal."})
 		return
 	}
 
@@ -124,8 +136,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"Grade":         grade,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = overviewTmpl.Execute(w, data)
+	s.renderTemplate(w, overviewTmpl, data)
 }
 
 type auditProductGroup struct {
@@ -196,8 +207,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		"HasCritical": summary.Critical > 0,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = auditTmpl.Execute(w, data)
+	s.renderTemplate(w, auditTmpl, data)
 }
 
 // handleAuditSandbox renders the audit page with ONLY OpenClaw findings
@@ -257,8 +267,7 @@ func (s *Server) handleAuditSandbox(w http.ResponseWriter, r *http.Request) {
 		"Sandbox":     true,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = auditTmpl.Execute(w, data)
+	s.renderTemplate(w, auditTmpl, data)
 }
 
 type hourlyBar struct {
@@ -308,8 +317,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		"RequireSig": s.cfg.Identity.RequireSignature,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = agentsTmpl.Execute(w, data)
+	s.renderTemplate(w, agentsTmpl, data)
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
@@ -444,8 +452,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		data["CustomFiles"] = customFiles
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = rulesTmpl.Execute(w, data)
+	s.renderTemplate(w, rulesTmpl, data)
 }
 
 type ruleRow struct {
@@ -551,8 +558,7 @@ func (s *Server) handleCategoryRules(w http.ResponseWriter, r *http.Request) {
 		"RequireSig":   s.cfg.Identity.RequireSignature,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = categoryDetailTmpl.Execute(w, data)
+	s.renderTemplate(w, categoryDetailTmpl, data)
 }
 
 func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
@@ -595,23 +601,19 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"RequireSig":  s.cfg.Identity.RequireSignature,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = agentDetailTmpl.Execute(w, data)
+	s.renderTemplate(w, agentDetailTmpl, data)
 }
 
 // HTMX partial: stats bar
 func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 	stats := s.getStats()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(stats)
+	s.renderJSON(w, stats)
 }
 
 // HTMX partial: recent events
 func (s *Server) handleAPIRecent(w http.ResponseWriter, r *http.Request) {
 	recent := s.getRecentEvents(5)
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = recentPartialTmpl.Execute(w, recent)
+	s.renderTemplate(w, recentPartialTmpl, recent)
 }
 
 func (s *Server) handleIdentityRevoke(w http.ResponseWriter, r *http.Request) {
@@ -695,12 +697,15 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 // --- Search handler ---
 
+const maxSearchLen = 200
+
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
+	if len(q) > maxSearchLen {
+		q = q[:maxSearchLen]
+	}
 	entries, _ := s.audit.Query(audit.QueryOpts{Search: q, Limit: 50})
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = searchResultsTmpl.Execute(w, entries)
+	s.renderTemplate(w, searchResultsTmpl, entries)
 }
 
 // --- Event detail handler ---
@@ -730,8 +735,7 @@ func (s *Server) handleEventDetail(w http.ResponseWriter, r *http.Request) {
 		"Decision": humanReadableDecision(entry.PolicyDecision),
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = eventDetailTmpl.Execute(w, data)
+	s.renderTemplate(w, eventDetailTmpl, data)
 }
 
 func parseTriggeredRules(raw string) []triggeredRule {
@@ -805,8 +809,7 @@ func (s *Server) handleRuleDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ruleDetailTmpl.Execute(w, detail)
+	s.renderTemplate(w, ruleDetailTmpl, detail)
 }
 
 // --- Enforcement overrides handlers ---
@@ -818,8 +821,7 @@ func (s *Server) handleEnforcementOverrides(w http.ResponseWriter, r *http.Reque
 		"RequireSig": s.cfg.Identity.RequireSignature,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = enforcementTmpl.Execute(w, data)
+	s.renderTemplate(w, enforcementTmpl, data)
 }
 
 func (s *Server) handleSaveEnforcement(w http.ResponseWriter, r *http.Request) {
@@ -916,8 +918,7 @@ func (s *Server) handleCustomRules(w http.ResponseWriter, r *http.Request) {
 		"RequireSig":     s.cfg.Identity.RequireSignature,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = customRulesTmpl.Execute(w, data)
+	s.renderTemplate(w, customRulesTmpl, data)
 }
 
 type customRuleFile struct {
@@ -1103,8 +1104,7 @@ func (s *Server) handleQuarantineDetail(w http.ResponseWriter, r *http.Request) 
 		"Rules": rules,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = quarantineDetailTmpl.Execute(w, data)
+	s.renderTemplate(w, quarantineDetailTmpl, data)
 }
 
 func (s *Server) handleQuarantineApprove(w http.ResponseWriter, r *http.Request) {
@@ -1117,8 +1117,7 @@ func (s *Server) handleQuarantineApprove(w http.ResponseWriter, r *http.Request)
 
 	item, _ := s.audit.QuarantineByID(id)
 	data := map[string]any{"Item": item}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = quarantineRowTmpl.Execute(w, data)
+	s.renderTemplate(w, quarantineRowTmpl, data)
 }
 
 func (s *Server) handleQuarantineReject(w http.ResponseWriter, r *http.Request) {
@@ -1131,8 +1130,7 @@ func (s *Server) handleQuarantineReject(w http.ResponseWriter, r *http.Request) 
 
 	item, _ := s.audit.QuarantineByID(id)
 	data := map[string]any{"Item": item}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = quarantineRowTmpl.Execute(w, data)
+	s.renderTemplate(w, quarantineRowTmpl, data)
 }
 
 // --- Agent CRUD handlers ---
@@ -1302,8 +1300,7 @@ func (s *Server) handleToggleRule(w http.ResponseWriter, r *http.Request) {
 
 	// Return the updated toggle button
 	enabled := isDisabled // flipped
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = ruleToggleTmpl.Execute(w, map[string]any{"ID": id, "Enabled": enabled})
+	s.renderTemplate(w, ruleToggleTmpl, map[string]any{"ID": id, "Enabled": enabled})
 }
 
 func (s *Server) handleToggleCategory(w http.ResponseWriter, r *http.Request) {
@@ -1456,8 +1453,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		"RequireSig":     s.cfg.Identity.RequireSignature,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = eventsTmpl.Execute(w, data)
+	s.renderTemplate(w, eventsTmpl, data)
 }
 
 // --- Settings handler ---
@@ -1516,8 +1512,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"WebhookCount":   len(s.cfg.Webhooks),
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = settingsTmpl.Execute(w, data)
+	s.renderTemplate(w, settingsTmpl, data)
 }
 
 // --- Stats helpers ---
@@ -1587,14 +1582,12 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		"Graph":      g,
 		"RequireSig": s.cfg.Identity.RequireSignature,
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = graphTmpl.Execute(w, data)
+	s.renderTemplate(w, graphTmpl, data)
 }
 
 func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 	g := s.buildGraph()
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(g)
+	s.renderJSON(w, g)
 }
 
 func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {
@@ -1623,6 +1616,5 @@ func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {
 		"Entries": edgeEntries,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = edgeDetailTmpl.Execute(w, data)
+	s.renderTemplate(w, edgeDetailTmpl, data)
 }

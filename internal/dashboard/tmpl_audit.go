@@ -15,7 +15,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-stat-val.v-high{color:#f97316}
 .a-stat-val.v-med{color:var(--text2)}
 .a-stat-val.v-dim{color:var(--text3)}
-.a-grade{font-size:0.82rem;font-weight:600;margin-left:8px;color:var(--text3);font-family:var(--mono);vertical-align:baseline}
+.a-grade{display:block;font-size:0.68rem;font-weight:500;color:var(--text3);font-family:var(--mono);margin-top:2px;letter-spacing:0.5px}
 
 /* Alert strip */
 .a-alert{display:flex;align-items:center;gap:10px;padding:11px 16px;border-left:3px solid #ef4444;background:rgba(239,68,68,0.04);margin-bottom:24px;font-size:0.8rem;color:var(--text2)}
@@ -97,7 +97,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 <div class="a-stats">
   <div class="a-stat">
     <div class="a-stat-label">Posture Score</div>
-    <div class="a-stat-val{{if lt .Score 40}} v-crit{{else if lt .Score 75}} v-high{{end}}">{{.Score}}<span class="a-grade">{{.Grade}}</span></div>
+    <div class="a-stat-val{{if lt .Score 40}} v-crit{{else if lt .Score 75}} v-high{{end}}">{{.Score}}<span class="a-grade">Grade {{.Grade}}</span></div>
   </div>
   <div class="a-stat">
     <div class="a-stat-label">Critical</div>

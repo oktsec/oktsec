@@ -712,6 +712,23 @@ func TestAuditStore_QueryAgentStats(t *testing.T) {
 	}
 }
 
+func TestServer_SearchLengthLimit(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Build a query longer than maxSearchLen (200)
+	longQuery := strings.Repeat("a", 300)
+	req := httptest.NewRequest("GET", "/dashboard/api/search?q="+longQuery, nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("search with long query: status = %d, want 200", w.Code)
+	}
+}
+
 func TestAuditStore_QueryStatuses(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))

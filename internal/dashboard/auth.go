@@ -14,7 +14,7 @@ import (
 
 const (
 	sessionCookieName = "oktsec_session"
-	sessionDuration   = 24 * time.Hour
+	sessionDuration   = 8 * time.Hour
 	maxSessions       = 50 // max concurrent sessions before cleanup
 
 	// Rate limiting thresholds
@@ -223,6 +223,9 @@ func (a *Auth) cleanStaleAttemptsLocked() {
 }
 
 // Middleware protects dashboard routes, redirecting unauthenticated requests to login.
+// CSRF note: the session cookie uses SameSite=Strict, which prevents cross-origin
+// cookie sends. Combined with localhost-only binding, CSRF risk is effectively
+// mitigated without dedicated tokens.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Allow login page without auth
