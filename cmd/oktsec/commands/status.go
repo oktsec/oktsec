@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
@@ -43,6 +44,20 @@ func newStatusCmd() *cobra.Command {
 				}
 			}
 
+			// Health score
+			configDir := filepath.Dir(cfgFile)
+			if configDir == "." {
+				if wd, err := os.Getwd(); err == nil {
+					configDir = wd
+				}
+			}
+			findings, detected := runAuditChecks(cfg, configDir)
+			score, grade := computeHealthScore(findings)
+			fmt.Printf("  Health:        %d/100 (%s)\n", score, grade)
+			if len(detected) > 0 {
+				fmt.Printf("  Detected:      %s\n", joinDetected(detected))
+			}
+
 			// Audit stats
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 			store, err := audit.NewStore("oktsec.db", logger)
@@ -77,9 +92,95 @@ func newStatusCmd() *cobra.Command {
 				}
 			}
 
+			// Top issues if not perfect
+			if score < 100 {
+				printTopIssues(findings)
+			}
+
 			fmt.Println()
 			return nil
 		},
+	}
+}
+
+func joinDetected(detected []string) string {
+	if len(detected) == 0 {
+		return "none"
+	}
+	s := detected[0]
+	for i := 1; i < len(detected); i++ {
+		s += ", " + detected[i]
+	}
+	return s
+}
+
+// computeHealthScore calculates a 0-100 score from audit findings.
+// Penalties: critical=-25, high=-15, medium=-5, low=-2, info=0.
+func computeHealthScore(findings []AuditFinding) (int, string) {
+	score := 100
+	for _, f := range findings {
+		switch f.Severity {
+		case AuditCritical:
+			score -= 25
+		case AuditHigh:
+			score -= 15
+		case AuditMedium:
+			score -= 5
+		case AuditLow:
+			score -= 2
+		}
+	}
+	if score < 0 {
+		score = 0
+	}
+
+	var grade string
+	switch {
+	case score >= 90:
+		grade = "A"
+	case score >= 75:
+		grade = "B"
+	case score >= 60:
+		grade = "C"
+	case score >= 40:
+		grade = "D"
+	default:
+		grade = "F"
+	}
+	return score, grade
+}
+
+// printTopIssues shows the top 3 critical/high findings as a quick summary.
+func printTopIssues(findings []AuditFinding) {
+	fmt.Println("  ────────────────────────────────────────")
+	fmt.Println("  Top issues:")
+	shown := 0
+	for _, f := range findings {
+		if f.Severity < AuditHigh {
+			continue
+		}
+		prefix := "!!"
+		if f.Severity == AuditCritical {
+			prefix = "!!"
+		}
+		product := ""
+		if f.Product != "" {
+			product = " (" + f.Product + ")"
+		}
+		fmt.Printf("    %s [%s] %s%s\n", prefix, f.CheckID, f.Title, product)
+		shown++
+		if shown >= 3 {
+			remaining := 0
+			for _, rf := range findings[shown:] {
+				if rf.Severity >= AuditHigh {
+					remaining++
+				}
+			}
+			if remaining > 0 {
+				fmt.Printf("       ... and %d more (run 'oktsec audit' for details)\n", remaining)
+			}
+			break
+		}
 	}
 }
 

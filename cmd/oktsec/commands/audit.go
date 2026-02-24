@@ -82,6 +82,7 @@ var productAuditors = []productAuditor{
 
 func newAuditCmd() *cobra.Command {
 	var jsonOutput bool
+	var sarifOutput bool
 
 	cmd := &cobra.Command{
 		Use:   "audit",
@@ -89,6 +90,7 @@ func newAuditCmd() *cobra.Command {
 		Long:  "Analyzes the oktsec configuration file and filesystem state, producing a security report with actionable findings.",
 		Example: `  oktsec audit
   oktsec audit --json
+  oktsec audit --sarif
   oktsec audit --config /path/to/oktsec.yaml`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(cfgFile)
@@ -140,6 +142,9 @@ func newAuditCmd() *cobra.Command {
 				}
 			}
 
+			if sarifOutput {
+				return printAuditSARIF(report)
+			}
 			if jsonOutput {
 				return printAuditJSON(report)
 			}
@@ -153,6 +158,7 @@ func newAuditCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output as JSON")
+	cmd.Flags().BoolVar(&sarifOutput, "sarif", false, "output as SARIF v2.1.0")
 	return cmd
 }
 
