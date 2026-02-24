@@ -1,3 +1,5 @@
+// Package proxy implements the HTTP message proxy, stdio proxy, forward proxy,
+// and the security pipeline (rate limiting, identity, ACL, scanning, verdicts).
 package proxy
 
 import (

@@ -1,3 +1,5 @@
+// Package discover auto-detects MCP client configurations and agent
+// framework installations (Claude Desktop, Cursor, VS Code, OpenClaw, NanoClaw).
 package discover
 
 import (

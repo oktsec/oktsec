@@ -1,3 +1,5 @@
+// Package dashboard serves the real-time web UI for monitoring events,
+// managing agents, reviewing quarantine items, and configuring policies.
 package dashboard
 
 import (

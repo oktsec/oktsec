@@ -1,3 +1,5 @@
+// Package engine wraps the Aguara detection library to scan message content
+// and map findings to security verdicts (block, quarantine, flag, clean).
 package engine
 
 import (

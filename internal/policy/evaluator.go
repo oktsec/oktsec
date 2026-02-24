@@ -1,3 +1,5 @@
+// Package policy evaluates per-agent ACL rules to determine whether a
+// message between two agents should be allowed or denied.
 package policy
 
 import (
