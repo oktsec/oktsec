@@ -144,7 +144,7 @@ func TestStripJSON5Comments(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := string(stripJSON5Comments([]byte(tt.input)))
+			got := string(StripJSON5Comments([]byte(tt.input)))
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
