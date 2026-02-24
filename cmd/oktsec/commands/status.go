@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/auditcheck"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/spf13/cobra"
@@ -51,8 +52,8 @@ func newStatusCmd() *cobra.Command {
 					configDir = wd
 				}
 			}
-			findings, detected := runAuditChecks(cfg, configDir)
-			score, grade := computeHealthScore(findings)
+			findings, detected, _ := auditcheck.RunChecks(cfg, configDir)
+			score, grade := auditcheck.ComputeHealthScore(findings)
 			fmt.Printf("  Health:        %d/100 (%s)\n", score, grade)
 			if len(detected) > 0 {
 				fmt.Printf("  Detected:      %s\n", joinDetected(detected))
@@ -114,53 +115,17 @@ func joinDetected(detected []string) string {
 	return s
 }
 
-// computeHealthScore calculates a 0-100 score from audit findings.
-// Penalties: critical=-25, high=-15, medium=-5, low=-2, info=0.
-func computeHealthScore(findings []AuditFinding) (int, string) {
-	score := 100
-	for _, f := range findings {
-		switch f.Severity {
-		case AuditCritical:
-			score -= 25
-		case AuditHigh:
-			score -= 15
-		case AuditMedium:
-			score -= 5
-		case AuditLow:
-			score -= 2
-		}
-	}
-	if score < 0 {
-		score = 0
-	}
-
-	var grade string
-	switch {
-	case score >= 90:
-		grade = "A"
-	case score >= 75:
-		grade = "B"
-	case score >= 60:
-		grade = "C"
-	case score >= 40:
-		grade = "D"
-	default:
-		grade = "F"
-	}
-	return score, grade
-}
-
 // printTopIssues shows the top 3 critical/high findings as a quick summary.
-func printTopIssues(findings []AuditFinding) {
+func printTopIssues(findings []auditcheck.Finding) {
 	fmt.Println("  ────────────────────────────────────────")
 	fmt.Println("  Top issues:")
 	shown := 0
 	for _, f := range findings {
-		if f.Severity < AuditHigh {
+		if f.Severity < auditcheck.High {
 			continue
 		}
 		prefix := "!!"
-		if f.Severity == AuditCritical {
+		if f.Severity == auditcheck.Critical {
 			prefix = "!!"
 		}
 		product := ""
@@ -172,7 +137,7 @@ func printTopIssues(findings []AuditFinding) {
 		if shown >= 3 {
 			remaining := 0
 			for _, rf := range findings[shown:] {
-				if rf.Severity >= AuditHigh {
+				if rf.Severity >= auditcheck.High {
 					remaining++
 				}
 			}

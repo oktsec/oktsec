@@ -86,6 +86,8 @@ func (s *Server) routes() {
 		http.Redirect(w, r, "/dashboard/settings", http.StatusMovedPermanently)
 	})
 	s.mux.HandleFunc("GET /dashboard/agents/{name}", s.handleAgentDetail)
+	s.mux.HandleFunc("GET /dashboard/audit", s.handleAudit)
+	s.mux.HandleFunc("GET /dashboard/audit/sandbox", s.handleAuditSandbox)
 	s.mux.HandleFunc("GET /dashboard/rules", s.handleRules)
 	s.mux.HandleFunc("GET /dashboard/rules/{category}", s.handleCategoryRules)
 	s.mux.HandleFunc("POST /dashboard/identity/revoke", s.handleIdentityRevoke)

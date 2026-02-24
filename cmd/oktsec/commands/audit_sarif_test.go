@@ -32,7 +32,7 @@ func TestPrintAuditSARIF_Structure(t *testing.T) {
 	err := printAuditSARIF(report)
 	require.NoError(t, err)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
@@ -95,7 +95,7 @@ func TestSARIF_ProductInRuleProperties(t *testing.T) {
 
 	_ = printAuditSARIF(report)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
@@ -123,7 +123,7 @@ func TestSARIF_EmptyFindings(t *testing.T) {
 	err := printAuditSARIF(report)
 	require.NoError(t, err)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer

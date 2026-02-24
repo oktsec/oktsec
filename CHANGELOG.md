@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-02-24
+
+### Added
+
+- **`internal/auditcheck` package**: Extracted audit checks from CLI commands into a shared library used by both CLI and dashboard. 2,230 lines across 5 files covering Oktsec (16 checks), OpenClaw (18 checks), and NanoClaw (7 checks).
+- **OpenClaw checks rewritten**: Real config structure with 18 checks across 4 severity levels (OC-NET-001, OC-AUTH-001, OC-EXEC-001, OC-TOOL-001, OC-DM-001, OC-SAND-001, OC-ELEV-001, OC-UI-001/002, OC-HOOK-001/002, OC-FS-001, OC-LOG-001, OC-DISC-001, OC-SSRF-001, OC-PERM-001/002, OC-INFO-001). Based on actual OpenClaw gateway security documentation.
+- **Finding enrichment**: `ConfigPath` and `Remediation` fields on all findings. Every fixable check includes an actionable remediation command.
+- **ProductInfo registry**: Metadata (name, description, config path, docs URL, icon) for Oktsec, OpenClaw, and NanoClaw surfaced in audit UI.
+- **Dashboard audit page**: Redesigned with stat strip (score/grade, severity breakdown), critical alert strip, per-product cards with icon/config/docs, expandable findings with inline remediation, and copy-to-clipboard.
+- **Sandbox route** (`/dashboard/audit/sandbox`): Deliberately insecure OpenClaw config for testing the audit UI without requiring OpenClaw to be installed.
+
+### Changed
+
+- **Dashboard CSS**: Severity labels simplified to text-only (no backgrounds/borders). Button glow effects removed. Card border-radius standardized to 10px. Global CSS aligned with oktsec.com design system.
+- CLI `audit` and `status` commands now delegate to `internal/auditcheck` instead of inline check functions.
+- Removed 4 redundant files from CLI (inline OpenClaw/NanoClaw checks and their tests, replaced by shared `auditcheck` package).
+
 ## [0.4.1] - 2026-02-23
 
 ### Added
