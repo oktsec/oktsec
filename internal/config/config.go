@@ -9,17 +9,18 @@ import (
 
 // Config is the top-level oktsec configuration.
 type Config struct {
-	Version        string           `yaml:"version"`
-	Server         ServerConfig     `yaml:"server"`
-	Identity       IdentityConfig   `yaml:"identity"`
-	DefaultPolicy  string           `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
-	Agents         map[string]Agent `yaml:"agents"`
-	Rules          []RuleAction     `yaml:"rules"`
-	Webhooks       []Webhook        `yaml:"webhooks"`
-	CustomRulesDir string           `yaml:"custom_rules_dir,omitempty"`
-	Quarantine     QuarantineConfig `yaml:"quarantine,omitempty"`
-	RateLimit      RateLimitConfig  `yaml:"rate_limit,omitempty"`
-	Anomaly        AnomalyConfig    `yaml:"anomaly,omitempty"`
+	Version        string             `yaml:"version"`
+	Server         ServerConfig       `yaml:"server"`
+	Identity       IdentityConfig     `yaml:"identity"`
+	DefaultPolicy  string             `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
+	Agents         map[string]Agent   `yaml:"agents"`
+	Rules          []RuleAction       `yaml:"rules"`
+	Webhooks       []Webhook          `yaml:"webhooks"`
+	CustomRulesDir string             `yaml:"custom_rules_dir,omitempty"`
+	Quarantine     QuarantineConfig   `yaml:"quarantine,omitempty"`
+	RateLimit      RateLimitConfig    `yaml:"rate_limit,omitempty"`
+	Anomaly        AnomalyConfig      `yaml:"anomaly,omitempty"`
+	ForwardProxy   ForwardProxyConfig `yaml:"forward_proxy,omitempty"`
 }
 
 // ServerConfig holds proxy server settings.
@@ -75,6 +76,16 @@ type AnomalyConfig struct {
 	RiskThreshold  float64 `yaml:"risk_threshold"` // risk score to trigger alert (0-100)
 	MinMessages    int     `yaml:"min_messages"`   // min messages before evaluating risk
 	AutoSuspend    bool    `yaml:"auto_suspend"`   // suspend agent when threshold exceeded
+}
+
+// ForwardProxyConfig configures the HTTP forward proxy for Docker Sandbox integration.
+type ForwardProxyConfig struct {
+	Enabled        bool     `yaml:"enabled"`                    // Default: false
+	AllowedDomains []string `yaml:"allowed_domains,omitempty"`  // Empty = allow all
+	BlockedDomains []string `yaml:"blocked_domains,omitempty"`  // Takes precedence over allowed
+	ScanRequests   bool     `yaml:"scan_requests"`              // Scan outbound HTTP bodies (default: true)
+	ScanResponses  bool     `yaml:"scan_responses"`             // Scan inbound HTTP bodies (default: false)
+	MaxBodySize    int64    `yaml:"max_body_size,omitempty"`    // Max body to scan in bytes (default: 1MB)
 }
 
 // Webhook defines an outgoing notification endpoint.
@@ -177,6 +188,12 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("rule %q has invalid action %q", ra.ID, ra.Action)
 		}
+	}
+	if c.ForwardProxy.Enabled && len(c.ForwardProxy.BlockedDomains) == 0 && len(c.ForwardProxy.AllowedDomains) == 0 {
+		return fmt.Errorf("forward_proxy is enabled without allowed_domains or blocked_domains (open proxy); configure at least one")
+	}
+	if c.ForwardProxy.MaxBodySize < 0 {
+		return fmt.Errorf("forward_proxy.max_body_size must be non-negative")
 	}
 	return nil
 }

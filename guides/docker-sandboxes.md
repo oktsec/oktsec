@@ -22,7 +22,10 @@ Oktsec answers: "Is the content this agent is sending/receiving safe?"
 
 ## How it works
 
-Oktsec is a REST API service (`POST /v1/message`), not an HTTP forward proxy. Agents inside Docker Sandboxes must explicitly send inter-agent messages through Oktsec's endpoint. Oktsec does not transparently intercept network traffic.
+Oktsec operates in two modes:
+
+1. **REST API** (`POST /v1/message`) — Agents explicitly send inter-agent messages through Oktsec's endpoint for scanning.
+2. **Forward proxy** (`forward_proxy.enabled: true`) — Oktsec acts as a standard HTTP forward proxy, compatible with Docker Sandbox's `--network-proxy` flag. All outbound HTTP traffic is transparently routed through Oktsec for domain filtering and content scanning. HTTPS traffic is tunneled (domain-level filtering only; content is encrypted).
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -184,8 +187,54 @@ Oktsec does not intercept NanoClaw's WhatsApp traffic or API calls. It only insp
 
 No single layer is sufficient. Docker Sandboxes without content inspection miss prompt injection. Oktsec without sandboxing can't prevent filesystem access. Use both.
 
+## Forward proxy mode
+
+When `forward_proxy.enabled: true`, Oktsec can be used as the `--network-proxy` target for Docker Sandboxes. All outbound HTTP traffic from the sandbox is routed through Oktsec for domain filtering and content scanning.
+
+### Config
+
+```yaml
+version: "1"
+
+server:
+  port: 8080
+  bind: 0.0.0.0
+
+forward_proxy:
+  enabled: true
+  scan_requests: true
+  blocked_domains:
+    - evil.com
+    - malware.example.org
+
+identity:
+  keys_dir: ./keys
+  require_signature: false
+```
+
+### Usage
+
+```bash
+# Start Oktsec with forward proxy enabled
+oktsec serve --config oktsec.yaml
+
+# Create a sandbox that routes all traffic through Oktsec
+docker sandbox create \
+  --network-proxy http://host.docker.internal:8080 \
+  --name agent-a
+```
+
+### What gets scanned
+
+| Traffic type | Domain filter | Body scan | Audit log |
+|---|---|---|---|
+| HTTPS (CONNECT) | Yes | No (encrypted) | Yes (domain + bytes) |
+| HTTP (plaintext) | Yes | Yes (request + optional response) | Yes (full) |
+
+MITM for HTTPS content inspection is not currently supported.
+
 ## Current limitations
 
-- **No transparent proxy**: Oktsec is a REST API, not an HTTP forward proxy. It cannot be used with Docker Sandbox's `--network-proxy` flag to transparently intercept traffic. Agents must explicitly call `/v1/message`.
-- **Agent integration required**: Each agent needs to be configured to send inter-agent messages through Oktsec. This is not automatic.
-- **Inbound messages not scanned**: Messages arriving from external sources (WhatsApp DMs, Slack messages) reach the agent directly. Oktsec only scans messages that pass through its API.
+- **No HTTPS content scanning**: HTTPS traffic is tunneled, not decrypted. Oktsec can filter by domain but cannot inspect encrypted content.
+- **Agent integration for REST API**: For the REST API mode, each agent needs to be configured to send inter-agent messages through Oktsec. The forward proxy mode is transparent.
+- **Inbound messages not scanned**: Messages arriving from external sources (WhatsApp DMs, Slack messages) reach the agent directly. Oktsec only scans messages that pass through its API or proxy.

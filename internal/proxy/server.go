@@ -97,8 +97,20 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	mux.Handle("/dashboard/", dash.Handler())
 	mux.Handle("/dashboard", dash.Handler())
 
-	// Apply middleware
+	// Apply forward proxy wrapper (before middleware, so CONNECT/absolute URLs are intercepted)
 	var h http.Handler = mux
+	if cfg.ForwardProxy.Enabled {
+		fp := NewForwardProxy(&cfg.ForwardProxy, scanner, auditStore,
+			NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS), logger)
+		h = fp.Wrap(mux)
+		logger.Info("forward proxy enabled",
+			"blocked_domains", len(cfg.ForwardProxy.BlockedDomains),
+			"allowed_domains", len(cfg.ForwardProxy.AllowedDomains),
+			"scan_requests", cfg.ForwardProxy.ScanRequests,
+		)
+	}
+
+	// Apply middleware
 	h = securityHeaders(h)
 	h = logging(logger)(h)
 	h = recovery(logger)(h)
@@ -120,10 +132,15 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 
 	srv := &http.Server{
 		Handler:        h,
-		ReadTimeout:    15 * time.Second,
-		WriteTimeout:   30 * time.Second,
 		IdleTimeout:    60 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1 MB
+	}
+	// Set read/write timeouts only when the forward proxy is disabled.
+	// CONNECT tunnels are long-lived; global timeouts would kill them.
+	// The forward proxy manages its own idle timeout via copyWithDeadline.
+	if !cfg.ForwardProxy.Enabled {
+		srv.ReadTimeout = 15 * time.Second
+		srv.WriteTimeout = 30 * time.Second
 	}
 
 	return &Server{
@@ -273,6 +290,7 @@ func (s *Server) Start() error {
 	s.logger.Info("oktsec proxy starting",
 		"addr", s.ln.Addr().String(),
 		"require_signature", s.cfg.Identity.RequireSignature,
+		"forward_proxy", s.cfg.ForwardProxy.Enabled,
 	)
 
 	// Start anomaly detection loop if configured
