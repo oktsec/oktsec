@@ -33,6 +33,7 @@ func NewRoot() *cobra.Command {
 		newVersionCmd(),
 		newQuarantineCmd(),
 		newScanOpenClawCmd(),
+		newAuditCmd(),
 		newAgentCmd(),
 	)
 
