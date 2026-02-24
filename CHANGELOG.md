@@ -6,18 +6,27 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **`internal/auditcheck` package**: Extracted audit checks from CLI commands into a shared library used by both CLI and dashboard. 2,230 lines across 5 files covering Oktsec (16 checks), OpenClaw (18 checks), and NanoClaw (7 checks).
-- **OpenClaw checks rewritten**: Real config structure with 18 checks across 4 severity levels (OC-NET-001, OC-AUTH-001, OC-EXEC-001, OC-TOOL-001, OC-DM-001, OC-SAND-001, OC-ELEV-001, OC-UI-001/002, OC-HOOK-001/002, OC-FS-001, OC-LOG-001, OC-DISC-001, OC-SSRF-001, OC-PERM-001/002, OC-INFO-001). Based on actual OpenClaw gateway security documentation.
-- **Finding enrichment**: `ConfigPath` and `Remediation` fields on all findings. Every fixable check includes an actionable remediation command.
-- **ProductInfo registry**: Metadata (name, description, config path, docs URL, icon) for Oktsec, OpenClaw, and NanoClaw surfaced in audit UI.
+- **Policy as code**: Per-rule action overrides in `oktsec.yaml`. Configure `block`, `quarantine`, `allow-and-flag`, or `ignore` per rule ID. Per-rule webhook notifications with configurable URLs. Plain-text webhook templates with tag substitution (`{{RULE}}`, `{{SEVERITY}}`, `{{FROM}}`, `{{TO}}`, etc.) — system wraps in Slack-compatible JSON automatically. Dashboard enforcement tab with create/edit/delete, rule descriptions, expandable webhook and template previews.
+- **HTTP forward proxy**: New `forward_proxy` mode for Docker Sandbox integration. Supports HTTP CONNECT tunneling so containerized agents route traffic through oktsec for scanning.
+- **OpenClaw security rules OCLAW-008 to OCLAW-015**: Sandbox disabled, path traversal in mounts, missing auth on gateway, hardcoded credentials in env, gateway exposed without TLS, open DM with external agents, exec without resource limits, UI proxy without auth. Plus `ScanContentAs()` API for scanning content as a specific agent identity.
+- **`oktsec audit` command**: 41-check deployment security auditor covering Oktsec (16 checks), OpenClaw (18 checks), and NanoClaw (7 checks). Health score with A-F grading, severity breakdown, actionable remediation commands. SARIF output (`--format sarif`) for GitHub code scanning integration.
+- **`oktsec status` command**: One-line health score + top 3 issues for quick checks.
+- **`internal/auditcheck` package**: Extracted audit checks from CLI into a shared library used by both CLI and dashboard. Finding enrichment with `ConfigPath` and `Remediation` fields.
 - **Dashboard audit page**: Redesigned with stat strip (score/grade, severity breakdown), critical alert strip, per-product cards with icon/config/docs, expandable findings with inline remediation, and copy-to-clipboard.
-- **Sandbox route** (`/dashboard/audit/sandbox`): Deliberately insecure OpenClaw config for testing the audit UI without requiring OpenClaw to be installed.
+- **Dashboard security hardening**: Session cookie `SameSite=Strict`, `HttpOnly`, `Secure` flags. CSRF protection on state-changing routes. X-Frame-Options and X-Content-Type-Options headers.
+- **Audit store test coverage**: 9 new test functions covering key revocation, query stats, hourly stats, top rules, edge rules, agent risk scoring, quarantine lifecycle, hub broadcast.
+- **Package documentation**: godoc-compliant package doc comments on all 9 internal packages.
 
 ### Changed
 
-- **Dashboard CSS**: Severity labels simplified to text-only (no backgrounds/borders). Button glow effects removed. Card border-radius standardized to 10px. Global CSS aligned with oktsec.com design system.
+- **Dashboard CSS**: Severity labels simplified to text-only. Button glow effects removed. Card border-radius standardized to 10px.
+- **CI pipeline**: Added `make integration-test` step to GitHub Actions workflow.
+- **Detection rules**: 159 total (138 Aguara + 6 IAP + 15 OpenClaw).
 - CLI `audit` and `status` commands now delegate to `internal/auditcheck` instead of inline check functions.
-- Removed 4 redundant files from CLI (inline OpenClaw/NanoClaw checks and their tests, replaced by shared `auditcheck` package).
+
+### Fixed
+
+- **Forward proxy**: Wrapper applied outside middleware chain to prevent hijack conflicts with dashboard routes.
 
 ## [0.4.1] - 2026-02-23
 
