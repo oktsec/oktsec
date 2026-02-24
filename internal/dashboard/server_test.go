@@ -154,6 +154,7 @@ func TestServer_DashboardPages(t *testing.T) {
 		{"/dashboard/agents", "Agents"},
 		{"/dashboard/graph", "Graph"},
 		{"/dashboard/rules", "Rules"},
+		{"/dashboard/audit", "Audit"},
 		{"/dashboard/settings", "Settings"},
 	}
 
@@ -627,6 +628,28 @@ func TestServer_EdgeDetail(t *testing.T) {
 	if !strings.Contains(body, "test-agent") {
 		t.Error("edge detail should contain 'test-agent'")
 	}
+}
+
+func TestServer_AuditPageProductInfo(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/audit", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("audit page: status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Security proxy for AI agent-to-agent communication") {
+		t.Error("audit page should contain Oktsec product description")
+	}
+	// "Priority Remediations" section only shown when there are critical/high
+	// findings — the test config triggers some, so at least verify the page
+	// renders without error (checked by the status code assertion above).
 }
 
 func TestAuditStore_QueryAgentStats(t *testing.T) {

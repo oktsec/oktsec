@@ -1,6 +1,9 @@
 package dashboard
 
-import "html/template"
+import (
+	"html/template"
+	"strings"
+)
 
 // tmplFuncs is the shared FuncMap for all event-rendering templates.
 var tmplFuncs = template.FuncMap{
@@ -13,6 +16,26 @@ var tmplFuncs = template.FuncMap{
 	},
 	"avatar":    agentAvatar,
 	"agentCell": agentCell,
+	"gradeColor": func(g string) string {
+		switch g {
+		case "A", "B":
+			return "success"
+		case "C":
+			return "warn"
+		default:
+			return "danger"
+		}
+	},
+	"upper": strings.ToUpper,
+	"lower": strings.ToLower,
+	"inc": func(i int) int { return i + 1 },
+	"divf": func(a, b int) float64 {
+		if b == 0 {
+			return 0
+		}
+		return float64(a) / float64(b)
+	},
+	"mulf": func(a, b int) int { return a * b },
 }
 
 var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
@@ -21,20 +44,21 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>oktsec — dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--border:#2a2a3a;
-  --text:#e0e0ee;--text2:#8888aa;--text3:#555570;
+  --bg:#050507;--surface:#0c0c10;--surface2:#0f0f14;--border:#1c1c24;
+  --text:#f0f0f3;--text2:#a0a0b0;--text3:#606070;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --danger:#ef4444;--success:#22c55e;--warn:#f59e0b;
-  --mono:'SF Mono','Fira Code','JetBrains Mono',monospace;
-  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --danger:#ef4444;--success:#10b981;--warn:#f59e0b;
+  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 }
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
-.login-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center}
-.logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.5px;margin-bottom:8px}
-.logo span{color:var(--accent-light)}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2)}
+.logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.3px;margin-bottom:8px}
 .subtitle{color:var(--text2);font-size:0.85rem;margin-bottom:32px}
 .lock-icon{font-size:2.5rem;margin-bottom:16px;opacity:0.6}
 .help{color:var(--text3);font-size:0.78rem;margin-bottom:24px;line-height:1.6}
@@ -59,7 +83,7 @@ button:hover{background:var(--accent-dim)}
 <body>
 <div class="login-card">
   <div class="lock-icon">&#x1f512;</div>
-  <div class="logo">okt<span>sec</span></div>
+  <div class="logo">oktsec</div>
   <div class="subtitle">Dashboard Access</div>
   <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec serve</code> to get a code.</p>
   <form method="POST" action="/dashboard/login" autocomplete="off">
@@ -78,54 +102,64 @@ const layoutHead = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>oktsec — {{.Active}}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a26;--border:#2a2a3a;
-  --text:#e0e0ee;--text2:#8888aa;--text3:#555570;
+  --bg:#050507;--surface:#0c0c10;--surface2:#0f0f14;--surface-hover:#141419;
+  --border:#1c1c24;--border-hover:#26262f;--border-subtle:rgba(255,255,255,0.06);
+  --text:#f0f0f3;--text2:#a0a0b0;--text3:#606070;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --danger:#ef4444;--success:#22c55e;--warn:#f59e0b;
-  --mono:'SF Mono','Fira Code','JetBrains Mono',monospace;
-  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --accent-glow:rgba(99,102,241,0.08);--accent-glow-md:rgba(99,102,241,0.15);--accent-border:rgba(99,102,241,0.2);
+  --danger:#ef4444;--success:#10b981;--warn:#f59e0b;
+  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 }
-body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;font-size:0.88rem;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 
 /* Nav */
-nav{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;height:52px;position:sticky;top:0;z-index:100}
-nav .logo{font-family:var(--mono);font-size:1.1rem;font-weight:700;letter-spacing:-0.5px;margin-right:32px;text-decoration:none;color:var(--text)}
-nav .logo span{color:var(--accent-light)}
-nav a{color:var(--text2);text-decoration:none;font-size:0.82rem;padding:16px 12px;transition:color 0.2s;border-bottom:2px solid transparent}
-nav a:hover{color:var(--text)}
-nav a.active{color:var(--accent-light);border-bottom-color:var(--accent-light)}
+nav{background:rgba(5,5,7,0.85);border-bottom:1px solid var(--border-subtle);padding:0 24px;display:flex;align-items:center;height:52px;position:sticky;top:0;z-index:100;backdrop-filter:blur(24px) saturate(1.5);-webkit-backdrop-filter:blur(24px) saturate(1.5)}
+nav .logo{font-family:var(--mono);font-size:1.12rem;font-weight:700;letter-spacing:-0.3px;margin-right:32px;text-decoration:none;color:var(--text)}
+nav a{color:var(--text3);text-decoration:none;font-size:0.8rem;font-weight:500;padding:16px 12px;transition:all 0.2s;border-bottom:2px solid transparent}
+nav a:hover{color:var(--text2)}
+nav a.active{color:var(--text);border-bottom-color:var(--accent)}
 nav .spacer{flex:1}
-nav .badge{background:var(--surface2);color:var(--text3);font-size:0.7rem;padding:4px 10px;border-radius:12px;font-family:var(--mono)}
+nav .mode-pill{display:inline-flex;align-items:center;gap:6px;background:var(--accent-glow);border:1px solid var(--accent-border);padding:4px 14px 4px 10px;border-radius:100px;font-size:0.72rem;font-weight:500;color:var(--accent-light);font-family:var(--mono);transition:all 0.2s}
+nav .mode-pill .dot{width:5px;height:5px;border-radius:50%;animation:pulse 2s infinite}
+nav .mode-pill.enforce .dot{background:var(--success)}
+nav .mode-pill.enforce{background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.2);color:var(--success)}
+nav .mode-pill.observe .dot{background:var(--warn)}
+nav .mode-pill.observe{background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.2);color:var(--warn)}
 
 /* Main */
 main{max-width:1100px;margin:0 auto;padding:32px 24px}
-h1{font-size:1.4rem;font-weight:600;margin-bottom:8px}
-h1 span{color:var(--accent-light)}
-.page-desc{color:var(--text2);font-size:0.85rem;margin-bottom:28px}
+h1{font-size:1.3rem;font-weight:600;margin-bottom:6px;letter-spacing:-0.2px}
+h1 span{color:var(--text2);font-weight:400}
+.page-desc{color:var(--text3);font-size:0.82rem;margin-bottom:28px}
 
 /* Stats */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
-.stat{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
-.stat .label{color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
-.stat .value{font-family:var(--mono);font-size:1.8rem;font-weight:700}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;transition:all 0.2s}
+.stat:hover{background:var(--surface-hover);border-color:var(--border-hover)}
+.stat .label{color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:500;margin-bottom:6px}
+.stat .value{font-family:var(--mono);font-size:1.7rem;font-weight:700}
 .stat .value.success{color:var(--success)}
 .stat .value.danger{color:var(--danger)}
 .stat .value.warn{color:var(--warn)}
 
 /* Card */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px}
-.card h2{font-size:0.95rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;transition:all 0.15s}
+.card:hover{border-color:var(--border-hover)}
+.card h2{font-size:0.92rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
 .card h2 .dot{width:6px;height:6px;border-radius:50%;background:var(--success);animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
 
 /* Table */
 table{width:100%;border-collapse:collapse;font-size:0.82rem}
-th{text-align:left;color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;padding:8px 12px;border-bottom:1px solid var(--border)}
-td{padding:10px 12px;border-bottom:1px solid var(--border);color:var(--text2);font-family:var(--mono);font-size:0.78rem}
+th{text-align:left;color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:500;padding:8px 12px;border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid rgba(28,28,36,0.6);color:var(--text2);font-family:var(--mono);font-size:0.78rem;transition:background 0.15s}
 tr:hover td{background:var(--surface2)}
 
 /* Status badges — pills with tinted bg (what happened to the message) */
@@ -145,12 +179,12 @@ tr:hover td{background:var(--surface2)}
 .agent-name a:hover{color:var(--accent-light)}
 .agent-targets{color:var(--text3);font-size:0.78rem}
 
-/* Severity badges — left-bordered chips (how dangerous the rule is) */
-.sev-critical{background:var(--surface2);color:#f87171;padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;font-weight:700;text-transform:uppercase;border-left:3px solid #ef4444}
-.sev-high{background:var(--surface2);color:#fb923c;padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;font-weight:600;text-transform:uppercase;border-left:3px solid #f97316}
-.sev-medium{background:var(--surface2);color:#60a5fa;padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;font-weight:600;text-transform:uppercase;border-left:3px solid #3b82f6}
-.sev-low{background:var(--surface2);color:var(--text3);padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;text-transform:uppercase;border-left:3px solid var(--border)}
-.sev-info{background:var(--surface2);color:var(--text3);padding:3px 8px 3px 10px;border-radius:3px;font-size:0.7rem;text-transform:uppercase;border-left:3px solid var(--border)}
+/* Severity labels */
+.sev-critical{color:#ef4444;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-high{color:#f97316;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-medium{color:#3b82f6;font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-low{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-info{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
 
 /* Action badges */
 .act-block{background:#ef444418;color:#f87171;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
@@ -165,7 +199,7 @@ tr:hover td{background:var(--surface2)}
 .chart-labels{display:flex;justify-content:space-between;color:var(--text3);font-size:0.65rem;font-family:var(--mono);padding-top:4px}
 
 /* Toggle */
-.toggle-btn{display:inline-block;padding:6px 14px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:6px;font-size:0.78rem;cursor:pointer;text-decoration:none;transition:all 0.2s}
+.toggle-btn{display:inline-block;padding:6px 14px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:8px;font-size:0.78rem;cursor:pointer;text-decoration:none;transition:all 0.2s}
 .toggle-btn:hover{background:var(--accent-dim);color:#fff;border-color:var(--accent)}
 
 /* Key table */
@@ -218,9 +252,9 @@ tr:hover td{background:var(--surface2)}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
 .form-group select{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23555570' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
 .form-group textarea{resize:vertical;min-height:80px}
-.btn{display:inline-block;padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;transition:background 0.2s;width:auto;margin:0}
-.btn:hover{background:var(--accent-dim)}
-.btn-sm{padding:4px 10px;font-size:0.72rem}
+.btn{display:inline-block;padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;transition:all 0.15s;width:auto;margin:0}
+.btn:hover{background:var(--accent-light)}
+.btn-sm{padding:4px 12px;font-size:0.72rem}
 .btn-danger{background:var(--danger)}
 .btn-danger:hover{background:#dc2626}
 
@@ -341,16 +375,17 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
 </head>
 <body>
 <nav>
-  <a href="/dashboard" class="logo">okt<span>sec</span></a>
+  <a href="/dashboard" class="logo">oktsec</a>
   <a href="/dashboard" class="{{if eq .Active "overview"}}active{{end}}">Overview</a>
   <a href="/dashboard/agents" class="{{if eq .Active "agents"}}active{{end}}">Agents</a>
   <a href="/dashboard/graph" class="{{if eq .Active "graph"}}active{{end}}">Graph</a>
   <a href="/dashboard/events" class="{{if eq .Active "events"}}active{{end}}">Events</a>
   <a href="/dashboard/rules" class="{{if eq .Active "rules"}}active{{end}}">Rules</a>
+  <a href="/dashboard/audit" class="{{if eq .Active "audit"}}active{{end}}">Audit</a>
   <a href="/dashboard/settings" class="{{if eq .Active "settings"}}active{{end}}">Settings</a>
   <div class="spacer"></div>
-  <span class="badge" style="{{if .RequireSig}}background:rgba(34,197,94,0.15);color:var(--success){{else}}background:rgba(245,158,11,0.15);color:var(--warn){{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}">{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
-  <form method="POST" action="/dashboard/logout" style="margin-left:8px;display:inline"><button type="submit" style="background:none;border:1px solid var(--border);color:var(--text3);padding:4px 10px;border-radius:6px;font-size:0.72rem;cursor:pointer;font-family:var(--sans);transition:all 0.2s" onmouseover="this.style.color='var(--danger)';this.style.borderColor='var(--danger)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'">Logout</button></form>
+  <span class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
+  <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 12px;border-radius:8px;font-size:0.72rem;cursor:pointer;font-family:var(--sans);transition:all 0.2s" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--border-hover)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'">Logout</button></form>
 </nav>
 <main>`
 
@@ -474,6 +509,16 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
     <div class="value warn" id="stat-rejected">{{.Stats.Rejected}}</div>
     <div class="sub">ACL or signature failure</div>
   </div>
+</div>
+
+<div class="card" style="display:flex;align-items:center;gap:20px;padding:16px 24px">
+  <div>
+    <div class="label" style="font-size:0.75rem;color:var(--text2)">Security Health</div>
+    <div style="font-size:1.8rem;font-weight:700" class="{{gradeColor .Grade}}">{{.Score}}/100</div>
+  </div>
+  <div style="font-size:2.2rem;font-weight:700;color:var(--text3)">{{.Grade}}</div>
+  <div style="flex:1"></div>
+  <a href="/dashboard/audit" style="font-size:0.78rem;color:var(--accent-light);text-decoration:none;border:1px solid var(--border);padding:6px 14px;border-radius:6px;transition:all 0.2s" onmouseover="this.style.borderColor='var(--accent-light)'" onmouseout="this.style.borderColor='var(--border)'">View Audit</a>
 </div>
 
 {{if .Chart}}
@@ -1951,3 +1996,4 @@ var edgeDetailTmpl = template.Must(template.New("edge-detail").Funcs(tmplFuncs).
   {{end}}
 </div>
 `))
+

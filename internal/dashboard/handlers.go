@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/auditcheck"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/graph"
 	"github.com/oktsec/oktsec/internal/identity"
@@ -101,6 +102,16 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		pendingReview = qStats.Pending
 	}
 
+	// Health score
+	configDir := filepath.Dir(s.cfgPath)
+	if configDir == "." {
+		if wd, err := os.Getwd(); err == nil {
+			configDir = wd
+		}
+	}
+	findings, _, _ := auditcheck.RunChecks(s.cfg, configDir)
+	score, grade := auditcheck.ComputeHealthScore(findings)
+
 	data := map[string]any{
 		"Active":        "overview",
 		"Stats":         stats,
@@ -109,10 +120,145 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"AgentCount":    len(s.cfg.Agents),
 		"RequireSig":    s.cfg.Identity.RequireSignature,
 		"PendingReview": pendingReview,
+		"Score":         score,
+		"Grade":         grade,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = overviewTmpl.Execute(w, data)
+}
+
+type auditProductGroup struct {
+	Info     auditcheck.ProductInfo
+	Findings []auditcheck.Finding
+	Summary  auditcheck.Summary
+}
+
+func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
+	configDir := filepath.Dir(s.cfgPath)
+	if configDir == "." {
+		if wd, err := os.Getwd(); err == nil {
+			configDir = wd
+		}
+	}
+
+	findings, detected, productInfos := auditcheck.RunChecks(s.cfg, configDir)
+	score, grade := auditcheck.ComputeHealthScore(findings)
+	summary := auditcheck.Summarize(findings)
+
+	// Group by product
+	products := []string{"Oktsec"}
+	products = append(products, detected...)
+	byProduct := map[string][]auditcheck.Finding{}
+	for _, f := range findings {
+		name := "Oktsec"
+		if f.Product != "" {
+			name = f.Product
+		}
+		byProduct[name] = append(byProduct[name], f)
+	}
+	var groups []auditProductGroup
+	for _, name := range products {
+		if fs := byProduct[name]; len(fs) > 0 {
+			groups = append(groups, auditProductGroup{
+				Info:     productInfos[name],
+				Findings: fs,
+				Summary:  auditcheck.Summarize(fs),
+			})
+		}
+	}
+
+	// Build top fixes — up to 3 critical/high findings with remediation
+	var topFixes []auditcheck.Finding
+	for _, sev := range []auditcheck.Severity{auditcheck.Critical, auditcheck.High} {
+		for _, f := range findings {
+			if f.Severity == sev && f.Remediation != "" {
+				topFixes = append(topFixes, f)
+				if len(topFixes) == 3 {
+					break
+				}
+			}
+		}
+		if len(topFixes) == 3 {
+			break
+		}
+	}
+
+	data := map[string]any{
+		"Active":      "audit",
+		"RequireSig":  s.cfg.Identity.RequireSignature,
+		"Score":       score,
+		"Grade":       grade,
+		"Groups":      groups,
+		"Summary":     summary,
+		"TopFixes":    topFixes,
+		"TotalChecks": len(findings),
+		"HasCritical": summary.Critical > 0,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = auditTmpl.Execute(w, data)
+}
+
+// handleAuditSandbox renders the audit page with ONLY OpenClaw findings
+// from a sample config with intentional security issues, for UI testing
+// and demo screenshots without needing OpenClaw installed locally.
+func (s *Server) handleAuditSandbox(w http.ResponseWriter, r *http.Request) {
+	findings := auditcheck.AuditOpenClawSandbox()
+	if len(findings) == 0 {
+		http.Error(w, "sandbox failed to generate findings", http.StatusInternalServerError)
+		return
+	}
+
+	productInfos := map[string]auditcheck.ProductInfo{
+		"OpenClaw": {
+			Name:        "OpenClaw",
+			Description: "AI agent gateway — multi-channel personal assistant platform",
+			ConfigPath:  "~/.openclaw/openclaw.json",
+			DocsURL:     "https://docs.openclaw.ai/gateway/security",
+			Icon:        "\U0001f980",
+		},
+	}
+
+	score, grade := auditcheck.ComputeHealthScore(findings)
+	summary := auditcheck.Summarize(findings)
+
+	groups := []auditProductGroup{{
+		Info:     productInfos["OpenClaw"],
+		Findings: findings,
+		Summary:  summary,
+	}}
+
+	var topFixes []auditcheck.Finding
+	for _, sev := range []auditcheck.Severity{auditcheck.Critical, auditcheck.High} {
+		for _, f := range findings {
+			if f.Severity == sev && f.Remediation != "" {
+				topFixes = append(topFixes, f)
+				if len(topFixes) == 3 {
+					break
+				}
+			}
+		}
+		if len(topFixes) == 3 {
+			break
+		}
+	}
+
+	data := map[string]any{
+		"Active":      "audit",
+		"RequireSig":  s.cfg.Identity.RequireSignature,
+		"Score":       score,
+		"Grade":       grade,
+		"Groups":      groups,
+		"Summary":     summary,
+		"TopFixes":    topFixes,
+		"TotalChecks": len(findings),
+		"HasCritical": summary.Critical > 0,
+		"Sandbox":     true,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = auditTmpl.Execute(w, data)
 }
 
 type hourlyBar struct {
