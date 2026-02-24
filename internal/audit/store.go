@@ -130,6 +130,14 @@ func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store,
 		return nil, fmt.Errorf("setting WAL mode: %w", err)
 	}
 
+	// Set busy timeout so concurrent writers wait instead of returning SQLITE_BUSY
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		if cerr := db.Close(); cerr != nil {
+			return nil, fmt.Errorf("setting busy_timeout: %w (also: close: %v)", err, cerr)
+		}
+		return nil, fmt.Errorf("setting busy_timeout: %w", err)
+	}
+
 	if _, err := db.Exec(schema); err != nil {
 		if cerr := db.Close(); cerr != nil {
 			return nil, fmt.Errorf("creating schema: %w (also: close: %v)", err, cerr)
