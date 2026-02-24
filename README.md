@@ -71,6 +71,26 @@ docker pull ghcr.io/oktsec/oktsec:latest
 docker run -p 8080:8080 ghcr.io/oktsec/oktsec
 ```
 
+With config and key persistence:
+
+```bash
+docker run -p 8080:8080 \
+  -v ./oktsec.yaml:/home/oktsec/oktsec.yaml \
+  -v ./keys:/home/oktsec/keys \
+  -v oktsec-data:/home/oktsec/data \
+  ghcr.io/oktsec/oktsec serve --config /home/oktsec/oktsec.yaml
+```
+
+Docker Compose (recommended for multi-agent setups):
+
+```bash
+docker compose up -d
+```
+
+See [`docker-compose.yml`](docker-compose.yml) for the full example.
+
+For running inside **Docker Sandboxes** (isolated micro VMs for AI agents), see the dedicated guide: [Docker Sandboxes deployment](guides/docker-sandboxes.md).
+
 ## Quick start
 
 ### Automatic setup (recommended)

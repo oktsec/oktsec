@@ -1,0 +1,19 @@
+services:
+  oktsec:
+    image: ghcr.io/oktsec/oktsec:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./oktsec.yaml:/home/oktsec/oktsec.yaml:ro
+      - ./keys:/home/oktsec/keys:ro
+      - oktsec-data:/home/oktsec/data
+    command: ["serve", "--config", "/home/oktsec/oktsec.yaml"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  oktsec-data:
