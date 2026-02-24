@@ -73,11 +73,22 @@ func NewScanner(customRulesDir string, extraOpts ...aguara.Option) *Scanner {
 
 // ScanContent scans message content and returns a verdict.
 func (s *Scanner) ScanContent(ctx context.Context, content string) (*ScanOutcome, error) {
-	result, err := aguara.ScanContent(ctx, content, "message.md", s.opts...)
+	return s.ScanContentAs(ctx, content, "message.md")
+}
+
+// ScanContentAs scans content with a specific virtual filename for target matching.
+// Use this when the content represents a specific file type (e.g., "openclaw.json")
+// so that rules with file-type targets can match correctly.
+func (s *Scanner) ScanContentAs(ctx context.Context, content, filename string) (*ScanOutcome, error) {
+	result, err := aguara.ScanContent(ctx, content, filename, s.opts...)
 	if err != nil {
 		return nil, fmt.Errorf("aguara scan: %w", err)
 	}
+	return buildOutcome(result), nil
+}
 
+// buildOutcome converts Aguara scan results into a proxy verdict.
+func buildOutcome(result *aguara.ScanResult) *ScanOutcome {
 	outcome := &ScanOutcome{
 		Verdict: VerdictClean,
 	}
@@ -103,7 +114,7 @@ func (s *Scanner) ScanContent(ctx context.Context, content string) (*ScanOutcome
 		}
 	}
 
-	return outcome, nil
+	return outcome
 }
 
 // Close cleans up temporary files.

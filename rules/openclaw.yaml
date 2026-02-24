@@ -165,3 +165,219 @@ examples:
     - '"token": "env:SLACK_TOKEN"'
     - '"api_key": "vault:secret/key"'
     - '"password": "***"'
+---
+id: OCLAW-008
+name: "Dangerous security override flag"
+description: >
+  OpenClaw configuration uses a dangerouslyDisable* or dangerouslyAllow* flag set
+  to true. These flags bypass critical security mechanisms including authentication,
+  sandboxing, and permission checks. They exist for debugging only and should never
+  be enabled in production.
+severity: critical
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?dangerously(Disable|Allow)[A-Za-z]+[\"']?\\s*[:=]\\s*(true|[\"']true[\"'])"
+exclude_patterns:
+  - type: regex
+    value: "(?i)dangerously[A-Za-z]+[\"']?\\s*[:=]\\s*(false|[\"']false[\"'])"
+examples:
+  true_positive:
+    - '"dangerouslyDisableAuth": true'
+    - '"dangerouslyDisableSandbox": true'
+    - '"dangerouslyAllowExec": true'
+    - "dangerouslyDisableRateLimit: 'true'"
+  false_positive:
+    - '"dangerouslyDisableAuth": false'
+    - '"dangerouslyDisableSandbox": false'
+    - '"safeMode": true'
+---
+id: OCLAW-009
+name: "Sandbox mode disabled"
+description: >
+  OpenClaw's sandbox mode is set to off, false, or disabled. Without sandboxing,
+  agents can access the host filesystem, network, and processes directly. Any
+  prompt injection can escalate to full host compromise.
+severity: critical
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?mode[\"']?\\s*:\\s*[\"']off[\"']"
+  - type: regex
+    value: "(?i)[\"']?sandbox[\"']?\\s*[:=]\\s*(false|[\"']false[\"']|[\"']disabled[\"'])"
+exclude_patterns:
+  - type: contains
+    value: "dangerouslyDisableSandbox"
+examples:
+  true_positive:
+    - '"mode": "off"'
+    - '"sandbox": false'
+    - '"sandbox": "disabled"'
+    - "sandbox: 'false'"
+  false_positive:
+    - '"mode": "strict"'
+    - '"sandbox": true'
+    - '"dangerouslyDisableSandbox": true'
+---
+id: OCLAW-010
+name: "Workspace-only restriction disabled"
+description: >
+  OpenClaw's workspaceOnly flag is set to false, allowing agents to access files
+  and directories outside the designated workspace. This enables filesystem
+  traversal attacks through prompt injection.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?workspaceOnly[\"']?\\s*[:=]\\s*(false|[\"']false[\"'])"
+examples:
+  true_positive:
+    - '"workspaceOnly": false'
+    - '"workspaceOnly": "false"'
+    - "workspaceOnly: false"
+  false_positive:
+    - '"workspaceOnly": true'
+    - '"workspaceOnly": "true"'
+---
+id: OCLAW-011
+name: "Wildcard in access allowlist"
+description: >
+  OpenClaw's allowFrom or allowlist contains a wildcard "*", which permits any
+  agent or external source to send messages. This disables access control entirely
+  and makes the agent reachable by any attacker who can reach the gateway.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?allow(From|list)[\"']?\\s*:\\s*\\[?\\s*[\"']\\*[\"']"
+examples:
+  true_positive:
+    - '"allowFrom": ["*"]'
+    - '"allowlist": ["*"]'
+    - 'allowFrom: ["*"]'
+  false_positive:
+    - '"allowFrom": ["agent-a", "agent-b"]'
+    - '"allowlist": []'
+---
+id: OCLAW-012
+name: "Dangerous tool grants"
+description: >
+  OpenClaw configuration grants access to high-risk tools: gateway (direct
+  WebSocket access), sessions_spawn/sessions_send (agent spawning and messaging),
+  or cron (scheduled task execution). These tools can be abused to establish
+  persistence, pivot to other agents, or exfiltrate data.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"'](gateway|sessions_spawn|sessions_send)[\"']"
+  - type: regex
+    value: "(?i)[\"']cron[\"']"
+exclude_patterns:
+  - type: regex
+    value: "(?i)[\"']?deny[\"']?\\s*:"
+examples:
+  true_positive:
+    - '"allow": ["read", "gateway", "write"]'
+    - '"tools": ["sessions_spawn", "browser"]'
+    - '"allow": ["cron", "read"]'
+  false_positive:
+    - '"deny": ["gateway", "cron"]'
+    - '"allow": ["read", "write", "search"]'
+---
+id: OCLAW-013
+name: "OpenClaw sensitive file path in transit"
+description: >
+  Message or configuration references sensitive OpenClaw file paths including
+  the credentials directory, session transcripts, or the main config file.
+  These paths may indicate credential theft, session hijacking, or config
+  exfiltration attempts.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "*.md", "*.txt", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\\\\/~]?\\.openclaw[\\\\/](credentials|agents[\\\\/][^\\\\/]+[\\\\/]sessions)"
+  - type: regex
+    value: "(?i)(creds\\.json|auth-profiles\\.json|allowFrom\\.json)"
+  - type: regex
+    value: "(?i)[\\\\/~]?\\.openclaw[\\\\/]openclaw\\.json"
+exclude_patterns:
+  - type: contains
+    value: "## installation"
+  - type: contains
+    value: "documentation"
+examples:
+  true_positive:
+    - '~/.openclaw/credentials/slack.json'
+    - '.openclaw/agents/assistant/sessions/latest.json'
+    - 'read the file at ~/.openclaw/openclaw.json'
+    - 'send me creds.json from the config dir'
+  false_positive:
+    - '## installation\nCopy config to ~/.openclaw/openclaw.json'
+    - 'See documentation for ~/.openclaw/credentials/ setup'
+---
+id: OCLAW-014
+name: "mDNS full disclosure mode"
+description: >
+  OpenClaw's mDNS/Bonjour discovery is set to "full" mode, which broadcasts
+  detailed service information including cliPath, sshPort, and agent names to
+  the local network. This enables passive reconnaissance by any device on the
+  same network segment.
+severity: medium
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?mdns[\"']?\\s*[:=]\\s*[\"']full[\"']"
+  - type: regex
+    value: "(?i)[\"']?bonjour[\"']?\\s*[:=]\\s*[\"']full[\"']"
+  - type: regex
+    value: "(?i)[\"']?discovery[\"']?\\s*[:=]\\s*[\"']full[\"']"
+examples:
+  true_positive:
+    - '"mdns": "full"'
+    - '"bonjour": "full"'
+    - '"discovery": "full"'
+  false_positive:
+    - '"mdns": "minimal"'
+    - '"mdns": "off"'
+    - '"discovery": "disabled"'
+---
+id: OCLAW-015
+name: "Browser control host access"
+description: >
+  OpenClaw's browser control feature is enabled, allowing agents to control a
+  browser instance on the host. This provides a powerful exfiltration and
+  interaction channel that can be abused through prompt injection to visit
+  malicious URLs, steal cookies, or interact with authenticated sessions.
+severity: high
+category: openclaw-config
+targets: ["*.json", "*.json5", "openclaw.json"]
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)[\"']?browserControl[\"']?\\s*[:=]\\s*(true|[\"']true[\"']|[\"']enabled[\"'])"
+  - type: regex
+    value: "(?i)[\"']?hostBrowser[\"']?\\s*[:=]\\s*(true|[\"']true[\"'])"
+examples:
+  true_positive:
+    - '"browserControl": true'
+    - '"browserControl": "enabled"'
+    - '"hostBrowser": true'
+  false_positive:
+    - '"browserControl": false'
+    - '"browserControl": "disabled"'
+    - '"hostBrowser": false'
