@@ -45,15 +45,32 @@ func newScanOpenClawCmd() *cobra.Command {
 
 			printRiskSummary(risk)
 
-			// 2. Scan workspace files with Aguara engine
-			configDir := filepath.Dir(configPath)
-			workspaceFiles := []string{"SOUL.md", "AGENTS.md", "TOOLS.md", "USER.md"}
-
+			// 2. Scan config file through OCLAW rules
 			scanner := engine.NewScanner("")
 			defer scanner.Close()
 
 			var totalFindings int
 			var scannedFiles int
+
+			configData, err := os.ReadFile(configPath)
+			if err == nil {
+				scannedFiles++
+				outcome, scanErr := scanner.ScanContentAs(context.Background(), string(configData), "openclaw.json")
+				if scanErr != nil {
+					fmt.Printf("  [!] Error scanning config: %v\n", scanErr)
+				} else if len(outcome.Findings) > 0 {
+					totalFindings += len(outcome.Findings)
+					fmt.Printf("  openclaw.json  %d finding(s)\n", len(outcome.Findings))
+					for _, f := range outcome.Findings {
+						fmt.Printf("    %-12s %-10s %s\n", f.RuleID, strings.ToUpper(f.Severity), f.Name)
+					}
+					fmt.Println()
+				}
+			}
+
+			// 3. Scan workspace files with Aguara engine
+			configDir := filepath.Dir(configPath)
+			workspaceFiles := []string{"SOUL.md", "AGENTS.md", "TOOLS.md", "USER.md"}
 
 			for _, name := range workspaceFiles {
 				fpath := filepath.Join(configDir, name)
@@ -81,7 +98,7 @@ func newScanOpenClawCmd() *cobra.Command {
 				fmt.Println()
 			}
 
-			// 3. Summary
+			// 4. Summary
 			fmt.Println(strings.Repeat("─", 60))
 			fmt.Printf("\nSummary:\n")
 			fmt.Printf("  Config risk:     %s\n", strings.ToUpper(risk.Level))
