@@ -46,7 +46,7 @@ func scanOpenClawConfig(path string) (*ClientResult, error) {
 		return nil, err
 	}
 
-	clean := stripJSON5Comments(data)
+	clean := StripJSON5Comments(data)
 
 	var cfg openClawConfig
 	if err := json.Unmarshal(clean, &cfg); err != nil {
@@ -91,9 +91,9 @@ func scanOpenClawConfig(path string) (*ClientResult, error) {
 	}, nil
 }
 
-// stripJSON5Comments removes // and /* */ comments from JSON5 data,
+// StripJSON5Comments removes // and /* */ comments from JSON5 data,
 // being careful not to strip inside string literals.
-func stripJSON5Comments(data []byte) []byte {
+func StripJSON5Comments(data []byte) []byte {
 	var out []byte
 	i := 0
 	n := len(data)
@@ -155,7 +155,7 @@ func AssessOpenClawRisk(path string) (*OpenClawRisk, error) {
 		return nil, err
 	}
 
-	clean := stripJSON5Comments(data)
+	clean := StripJSON5Comments(data)
 
 	var cfg openClawConfig
 	if err := json.Unmarshal(clean, &cfg); err != nil {

@@ -351,6 +351,20 @@ func TestCheckAuditDatabase_Exists(t *testing.T) {
 	assert.Contains(t, findings[0].Title, "present")
 }
 
+// --- Product auditors ---
+
+func TestProductAuditorsRegistered(t *testing.T) {
+	names := make(map[string]bool)
+	for _, pa := range productAuditors {
+		assert.NotEmpty(t, pa.name)
+		assert.NotNil(t, pa.audit)
+		assert.False(t, names[pa.name], "duplicate product auditor: %s", pa.name)
+		names[pa.name] = true
+	}
+	assert.True(t, names["OpenClaw"], "OpenClaw auditor not registered")
+	assert.True(t, names["NanoClaw"], "NanoClaw auditor not registered")
+}
+
 // --- Integration ---
 
 func TestRunAuditChecks_SecureConfig(t *testing.T) {
@@ -363,9 +377,10 @@ func TestRunAuditChecks_SecureConfig(t *testing.T) {
 	cfg := secureBaseline()
 	cfg.Identity.KeysDir = keysDir
 
-	findings := runAuditChecks(cfg, dir)
+	findings, _ := runAuditChecks(cfg, dir)
 
-	// A fully hardened config should only produce info findings
+	// A fully hardened config should only produce info-level oktsec findings.
+	// Product auditors won't detect anything because no products are installed in the test tempdir.
 	for _, f := range findings {
 		assert.LessOrEqual(t, f.Severity, AuditInfo,
 			"unexpected finding: [%s] %s — %s", f.CheckID, f.Title, f.Detail)

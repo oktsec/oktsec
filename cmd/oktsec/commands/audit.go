@@ -46,6 +46,7 @@ type AuditFinding struct {
 	CheckID  string        `json:"check_id"`
 	Title    string        `json:"title"`
 	Detail   string        `json:"detail"`
+	Product  string        `json:"product,omitempty"`
 }
 
 // auditReport is the full audit output.
@@ -54,6 +55,7 @@ type auditReport struct {
 	Findings   []AuditFinding `json:"findings"`
 	KeysLoaded int            `json:"keys_loaded"`
 	AgentCount int            `json:"agent_count"`
+	Detected   []string       `json:"detected"`
 	Summary    auditSummary   `json:"summary"`
 }
 
@@ -66,6 +68,17 @@ type auditSummary struct {
 }
 
 type checkFunc func(*config.Config, string) []AuditFinding
+
+// productAuditor auto-detects and audits a third-party agent framework.
+type productAuditor struct {
+	name  string
+	audit func() []AuditFinding
+}
+
+var productAuditors = []productAuditor{
+	{"OpenClaw", auditOpenClaw},
+	{"NanoClaw", auditNanoClaw},
+}
 
 func newAuditCmd() *cobra.Command {
 	var jsonOutput bool
@@ -90,7 +103,7 @@ func newAuditCmd() *cobra.Command {
 				}
 			}
 
-			findings := runAuditChecks(cfg, configDir)
+			findings, detected := runAuditChecks(cfg, configDir)
 
 			// Count keys
 			keysLoaded := 0
@@ -110,6 +123,7 @@ func newAuditCmd() *cobra.Command {
 				Findings:   findings,
 				KeysLoaded: keysLoaded,
 				AgentCount: len(cfg.Agents),
+				Detected:   detected,
 			}
 			for _, f := range findings {
 				switch f.Severity {
@@ -142,7 +156,7 @@ func newAuditCmd() *cobra.Command {
 	return cmd
 }
 
-func runAuditChecks(cfg *config.Config, configDir string) []AuditFinding {
+func runAuditChecks(cfg *config.Config, configDir string) ([]AuditFinding, []string) {
 	checks := []checkFunc{
 		checkSignatureDisabled,
 		checkNetworkExposure,
@@ -166,7 +180,17 @@ func runAuditChecks(cfg *config.Config, configDir string) []AuditFinding {
 	for _, check := range checks {
 		findings = append(findings, check(cfg, configDir)...)
 	}
-	return findings
+
+	var detected []string
+	for _, pa := range productAuditors {
+		pf := pa.audit()
+		if pf != nil {
+			detected = append(detected, pa.name)
+			findings = append(findings, pf...)
+		}
+	}
+
+	return findings, detected
 }
 
 // --- Checks ---
@@ -454,22 +478,47 @@ func printAuditTerminal(report auditReport) {
 	fmt.Printf("  Config:     %s\n", report.ConfigPath)
 	fmt.Printf("  Agents:     %d\n", report.AgentCount)
 	fmt.Printf("  Keys:       %d loaded\n", report.KeysLoaded)
-
-	bySeverity := map[AuditSeverity][]AuditFinding{}
-	for _, f := range report.Findings {
-		bySeverity[f.Severity] = append(bySeverity[f.Severity], f)
+	if len(report.Detected) > 0 {
+		fmt.Printf("  Detected:   %s\n", strings.Join(report.Detected, ", "))
 	}
 
-	for _, sev := range []AuditSeverity{AuditCritical, AuditHigh, AuditMedium, AuditLow, AuditInfo} {
-		group := bySeverity[sev]
-		if len(group) == 0 {
+	// Group findings by product, then by severity
+	products := []string{""} // oktsec first (empty product)
+	products = append(products, report.Detected...)
+
+	byProduct := map[string][]AuditFinding{}
+	for _, f := range report.Findings {
+		byProduct[f.Product] = append(byProduct[f.Product], f)
+	}
+
+	for _, product := range products {
+		pFindings := byProduct[product]
+		if len(pFindings) == 0 {
 			continue
 		}
+
 		fmt.Println()
-		fmt.Printf("  %s (%d)\n", sev, len(group))
-		for _, f := range group {
-			fmt.Printf("    [%s] %s\n", f.CheckID, f.Title)
-			fmt.Printf("              %s\n", f.Detail)
+		if product == "" {
+			fmt.Println("  OKTSEC")
+		} else {
+			fmt.Printf("  %s\n", strings.ToUpper(product))
+		}
+
+		bySeverity := map[AuditSeverity][]AuditFinding{}
+		for _, f := range pFindings {
+			bySeverity[f.Severity] = append(bySeverity[f.Severity], f)
+		}
+
+		for _, sev := range []AuditSeverity{AuditCritical, AuditHigh, AuditMedium, AuditLow, AuditInfo} {
+			group := bySeverity[sev]
+			if len(group) == 0 {
+				continue
+			}
+			fmt.Printf("    %s (%d)\n", sev, len(group))
+			for _, f := range group {
+				fmt.Printf("      [%s] %s\n", f.CheckID, f.Title)
+				fmt.Printf("                %s\n", f.Detail)
+			}
 		}
 	}
 
@@ -486,12 +535,14 @@ func printAuditJSON(report auditReport) error {
 		CheckID  string `json:"check_id"`
 		Title    string `json:"title"`
 		Detail   string `json:"detail"`
+		Product  string `json:"product,omitempty"`
 	}
 	type jsonReport struct {
 		ConfigPath string        `json:"config_path"`
 		Findings   []jsonFinding `json:"findings"`
 		KeysLoaded int           `json:"keys_loaded"`
 		AgentCount int           `json:"agent_count"`
+		Detected   []string      `json:"detected"`
 		Summary    auditSummary  `json:"summary"`
 	}
 
@@ -499,7 +550,11 @@ func printAuditJSON(report auditReport) error {
 		ConfigPath: report.ConfigPath,
 		KeysLoaded: report.KeysLoaded,
 		AgentCount: report.AgentCount,
+		Detected:   report.Detected,
 		Summary:    report.Summary,
+	}
+	if jr.Detected == nil {
+		jr.Detected = []string{}
 	}
 	for _, f := range report.Findings {
 		jr.Findings = append(jr.Findings, jsonFinding{
@@ -507,6 +562,7 @@ func printAuditJSON(report auditReport) error {
 			CheckID:  f.CheckID,
 			Title:    f.Title,
 			Detail:   f.Detail,
+			Product:  f.Product,
 		})
 	}
 
