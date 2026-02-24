@@ -1,6 +1,6 @@
 # Oktsec + Docker Sandboxes
 
-Docker Sandboxes provide isolated micro VMs for AI agents with a configurable network proxy. Oktsec complements this by inspecting the content that flows between agents. Docker isolates the runtime; Oktsec inspects the messages.
+Docker Sandboxes provide isolated micro VMs for AI agents. Oktsec provides content inspection for agent-to-agent messages. They solve different problems and work together as complementary layers.
 
 ## What each layer does
 
@@ -9,6 +9,7 @@ Docker Sandboxes provide isolated micro VMs for AI agents with a configurable ne
 | Process isolation | Yes (micro VM) | No |
 | Filesystem isolation | Yes | No |
 | Network filtering | Proxy-level allow/deny | No |
+| Credential proxying | Yes (API keys never in sandbox) | No |
 | Message content scanning | No | Yes (151 rules) |
 | Identity verification | No | Yes (Ed25519) |
 | Agent-to-agent ACLs | No | Yes |
@@ -19,30 +20,28 @@ Docker Sandboxes provide isolated micro VMs for AI agents with a configurable ne
 Docker Sandboxes answer: "Can this agent access the network/filesystem?"
 Oktsec answers: "Is the content this agent is sending/receiving safe?"
 
-## Architecture
+## How it works
+
+Oktsec is a REST API service (`POST /v1/message`), not an HTTP forward proxy. Agents inside Docker Sandboxes must explicitly send inter-agent messages through Oktsec's endpoint. Oktsec does not transparently intercept network traffic.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Host machine                         │
+│                    Host / Docker network                 │
 │                                                         │
 │  ┌───────────────────┐       ┌───────────────────┐      │
 │  │  Docker Sandbox A  │       │  Docker Sandbox B  │     │
 │  │  ┌─────────────┐  │       │  ┌─────────────┐  │     │
 │  │  │   Agent A    │  │       │  │   Agent B    │  │     │
 │  │  └──────┬──────┘  │       │  └──────▲──────┘  │     │
-│  │         │ POST    │       │         │ deliver  │     │
+│  │         │         │       │         │         │     │
 │  └─────────┼─────────┘       └─────────┼─────────┘     │
+│            │ POST /v1/message          │ poll/receive   │
 │            │                           │                │
 │            ▼                           │                │
 │  ┌──────────────────────────────────────────────┐      │
-│  │              Docker Network Proxy             │      │
-│  └──────────────────────┬───────────────────────┘      │
-│                         │                               │
-│                         ▼                               │
-│  ┌──────────────────────────────────────────────┐      │
 │  │                   Oktsec                      │      │
 │  │                                               │      │
-│  │  rate limit → verify → ACL → scan → deliver   │      │
+│  │  rate limit → verify → ACL → scan → verdict   │      │
 │  │                                               │      │
 │  │  151 rules · Ed25519 · audit trail            │      │
 │  └──────────────────────────────────────────────┘      │
@@ -50,7 +49,7 @@ Oktsec answers: "Is the content this agent is sending/receiving safe?"
 └─────────────────────────────────────────────────────────┘
 ```
 
-Each sandbox's network proxy routes outbound traffic through Oktsec. Agents inside sandboxes send messages to Oktsec's `/v1/message` endpoint. Oktsec scans, verifies, and routes (or blocks) before the message reaches the destination sandbox.
+Agent A sends a signed JSON message to Oktsec. Oktsec scans it, checks ACLs, and returns a verdict (delivered, blocked, or quarantined). Agent B receives the message only if Oktsec allows it.
 
 ## Setup
 
@@ -66,30 +65,25 @@ oktsec serve --config oktsec.yaml --bind 0.0.0.0
 docker compose up -d
 ```
 
-If using a container, ensure Oktsec is on a Docker network reachable by the sandboxes.
+If using a container, ensure Oktsec is on a Docker network reachable from the sandboxes.
 
-### 2. Create sandboxes with network proxy
+### 2. Create sandboxes
 
-When creating a Docker Sandbox, configure the network proxy to route traffic through Oktsec:
+Create isolated environments for each agent:
 
 ```bash
-docker sandbox create \
-  --network-proxy http://host.docker.internal:8080 \
-  --name agent-a
-
-docker sandbox create \
-  --network-proxy http://host.docker.internal:8080 \
-  --name agent-b
+docker sandbox create --name agent-a shell ~/agent-a-workspace
+docker sandbox create --name agent-b shell ~/agent-b-workspace
 ```
 
-The `--network-proxy` flag tells the sandbox to route outbound HTTP through the specified proxy. All agent-to-agent traffic passes through Oktsec.
+Each sandbox gets its own micro VM with filesystem isolation, credential proxying, and disposable state.
 
 ### 3. Configure agents to use Oktsec
 
-Inside each sandbox, configure the agent to send messages to Oktsec's endpoint:
+Inside each sandbox, the agent sends inter-agent messages through Oktsec's API:
 
 ```bash
-# From inside the sandbox, the agent sends messages through the proxy
+# From inside sandbox A, send a message to agent B
 curl -X POST http://host.docker.internal:8080/v1/message \
   -H "Content-Type: application/json" \
   -d '{
@@ -100,6 +94,8 @@ curl -X POST http://host.docker.internal:8080/v1/message \
     "timestamp": "2026-02-23T10:00:00Z"
   }'
 ```
+
+`host.docker.internal` resolves to the host machine from inside Docker containers and sandboxes.
 
 ### 4. Verify
 
@@ -113,9 +109,9 @@ oktsec logs
 open http://127.0.0.1:8080/dashboard
 ```
 
-## Example: OpenClaw agents in sandboxes
+## Example: NanoClaw in sandbox + Oktsec
 
-OpenClaw agents are high-risk targets — they have filesystem access, shell access, and messaging channels. Running them inside Docker Sandboxes with Oktsec adds two layers of protection.
+[NanoClaw](https://github.com/qwibitai/nanoclaw) is a Claude-powered WhatsApp assistant. It monitors messages 24/7 — every incoming DM is a potential prompt injection vector. Docker Sandboxes isolate its runtime; Oktsec inspects the content it processes.
 
 ### Oktsec config
 
@@ -131,12 +127,11 @@ identity:
   require_signature: false    # Start in observe mode
 
 agents:
-  openclaw-assistant:
-    can_message: [openclaw-researcher]
-    blocked_content: [credentials, pii, exfiltration]
-  openclaw-researcher:
-    can_message: [openclaw-assistant]
-    blocked_content: [credentials, command-execution]
+  nanoclaw:
+    can_message: [reviewer]
+    blocked_content: [credentials, pii, exfiltration, command-execution]
+  reviewer:
+    can_message: [nanoclaw]
 
 quarantine:
   enabled: true
@@ -149,37 +144,48 @@ quarantine:
 # 1. Start Oktsec
 docker compose up -d
 
-# 2. Create sandboxed environments for each OpenClaw agent
-docker sandbox create \
-  --network-proxy http://host.docker.internal:8080 \
-  --name openclaw-assistant
+# 2. Create a sandboxed environment for NanoClaw
+mkdir -p ~/nanoclaw-workspace
+docker sandbox create --name nanoclaw shell ~/nanoclaw-workspace
 
-docker sandbox create \
-  --network-proxy http://host.docker.internal:8080 \
-  --name openclaw-researcher
+# 3. Enter the sandbox and install NanoClaw
+docker sandbox run nanoclaw
+# Inside the sandbox:
+cd ~/workspace
+git clone https://github.com/qwibitai/nanoclaw
+cd nanoclaw
+npm install
 
-# 3. Run OpenClaw inside each sandbox
-docker sandbox exec openclaw-assistant -- openclaw start assistant
-docker sandbox exec openclaw-researcher -- openclaw start researcher
+# 4. Configure NanoClaw to route inter-agent messages through Oktsec
+# Set OKTSEC_URL=http://host.docker.internal:8080 in the agent config
+npm start
 ```
 
-### What happens
+### What each layer protects
 
-1. OpenClaw agents start inside isolated micro VMs (no host filesystem/network access)
-2. All outbound traffic routes through the Docker network proxy to Oktsec
-3. Oktsec scans every message for prompt injection, credential leaks, PII, exfiltration
-4. Suspicious messages are quarantined for human review
-5. Everything is logged to the audit trail
+- **Docker Sandbox** prevents NanoClaw from accessing the host filesystem, other processes, or network resources beyond what's explicitly allowed
+- **Docker credential proxy** keeps API keys out of the sandbox (the real key is never inside the VM)
+- **Oktsec** scans every inter-agent message for prompt injection, credential leaks, PII, and exfiltration before delivery
+
+### What Oktsec does NOT do here
+
+Oktsec does not intercept NanoClaw's WhatsApp traffic or API calls. It only inspects messages that agents explicitly send through the `/v1/message` endpoint. For NanoClaw, this means the agent must be configured to route inter-agent communication through Oktsec.
 
 ## Defense in depth
 
 | Layer | Protects against | Tool |
 |-------|-----------------|------|
 | 1. Docker Sandbox | Container escape, filesystem access, network pivoting | Docker |
-| 2. Network proxy | Unauthorized outbound connections | Docker Sandbox proxy |
+| 2. Docker credential proxy | API key theft from inside the sandbox | Docker |
 | 3. Identity verification | Agent impersonation | Oktsec (Ed25519) |
 | 4. Policy enforcement | Unauthorized agent-to-agent communication | Oktsec (ACLs) |
 | 5. Content scanning | Prompt injection, credential leaks, PII, exfiltration | Oktsec (151 rules) |
 | 6. Audit trail | Post-incident forensics | Oktsec (SQLite) |
 
 No single layer is sufficient. Docker Sandboxes without content inspection miss prompt injection. Oktsec without sandboxing can't prevent filesystem access. Use both.
+
+## Current limitations
+
+- **No transparent proxy**: Oktsec is a REST API, not an HTTP forward proxy. It cannot be used with Docker Sandbox's `--network-proxy` flag to transparently intercept traffic. Agents must explicitly call `/v1/message`.
+- **Agent integration required**: Each agent needs to be configured to send inter-agent messages through Oktsec. This is not automatic.
+- **Inbound messages not scanned**: Messages arriving from external sources (WhatsApp DMs, Slack messages) reach the agent directly. Oktsec only scans messages that pass through its API.

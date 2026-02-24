@@ -89,7 +89,7 @@ docker compose up -d
 
 See [`docker-compose.yml`](docker-compose.yml) for the full example.
 
-For running inside **Docker Sandboxes** (isolated micro VMs for AI agents), see the dedicated guide: [Docker Sandboxes deployment](guides/docker-sandboxes.md).
+For using Oktsec alongside **Docker Sandboxes** (isolated micro VMs for AI agents), see the dedicated guide: [Oktsec + Docker Sandboxes](guides/docker-sandboxes.md).
 
 ## Quick start
 
