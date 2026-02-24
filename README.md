@@ -89,7 +89,7 @@ docker compose up -d
 
 See [`docker-compose.yml`](docker-compose.yml) for the full example.
 
-For using Oktsec alongside **Docker Sandboxes** (isolated micro VMs for AI agents), see the dedicated guide: [Oktsec + Docker Sandboxes](guides/docker-sandboxes.md).
+For using Oktsec alongside **Docker Sandboxes** (isolated micro VMs for AI agents), see the dedicated guide: [Oktsec + Docker Sandboxes](guides/docker-sandboxes.md). Oktsec supports forward proxy mode (`forward_proxy.enabled: true`) for use with Docker Sandbox's `--network-proxy` flag — all outbound HTTP traffic is scanned transparently.
 
 ## Quick start
 
