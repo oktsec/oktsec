@@ -14,14 +14,17 @@
   <a href="#installation">Installation</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#openclaw-support">OpenClaw</a> &middot;
+  <a href="#nanoclaw-support">NanoClaw</a> &middot;
+  <a href="#deployment-audit">Audit</a> &middot;
   <a href="#dashboard">Dashboard</a> &middot;
+  <a href="#go-sdk">SDK</a> &middot;
   <a href="#detection-rules">Rules</a> &middot;
   <a href="#configuration">Config</a>
 </p>
 
 ---
 
-Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients and OpenClaw. No LLM. Single binary. **151 detection rules.** Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients, OpenClaw, and NanoClaw. No LLM. Single binary. **159 detection rules.** Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 
@@ -31,7 +34,7 @@ Oktsec sits between AI agents and enforces a multi-layer security pipeline:
 2. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing (ASI03).
 3. **Agent suspension** — Suspended agents are immediately rejected, no further processing (ASI10).
 4. **Policy** — YAML-based ACLs control which agent can message which. Default-deny mode rejects unknown senders (ASI03).
-5. **Content scanning** — 151 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, supply chain risks, and more (ASI01, ASI02, ASI05).
+5. **Content scanning** — 159 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, supply chain risks, and more (ASI01, ASI02, ASI05).
 6. **BlockedContent enforcement** — Per-agent category-based content blocking escalates verdicts when findings match blocked categories (ASI02).
 7. **Multi-message escalation** — Agents with repeated blocks get their verdicts escalated automatically (ASI01, ASI10).
 8. **Audit** — Every message is logged to SQLite with content hash, sender verification status, policy decision, and triggered rules.
@@ -51,6 +54,7 @@ Agent A → sign → POST /v1/message → [Oktsec] → rate limit → verify →
 | Cline | MCP (stdio) | yes | yes | yes |
 | Windsurf | MCP (stdio) | yes | yes | yes |
 | **OpenClaw** | **WebSocket** | **yes** | **n/a** | **yes** |
+| **NanoClaw** | **mount allowlist** | **yes** | **n/a** | **yes** |
 
 ## Installation
 
@@ -239,11 +243,35 @@ The risk assessor checks 7 patterns:
 
 MCP clients use stdio — oktsec can wrap the command and intercept JSON-RPC traffic. OpenClaw uses a WebSocket gateway, so the wrapping model doesn't apply. Running `oktsec wrap openclaw` returns a clear error pointing to `scan-openclaw` instead.
 
+## NanoClaw support
+
+[NanoClaw](https://github.com/nanoclaw/nanoclaw) is a lightweight alternative to OpenClaw focused on filesystem access for AI agents. It uses a mount allowlist (`~/.config/nanoclaw/mount-allowlist.json`) to control which directories agents can read and write.
+
+Oktsec auto-detects NanoClaw installations and audits them for security misconfigurations:
+
+```bash
+oktsec discover    # Detects NanoClaw automatically
+oktsec audit       # Includes NanoClaw checks
+```
+
+### NanoClaw checks
+
+6 checks in the deployment audit:
+
+| Check | Severity | Trigger |
+|-------|----------|---------|
+| NC-MNT-001 | Critical | Mount allowlist missing or unparseable |
+| NC-MNT-002 | High | `nonMainReadOnly` is false (write access to all mounts) |
+| NC-MNT-003 | Critical | Dangerous root paths (`/`, `~`, `$HOME`) in allowlist |
+| NC-MNT-004 | Medium | No blocked file patterns configured |
+| NC-SEC-001 | High | Allowlist file has loose permissions |
+| NC-MNT-005 | High | `allowReadWrite` on sensitive paths (`/etc`, `/var`, `~`) |
+
 ## Onboarding flow
 
 ### Discover
 
-Scans your machine for MCP server configurations and OpenClaw installations:
+Scans your machine for MCP server configurations, OpenClaw, and NanoClaw installations:
 
 ```bash
 oktsec discover
@@ -269,12 +297,15 @@ Found 2 MCP configuration(s):
 
   Run 'oktsec scan-openclaw' for full analysis.
 
-Total: 6 MCP servers across 2 clients
+  NanoClaw  ~/.config/nanoclaw/mount-allowlist.json
+    └── mount-allowlist   6 paths configured
+
+Total: 6 MCP servers across 3 clients
 
 Run 'oktsec init' to generate configuration and start observing.
 ```
 
-Supported clients: Claude Desktop, Cursor, VS Code, Cline, Windsurf, OpenClaw.
+Supported clients: Claude Desktop, Cursor, VS Code, Cline, Windsurf, OpenClaw, NanoClaw.
 
 ### Init
 
@@ -333,6 +364,45 @@ In **observe mode** (default), all messages are forwarded regardless of scan res
 
 Server→client responses are always forwarded (observe-only). This is what `oktsec wrap` configures automatically for each server.
 
+## Deployment audit
+
+The `audit` command checks your oktsec deployment and any detected agent platforms for security misconfigurations. It runs 41 checks across Oktsec (16), OpenClaw (18), and NanoClaw (7), and outputs a health score with remediation guidance:
+
+```bash
+oktsec audit
+oktsec audit --json
+oktsec audit --sarif    # SARIF v2.1.0 for CI integration
+```
+
+Output:
+```
+Deployment Security Audit
+═════════════════════════
+
+  Health Score: 72 / 100 (Grade: C)
+
+  Oktsec (16 checks)
+  ──────────────────
+  [CRITICAL] require_signature is false — messages accepted without verification
+             Fix: Set identity.require_signature: true in oktsec.yaml
+
+  [HIGH]     default_policy is "allow" — unknown agents can send messages
+             Fix: Set default_policy: deny in oktsec.yaml
+
+  OpenClaw (18 checks)
+  ────────────────────
+  [CRITICAL] tools.profile is "full" with no deny list
+             Fix: openclaw config set tools.profile restricted
+
+  Summary: 2 critical, 3 high, 1 medium, 35 passed
+```
+
+The `status` command provides a quick health summary:
+
+```bash
+oktsec status
+```
+
 ## MCP server mode
 
 Oktsec can run as an MCP tool server, giving AI agents direct access to security operations:
@@ -353,7 +423,7 @@ Add to your MCP client config:
 }
 ```
 
-Available tools:
+Available tools (6):
 
 | Tool | Description |
 |---|---|
@@ -361,6 +431,7 @@ Available tools:
 | `list_agents` | List all agents with their ACLs and content restrictions |
 | `audit_query` | Query the audit log with filters (status, agent, limit) |
 | `get_policy` | Get the security policy for a specific agent |
+| `verify_agent` | Verify an Ed25519 signature from an agent using their registered public key |
 | `review_quarantine` | List, inspect, approve, or reject quarantined messages |
 
 ## Dashboard
@@ -373,7 +444,7 @@ oktsec serve
 
 ```
   ┌──────────────────────────────────────┐
-  │           OKTSEC v0.4.0              │
+  │           OKTSEC v0.5.0              │
   │   Security Proxy for AI Agents       │
   ├──────────────────────────────────────┤
   │  API:       http://127.0.0.1:8080   │
@@ -384,14 +455,16 @@ oktsec serve
   └──────────────────────────────────────┘
 ```
 
-The access code is generated fresh each time the server starts. Sessions expire after 24 hours. The server binds to `127.0.0.1` by default (localhost only). Use `--bind 0.0.0.0` to expose it on the network.
+The access code is generated fresh each time the server starts. Sessions expire after 8 hours. The server binds to `127.0.0.1` by default (localhost only). Use `--bind 0.0.0.0` to expose it on the network.
 
 ### Pages
 
 - **Overview** — Stats grid (total, blocked, quarantined, flagged), top triggered rules, agent risk scores, hourly activity chart
-- **Events** — Unified audit log and quarantine view with live SSE streaming, tab filters (All / Quarantine / Blocked), human-readable event detail panels with clickable rule cards
-- **Rules** — Category card grid with drill-down to individual rules, inline enable/disable toggles. 14 categories including `openclaw-config`
-- **Agents** — Agent CRUD, ACLs, content restrictions, Ed25519 keygen per agent
+- **Events** — Unified audit log and quarantine view with live SSE streaming, tab filters (All / Quarantine / Blocked), search, human-readable event detail panels with clickable rule cards
+- **Rules** — Category card grid with drill-down to individual rules, inline enable/disable toggles, per-rule enforcement overrides (block/quarantine/allow-and-flag/ignore), custom rule creation. 15 categories including `openclaw-config` and `nanoclaw-config`
+- **Agents** — Agent CRUD, ACLs, content restrictions, Ed25519 keygen per agent, suspension toggle
+- **Graph** — Agent communication topology visualization with traffic health scores, threat scores (betweenness centrality), shadow edge detection for policy violations, edge drill-down
+- **Audit** — Deployment security posture: health score and grade, per-product finding cards (Oktsec, OpenClaw, NanoClaw) with severity breakdown, inline remediation, priority fixes
 - **Settings** — Security mode (enforce/observe), key management with revocation, quarantine config
 
 ### Quarantine queue
@@ -452,10 +525,13 @@ identity:
 
 default_policy: deny       # "allow" (default) or "deny" — reject unknown senders
 
+custom_rules_dir: ./custom-rules  # Directory for org-specific YAML detection rules
+
 agents:
   research-agent:
     can_message: [analysis-agent]        # ACL: allowed recipients
     blocked_content: [credentials, pii]  # Content categories to always block for this agent
+    allowed_tools: [read_file, search]   # MCP tool allowlist (empty = all allowed)
     description: "Research and data gathering"
     tags: [research, data]
   analysis-agent:
@@ -477,7 +553,15 @@ anomaly:
   min_messages: 5          # Minimum messages before evaluating risk
   auto_suspend: false      # Suspend agent when threshold exceeded
 
-rules:
+forward_proxy:
+  enabled: false
+  scan_requests: true        # Scan outgoing request bodies
+  scan_responses: false      # Scan upstream response bodies
+  max_body_size: 1048576     # 1 MB
+  allowed_domains: []        # Whitelist (empty = all allowed)
+  blocked_domains: []        # Blacklist (takes precedence)
+
+rules:                       # Per-rule enforcement overrides
   - id: block-relay-injection
     severity: critical
     action: block           # block, quarantine, allow-and-flag, ignore
@@ -495,13 +579,13 @@ oktsec verify --config oktsec.yaml
 
 ## Detection rules
 
-Oktsec includes **151 detection rules** across 14 categories:
+Oktsec includes **159 detection rules** across 15 categories:
 
 | Source | Count | Categories |
 |--------|-------|------------|
 | [Aguara](https://github.com/garagon/aguara) | 138 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
 | Inter-agent protocol (IAP) | 6 | inter-agent |
-| OpenClaw (OCLAW) | 7 | openclaw-config |
+| OpenClaw (OCLAW) | 15 | openclaw-config |
 
 ### Inter-agent protocol rules
 
@@ -516,20 +600,15 @@ Oktsec includes **151 detection rules** across 14 categories:
 
 ### OpenClaw rules
 
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `OCLAW-001` | Critical | Full tool profile without restrictions |
-| `OCLAW-002` | High | Gateway exposed to network |
-| `OCLAW-003` | High | Open DM policy |
-| `OCLAW-004` | Critical | Exec/shell tool without sandbox |
-| `OCLAW-005` | Critical | Path traversal in `$include` |
-| `OCLAW-006` | High | Gateway missing authentication |
-| `OCLAW-007` | High | Hardcoded credentials in config |
+15 rules in the `openclaw-config` category (OCLAW-001 through OCLAW-015), covering full tool profiles, exposed gateways, open DM policies, exec without sandbox, path traversal, missing authentication, hardcoded credentials, and more.
 
 ```bash
-oktsec rules                     # List all 151 rules
+oktsec rules                     # List all 159 rules
 oktsec rules --explain IAP-001   # Explain a specific rule
+oktsec rules --explain OCLAW-001 # Explain an OpenClaw rule
 ```
+
+Additionally, the [deployment audit](#deployment-audit) runs 41 deeper checks (18 for OpenClaw, 7 for NanoClaw, 16 for Oktsec) that analyze config structure, permissions, and runtime settings.
 
 ## Audit log
 
@@ -562,7 +641,7 @@ Analytics queries use a 24-hour time window with covering indexes. All dashboard
 ## CLI reference
 
 ```
-oktsec discover                                          # Scan for MCP servers + OpenClaw
+oktsec discover                                          # Scan for MCP servers, OpenClaw, NanoClaw
 oktsec init [--keys ./keys] [--config oktsec.yaml]       # Auto-generate config + keypairs
 oktsec wrap [--enforce] <client>                         # Route MCP client through oktsec proxy
 oktsec unwrap <client>                                   # Restore original client config
@@ -572,15 +651,16 @@ oktsec serve [--config oktsec.yaml] [--port 8080] [--bind 127.0.0.1]
 oktsec mcp [--config oktsec.yaml]                        # Run as MCP tool server
 oktsec keygen --agent <name> [--agent <name>...] --out <dir>
 oktsec keys list|rotate|revoke [--agent <name>]
-oktsec verify [--config oktsec.yaml]
+oktsec verify [--config oktsec.yaml]                     # Validate config file
 oktsec logs [--status <status>] [--agent <name>] [--unverified] [--since <duration>]
 oktsec rules [--explain <rule-id>]
 oktsec quarantine list|detail|approve|reject [--status <status>] [<id>]
 oktsec agent list                                        # List agents with status
 oktsec agent suspend <name>                              # Suspend an agent
 oktsec agent unsuspend <name>                            # Unsuspend an agent
+oktsec audit [--json] [--sarif]                          # Deployment security audit (41 checks)
+oktsec status                                            # Health score, detected products, top issues
 oktsec enforce [on|off]                                  # Toggle enforce/observe mode
-oktsec status                                            # Show proxy status
 oktsec version
 ```
 
@@ -607,11 +687,39 @@ Poll quarantine status for a held message.
 
 ### `GET /health`
 
-Returns `{"status": "ok", "version": "0.4.0"}`.
+Returns `{"status": "ok", "version": "0.5.0"}`.
 
 ### `GET /dashboard`
 
 Web UI for monitoring agent activity. Protected by access code shown at startup.
+
+## Go SDK
+
+The `sdk` package provides a Go client for sending messages through the oktsec proxy:
+
+```go
+import "github.com/oktsec/oktsec/sdk"
+
+// Without signing (observe mode)
+c := sdk.NewClient("http://localhost:8080", "my-agent", nil)
+resp, err := c.SendMessage(ctx, "recipient", "hello")
+// resp.Status: "delivered", resp.PolicyDecision: "allow", resp.RulesTriggered: [...]
+
+// With Ed25519 signing
+kp, _ := sdk.LoadKeypair("./keys", "my-agent")
+c := sdk.NewClient("http://localhost:8080", "my-agent", kp.PrivateKey)
+resp, err := c.SendMessage(ctx, "recipient", "hello")
+
+// With metadata
+resp, err := c.SendMessageWithMetadata(ctx, "recipient", "hello", map[string]string{
+    "task_id": "abc-123",
+})
+
+// Health check
+health, err := c.Health(ctx)
+```
+
+Install: `go get github.com/oktsec/oktsec/sdk`
 
 ## OWASP Top 10 for Agentic Applications
 
