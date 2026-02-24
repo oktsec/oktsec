@@ -97,24 +97,26 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	mux.Handle("/dashboard/", dash.Handler())
 	mux.Handle("/dashboard", dash.Handler())
 
-	// Apply forward proxy wrapper (before middleware, so CONNECT/absolute URLs are intercepted)
+	// Apply middleware to the mux (API + dashboard)
 	var h http.Handler = mux
+	h = securityHeaders(h)
+	h = logging(logger)(h)
+	h = recovery(logger)(h)
+	h = requestID(h)
+
+	// Apply forward proxy wrapper OUTSIDE middleware so CONNECT requests
+	// get the raw ResponseWriter (needed for Hijack). Middleware only
+	// applies to API/dashboard requests that pass through to the mux.
 	if cfg.ForwardProxy.Enabled {
 		fp := NewForwardProxy(&cfg.ForwardProxy, scanner, auditStore,
 			NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS), logger)
-		h = fp.Wrap(mux)
+		h = fp.Wrap(h)
 		logger.Info("forward proxy enabled",
 			"blocked_domains", len(cfg.ForwardProxy.BlockedDomains),
 			"allowed_domains", len(cfg.ForwardProxy.AllowedDomains),
 			"scan_requests", cfg.ForwardProxy.ScanRequests,
 		)
 	}
-
-	// Apply middleware
-	h = securityHeaders(h)
-	h = logging(logger)(h)
-	h = recovery(logger)(h)
-	h = requestID(h)
 
 	// Bind to 127.0.0.1 by default (localhost only).
 	// Use server.bind config or --bind flag to change.
