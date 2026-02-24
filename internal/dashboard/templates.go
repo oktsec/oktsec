@@ -35,7 +35,8 @@ var tmplFuncs = template.FuncMap{
 		}
 		return float64(a) / float64(b)
 	},
-	"mulf": func(a, b int) int { return a * b },
+	"mulf":   func(a, b int) int { return a * b },
+	"safeJS": func(s string) template.JS { return template.JS(s) },
 }
 
 var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
@@ -834,7 +835,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
 </div>
 ` + layoutFoot))
 
-var rulesTmpl = template.Must(template.New("rules").Parse(layoutHead + `
+var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Detection <span>Rules</span></h1>
 <p class="page-desc">Manage built-in detection rules and create custom rules for your organization.</p>
 
@@ -872,6 +873,7 @@ var rulesTmpl = template.Must(template.New("rules").Parse(layoutHead + `
 <!-- Tabs -->
 <div class="rules-tabs">
   <a href="/dashboard/rules?tab=detection" class="rules-tab {{if eq .Tab "detection"}}active{{end}}">Detection Rules{{if .RuleCount}} <span class="count">{{.RuleCount}}</span>{{end}}</a>
+  <a href="/dashboard/rules?tab=enforcement" class="rules-tab {{if eq .Tab "enforcement"}}active{{end}}">Enforcement{{if .EnforcementCount}} <span class="count">{{.EnforcementCount}}</span>{{end}}</a>
   <a href="/dashboard/rules?tab=custom" class="rules-tab {{if eq .Tab "custom"}}active{{end}}">Custom Rules{{if .CustomCount}} <span class="count">{{.CustomCount}}</span>{{end}}</a>
 </div>
 
@@ -901,6 +903,229 @@ var rulesTmpl = template.Must(template.New("rules").Parse(layoutHead + `
 {{else}}
 <div class="empty">No rules loaded.</div>
 {{end}}
+
+{{else if eq .Tab "enforcement"}}
+<!-- Enforcement Tab -->
+<style>
+.enf-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:10px;transition:border-color 0.2s}
+.enf-card:hover{border-color:var(--accent)}
+.enf-card-top{display:flex;align-items:center;gap:12px}
+.enf-id{font-family:var(--mono);font-weight:600;font-size:0.85rem;color:var(--text)}
+.enf-name{color:var(--text2);font-size:0.78rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.enf-badge{font-size:0.68rem;font-family:var(--mono);padding:3px 10px;border-radius:4px;font-weight:600;text-transform:uppercase;white-space:nowrap}
+.enf-badge.block{background:#ef444415;color:#f87171}
+.enf-badge.quarantine{background:#f9731615;color:#fb923c}
+.enf-badge.allow-and-flag{background:#3b82f615;color:#60a5fa}
+.enf-badge.ignore{background:var(--surface2);color:var(--text3)}
+.enf-meta{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.enf-tag{font-size:0.68rem;font-family:var(--mono);padding:2px 8px;border-radius:4px;background:var(--surface2);color:var(--text3)}
+.enf-tag.sev-critical{background:#ef444410;color:#f87171}
+.enf-tag.sev-high{background:#f9731610;color:#fb923c}
+.enf-tag.sev-medium{background:#3b82f610;color:#60a5fa}
+.enf-urls{margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:6px;font-family:var(--mono);font-size:0.72rem;color:var(--text3);line-height:1.8;word-break:break-all}
+.enf-btns{display:flex;gap:6px}
+/* Combobox */
+.combo-wrap{position:relative}
+.combo-input{width:100%;font-family:var(--mono);font-size:0.82rem}
+.combo-drop{position:absolute;top:100%;left:0;right:0;max-height:260px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;z-index:100;display:none}
+.combo-drop.open{display:block}
+.combo-item{padding:8px 14px;cursor:pointer;font-size:0.8rem;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.combo-item:last-child{border-bottom:none}
+.combo-item:hover,.combo-item.hl{background:var(--surface2)}
+.combo-item .cid{font-family:var(--mono);font-weight:600;font-size:0.78rem;color:var(--text);min-width:120px}
+.combo-item .cnm{color:var(--text2);font-size:0.75rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.combo-item .csv{font-size:0.65rem;font-family:var(--mono);padding:2px 6px;border-radius:3px}
+.csv.critical{background:#ef444415;color:#f87171}
+.csv.high{background:#f9731615;color:#fb923c}
+.csv.medium{background:#3b82f615;color:#60a5fa}
+.csv.low{background:var(--surface2);color:var(--text3)}
+.combo-empty{padding:12px 14px;color:var(--text3);font-size:0.78rem;font-style:italic}
+</style>
+
+<div class="card" style="border-color:var(--accent-dim);border-width:1px">
+  <h2 id="enf-title" style="margin-bottom:4px">Add Override</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:20px;line-height:1.6">
+    Override the default severity-based action for specific rules. Escalate, downgrade, or silence rules regardless of their built-in severity.
+  </p>
+
+  <form id="enf-form" method="POST" action="/dashboard/rules/enforcement">
+    <div class="form-row">
+      <div class="form-group" style="flex:3">
+        <label>Rule</label>
+        <div class="combo-wrap">
+          <input type="hidden" name="rule_id" id="enf-rid">
+          <input type="text" class="combo-input" id="enf-search" placeholder="Search by ID, name, or category..." autocomplete="off">
+          <div class="combo-drop" id="enf-drop"></div>
+        </div>
+      </div>
+      <div class="form-group" style="flex:1;min-width:200px">
+        <label>Action</label>
+        <select name="action" id="enf-action" required>
+          <option value="block">Block</option>
+          <option value="quarantine">Quarantine</option>
+          <option value="allow-and-flag">Flag</option>
+          <option value="ignore">Ignore</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group" style="margin-bottom:16px">
+      <label>Webhook URLs <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(optional, one per line)</span></label>
+      <textarea name="notify" id="enf-notify" placeholder="https://hooks.slack.com/services/T00/B00/xxx" style="min-height:40px;line-height:1.8"></textarea>
+    </div>
+
+    <div class="form-group" id="enf-tmpl-group" style="margin-bottom:16px">
+      <label>Webhook Message</label>
+      <textarea name="template" id="enf-tmpl" style="min-height:80px;line-height:1.7;font-size:0.85rem">Rule *{{"{{RULE}}"}}* triggered
+• Action: {{"{{ACTION}}"}}
+• Severity: {{"{{SEVERITY}}"}}
+• From: {{"{{FROM}}"}} → {{"{{TO}}"}}
+• Message: {{"{{MESSAGE_ID}}"}}</textarea>
+      <div style="color:var(--text3);font-size:0.72rem;margin-top:4px;line-height:1.5">
+        Variables: <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{RULE}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{ACTION}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{SEVERITY}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{FROM}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{TO}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{MESSAGE_ID}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{TIMESTAMP}}"}}</code>.
+        Write plain text — automatically formatted for Slack/Discord.
+      </div>
+    </div>
+
+    <input type="hidden" name="severity" value="">
+
+    <div style="display:flex;align-items:center;gap:12px">
+      <button type="submit" class="btn" id="enf-btn">Save Override</button>
+      <button type="button" class="btn" id="enf-cancel" style="display:none;background:var(--surface2);color:var(--text2)" onclick="enfReset()">Cancel</button>
+      <span style="color:var(--text3);font-size:0.72rem">Takes effect immediately.</span>
+    </div>
+  </form>
+</div>
+
+{{if .Overrides}}
+<h2 style="font-size:0.95rem;font-weight:600;margin:28px 0 16px">Active Overrides <span style="color:var(--text3);font-weight:400;font-size:0.78rem">({{len .Overrides}})</span></h2>
+{{range .Overrides}}
+<div class="enf-card" id="enf-card-{{.ID}}" data-action="{{.Action}}" data-notify="{{range $i, $u := .Notify}}{{if $i}}&#10;{{end}}{{$u}}{{end}}" data-template="{{.Template}}">
+  <div class="enf-card-top">
+    <span class="enf-id">{{.ID}}</span>
+    {{if .Name}}<span class="enf-name">{{.Name}}</span>{{end}}
+    <span class="enf-badge {{.Action}}">{{.Action}}</span>
+    <div class="enf-btns">
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text2)" onclick="enfEdit(this.closest('.enf-card'))">edit</button>
+      <button class="btn btn-sm btn-danger" hx-delete="/dashboard/rules/enforcement/{{.ID}}" hx-confirm="Remove override for {{.ID}}?" hx-target="#enf-card-{{.ID}}" hx-swap="outerHTML swap:200ms">remove</button>
+    </div>
+  </div>
+  {{if .Description}}<div style="color:var(--text2);font-size:0.78rem;margin-top:6px;line-height:1.5">{{.Description}}</div>{{end}}
+  <div class="enf-meta">
+    {{if .Category}}<span class="enf-tag">{{.Category}}</span>{{end}}
+    {{if .DefaultSeverity}}<span class="enf-tag sev-{{.DefaultSeverity}}">default: {{.DefaultSeverity}}</span>{{end}}
+    {{if .Notify}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-wh-{{.ID}}').style.display=document.getElementById('enf-wh-{{.ID}}').style.display==='none'?'block':'none'">{{len .Notify}} webhook{{if gt (len .Notify) 1}}s{{end}} &#9662;</span>{{end}}
+    {{if .Template}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-tp-{{.ID}}').style.display=document.getElementById('enf-tp-{{.ID}}').style.display==='none'?'block':'none'">template &#9662;</span>{{end}}
+  </div>
+  {{if .Notify}}<div class="enf-urls" id="enf-wh-{{.ID}}" style="display:none">{{range .Notify}}{{.}}<br>{{end}}</div>{{end}}
+  {{if .Template}}<div class="enf-urls" id="enf-tp-{{.ID}}" style="display:none;white-space:pre-wrap">{{.Template}}</div>{{end}}
+</div>
+{{end}}
+{{else}}
+<div class="empty" style="padding:20px 0;margin-top:24px">No overrides configured. Rules use their default severity-based actions.</div>
+{{end}}
+
+<div class="card" style="margin-top:24px;background:var(--bg);border-style:dashed">
+  <details>
+    <summary style="color:var(--text2);font-size:0.82rem;cursor:pointer;user-select:none;font-weight:500">How enforcement overrides work</summary>
+    <div style="color:var(--text3);font-size:0.78rem;line-height:1.7;margin-top:14px;padding-left:4px">
+      <p style="margin-bottom:8px"><strong style="color:var(--text2)">1. Default behavior.</strong> Without overrides, the action is determined by rule severity: critical &rarr; block, high &rarr; quarantine, medium &rarr; flag.</p>
+      <p style="margin-bottom:8px"><strong style="color:var(--text2)">2. Override actions.</strong> <strong>Block</strong> rejects the message. <strong>Quarantine</strong> holds it for human review. <strong>Flag</strong> delivers with a warning. <strong>Ignore</strong> suppresses the finding entirely.</p>
+      <p style="margin-bottom:8px"><strong style="color:var(--text2)">3. Pipeline order.</strong> Overrides apply before per-agent blocked content and history escalation, so safety nets remain active even after a downgrade.</p>
+      <p><strong style="color:var(--text2)">4. Webhooks.</strong> Per-rule webhook URLs receive a <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.72rem">rule_triggered</code> event whenever the rule fires, independent of the action taken.</p>
+    </div>
+  </details>
+</div>
+
+<script>
+(function(){
+  var R = {{.RulesJSON | safeJS}};
+  var search = document.getElementById('enf-search');
+  var hidden = document.getElementById('enf-rid');
+  var drop = document.getElementById('enf-drop');
+  var aidx = -1;
+
+  function html(items) {
+    if (!items.length) { drop.innerHTML = '<div class="combo-empty">No matching rules</div>'; drop.classList.add('open'); return; }
+    drop.innerHTML = items.map(function(r,i){
+      return '<div class="combo-item" data-id="'+r.id+'">'
+        +'<span class="cid">'+r.id+'</span>'
+        +'<span class="cnm">'+r.name+'</span>'
+        +'<span class="csv '+r.severity+'">'+r.severity+'</span>'
+        +'</div>';
+    }).join('');
+    drop.classList.add('open'); aidx=-1;
+  }
+
+  function doFilter() {
+    var q = search.value.toLowerCase();
+    if (!q) { html(R.slice(0,40)); return; }
+    html(R.filter(function(r){ return r.id.toLowerCase().indexOf(q)>=0||r.name.toLowerCase().indexOf(q)>=0||r.category.toLowerCase().indexOf(q)>=0; }).slice(0,40));
+  }
+
+  function pick(id) {
+    hidden.value = id;
+    var r = R.find(function(x){return x.id===id;});
+    search.value = r ? r.id+' \u2014 '+r.name : id;
+    drop.classList.remove('open');
+  }
+
+  search.addEventListener('input', doFilter);
+  search.addEventListener('focus', function(){ if(!drop.classList.contains('open')) doFilter(); });
+  drop.addEventListener('click', function(e){ var it=e.target.closest('.combo-item'); if(it) pick(it.dataset.id); });
+
+  search.addEventListener('keydown', function(e){
+    var items = drop.querySelectorAll('.combo-item');
+    if(e.key==='ArrowDown'){e.preventDefault();aidx=Math.min(aidx+1,items.length-1);}
+    else if(e.key==='ArrowUp'){e.preventDefault();aidx=Math.max(aidx-1,0);}
+    else if(e.key==='Enter'&&aidx>=0&&items[aidx]){e.preventDefault();pick(items[aidx].dataset.id);return;}
+    else if(e.key==='Escape'){drop.classList.remove('open');return;}
+    else return;
+    items.forEach(function(el,i){el.classList.toggle('hl',i===aidx);});
+    if(items[aidx]) items[aidx].scrollIntoView({block:'nearest'});
+  });
+
+  document.addEventListener('click', function(e){ if(!e.target.closest('.combo-wrap')) drop.classList.remove('open'); });
+
+  var notifyEl = document.getElementById('enf-notify');
+  var tmplEl = document.getElementById('enf-tmpl');
+  var defaultTmpl = tmplEl.value;
+
+  // Validate: require a selected rule
+  document.getElementById('enf-form').addEventListener('submit', function(e){
+    if(!hidden.value){e.preventDefault();search.focus();search.style.outline='2px solid #f87171';setTimeout(function(){search.style.outline='';},1500);}
+  });
+
+  // Edit: populate form from card data attributes
+  window.enfEdit = function(card) {
+    var id = card.id.replace('enf-card-','');
+    pick(id);
+    document.getElementById('enf-action').value = card.dataset.action;
+    notifyEl.value = card.dataset.notify||'';
+    tmplEl.value = card.dataset.template||'';
+    document.getElementById('enf-title').textContent = 'Edit Override \u2014 '+id;
+    document.getElementById('enf-btn').textContent = 'Update Override';
+    document.getElementById('enf-cancel').style.display = '';
+    search.readOnly = true; search.style.opacity='0.6';
+    window.scrollTo({top:0,behavior:'smooth'});
+  };
+
+  window.enfReset = function() {
+    hidden.value=''; search.value=''; search.readOnly=false; search.style.opacity='';
+    document.getElementById('enf-action').value='block';
+    notifyEl.value=''; tmplEl.value=defaultTmpl;
+    document.getElementById('enf-title').textContent='Add Override';
+    document.getElementById('enf-btn').textContent='Save Override';
+    document.getElementById('enf-cancel').style.display='none';
+  };
+})();
+</script>
 
 {{else}}
 <!-- Custom Rules Tab -->

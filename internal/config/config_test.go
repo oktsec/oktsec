@@ -104,6 +104,18 @@ func TestValidate_InvalidAction(t *testing.T) {
 	}
 }
 
+func TestValidate_DuplicateRuleID(t *testing.T) {
+	cfg := Defaults()
+	cfg.Rules = []RuleAction{
+		{ID: "PI-001", Action: "block"},
+		{ID: "PI-001", Action: "ignore"},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("duplicate rule ID should be invalid")
+	}
+}
+
 func TestAgentMetadataRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "oktsec.yaml")

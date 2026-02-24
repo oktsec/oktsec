@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
@@ -83,6 +84,64 @@ func (n *WebhookNotifier) Notify(event WebhookEvent) {
 			continue
 		}
 		go n.send(wh.URL, event)
+	}
+}
+
+// NotifyURL sends an event to a specific URL (fire-and-forget).
+// The URL is validated before sending to prevent SSRF.
+func (n *WebhookNotifier) NotifyURL(rawURL string, event WebhookEvent) {
+	if err := validateWebhookURL(rawURL); err != nil {
+		n.logger.Warn("skipping invalid notify URL", "url", rawURL, "error", err)
+		return
+	}
+	go n.send(rawURL, event)
+}
+
+// NotifyTemplated sends a templated body to a URL. Tags like {{RULE}}, {{ACTION}},
+// {{SEVERITY}}, {{FROM}}, {{TO}}, {{MESSAGE_ID}}, {{TIMESTAMP}} are replaced.
+// If tmpl is empty, falls back to the default JSON payload.
+func (n *WebhookNotifier) NotifyTemplated(rawURL, tmpl string, event WebhookEvent) {
+	if err := validateWebhookURL(rawURL); err != nil {
+		n.logger.Warn("skipping invalid notify URL", "url", rawURL, "error", err)
+		return
+	}
+	if tmpl == "" {
+		go n.send(rawURL, event)
+		return
+	}
+	go n.sendRaw(rawURL, RenderTemplate(tmpl, event))
+}
+
+// RenderTemplate replaces {{TAG}} placeholders in a plain-text template,
+// then wraps the result in Slack-compatible JSON: {"text":"..."}.
+func RenderTemplate(tmpl string, event WebhookEvent) string {
+	r := strings.NewReplacer(
+		"{{RULE}}", event.Rule,
+		"{{ACTION}}", event.Event,
+		"{{SEVERITY}}", event.Severity,
+		"{{FROM}}", event.From,
+		"{{TO}}", event.To,
+		"{{MESSAGE_ID}}", event.MessageID,
+		"{{TIMESTAMP}}", event.Timestamp,
+	)
+	text := r.Replace(tmpl)
+	payload, _ := json.Marshal(map[string]string{"text": text})
+	return string(payload)
+}
+
+// DefaultWebhookTemplate is the plain-text default shown in the UI.
+// RenderTemplate wraps it in Slack JSON automatically.
+const DefaultWebhookTemplate = "Rule *{{RULE}}* triggered\n• Action: {{ACTION}}\n• Severity: {{SEVERITY}}\n• From: {{FROM}} → {{TO}}\n• Message: {{MESSAGE_ID}}"
+
+func (n *WebhookNotifier) sendRaw(url, body string) {
+	resp, err := n.client.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
+		return
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		n.logger.Warn("webhook returned error", "url", url, "status", resp.StatusCode)
 	}
 }
 

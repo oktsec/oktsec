@@ -139,11 +139,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Step 4b: Apply per-rule action overrides from config
+	h.applyRuleOverrides(outcome)
+
 	// Step 5: Apply BlockedContent per-agent filter
 	h.applyBlockedContent(req.From, outcome)
 
 	// Step 6: Split injection detection (multi-message window)
 	h.scanConcatenated(r.Context(), req.From, req.Content, outcome)
+
+	// Step 6b: Re-apply rule overrides to any findings introduced by concatenated scan
+	h.applyRuleOverrides(outcome)
 
 	// Step 7: Multi-message verdict escalation
 	h.escalateByHistory(req.From, outcome)
@@ -160,6 +166,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	quarantineID := h.enqueueIfQuarantined(outcome.Verdict, msgID, req, rulesJSON)
 	h.notifyIfSevere(outcome.Verdict, status, msgID, req, outcome.Findings)
+	h.notifyByRuleOverrides(msgID, req, outcome.Findings)
 
 	writeJSON(w, httpStatus, MessageResponse{
 		Status:         status,
@@ -223,6 +230,73 @@ func (h *Handler) applyBlockedContent(agentName string, outcome *engine.ScanOutc
 			outcome.Verdict = engine.VerdictBlock
 			return
 		}
+	}
+}
+
+// applyRuleOverrides applies per-rule action overrides from cfg.Rules[].
+// - "ignore" removes findings from the outcome entirely
+// - "block"/"quarantine"/"allow-and-flag" overrides that finding's verdict contribution
+// Findings without a matching rule keep the default severity-based verdict.
+func (h *Handler) applyRuleOverrides(outcome *engine.ScanOutcome) {
+	if len(h.cfg.Rules) == 0 || len(outcome.Findings) == 0 {
+		return
+	}
+
+	// Build lookup: ruleID → action
+	overrides := make(map[string]string, len(h.cfg.Rules))
+	for _, ra := range h.cfg.Rules {
+		overrides[ra.ID] = ra.Action
+	}
+
+	// Filter findings and recalculate verdict
+	var kept []engine.FindingSummary
+	newVerdict := engine.VerdictClean
+
+	for _, f := range outcome.Findings {
+		action, hasOverride := overrides[f.RuleID]
+		if hasOverride && action == "ignore" {
+			continue // drop finding entirely
+		}
+
+		kept = append(kept, f)
+
+		// Determine this finding's verdict
+		var v engine.ScanVerdict
+		if hasOverride {
+			switch action {
+			case "block":
+				v = engine.VerdictBlock
+			case "quarantine":
+				v = engine.VerdictQuarantine
+			case "allow-and-flag":
+				v = engine.VerdictFlag
+			}
+		} else {
+			v = defaultSeverityVerdict(f.Severity)
+		}
+
+		// Keep the most severe verdict
+		if verdictSeverity(v) > verdictSeverity(newVerdict) {
+			newVerdict = v
+		}
+	}
+
+	outcome.Findings = kept
+	outcome.Verdict = newVerdict
+}
+
+// defaultSeverityVerdict maps a severity string to the default verdict.
+// Mirrors the logic in engine.buildOutcome but operates on string severity.
+func defaultSeverityVerdict(severity string) engine.ScanVerdict {
+	switch severity {
+	case "critical":
+		return engine.VerdictBlock
+	case "high":
+		return engine.VerdictQuarantine
+	case "medium":
+		return engine.VerdictFlag
+	default:
+		return engine.VerdictClean
 	}
 }
 
@@ -372,6 +446,44 @@ func (h *Handler) notifyIfSevere(verdict engine.ScanVerdict, status, msgID strin
 		Severity:  topSeverity(findings),
 		Timestamp: req.Timestamp,
 	})
+}
+
+// notifyByRuleOverrides sends webhook notifications for rules that have notify URLs configured.
+func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findings []engine.FindingSummary) {
+	if len(h.cfg.Rules) == 0 {
+		return
+	}
+
+	// Build lookups: ruleID → notify URLs, ruleID → template
+	type ruleNotify struct {
+		URLs     []string
+		Template string
+	}
+	notifyMap := make(map[string]ruleNotify)
+	for _, ra := range h.cfg.Rules {
+		if len(ra.Notify) > 0 {
+			notifyMap[ra.ID] = ruleNotify{URLs: ra.Notify, Template: ra.Template}
+		}
+	}
+
+	for _, f := range findings {
+		rn, ok := notifyMap[f.RuleID]
+		if !ok {
+			continue
+		}
+		event := WebhookEvent{
+			Event:     "rule_triggered",
+			MessageID: msgID,
+			From:      req.From,
+			To:        req.To,
+			Severity:  f.Severity,
+			Rule:      f.RuleID,
+			Timestamp: req.Timestamp,
+		}
+		for _, url := range rn.URLs {
+			h.webhooks.NotifyTemplated(url, rn.Template, event)
+		}
+	}
 }
 
 func (h *Handler) verifyIdentity(req *MessageRequest) (sigStatus int, verified bool, fingerprint string) {
