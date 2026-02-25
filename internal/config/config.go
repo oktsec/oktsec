@@ -92,8 +92,19 @@ type ForwardProxyConfig struct {
 
 // Webhook defines an outgoing notification endpoint.
 type Webhook struct {
+	Name   string   `yaml:"name,omitempty"` // friendly name for dashboard selection
 	URL    string   `yaml:"url"`
 	Events []string `yaml:"events"` // blocked, quarantined, rejected
+}
+
+// WebhookByName returns the first webhook with the given name, or nil.
+func (c *Config) WebhookByName(name string) *Webhook {
+	for i := range c.Webhooks {
+		if c.Webhooks[i].Name == name {
+			return &c.Webhooks[i]
+		}
+	}
+	return nil
 }
 
 // Load reads and parses an oktsec config file.

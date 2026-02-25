@@ -135,6 +135,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /dashboard/api/rule/{id}/toggle", s.handleToggleRule)
 	s.mux.HandleFunc("POST /dashboard/api/category/{name}/toggle", s.handleToggleCategory)
 
+	// Webhook channels
+	s.mux.HandleFunc("POST /dashboard/settings/webhooks", s.handleSaveWebhookChannel)
+	s.mux.HandleFunc("DELETE /dashboard/settings/webhooks/{name}", s.handleDeleteWebhookChannel)
+
 	// Catch-all for unmatched dashboard paths (must be registered last)
 	s.mux.HandleFunc("GET /dashboard/", s.handleNotFound)
 }
