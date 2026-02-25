@@ -461,11 +461,11 @@ The access code is generated fresh each time the server starts. Sessions expire 
 
 - **Overview** — Stats grid (total, blocked, quarantined, flagged), top triggered rules, agent risk scores, hourly activity chart
 - **Events** — Unified audit log and quarantine view with live SSE streaming, tab filters (All / Quarantine / Blocked), search, human-readable event detail panels with clickable rule cards
-- **Rules** — Category card grid with drill-down to individual rules, inline enable/disable toggles, per-rule enforcement overrides (block/quarantine/allow-and-flag/ignore), custom rule creation. 15 categories including `openclaw-config` and `nanoclaw-config`
+- **Rules** — Category card grid with drill-down to individual rules, inline enable/disable toggles, per-rule enforcement overrides (block/quarantine/allow-and-flag/ignore) with per-rule webhook notifications and customizable Slack/Discord templates, custom rule creation. 15 categories including `openclaw-config` and `nanoclaw-config`
 - **Agents** — Agent CRUD, ACLs, content restrictions, Ed25519 keygen per agent, suspension toggle
 - **Graph** — Agent communication topology visualization with traffic health scores, threat scores (betweenness centrality), shadow edge detection for policy violations, edge drill-down
 - **Audit** — Deployment security posture: health score and grade, per-product finding cards (Oktsec, OpenClaw, NanoClaw) with severity breakdown, inline remediation, priority fixes
-- **Settings** — Security mode (enforce/observe), key management with revocation, quarantine config
+- **Settings** — Security mode (enforce/observe), key management with revocation, quarantine config, named webhook channel management
 
 ### Quarantine queue
 
@@ -565,10 +565,12 @@ rules:                       # Per-rule enforcement overrides
   - id: block-relay-injection
     severity: critical
     action: block           # block, quarantine, allow-and-flag, ignore
-    notify: [webhook]
+    notify: [slack-security] # Named channels or raw URLs
+    template: "🚨 *{{RULE}}* — {{RULE_NAME}}\n• *Severity:* {{SEVERITY}} | *Category:* {{CATEGORY}}\n• *Agents:* {{FROM}} → {{TO}}\n• *Match:* '{{MATCH}}'"
 
 webhooks:
-  - url: https://hooks.slack.com/services/xxx
+  - name: slack-security    # Named channel (referenced in rules.notify)
+    url: https://hooks.slack.com/services/xxx
     events: [blocked, quarantined, agent_risk_elevated]
 ```
 
