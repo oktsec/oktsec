@@ -58,6 +58,19 @@ Agent A → sign → POST /v1/message → [Oktsec] → rate limit → verify →
 
 ## Installation
 
+### Quick install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
+```
+
+Installs the latest binary to `~/.local/bin`. Customize with environment variables:
+
+```bash
+VERSION=v0.5.0 curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
+INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
+```
+
 ### Pre-built binaries
 
 Download from the [releases page](https://github.com/oktsec/oktsec/releases).
