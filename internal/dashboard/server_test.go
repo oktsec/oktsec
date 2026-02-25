@@ -828,11 +828,11 @@ func TestServer_EnforcementSaveAndDisplay(t *testing.T) {
 
 	// Save an override with template
 	form := url.Values{
-		"rule_id":  {"CRED_001"},
-		"action":   {"block"},
-		"severity": {"critical"},
-		"notify":   {"https://hooks.slack.com/test"},
-		"template": {"Alert: {{RULE}} fired with {{SEVERITY}}"},
+		"rule_id":     {"CRED_001"},
+		"action":      {"block"},
+		"severity":    {"critical"},
+		"notify_urls": {"https://hooks.slack.com/test"},
+		"template":    {"Alert: {{RULE}} fired with {{SEVERITY}}"},
 	}
 	req := httptest.NewRequest("POST", "/dashboard/rules/enforcement", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

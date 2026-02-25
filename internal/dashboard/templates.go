@@ -36,7 +36,8 @@ var tmplFuncs = template.FuncMap{
 		return float64(a) / float64(b)
 	},
 	"mulf":   func(a, b int) int { return a * b },
-	"safeJS": func(s string) template.JS { return template.JS(s) },
+	"safeJS":   func(s string) template.JS { return template.JS(s) },
+	"contains": strings.Contains,
 }
 
 var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
@@ -1046,6 +1047,13 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .csv.medium{background:#3b82f615;color:#60a5fa}
 .csv.low{background:var(--surface2);color:var(--text3)}
 .combo-empty{padding:12px 14px;color:var(--text3);font-size:0.78rem;font-style:italic}
+/* Channel chips */
+.ch-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;background:var(--surface);border:1px solid var(--border);cursor:pointer;font-size:0.78rem;font-family:var(--mono);color:var(--text2);transition:all 0.15s;user-select:none;white-space:nowrap}
+.ch-chip:hover{border-color:var(--accent-dim);color:var(--text)}
+.ch-chip input{position:absolute;opacity:0;pointer-events:none}
+.ch-check{display:none;font-size:0.65rem;color:var(--accent-light)}
+.ch-chip:has(input:checked){background:rgba(99,102,241,0.1);border-color:var(--accent);color:var(--accent-light)}
+.ch-chip:has(input:checked) .ch-check{display:inline}
 </style>
 
 <div class="card" style="border-color:var(--accent-dim);border-width:1px">
@@ -1075,20 +1083,40 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
       </div>
     </div>
 
+    {{if .WebhookChannels}}
     <div class="form-group" style="margin-bottom:16px">
-      <label>Webhook URLs <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(optional, one per line)</span></label>
-      <textarea name="notify" id="enf-notify" placeholder="https://hooks.slack.com/services/T00/B00/xxx" style="min-height:40px;line-height:1.8"></textarea>
+      <label>Notify Channels</label>
+      <div id="enf-channels" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        {{range .WebhookChannels}}{{if .Name}}
+        <label class="ch-chip">
+          <input type="checkbox" name="notify_channel" value="{{.Name}}">
+          <span class="ch-check">&#10003;</span>
+          <span class="ch-name">{{.Name}}</span>
+        </label>
+        {{end}}{{end}}
+        <a href="/dashboard/settings" style="color:var(--text3);font-size:0.7rem;margin-left:4px;text-decoration:none;opacity:0.7" title="Manage channels in Settings">+ manage</a>
+      </div>
+    </div>
+    {{end}}
+
+    <div class="form-group" style="margin-bottom:16px">
+      <label>Additional Webhook URLs <span style="color:var(--text3);font-weight:400;text-transform:none;letter-spacing:0">(optional, one per line)</span></label>
+      <textarea name="notify_urls" id="enf-notify" placeholder="https://hooks.slack.com/services/T00/B00/xxx" style="min-height:40px;line-height:1.8"></textarea>
     </div>
 
     <div class="form-group" id="enf-tmpl-group" style="margin-bottom:16px">
       <label>Webhook Message</label>
-      <textarea name="template" id="enf-tmpl" style="min-height:80px;line-height:1.7;font-size:0.85rem">Rule *{{"{{RULE}}"}}* triggered
-• Action: {{"{{ACTION}}"}}
-• Severity: {{"{{SEVERITY}}"}}
-• From: {{"{{FROM}}"}} → {{"{{TO}}"}}
-• Message: {{"{{MESSAGE_ID}}"}}</textarea>
+      <textarea name="template" id="enf-tmpl" style="min-height:80px;line-height:1.7;font-size:0.85rem">🚨 *{{"{{RULE}}"}}* — {{"{{RULE_NAME}}"}}
+• *Severity:* {{"{{SEVERITY}}"}} | *Category:* {{"{{CATEGORY}}"}}
+• *Agents:* {{"{{FROM}}"}} → {{"{{TO}}"}}
+• *Match:* '{{"{{MATCH}}"}}'
+• *Message:* {{"{{MESSAGE_ID}}"}}
+• *Time:* {{"{{TIMESTAMP}}"}}</textarea>
       <div style="color:var(--text3);font-size:0.72rem;margin-top:4px;line-height:1.5">
         Variables: <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{RULE}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{RULE_NAME}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{CATEGORY}}"}}</code>
+        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{MATCH}}"}}</code>
         <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{ACTION}}"}}</code>
         <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{SEVERITY}}"}}</code>
         <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{FROM}}"}}</code>
@@ -1126,7 +1154,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
   <div class="enf-meta">
     {{if .Category}}<span class="enf-tag">{{.Category}}</span>{{end}}
     {{if .DefaultSeverity}}<span class="enf-tag sev-{{.DefaultSeverity}}">default: {{.DefaultSeverity}}</span>{{end}}
-    {{if .Notify}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-wh-{{.ID}}').style.display=document.getElementById('enf-wh-{{.ID}}').style.display==='none'?'block':'none'">{{len .Notify}} webhook{{if gt (len .Notify) 1}}s{{end}} &#9662;</span>{{end}}
+    {{if .Notify}}{{range .Notify}}{{if not (contains . "://")}} <span class="enf-tag" style="background:rgba(99,102,241,0.1);color:var(--accent-light)">{{.}}</span>{{end}}{{end}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-wh-{{$.ID}}').style.display=document.getElementById('enf-wh-{{$.ID}}').style.display==='none'?'block':'none'">{{len .Notify}} webhook{{if gt (len .Notify) 1}}s{{end}} &#9662;</span>{{end}}
     {{if .Template}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-tp-{{.ID}}').style.display=document.getElementById('enf-tp-{{.ID}}').style.display==='none'?'block':'none'">template &#9662;</span>{{end}}
   </div>
   {{if .Notify}}<div class="enf-urls" id="enf-wh-{{.ID}}" style="display:none">{{range .Notify}}{{.}}<br>{{end}}</div>{{end}}
@@ -1209,12 +1237,34 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
   });
 
   // Edit: populate form from card data attributes
+  // Helper: get all channel checkbox names
+  function channelNames() {
+    var cbs = document.querySelectorAll('#enf-channels input[type=checkbox]');
+    var names = {};
+    cbs.forEach(function(cb){ names[cb.value]=cb; });
+    return names;
+  }
+
   window.enfEdit = function(card) {
     var id = card.id.replace('enf-card-','');
     pick(id);
     document.getElementById('enf-action').value = card.dataset.action;
-    notifyEl.value = card.dataset.notify||'';
     tmplEl.value = card.dataset.template||'';
+
+    // Split data-notify into channel names vs raw URLs
+    var raw = (card.dataset.notify||'').split('\n');
+    var chs = channelNames();
+    var urls = [];
+    // Uncheck all first
+    Object.values(chs).forEach(function(cb){ cb.checked=false; });
+    raw.forEach(function(line){
+      line = line.trim();
+      if (!line) return;
+      if (chs[line]) { chs[line].checked = true; }
+      else { urls.push(line); }
+    });
+    notifyEl.value = urls.join('\n');
+
     document.getElementById('enf-title').textContent = 'Edit Override \u2014 '+id;
     document.getElementById('enf-btn').textContent = 'Update Override';
     document.getElementById('enf-cancel').style.display = '';
@@ -1226,6 +1276,8 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
     hidden.value=''; search.value=''; search.readOnly=false; search.style.opacity='';
     document.getElementById('enf-action').value='block';
     notifyEl.value=''; tmplEl.value=defaultTmpl;
+    // Uncheck all channel checkboxes
+    document.querySelectorAll('#enf-channels input[type=checkbox]').forEach(function(cb){ cb.checked=false; });
     document.getElementById('enf-title').textContent='Add Override';
     document.getElementById('enf-btn').textContent='Save Override';
     document.getElementById('enf-cancel').style.display='none';
@@ -1782,6 +1834,46 @@ var settingsTmpl = template.Must(template.New("settings").Parse(layoutHead + `
     Expired messages are preserved for audit but the content is not delivered.
     Edit <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">quarantine.expiry_hours</code> in the config file to change this.
   </p>
+</div>
+
+<div class="card">
+  <h2>Webhook Channels</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Define webhook destinations once by name. Use channel names in enforcement overrides instead of pasting raw URLs.
+  </p>
+
+  <form method="POST" action="/dashboard/settings/webhooks" style="margin-bottom:20px">
+    <div class="form-row">
+      <div class="form-group" style="flex:1;min-width:140px">
+        <label>Name</label>
+        <input type="text" name="name" placeholder="e.g. slack-security" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*">
+      </div>
+      <div class="form-group" style="flex:3">
+        <label>URL</label>
+        <input type="url" name="url" placeholder="https://hooks.slack.com/services/T00/B00/xxx" required>
+      </div>
+      <div class="form-group" style="align-self:flex-end">
+        <button type="submit" class="btn">Save</button>
+      </div>
+    </div>
+  </form>
+
+  {{if .WebhookChannels}}
+  <table>
+    <thead><tr><th>Name</th><th>URL</th><th></th></tr></thead>
+    <tbody>
+    {{range .WebhookChannels}}
+    <tr id="wh-row-{{.Name}}">
+      <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{.Name}}</td>
+      <td style="font-family:var(--mono);font-size:0.75rem;color:var(--text3);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.URL}}</td>
+      <td>{{if .Name}}<button class="btn btn-sm btn-danger" hx-delete="/dashboard/settings/webhooks/{{.Name}}" hx-confirm="Delete channel {{.Name}}?" hx-target="#wh-row-{{.Name}}" hx-swap="outerHTML swap:200ms">delete</button>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No webhook channels configured. Add one above to use in enforcement overrides.</div>
+  {{end}}
 </div>
 
 <div class="card">

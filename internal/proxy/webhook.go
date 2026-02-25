@@ -106,6 +106,9 @@ type WebhookEvent struct {
 	To        string `json:"to"`
 	Severity  string `json:"severity,omitempty"`
 	Rule      string `json:"rule,omitempty"`
+	RuleName  string `json:"rule_name,omitempty"`
+	Category  string `json:"category,omitempty"`
+	Match     string `json:"match,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
 
@@ -258,6 +261,9 @@ func (n *WebhookNotifier) NotifyTemplated(rawURL, tmpl string, event WebhookEven
 func RenderTemplate(tmpl string, event WebhookEvent) string {
 	r := strings.NewReplacer(
 		"{{RULE}}", event.Rule,
+		"{{RULE_NAME}}", event.RuleName,
+		"{{CATEGORY}}", event.Category,
+		"{{MATCH}}", event.Match,
 		"{{ACTION}}", event.Event,
 		"{{SEVERITY}}", event.Severity,
 		"{{FROM}}", event.From,
@@ -272,7 +278,7 @@ func RenderTemplate(tmpl string, event WebhookEvent) string {
 
 // DefaultWebhookTemplate is the plain-text default shown in the UI.
 // RenderTemplate wraps it in Slack JSON automatically.
-const DefaultWebhookTemplate = "Rule *{{RULE}}* triggered\n• Action: {{ACTION}}\n• Severity: {{SEVERITY}}\n• From: {{FROM}} → {{TO}}\n• Message: {{MESSAGE_ID}}"
+const DefaultWebhookTemplate = "\U0001f6a8 *{{RULE}}* \u2014 {{RULE_NAME}}\n\u2022 *Severity:* {{SEVERITY}} | *Category:* {{CATEGORY}}\n\u2022 *Agents:* {{FROM}} \u2192 {{TO}}\n\u2022 *Match:* `{{MATCH}}`\n\u2022 *Message:* {{MESSAGE_ID}}\n\u2022 *Time:* {{TIMESTAMP}}"
 
 func (n *WebhookNotifier) sendRaw(url, body string) {
 	resp, err := n.client.Post(url, "application/json", strings.NewReader(body))

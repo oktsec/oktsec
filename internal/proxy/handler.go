@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -448,21 +449,34 @@ func (h *Handler) notifyIfSevere(verdict engine.ScanVerdict, status, msgID strin
 	})
 }
 
+// resolveWebhookRef resolves a notify reference to a URL.
+// If ref contains "://" it is treated as a raw URL (backward compat).
+// Otherwise it is looked up as a named webhook channel.
+func (h *Handler) resolveWebhookRef(ref string) string {
+	if strings.Contains(ref, "://") {
+		return ref
+	}
+	if wh := h.cfg.WebhookByName(ref); wh != nil {
+		return wh.URL
+	}
+	return ""
+}
+
 // notifyByRuleOverrides sends webhook notifications for rules that have notify URLs configured.
 func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findings []engine.FindingSummary) {
 	if len(h.cfg.Rules) == 0 {
 		return
 	}
 
-	// Build lookups: ruleID → notify URLs, ruleID → template
+	// Build lookups: ruleID → notify refs, ruleID → template
 	type ruleNotify struct {
-		URLs     []string
+		Refs     []string
 		Template string
 	}
 	notifyMap := make(map[string]ruleNotify)
 	for _, ra := range h.cfg.Rules {
 		if len(ra.Notify) > 0 {
-			notifyMap[ra.ID] = ruleNotify{URLs: ra.Notify, Template: ra.Template}
+			notifyMap[ra.ID] = ruleNotify{Refs: ra.Notify, Template: ra.Template}
 		}
 	}
 
@@ -478,9 +492,16 @@ func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findi
 			To:        req.To,
 			Severity:  f.Severity,
 			Rule:      f.RuleID,
+			RuleName:  f.Name,
+			Category:  f.Category,
+			Match:     f.Match,
 			Timestamp: req.Timestamp,
 		}
-		for _, url := range rn.URLs {
+		for _, ref := range rn.Refs {
+			url := h.resolveWebhookRef(ref)
+			if url == "" {
+				continue
+			}
 			h.webhooks.NotifyTemplated(url, rn.Template, event)
 		}
 	}

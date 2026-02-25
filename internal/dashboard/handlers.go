@@ -518,6 +518,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		rulesJSON, _ := json.Marshal(opts)
 		data["RulesJSON"] = string(rulesJSON)
 		data["Overrides"] = enriched
+		data["WebhookChannels"] = s.cfg.Webhooks
 	}
 
 	s.renderTemplate(w, rulesTmpl, data)
@@ -913,11 +914,19 @@ func (s *Server) handleSaveEnforcement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse notify URLs (one per line, skip blanks)
+	// Merge notify sources: named channels from checkboxes + raw URLs from textarea
 	var notify []string
-	for _, line := range strings.Split(r.FormValue("notify"), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form data", http.StatusBadRequest)
+		return
+	}
+	for _, ch := range r.Form["notify_channel"] {
+		if ch = strings.TrimSpace(ch); ch != "" {
+			notify = append(notify, ch)
+		}
+	}
+	for _, line := range strings.Split(r.FormValue("notify_urls"), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
 			notify = append(notify, line)
 		}
 	}
@@ -1602,10 +1611,78 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"ServerBind":     serverBind,
 		"LogLevel":       s.cfg.Server.LogLevel,
 		"CustomRulesDir": s.cfg.CustomRulesDir,
-		"WebhookCount":   len(s.cfg.Webhooks),
+		"WebhookCount":    len(s.cfg.Webhooks),
+		"WebhookChannels": s.cfg.Webhooks,
 	}
 
 	s.renderTemplate(w, settingsTmpl, data)
+}
+
+// --- Webhook channel handlers ---
+
+var webhookNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+func (s *Server) handleSaveWebhookChannel(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.FormValue("name"))
+	url := strings.TrimSpace(r.FormValue("url"))
+
+	if name == "" || !webhookNameRe.MatchString(name) {
+		http.Error(w, "invalid channel name (alphanumeric, hyphens, underscores)", http.StatusBadRequest)
+		return
+	}
+	if url == "" || !strings.Contains(url, "://") {
+		http.Error(w, "a valid URL is required", http.StatusBadRequest)
+		return
+	}
+
+	// Update existing or append new
+	found := false
+	for i := range s.cfg.Webhooks {
+		if s.cfg.Webhooks[i].Name == name {
+			s.cfg.Webhooks[i].URL = url
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.cfg.Webhooks = append(s.cfg.Webhooks, config.Webhook{
+			Name:   name,
+			URL:    url,
+			Events: []string{"blocked", "quarantined"},
+		})
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after webhook channel update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
+}
+
+func (s *Server) handleDeleteWebhookChannel(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+
+	filtered := s.cfg.Webhooks[:0]
+	for _, wh := range s.cfg.Webhooks {
+		if wh.Name != name {
+			filtered = append(filtered, wh)
+		}
+	}
+	s.cfg.Webhooks = filtered
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after webhook channel delete", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // --- Stats helpers ---

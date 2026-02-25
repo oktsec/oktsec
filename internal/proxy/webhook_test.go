@@ -61,10 +61,13 @@ func TestRenderTemplate_AllTags(t *testing.T) {
 		To:        "receiver",
 		Severity:  "high",
 		Rule:      "PI-002",
+		RuleName:  "Prompt Injection",
+		Category:  "injection",
+		Match:     "ignore previous instructions",
 		Timestamp: "2026-02-24T12:00:00Z",
 	}
 
-	tmpl := "{{RULE}} {{ACTION}} {{SEVERITY}} {{FROM}} {{TO}} {{MESSAGE_ID}} {{TIMESTAMP}}"
+	tmpl := "{{RULE}} {{RULE_NAME}} {{CATEGORY}} {{MATCH}} {{ACTION}} {{SEVERITY}} {{FROM}} {{TO}} {{MESSAGE_ID}} {{TIMESTAMP}}"
 	result := RenderTemplate(tmpl, event)
 
 	var payload map[string]string
@@ -73,7 +76,7 @@ func TestRenderTemplate_AllTags(t *testing.T) {
 	}
 
 	text := payload["text"]
-	expected := "PI-002 blocked high sender receiver msg-456 2026-02-24T12:00:00Z"
+	expected := "PI-002 Prompt Injection injection ignore previous instructions blocked high sender receiver msg-456 2026-02-24T12:00:00Z"
 	if text != expected {
 		t.Errorf("text = %q, want %q", text, expected)
 	}
