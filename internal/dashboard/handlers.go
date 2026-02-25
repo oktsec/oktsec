@@ -33,6 +33,11 @@ func (s *Server) renderJSON(w http.ResponseWriter, data any) {
 	}
 }
 
+func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotFound)
+	s.renderTemplate(w, notFoundTmpl, nil)
+}
+
 func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, loginTmpl, nil)
 }
@@ -621,7 +626,7 @@ func (s *Server) handleCategoryRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if cat.Total == 0 {
-		http.NotFound(w, r)
+		s.handleNotFound(w, r)
 		return
 	}
 
@@ -639,7 +644,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	agent, ok := s.cfg.Agents[name]
 	if !ok {
-		http.NotFound(w, r)
+		s.handleNotFound(w, r)
 		return
 	}
 
@@ -796,7 +801,7 @@ func (s *Server) handleEventDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	entry, err := s.audit.QueryByID(id)
 	if err != nil || entry == nil {
-		http.NotFound(w, r)
+		s.handleNotFound(w, r)
 		return
 	}
 

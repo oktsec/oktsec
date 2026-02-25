@@ -57,33 +57,39 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
   --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
   --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 }
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
-.login-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2)}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%);pointer-events:none;z-index:0}
+.login-card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2);animation:fadeIn 0.4s ease-out}
+.icon{margin-bottom:20px}
+.icon svg{width:48px;height:48px;color:var(--accent)}
 .logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.3px;margin-bottom:8px}
 .subtitle{color:var(--text2);font-size:0.85rem;margin-bottom:32px}
-.lock-icon{font-size:2.5rem;margin-bottom:16px;opacity:0.6}
 .help{color:var(--text3);font-size:0.78rem;margin-bottom:24px;line-height:1.6}
 .help code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)}
 input[type=text]{
   width:100%;padding:14px 16px;background:var(--bg);border:1px solid var(--border);
   border-radius:8px;color:var(--text);font-family:var(--mono);font-size:1.2rem;
-  text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.2s;
+  text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.2s,box-shadow 0.2s;
 }
-input[type=text]:focus{border-color:var(--accent)}
+input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,0.15)}
 input[type=text]::placeholder{letter-spacing:0;font-size:0.85rem;color:var(--text3)}
 button{
   width:100%;padding:12px;margin-top:16px;background:var(--accent);color:#fff;
   border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;
-  transition:background 0.2s;
+  transition:background 0.2s,transform 0.1s,box-shadow 0.2s;
 }
-button:hover{background:var(--accent-dim)}
-.error{color:var(--danger);font-size:0.82rem;margin-top:12px}
+button:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
+button:active{transform:scale(0.98)}
+.error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);border-radius:8px;color:var(--danger);font-size:0.82rem}
+.error svg{flex-shrink:0;width:16px;height:16px}
 .footer{margin-top:32px;color:var(--text3);font-size:0.72rem}
 </style>
 </head>
 <body>
+<div class="backdrop"></div>
 <div class="login-card">
-  <div class="lock-icon">&#x1f512;</div>
+  <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M12 11V9a2 2 0 0 0-4 0"/></svg></div>
   <div class="logo">oktsec</div>
   <div class="subtitle">Dashboard Access</div>
   <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec serve</code> to get a code.</p>
@@ -91,8 +97,108 @@ button:hover{background:var(--accent-dim)}
     <input type="text" name="code" placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric" autofocus required>
     <button type="submit">Authenticate</button>
   </form>
-  {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
-  <p class="footer">Local access only &middot; 127.0.0.1</p>
+  {{if .Error}}<div class="error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{{.Error}}</div>{{end}}
+  <p class="footer">Local access only <span style="opacity:0.4;margin:0 6px">&middot;</span> 127.0.0.1</p>
+</div>
+</body>
+</html>`))
+
+// SplashTmpl is the root landing page template, exported for use by the proxy server.
+var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>oktsec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#050507;--surface:#0c0c10;--border:#1c1c24;
+  --text:#f0f0f3;--text2:#a0a0b0;--text3:#606070;
+  --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
+  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:0.15}50%{opacity:0.25}}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:800px;height:800px;background:radial-gradient(circle,rgba(99,102,241,0.08) 0%,transparent 65%);pointer-events:none;animation:pulse 6s ease-in-out infinite}
+.container{position:relative;z-index:1;text-align:center;animation:fadeIn 0.6s ease-out}
+.logo{font-family:var(--mono);font-size:4.5rem;font-weight:700;letter-spacing:-2px;margin-bottom:12px;background:linear-gradient(135deg,var(--text) 0%,var(--accent-light) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.tagline{color:var(--text3);font-size:1rem;letter-spacing:0.5px;margin-bottom:40px}
+.links{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.links a{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:8px;font-size:0.88rem;font-weight:500;text-decoration:none;transition:background 0.2s,transform 0.1s,box-shadow 0.2s}
+.links a:active{transform:scale(0.98)}
+.primary{background:var(--accent);color:#fff}
+.primary:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
+.secondary{background:var(--surface);color:var(--text2);border:1px solid var(--border)}
+.secondary:hover{border-color:var(--accent);color:var(--text)}
+.version{margin-top:48px;color:var(--text3);font-family:var(--mono);font-size:0.72rem;opacity:0.6}
+</style>
+</head>
+<body>
+<div class="backdrop"></div>
+<div class="container">
+  <div class="logo">OKTSEC</div>
+  <p class="tagline">Security proxy for inter-agent communication</p>
+  <div class="links">
+    <a class="primary" href="/dashboard">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Dashboard
+    </a>
+    <a class="secondary" href="/health">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Health
+    </a>
+  </div>
+  <p class="version">v0.1.0</p>
+</div>
+</body>
+</html>`))
+
+var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>oktsec — 404</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#050507;--surface:#0c0c10;--surface2:#0f0f14;--border:#1c1c24;
+  --text:#f0f0f3;--text2:#a0a0b0;--text3:#606070;
+  --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
+  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%);pointer-events:none;z-index:0}
+.card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:420px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2);animation:fadeIn 0.4s ease-out}
+.icon{margin-bottom:20px}
+.icon svg{width:48px;height:48px;color:var(--accent);opacity:0.8}
+.code{font-family:var(--mono);font-size:4rem;font-weight:700;letter-spacing:-2px;color:var(--accent);line-height:1;margin-bottom:8px}
+.title{font-size:1.25rem;font-weight:600;margin-bottom:12px}
+.desc{color:var(--text3);font-size:0.85rem;line-height:1.6;margin-bottom:32px}
+.back{display:inline-block;padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;text-decoration:none;cursor:pointer;transition:background 0.2s,transform 0.1s,box-shadow 0.2s}
+.back:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
+.back:active{transform:scale(0.98)}
+.footer{margin-top:32px;color:var(--text3);font-size:0.72rem}
+</style>
+</head>
+<body>
+<div class="backdrop"></div>
+<div class="card">
+  <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></div>
+  <div class="code">404</div>
+  <div class="title">Page not found</div>
+  <p class="desc">The page you're looking for doesn't exist or has been moved.</p>
+  <a class="back" href="/dashboard">Back to Dashboard</a>
+  <p class="footer">oktsec</p>
 </div>
 </body>
 </html>`))

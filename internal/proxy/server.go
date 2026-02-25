@@ -93,6 +93,12 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		}
 		writeJSON(w, http.StatusOK, item)
 	})
+	// Root splash page
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = dashboard.SplashTmpl.Execute(w, nil)
+	})
+
 	// Mount dashboard (auth middleware applied internally)
 	mux.Handle("/dashboard/", dash.Handler())
 	mux.Handle("/dashboard", dash.Handler())
