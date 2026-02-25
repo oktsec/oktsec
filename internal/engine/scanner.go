@@ -6,11 +6,47 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 
 	"github.com/garagon/aguara"
 	"github.com/oktsec/oktsec/rules"
 )
+
+// credentialPatterns matches known API key and secret formats for redaction.
+// When a credential is detected in match text, it's truncated to prevent
+// secrets from leaking through API responses, audit trail, or webhooks.
+var credentialPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`sk-ant-[a-zA-Z0-9_-]{10,}`),
+	regexp.MustCompile(`sk-[a-zA-Z0-9_-]{10,}`),
+	regexp.MustCompile(`ghp_[a-zA-Z0-9]{10,}`),
+	regexp.MustCompile(`gho_[a-zA-Z0-9]{10,}`),
+	regexp.MustCompile(`ghs_[a-zA-Z0-9]{10,}`),
+	regexp.MustCompile(`ghr_[a-zA-Z0-9]{10,}`),
+	regexp.MustCompile(`github_pat_[a-zA-Z0-9_]{10,}`),
+	regexp.MustCompile(`AKIA[0-9A-Z]{4,}`),
+	regexp.MustCompile(`xox[bpas]-[a-zA-Z0-9-]{10,}`),
+	regexp.MustCompile(`glpat-[a-zA-Z0-9_-]{10,}`),
+	regexp.MustCompile(`sk_live_[a-zA-Z0-9]{10,}`),
+	regexp.MustCompile(`sk_test_[a-zA-Z0-9]{10,}`),
+	regexp.MustCompile(`SG\.[a-zA-Z0-9_-]{10,}`),
+	regexp.MustCompile(`-----BEGIN[A-Z ]*PRIVATE KEY-----`),
+	regexp.MustCompile(`eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}`),
+}
+
+// redactMatch replaces known credential patterns with truncated versions
+// to prevent secrets from leaking through API responses or audit trail.
+func redactMatch(s string) string {
+	for _, re := range credentialPatterns {
+		s = re.ReplaceAllStringFunc(s, func(match string) string {
+			if len(match) > 10 {
+				return match[:10] + "***"
+			}
+			return match[:4] + "***"
+		})
+	}
+	return s
+}
 
 // ScanVerdict is the proxy's decision based on scan findings.
 type ScanVerdict string
@@ -99,7 +135,7 @@ func buildOutcome(result *aguara.ScanResult) *ScanOutcome {
 			Name:     f.RuleName,
 			Severity: f.Severity.String(),
 			Category: f.Category,
-			Match:    truncate(f.MatchedText, 200),
+			Match:    truncate(redactMatch(f.MatchedText), 200),
 		}
 		outcome.Findings = append(outcome.Findings, summary)
 
