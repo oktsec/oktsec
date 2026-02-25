@@ -3,7 +3,7 @@ module github.com/oktsec/oktsec
 go 1.25.0
 
 require (
-	github.com/garagon/aguara v0.2.2
+	github.com/garagon/aguara v0.3.1
 	github.com/google/uuid v1.6.0
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/spf13/cobra v1.10.2
