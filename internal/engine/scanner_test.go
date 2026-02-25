@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -218,6 +219,61 @@ func TestOCLAW011_WildcardAllow(t *testing.T) {
 	}
 	if !found {
 		t.Error("OCLAW-011 should trigger on allowFrom: [\"*\"]")
+	}
+}
+
+func TestRedactMatch(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{
+			"Found: sk-ant-api03-abc123def456ghi789jkl",
+			"Found: sk-ant-api***",
+		},
+		{
+			"Token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
+			"Token: ghp_ABCDEF***",
+		},
+		{
+			"Key: AKIAIOSFODNN7EXAMPLE",
+			"Key: AKIAIOSFOD***",
+		},
+		{
+			"Slack: xoxb-1234567890-abcdefghij",
+			"Slack: xoxb-12345***",
+		},
+		{
+			"No secrets here, just a normal message",
+			"No secrets here, just a normal message",
+		},
+		{
+			"PEM: -----BEGIN RSA PRIVATE KEY-----",
+			"PEM: -----BEGIN***",
+		},
+	}
+	for _, tc := range tests {
+		got := redactMatch(tc.input)
+		if got != tc.want {
+			t.Errorf("redactMatch(%q)\n  got  %q\n  want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestScanContent_RedactsCredentials(t *testing.T) {
+	s := NewScanner("")
+	defer s.Close()
+
+	// Send a message containing an API key — the match text should be redacted
+	outcome, err := s.ScanContent(context.Background(),
+		"Use this key: sk-ant-api03-AAABBBCCCDDDEEEFFFGGGHHHIIIJJJ to authenticate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range outcome.Findings {
+		if strings.Contains(f.Match, "AAABBBCCC") {
+			t.Errorf("match text contains unredacted credential: %s", f.Match)
+		}
 	}
 }
 

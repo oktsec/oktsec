@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -104,6 +105,7 @@ func TestNotifyTemplated_SendsSlackJSON(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	notifier := NewWebhookNotifier(nil, logger)
+	notifier.client = ts.Client() // use test server client (bypasses safeDialContext for localhost)
 
 	event := WebhookEvent{
 		Event:    "rule_triggered",
@@ -141,6 +143,7 @@ func TestNotifyTemplated_EmptyFallsBackToJSON(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	notifier := NewWebhookNotifier(nil, logger)
+	notifier.client = ts.Client() // use test server client (bypasses safeDialContext for localhost)
 
 	event := WebhookEvent{
 		Event: "rule_triggered",
@@ -165,20 +168,109 @@ func TestValidateWebhookURL(t *testing.T) {
 	tests := []struct {
 		url     string
 		wantErr bool
+		desc    string
 	}{
-		{"https://hooks.slack.com/services/T00/B00/xxx", false},
-		{"http://example.com/webhook", false},
-		{"ftp://example.com/file", true},
-		{"https://127.0.0.1/webhook", true},
-		{"https://10.0.0.1/webhook", true},
-		{"https://192.168.1.1/webhook", true},
-		{"not-a-url", true},
+		// Valid
+		{"https://hooks.slack.com/services/T00/B00/xxx", false, "valid slack webhook"},
+		{"http://example.com/webhook", false, "valid http webhook"},
+
+		// Scheme
+		{"ftp://example.com/file", true, "non-http scheme"},
+		{"not-a-url", true, "invalid URL"},
+
+		// Standard private/loopback
+		{"https://127.0.0.1/webhook", true, "loopback IPv4"},
+		{"https://10.0.0.1/webhook", true, "private 10.x"},
+		{"https://192.168.1.1/webhook", true, "private 192.168.x"},
+		{"https://172.16.0.1/webhook", true, "private 172.16.x"},
+
+		// Extended special-use ranges (RFC 5737, 2544)
+		{"https://192.0.2.1/webhook", true, "TEST-NET-1"},
+		{"https://198.51.100.1/webhook", true, "TEST-NET-2"},
+		{"https://203.0.113.1/webhook", true, "TEST-NET-3"},
+		{"https://198.18.0.1/webhook", true, "benchmarking range"},
+		{"https://100.64.0.1/webhook", true, "CGN shared address"},
+		{"https://224.0.0.1/webhook", true, "multicast"},
+		{"https://240.0.0.1/webhook", true, "reserved"},
+
+		// IPv6 blocked ranges
+		{"https://[::1]/webhook", true, "IPv6 loopback"},
+		{"https://[fc00::1]/webhook", true, "IPv6 unique local"},
+		{"https://[fe80::1]/webhook", true, "IPv6 link-local"},
+		{"https://[2001:db8::1]/webhook", true, "IPv6 documentation"},
+
+		// IPv6 transition addresses (embed private IPv4)
+		{"https://[2002:0a00:0001::]/webhook", true, "6to4 embedding 10.0.0.1"},
+		{"https://[64:ff9b::10.0.0.1]/webhook", true, "NAT64 embedding 10.0.0.1"},
+		{"https://[2001::1]/webhook", true, "Teredo prefix"},
+
+		// Alternative IP encodings
+		{"https://0x7f000001/webhook", true, "hex packed IP"},
+		{"https://0xA9FEA9FE/webhook", true, "hex cloud metadata"},
+		{"https://0x7f.0x00.0x00.0x01/webhook", true, "hex dot-separated"},
+		{"https://0177.0.0.1/webhook", true, "octal IP"},
+		{"https://0177.0000.0000.0001/webhook", true, "full octal IP"},
+		{"https://2130706433/webhook", true, "packed decimal IP"},
 	}
 
 	for _, tc := range tests {
 		err := validateWebhookURL(tc.url)
 		if (err != nil) != tc.wantErr {
-			t.Errorf("validateWebhookURL(%q) err=%v, wantErr=%v", tc.url, err, tc.wantErr)
+			t.Errorf("validateWebhookURL(%q) [%s] err=%v, wantErr=%v", tc.url, tc.desc, err, tc.wantErr)
+		}
+	}
+}
+
+func TestIsBlockedIP(t *testing.T) {
+	tests := []struct {
+		ip      string
+		blocked bool
+	}{
+		{"127.0.0.1", true},
+		{"10.0.0.1", true},
+		{"192.168.1.1", true},
+		{"172.16.0.1", true},
+		{"169.254.169.254", true},      // cloud metadata
+		{"192.0.2.1", true},            // TEST-NET-1
+		{"198.18.0.1", true},           // benchmarking
+		{"100.64.0.1", true},           // CGN
+		{"8.8.8.8", false},             // Google DNS
+		{"1.1.1.1", false},             // Cloudflare
+		{"::1", true},                  // IPv6 loopback
+		{"fc00::1", true},              // IPv6 ULA
+		{"2001:db8::1", true},          // IPv6 documentation
+		{"2607:f8b0:4004:800::200e", false}, // Google IPv6
+	}
+	for _, tc := range tests {
+		ip := net.ParseIP(tc.ip)
+		if ip == nil {
+			t.Fatalf("failed to parse IP %q", tc.ip)
+		}
+		got := isBlockedIP(ip)
+		if got != tc.blocked {
+			t.Errorf("isBlockedIP(%s) = %v, want %v", tc.ip, got, tc.blocked)
+		}
+	}
+}
+
+func TestLooksLikeAlternativeIP(t *testing.T) {
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{"0x7f000001", true},           // hex packed
+		{"0xA9FEA9FE", true},           // hex packed
+		{"0x7f.0x00.0x00.0x01", true},  // hex octets
+		{"0177.0.0.1", true},           // octal
+		{"2130706433", true},           // packed decimal
+		{"example.com", false},         // normal hostname
+		{"hooks.slack.com", false},     // normal hostname
+		{"192.168.1.1", false},         // standard dotted decimal (caught by ParseIP)
+	}
+	for _, tc := range tests {
+		got := looksLikeAlternativeIP(tc.host)
+		if got != tc.want {
+			t.Errorf("looksLikeAlternativeIP(%q) = %v, want %v", tc.host, got, tc.want)
 		}
 	}
 }
