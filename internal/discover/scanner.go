@@ -73,19 +73,29 @@ func Scan() (*Result, error) {
 
 	for _, client := range KnownClients() {
 		for _, path := range client.Paths {
-			if client.Name == "openclaw" {
-				cr, err := scanOpenClawConfig(path)
-				if err != nil {
+			var servers []MCPServer
+			var err error
+
+			switch {
+			case client.Name == "openclaw":
+				cr, oerr := scanOpenClawConfig(path)
+				if oerr != nil {
 					continue
 				}
 				if len(cr.Servers) > 0 {
 					result.Clients = append(result.Clients, *cr)
 				}
 				continue
+			case client.ConfigKey == "opencode":
+				servers, err = parseOpenCodeConfig(path)
+			case client.ConfigKey == "claude-code":
+				servers, err = parseClaudeCodeConfig(path)
+			default:
+				servers, err = parseConfigWithKey(path, client.ConfigKey)
 			}
-			servers, err := parseConfigFile(path)
+
 			if err != nil {
-				continue // File doesn't exist or can't be parsed
+				continue
 			}
 			if len(servers) > 0 {
 				result.Clients = append(result.Clients, ClientResult{
@@ -111,19 +121,47 @@ type mcpServerJSON struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
-func parseConfigFile(path string) ([]MCPServer, error) {
+// parseConfigWithKey parses a config file using the specified JSON key for the server map.
+// If key is empty, defaults to "mcpServers".
+// For VS Code ("servers" key), also tries "mcpServers" as fallback.
+func parseConfigWithKey(path, key string) ([]MCPServer, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var cfg mcpConfigJSON
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	if key == "" {
+		key = "mcpServers"
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
 
+	servers := extractServersFromKey(raw, key)
+
+	// Fallback: if primary key is "servers", also try "mcpServers" (VS Code compat)
+	if len(servers) == 0 && key == "servers" {
+		servers = extractServersFromKey(raw, "mcpServers")
+	}
+
+	return servers, nil
+}
+
+func extractServersFromKey(raw map[string]json.RawMessage, key string) []MCPServer {
+	serversRaw, ok := raw[key]
+	if !ok {
+		return nil
+	}
+
+	var serverMap map[string]mcpServerJSON
+	if err := json.Unmarshal(serversRaw, &serverMap); err != nil {
+		return nil
+	}
+
 	var servers []MCPServer
-	for name, srv := range cfg.MCPServers {
+	for name, srv := range serverMap {
 		servers = append(servers, MCPServer{
 			Name:    name,
 			Command: srv.Command,
@@ -131,13 +169,122 @@ func parseConfigFile(path string) ([]MCPServer, error) {
 			Env:     srv.Env,
 		})
 	}
+	return servers
+}
+
+// parseConfigFile is kept for backward compatibility — delegates to parseConfigWithKey.
+func parseConfigFile(path string) ([]MCPServer, error) {
+	return parseConfigWithKey(path, "")
+}
+
+// parseOpenCodeConfig parses OpenCode's config format where servers are under "mcp"
+// and commands are arrays: {"mcp": {"name": {"command": ["cmd", "arg1"], "environment": {...}}}}
+func parseOpenCodeConfig(path string) ([]MCPServer, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+
+	mcpRaw, ok := raw["mcp"]
+	if !ok {
+		return nil, nil
+	}
+
+	var mcpMap map[string]openCodeServer
+	if err := json.Unmarshal(mcpRaw, &mcpMap); err != nil {
+		return nil, fmt.Errorf("parsing mcp key in %s: %w", path, err)
+	}
+
+	var servers []MCPServer
+	for name, srv := range mcpMap {
+		s := MCPServer{Name: name, Env: srv.Environment}
+		if len(srv.Command) > 0 {
+			s.Command = srv.Command[0]
+			if len(srv.Command) > 1 {
+				s.Args = srv.Command[1:]
+			}
+		}
+		servers = append(servers, s)
+	}
 	return servers, nil
+}
+
+type openCodeServer struct {
+	Command     []string          `json:"command"`
+	Environment map[string]string `json:"environment"`
+}
+
+// parseClaudeCodeConfig parses Claude Code's ~/.claude.json where mcpServers
+// may be nested under scope keys: {"projects": {"/path": {"mcpServers": {...}}}, "mcpServers": {...}}
+func parseClaudeCodeConfig(path string) ([]MCPServer, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
+	}
+
+	seen := map[string]bool{}
+	var servers []MCPServer
+
+	// Top-level mcpServers
+	if topRaw, ok := raw["mcpServers"]; ok {
+		servers = append(servers, extractUniqueServers(topRaw, seen)...)
+	}
+
+	// Nested under "projects" → each project scope may have mcpServers
+	if projectsRaw, ok := raw["projects"]; ok {
+		var projects map[string]json.RawMessage
+		if json.Unmarshal(projectsRaw, &projects) == nil {
+			for _, projRaw := range projects {
+				var proj map[string]json.RawMessage
+				if json.Unmarshal(projRaw, &proj) == nil {
+					if mcpRaw, ok := proj["mcpServers"]; ok {
+						servers = append(servers, extractUniqueServers(mcpRaw, seen)...)
+					}
+				}
+			}
+		}
+	}
+
+	return servers, nil
+}
+
+func extractUniqueServers(raw json.RawMessage, seen map[string]bool) []MCPServer {
+	var serverMap map[string]mcpServerJSON
+	if err := json.Unmarshal(raw, &serverMap); err != nil {
+		return nil
+	}
+
+	var servers []MCPServer
+	for name, srv := range serverMap {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		servers = append(servers, MCPServer{
+			Name:    name,
+			Command: srv.Command,
+			Args:    srv.Args,
+			Env:     srv.Env,
+		})
+	}
+	return servers
 }
 
 // FormatTree returns a human-readable tree of discovered MCP servers.
 func FormatTree(result *Result) string {
 	if len(result.Clients) == 0 {
-		return "No MCP configurations found.\n\nChecked paths for: Claude Desktop, Cursor, VS Code, Cline, Windsurf, OpenClaw"
+		return "No MCP configurations found.\n\nChecked paths for: Claude Desktop, Cursor, VS Code, Cline, Windsurf, OpenClaw, " +
+			"OpenCode, Zed, Amp, Gemini CLI, Copilot CLI, Amazon Q, Claude Code, Roo Code, Kilo Code, BoltAI, JetBrains"
 	}
 
 	var b strings.Builder
@@ -178,6 +325,28 @@ func clientDisplayName(name string) string {
 		return "Windsurf"
 	case "openclaw":
 		return "OpenClaw"
+	case "opencode":
+		return "OpenCode"
+	case "zed":
+		return "Zed"
+	case "amp":
+		return "Amp"
+	case "gemini-cli":
+		return "Gemini CLI"
+	case "copilot-cli":
+		return "Copilot CLI"
+	case "amazon-q":
+		return "Amazon Q"
+	case "claude-code":
+		return "Claude Code"
+	case "roo-code":
+		return "Roo Code"
+	case "kilo-code":
+		return "Kilo Code"
+	case "boltai":
+		return "BoltAI"
+	case "jetbrains":
+		return "JetBrains"
 	default:
 		return name
 	}
