@@ -134,4 +134,7 @@ func (s *Server) routes() {
 	// Rule toggles (inline enable/disable)
 	s.mux.HandleFunc("POST /dashboard/api/rule/{id}/toggle", s.handleToggleRule)
 	s.mux.HandleFunc("POST /dashboard/api/category/{name}/toggle", s.handleToggleCategory)
+
+	// Catch-all for unmatched dashboard paths (must be registered last)
+	s.mux.HandleFunc("GET /dashboard/", s.handleNotFound)
 }
