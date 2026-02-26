@@ -243,6 +243,8 @@ func TestIsBlockedIP(t *testing.T) {
 		{"fc00::1", true},              // IPv6 ULA
 		{"2001:db8::1", true},          // IPv6 documentation
 		{"2607:f8b0:4004:800::200e", false}, // Google IPv6
+		{"ff02::1", true},                   // IPv6 multicast all-nodes
+		{"ff05::1", true},                   // IPv6 multicast site-local
 	}
 	for _, tc := range tests {
 		ip := net.ParseIP(tc.ip)

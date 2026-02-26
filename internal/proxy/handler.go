@@ -108,6 +108,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.rejectAndLog(w, code, *resp, &entry, start)
 		return
 	}
+	if sigStatus == 0 {
+		h.logger.Warn("unverified sender identity", "from", req.From, "to", req.To, "message_id", msgID)
+	}
 
 	// Step 2: Agent suspension check
 	if agent, ok := h.cfg.Agents[req.From]; ok && agent.Suspended {
@@ -191,6 +194,18 @@ func (h *Handler) parseRequest(r *http.Request) (*MessageRequest, error) {
 	}
 	if req.Timestamp == "" {
 		req.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	} else {
+		ts, err := time.Parse(time.RFC3339, req.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("invalid timestamp format: %w", err)
+		}
+		age := time.Since(ts)
+		if age > 5*time.Minute {
+			return nil, fmt.Errorf("timestamp too old (age: %s, max: 5m)", age.Truncate(time.Second))
+		}
+		if age < -30*time.Second {
+			return nil, fmt.Errorf("timestamp is in the future")
+		}
 	}
 	return &req, nil
 }
