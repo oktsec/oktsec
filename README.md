@@ -24,7 +24,7 @@
 
 ---
 
-Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients, OpenClaw, and NanoClaw. No LLM. Single binary. **159 detection rules.** Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients, OpenClaw, and NanoClaw. No LLM. Single binary. **169 detection rules.** Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 
@@ -34,7 +34,7 @@ Oktsec sits between AI agents and enforces a multi-layer security pipeline:
 2. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing (ASI03).
 3. **Agent suspension** — Suspended agents are immediately rejected, no further processing (ASI10).
 4. **Policy** — YAML-based ACLs control which agent can message which. Default-deny mode rejects unknown senders (ASI03).
-5. **Content scanning** — 159 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, supply chain risks, and more (ASI01, ASI02, ASI05).
+5. **Content scanning** — 169 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, supply chain risks, and more (ASI01, ASI02, ASI05).
 6. **BlockedContent enforcement** — Per-agent category-based content blocking escalates verdicts when findings match blocked categories (ASI02).
 7. **Multi-message escalation** — Agents with repeated blocks get their verdicts escalated automatically (ASI01, ASI10).
 8. **Audit** — Every message is logged to SQLite with content hash, sender verification status, policy decision, and triggered rules.
@@ -440,7 +440,7 @@ Available tools (6):
 
 | Tool | Description |
 |---|---|
-| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 150+ threat patterns |
+| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 160+ threat patterns |
 | `list_agents` | List all agents with their ACLs and content restrictions |
 | `audit_query` | Query the audit log with filters (status, agent, limit) |
 | `get_policy` | Get the security policy for a specific agent |
@@ -594,11 +594,11 @@ oktsec verify --config oktsec.yaml
 
 ## Detection rules
 
-Oktsec includes **159 detection rules** across 15 categories:
+Oktsec includes **169 detection rules** across 15 categories:
 
 | Source | Count | Categories |
 |--------|-------|------------|
-| [Aguara](https://github.com/garagon/aguara) | 138 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
+| [Aguara](https://github.com/garagon/aguara) | 148 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
 | Inter-agent protocol (IAP) | 6 | inter-agent |
 | OpenClaw (OCLAW) | 15 | openclaw-config |
 
@@ -618,7 +618,7 @@ Oktsec includes **159 detection rules** across 15 categories:
 15 rules in the `openclaw-config` category (OCLAW-001 through OCLAW-015), covering full tool profiles, exposed gateways, open DM policies, exec without sandbox, path traversal, missing authentication, hardcoded credentials, and more.
 
 ```bash
-oktsec rules                     # List all 159 rules
+oktsec rules                     # List all 169 rules
 oktsec rules --explain IAP-001   # Explain a specific rule
 oktsec rules --explain OCLAW-001 # Explain an OpenClaw rule
 ```
@@ -752,7 +752,7 @@ Oktsec is aligned with the [OWASP Top 10 for Agentic Applications](https://genai
 
 ## Built on
 
-- **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills (138 detection rules, pattern matching, taint tracking, NLP injection detection)
+- **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills (148 detection rules, pattern matching, taint tracking, NLP injection detection)
 - **[mcp-go](https://github.com/mark3labs/mcp-go)** — Go SDK for Model Context Protocol
 - **Go stdlib** — `crypto/ed25519`, `net/http`, `log/slog`, `crypto/sha256`
 - **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** — Pure Go SQLite (no CGO)
