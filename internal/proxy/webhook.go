@@ -43,6 +43,7 @@ var blockedCIDRs = func() []*net.IPNet {
 		"2001::/32",        // Teredo (RFC 4380) — embeds IPv4
 		"2002::/16",        // 6to4 (RFC 3056) — embeds IPv4
 		"64:ff9b::/96",     // NAT64 (RFC 6052) — embeds IPv4
+		"ff00::/8",         // IPv6 Multicast (RFC 4291)
 	}
 	nets := make([]*net.IPNet, 0, len(cidrs))
 	for _, cidr := range cidrs {
