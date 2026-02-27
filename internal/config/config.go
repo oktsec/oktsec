@@ -12,19 +12,21 @@ import (
 
 // Config is the top-level oktsec configuration.
 type Config struct {
-	Version        string             `yaml:"version"`
-	Server         ServerConfig       `yaml:"server"`
-	Identity       IdentityConfig     `yaml:"identity"`
-	DefaultPolicy  string             `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
-	Agents         map[string]Agent   `yaml:"agents"`
-	Rules          []RuleAction       `yaml:"rules"`
-	Webhooks       []Webhook          `yaml:"webhooks"`
-	DBPath         string             `yaml:"db_path,omitempty"`
-	CustomRulesDir string             `yaml:"custom_rules_dir,omitempty"`
-	Quarantine     QuarantineConfig   `yaml:"quarantine,omitempty"`
-	RateLimit      RateLimitConfig    `yaml:"rate_limit,omitempty"`
-	Anomaly        AnomalyConfig      `yaml:"anomaly,omitempty"`
-	ForwardProxy   ForwardProxyConfig `yaml:"forward_proxy,omitempty"`
+	Version        string                         `yaml:"version"`
+	Server         ServerConfig                   `yaml:"server"`
+	Identity       IdentityConfig                 `yaml:"identity"`
+	DefaultPolicy  string                         `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
+	Agents         map[string]Agent               `yaml:"agents"`
+	Rules          []RuleAction                   `yaml:"rules"`
+	Webhooks       []Webhook                      `yaml:"webhooks"`
+	DBPath         string                         `yaml:"db_path,omitempty"`
+	CustomRulesDir string                         `yaml:"custom_rules_dir,omitempty"`
+	Quarantine     QuarantineConfig               `yaml:"quarantine,omitempty"`
+	RateLimit      RateLimitConfig                `yaml:"rate_limit,omitempty"`
+	Anomaly        AnomalyConfig                  `yaml:"anomaly,omitempty"`
+	ForwardProxy   ForwardProxyConfig             `yaml:"forward_proxy,omitempty"`
+	Gateway        GatewayConfig                  `yaml:"gateway,omitempty"`
+	MCPServers     map[string]MCPServerConfig     `yaml:"mcp_servers,omitempty"`
 }
 
 // ServerConfig holds proxy server settings.
@@ -93,6 +95,25 @@ type ForwardProxyConfig struct {
 	MaxBodySize    int64    `yaml:"max_body_size,omitempty"`    // Max body to scan in bytes (default: 1MB)
 }
 
+// GatewayConfig configures the MCP gateway mode.
+type GatewayConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	Port          int    `yaml:"port"`            // default 9090
+	Bind          string `yaml:"bind"`            // default 127.0.0.1
+	EndpointPath  string `yaml:"endpoint_path"`   // default /mcp
+	ScanResponses bool   `yaml:"scan_responses"`  // scan backend responses
+}
+
+// MCPServerConfig defines a backend MCP server to proxy through the gateway.
+type MCPServerConfig struct {
+	Transport string            `yaml:"transport"`         // "stdio" or "http"
+	Command   string            `yaml:"command,omitempty"` // for stdio
+	Args      []string          `yaml:"args,omitempty"`
+	URL       string            `yaml:"url,omitempty"`     // for http
+	Headers   map[string]string `yaml:"headers,omitempty"`
+	Env       map[string]string `yaml:"env,omitempty"` // env vars for stdio
+}
+
 // Webhook defines an outgoing notification endpoint.
 type Webhook struct {
 	Name   string   `yaml:"name,omitempty"` // friendly name for dashboard selection
@@ -152,6 +173,14 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("resolving db_path: %w", err)
 		}
 		cfg.DBPath = abs
+	}
+
+	// Gateway defaults
+	if cfg.Gateway.Port == 0 {
+		cfg.Gateway.Port = 9090
+	}
+	if cfg.Gateway.EndpointPath == "" {
+		cfg.Gateway.EndpointPath = "/mcp"
 	}
 
 	return cfg, nil
@@ -221,6 +250,29 @@ func (c *Config) Validate() error {
 			// valid
 		default:
 			return fmt.Errorf("rule %q has invalid action %q", ra.ID, ra.Action)
+		}
+	}
+	// Gateway validation
+	if c.Gateway.Enabled {
+		if len(c.MCPServers) == 0 {
+			return fmt.Errorf("gateway is enabled but no mcp_servers configured")
+		}
+		if c.Gateway.Port < 1 || c.Gateway.Port > 65535 {
+			return fmt.Errorf("invalid gateway port: %d", c.Gateway.Port)
+		}
+		for name, srv := range c.MCPServers {
+			switch srv.Transport {
+			case "stdio":
+				if srv.Command == "" {
+					return fmt.Errorf("mcp_server %q: stdio transport requires command", name)
+				}
+			case "http":
+				if srv.URL == "" {
+					return fmt.Errorf("mcp_server %q: http transport requires url", name)
+				}
+			default:
+				return fmt.Errorf("mcp_server %q: invalid transport %q (must be stdio or http)", name, srv.Transport)
+			}
 		}
 	}
 	if c.ForwardProxy.Enabled && len(c.ForwardProxy.BlockedDomains) == 0 && len(c.ForwardProxy.AllowedDomains) == 0 {
