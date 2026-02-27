@@ -637,6 +637,45 @@ func (s *Store) QuarantineStats() (*QuarantineStats, error) {
 	return qs, rows.Err()
 }
 
+// QueryUnsignedRate returns the count of unsigned messages and total messages in the last 24h.
+func (s *Store) QueryUnsignedRate() (unsigned, total int, err error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	row := s.db.QueryRow(
+		`SELECT COUNT(*), COALESCE(SUM(CASE WHEN signature_verified != 1 THEN 1 ELSE 0 END), 0) FROM audit_log WHERE timestamp >= ?`,
+		cutoff,
+	)
+	if err = row.Scan(&total, &unsigned); err != nil {
+		return 0, 0, fmt.Errorf("query unsigned rate: %w", err)
+	}
+	return unsigned, total, nil
+}
+
+// QueryTrafficAgents returns distinct agent names seen in traffic in the last 24h.
+func (s *Store) QueryTrafficAgents() ([]string, error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	rows, err := s.db.Query(
+		`SELECT DISTINCT agent FROM (
+			SELECT from_agent AS agent FROM audit_log WHERE timestamp >= ?
+			UNION
+			SELECT to_agent AS agent FROM audit_log WHERE timestamp >= ?
+		)`, cutoff, cutoff,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query traffic agents: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var agents []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		agents = append(agents, name)
+	}
+	return agents, rows.Err()
+}
+
 // QueryTopRules returns the most frequently triggered rules from the last 24 hours.
 func (s *Store) QueryTopRules(limit int) ([]RuleStat, error) {
 	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
@@ -849,6 +888,77 @@ func (s *Store) QueryEdgeRules(from, to string, limit int) ([]RuleStat, error) {
 		result = result[:limit]
 	}
 	return result, rows.Err()
+}
+
+// QueryAgentTopRules returns the most frequently triggered rules for a specific agent (last 24h).
+func (s *Store) QueryAgentTopRules(agent string, limit int) ([]RuleStat, error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	rows, err := s.db.Query(
+		`SELECT rules_triggered FROM audit_log WHERE timestamp >= ? AND (from_agent = ? OR to_agent = ?) AND rules_triggered IS NOT NULL AND rules_triggered != '' AND rules_triggered != '[]'`,
+		cutoff, agent, agent,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query agent top rules: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	type findingJSON struct {
+		RuleID   string `json:"rule_id"`
+		Name     string `json:"name"`
+		Severity string `json:"severity"`
+	}
+
+	counts := make(map[string]*RuleStat)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			continue
+		}
+		var findings []findingJSON
+		if err := json.Unmarshal([]byte(raw), &findings); err != nil {
+			continue
+		}
+		for _, f := range findings {
+			if rs, ok := counts[f.RuleID]; ok {
+				rs.Count++
+			} else {
+				counts[f.RuleID] = &RuleStat{RuleID: f.RuleID, Name: f.Name, Severity: f.Severity, Count: 1}
+			}
+		}
+	}
+
+	var result []RuleStat
+	for _, rs := range counts {
+		result = append(result, *rs)
+	}
+
+	// Sort by count descending
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].Count > result[i].Count {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, rows.Err()
+}
+
+// QueryAvgLatency returns the average message latency in milliseconds for the last 24 hours.
+func (s *Store) QueryAvgLatency() (int, error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	var avgMs int
+	err := s.db.QueryRow(
+		`SELECT COALESCE(CAST(AVG(latency_ms) AS INTEGER), 0) FROM audit_log WHERE timestamp >= ?`,
+		cutoff,
+	).Scan(&avgMs)
+	if err != nil {
+		return 0, fmt.Errorf("query avg latency: %w", err)
+	}
+	return avgMs, nil
 }
 
 // PurgeOldEntries deletes audit log entries older than the given number of days.

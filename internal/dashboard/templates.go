@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"html/template"
 	"strings"
 )
@@ -38,6 +39,7 @@ var tmplFuncs = template.FuncMap{
 	"mulf":   func(a, b int) int { return a * b },
 	"safeJS":   func(s string) template.JS { return template.JS(s) },
 	"contains": strings.Contains,
+	"printf":   fmt.Sprintf,
 }
 
 var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
@@ -51,8 +53,8 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#050507;--surface:#0c0c10;--surface2:#0f0f14;--border:#1c1c24;
-  --text:#f0f0f3;--text2:#a0a0b0;--text3:#606070;
+  --bg:#09090b;--surface:#18181b;--surface2:#27272a;--border:#3f3f46;
+  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
   --danger:#ef4444;--success:#10b981;--warn:#f59e0b;
   --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
@@ -116,8 +118,8 @@ var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#050507;--surface:#0c0c10;--border:#1c1c24;
-  --text:#f0f0f3;--text2:#a0a0b0;--text3:#606070;
+  --bg:#09090b;--surface:#18181b;--border:#3f3f46;
+  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
   --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
   --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
@@ -170,8 +172,8 @@ var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#050507;--surface:#0c0c10;--surface2:#0f0f14;--border:#1c1c24;
-  --text:#f0f0f3;--text2:#a0a0b0;--text3:#606070;
+  --bg:#09090b;--surface:#18181b;--surface2:#27272a;--border:#3f3f46;
+  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
   --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
   --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
@@ -216,9 +218,9 @@ const layoutHead = `<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#050507;--surface:#0c0c10;--surface2:#0f0f14;--surface-hover:#141419;
-  --border:#1c1c24;--border-hover:#26262f;--border-subtle:rgba(255,255,255,0.06);
-  --text:#f0f0f3;--text2:#a0a0b0;--text3:#606070;
+  --bg:#09090b;--surface:#18181b;--surface2:#27272a;--surface-hover:#303033;
+  --border:#3f3f46;--border-hover:#52525b;--border-subtle:rgba(255,255,255,0.06);
+  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
   --accent-glow:rgba(99,102,241,0.08);--accent-glow-md:rgba(99,102,241,0.15);--accent-border:rgba(99,102,241,0.2);
   --danger:#ef4444;--success:#10b981;--warn:#f59e0b;
@@ -227,29 +229,37 @@ const layoutHead = `<!DOCTYPE html>
 }
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;font-size:0.88rem;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 
-/* Nav */
-nav{background:rgba(5,5,7,0.85);border-bottom:1px solid var(--border-subtle);padding:0 24px;display:flex;align-items:center;height:52px;position:sticky;top:0;z-index:100;backdrop-filter:blur(24px) saturate(1.5);-webkit-backdrop-filter:blur(24px) saturate(1.5)}
-nav .logo{font-family:var(--mono);font-size:1.12rem;font-weight:700;letter-spacing:-0.3px;margin-right:32px;text-decoration:none;color:var(--text)}
-nav a{color:var(--text3);text-decoration:none;font-size:0.8rem;font-weight:500;padding:16px 12px;transition:all 0.2s;border-bottom:2px solid transparent}
-nav a:hover{color:var(--text2)}
-nav a.active{color:var(--text);border-bottom-color:var(--accent)}
-nav .spacer{flex:1}
-nav .mode-pill{display:inline-flex;align-items:center;gap:6px;background:var(--accent-glow);border:1px solid var(--accent-border);padding:4px 14px 4px 10px;border-radius:100px;font-size:0.72rem;font-weight:500;color:var(--accent-light);font-family:var(--mono);transition:all 0.2s}
-nav .mode-pill .dot{width:5px;height:5px;border-radius:50%;animation:pulse 2s infinite}
-nav .mode-pill.enforce .dot{background:var(--success)}
-nav .mode-pill.enforce{background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.2);color:var(--success)}
-nav .mode-pill.observe .dot{background:var(--warn)}
-nav .mode-pill.observe{background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.2);color:var(--warn)}
+/* Sidebar */
+.sidebar{position:fixed;top:0;left:0;width:240px;height:100vh;background:var(--bg);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;overflow-y:auto}
+.sidebar .brand{padding:20px 20px 24px;font-family:var(--mono);font-size:1.12rem;font-weight:700;letter-spacing:-0.3px;color:var(--text);text-decoration:none;display:block}
+.sidebar-section{padding:0 12px;margin-bottom:16px}
+.sidebar-section-label{font-size:0.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);font-weight:500;padding:8px 12px 6px;user-select:none}
+.sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;color:var(--text3);font-size:0.82rem;font-weight:500;text-decoration:none;transition:all 0.15s;border-left:2px solid transparent;margin-bottom:1px}
+.sidebar-item:hover{background:var(--surface-hover);color:var(--text2)}
+.sidebar-item.active{color:var(--accent);background:var(--accent-glow);border-left-color:var(--accent)}
+.sidebar-item svg{width:18px;height:18px;flex-shrink:0;opacity:0.7}
+.sidebar-item.active svg{opacity:1}
+
+/* Top bar */
+.topbar{position:fixed;top:0;left:240px;right:0;height:48px;background:rgba(24,24,27,0.85);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;z-index:99;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
+.topbar .page-title{font-size:0.9rem;font-weight:600;color:var(--text)}
+.topbar .spacer{flex:1}
+.topbar .mode-pill{display:inline-flex;align-items:center;gap:6px;background:var(--accent-glow);border:1px solid var(--accent-border);padding:4px 14px 4px 10px;border-radius:100px;font-size:0.72rem;font-weight:500;color:var(--accent-light);font-family:var(--mono);transition:all 0.2s}
+.topbar .mode-pill .dot{width:5px;height:5px;border-radius:50%;animation:pulse 2s infinite}
+.topbar .mode-pill.enforce .dot{background:var(--success)}
+.topbar .mode-pill.enforce{background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.2);color:var(--success)}
+.topbar .mode-pill.observe .dot{background:var(--warn)}
+.topbar .mode-pill.observe{background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.2);color:var(--warn)}
 
 /* Main */
-main{max-width:1100px;margin:0 auto;padding:32px 24px}
+main{margin-left:240px;padding:80px 32px 32px;background:var(--surface);min-height:100vh}
 h1{font-size:1.3rem;font-weight:600;margin-bottom:6px;letter-spacing:-0.2px}
 h1 span{color:var(--text2);font-weight:400}
 .page-desc{color:var(--text3);font-size:0.82rem;margin-bottom:28px}
 
 /* Stats */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
-.stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;transition:all 0.2s}
+.stat{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;transition:all 0.2s}
 .stat:hover{background:var(--surface-hover);border-color:var(--border-hover)}
 .stat .label{color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:500;margin-bottom:6px}
 .stat .value{font-family:var(--mono);font-size:1.7rem;font-weight:700}
@@ -267,7 +277,7 @@ h1 span{color:var(--text2);font-weight:400}
 /* Table */
 table{width:100%;border-collapse:collapse;font-size:0.82rem}
 th{text-align:left;color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:500;padding:8px 12px;border-bottom:1px solid var(--border)}
-td{padding:10px 12px;border-bottom:1px solid rgba(28,28,36,0.6);color:var(--text2);font-family:var(--mono);font-size:0.78rem;transition:background 0.15s}
+td{padding:10px 12px;border-bottom:1px solid rgba(63,63,70,0.6);color:var(--text2);font-family:var(--mono);font-size:0.78rem;transition:background 0.15s}
 tr:hover td{background:var(--surface2)}
 
 /* Status badges — pills with tinted bg (what happened to the message) */
@@ -474,6 +484,9 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
 
 /* Responsive */
 @media(max-width:768px){
+  .sidebar{display:none}
+  .topbar{left:0}
+  main{margin-left:0;padding:64px 16px 16px}
   .stats{grid-template-columns:repeat(2,1fr)}
   .panel{width:100%;max-width:100%}
   .form-row{flex-direction:column}
@@ -482,19 +495,52 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
 </style>
 </head>
 <body>
-<nav>
-  <a href="/dashboard" class="logo">oktsec</a>
-  <a href="/dashboard" class="{{if eq .Active "overview"}}active{{end}}">Overview</a>
-  <a href="/dashboard/agents" class="{{if eq .Active "agents"}}active{{end}}">Agents</a>
-  <a href="/dashboard/graph" class="{{if eq .Active "graph"}}active{{end}}">Graph</a>
-  <a href="/dashboard/events" class="{{if eq .Active "events"}}active{{end}}">Events</a>
-  <a href="/dashboard/rules" class="{{if eq .Active "rules"}}active{{end}}">Rules</a>
-  <a href="/dashboard/audit" class="{{if eq .Active "audit"}}active{{end}}">Audit</a>
-  <a href="/dashboard/settings" class="{{if eq .Active "settings"}}active{{end}}">Settings</a>
+<aside class="sidebar">
+  <a href="/dashboard" class="brand">oktsec</a>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Main</div>
+    <a href="/dashboard" class="sidebar-item {{if eq .Active "overview"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Overview
+    </a>
+    <a href="/dashboard/events" class="sidebar-item {{if eq .Active "events"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+      Events
+    </a>
+    <a href="/dashboard/graph" class="sidebar-item {{if eq .Active "graph"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      Graph
+    </a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Security</div>
+    <a href="/dashboard/agents" class="sidebar-item {{if eq .Active "agents"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Agents
+    </a>
+    <a href="/dashboard/rules" class="sidebar-item {{if eq .Active "rules"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Rules
+    </a>
+    <a href="/dashboard/audit" class="sidebar-item {{if eq .Active "audit"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+      Audit
+    </a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Management</div>
+    <a href="/dashboard/settings" class="sidebar-item {{if eq .Active "settings"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </a>
+  </div>
+</aside>
+<div class="topbar">
+  <span class="page-title">{{.Active | upper}}</span>
   <div class="spacer"></div>
   <span class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
   <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 12px;border-radius:8px;font-size:0.72rem;cursor:pointer;font-family:var(--sans);transition:all 0.2s" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--border-hover)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'">Logout</button></form>
-</nav>
+</div>
 <main>`
 
 const layoutFoot = `</main>
@@ -619,6 +665,26 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
   </div>
 </div>
 
+{{if .Stats.TotalMessages}}
+<div class="stats" style="grid-template-columns:1fr 1fr 1fr">
+  <div class="stat">
+    <div class="label">Detection Rate</div>
+    <div class="value {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</div>
+    <div class="sub">Messages blocked or quarantined</div>
+  </div>
+  <div class="stat">
+    <div class="label">Unsigned Messages (24h)</div>
+    <div class="value {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}}</div>
+    <div class="sub">{{.UnsignedPct}}% of recent traffic</div>
+  </div>
+  <div class="stat">
+    <div class="label">Avg Latency (24h)</div>
+    <div class="value {{if ge .AvgLatency 200}}danger{{else if ge .AvgLatency 50}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</div>
+    <div class="sub">Average proxy processing time</div>
+  </div>
+</div>
+{{end}}
+
 <div class="card" style="display:flex;align-items:center;gap:20px;padding:16px 24px">
   <div>
     <div class="label" style="font-size:0.75rem;color:var(--text2)">Security Health</div>
@@ -638,6 +704,51 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
   <div class="chart-labels">
     <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
   </div>
+</div>
+{{end}}
+
+{{if .TopRules}}
+<div class="card">
+  <h2>Top Triggered Rules (24h)</h2>
+  <table>
+    <thead><tr><th>Rule</th><th>Severity</th><th>Triggers</th></tr></thead>
+    <tbody>
+    {{range .TopRules}}
+    <tr class="clickable" hx-get="/dashboard/api/rules/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
+      <td><span style="font-weight:600">{{.Name}}</span><br><span style="color:var(--text3);font-size:0.72rem;font-family:var(--mono)">{{.RuleID}}</span></td>
+      <td>{{if eq .Severity "critical"}}<span class="badge-blocked">critical</span>{{else if eq .Severity "high"}}<span class="badge-blocked">high</span>{{else if eq .Severity "medium"}}<span class="badge-quarantined">medium</span>{{else}}<span class="badge-delivered">low</span>{{end}}</td>
+      <td style="font-family:var(--mono);font-weight:600">{{.Count}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
+{{if .AgentRisks}}
+<div class="card">
+  <h2>Agent Risk (24h)</h2>
+  <table>
+    <thead><tr><th>Agent</th><th>Messages</th><th>Blocked</th><th>Quarantined</th><th>Risk</th></tr></thead>
+    <tbody>
+    {{range .AgentRisks}}
+    <tr class="clickable" onclick="window.location='/dashboard/agents/{{.Agent}}'">
+      <td>{{agentCell .Agent}}</td>
+      <td style="font-family:var(--mono)">{{.Total}}</td>
+      <td style="font-family:var(--mono)">{{.Blocked}}</td>
+      <td style="font-family:var(--mono)">{{.Quarantined}}</td>
+      <td style="min-width:120px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="risk-bar" style="flex:1">
+            <div class="risk-bar-fill {{if gt .RiskScore 60.0}}risk-high{{else if gt .RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .RiskScore}}%"></div>
+          </div>
+          <span style="font-family:var(--mono);font-size:0.75rem;color:var(--text2)">{{printf "%.0f" .RiskScore}}</span>
+        </div>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
 </div>
 {{end}}
 
@@ -805,24 +916,59 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 <p class="page-desc">Each agent can only message destinations listed in its ACL. Manage agents, generate keypairs, and view message history.</p>
 
 <div class="card">
-  {{if .Agents}}
+  {{if .AgentRows}}
+  <div style="overflow-x:auto">
   <table>
-    <thead><tr><th>Name</th><th>Description</th><th>Can Message</th><th>Tags</th></tr></thead>
+    <thead><tr><th>Agent</th><th>Description</th><th>Messages</th><th>Blocked</th><th>Risk</th><th>Key</th><th>Last Active</th></tr></thead>
     <tbody>
-    {{range $name, $agent := .Agents}}
-    <tr class="clickable" onclick="window.location='/dashboard/agents/{{$name}}'">
-      <td style="font-weight:600">{{agentCell $name}}</td>
-      <td style="color:var(--text2);font-family:var(--sans)">{{$agent.Description}}</td>
-      <td>{{if $agent.CanMessage}}{{range $i, $t := $agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{else}}<span style="color:var(--text3)">none</span>{{end}}</td>
-      <td>{{range $i, $tag := $agent.Tags}}{{if $i}} {{end}}<span class="agent-tag">{{$tag}}</span>{{end}}</td>
+    {{range .AgentRows}}
+    <tr class="clickable" onclick="window.location='/dashboard/agents/{{.Name}}'">
+      <td style="font-weight:600">{{agentCell .Name}}{{if .Suspended}} <span class="badge-blocked" style="font-size:0.6rem;padding:2px 6px">SUSPENDED</span>{{end}}</td>
+      <td style="color:var(--text2);font-family:var(--sans);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Description}}</td>
+      <td style="font-family:var(--mono)">{{.Total}}</td>
+      <td>{{if .Total}}<span style="font-family:var(--mono);{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{else}}color:var(--text2){{end}}">{{.BlockedPct}}%</span>{{else}}<span style="color:var(--text3)">--</span>{{end}}</td>
+      <td style="min-width:100px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div class="risk-bar" style="flex:1">
+            <div class="risk-bar-fill {{if gt .RiskScore 60.0}}risk-high{{else if gt .RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .RiskScore}}%"></div>
+          </div>
+          <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text3)">{{printf "%.0f" .RiskScore}}</span>
+        </div>
+      </td>
+      <td style="text-align:center">{{if .HasKey}}<span title="Key registered" style="color:var(--success)">&#x1f512;</span>{{else}}<span title="No key" style="color:var(--text3)">&#x1f513;</span>{{end}}</td>
+      <td style="color:var(--text2);font-size:0.78rem" {{if .LastSeen}}data-ts="{{.LastSeen}}"{{end}}>{{if .LastSeen}}{{.LastSeen}}{{else}}<span style="color:var(--text3)">never</span>{{end}}</td>
     </tr>
     {{end}}
     </tbody>
   </table>
+  </div>
   {{else}}
   <div class="empty">No agents configured.</div>
   {{end}}
 </div>
+
+{{if .DiscoveredAgents}}
+<div class="card">
+  <h2 style="color:var(--warn)">Discovered from Traffic</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">These agents appeared in traffic but are not registered. Unregistered agents bypass ACL checks.</p>
+  <table>
+    <thead><tr><th>Agent</th><th>Action</th></tr></thead>
+    <tbody>
+    {{range .DiscoveredAgents}}
+    <tr>
+      <td>{{agentCell .}}</td>
+      <td>
+        <form method="POST" action="/dashboard/agents" style="display:inline">
+          <input type="hidden" name="name" value="{{.}}">
+          <button type="submit" class="btn btn-sm">Register</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
 
 <div class="card">
   <h2>Add Agent</h2>
@@ -869,6 +1015,63 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   </div>
 </div>
 
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+  <div class="card" style="margin-bottom:0">
+    <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Risk Score</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="font-size:1.6rem;font-weight:700" class="{{if gt .RiskScore 60.0}}danger{{else if gt .RiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.0f" .RiskScore}}</div>
+      <div style="flex:1">
+        <div class="risk-bar"><div class="risk-bar-fill {{if gt .RiskScore 60.0}}risk-high{{else if gt .RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .RiskScore}}%"></div></div>
+      </div>
+      <div style="font-size:0.72rem;color:var(--text3)">{{if gt .RiskScore 60.0}}High{{else if gt .RiskScore 30.0}}Medium{{else}}Low{{end}}</div>
+    </div>
+  </div>
+
+  {{if .TopRules}}
+  <div class="card" style="margin-bottom:0;grid-column:span 2">
+    <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Top Triggered Rules (24h)</div>
+    <table style="font-size:0.82rem">
+      <thead><tr><th>Rule</th><th>Severity</th><th style="text-align:right">Count</th></tr></thead>
+      <tbody>
+      {{range .TopRules}}
+      <tr class="clickable" hx-get="/dashboard/api/rules/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
+        <td><span style="font-weight:600">{{.Name}}</span><br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.RuleID}}</span></td>
+        <td>{{if eq .Severity "critical"}}<span class="badge-blocked">critical</span>{{else if eq .Severity "high"}}<span class="badge-blocked">high</span>{{else if eq .Severity "medium"}}<span class="badge-quarantined">medium</span>{{else}}<span class="badge-delivered">low</span>{{end}}</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:600">{{.Count}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="card" style="margin-bottom:0;grid-column:span 2">
+    <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Top Triggered Rules (24h)</div>
+    <div class="empty" style="padding:12px 0">No rules triggered for this agent.</div>
+  </div>
+  {{end}}
+</div>
+
+{{if .CommPartners}}
+<div class="card">
+  <h2>Communication Partners (24h)</h2>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th style="text-align:right">Total</th><th style="text-align:right">Delivered</th><th style="text-align:right">Blocked</th><th style="text-align:right">Block Rate</th></tr></thead>
+    <tbody>
+    {{range .CommPartners}}
+    <tr class="clickable" onclick="window.location='/dashboard/graph/edge?from={{.From}}&to={{.To}}'">
+      <td>{{agentCell .From}}</td>
+      <td>{{agentCell .To}}</td>
+      <td style="text-align:right;font-family:var(--mono)">{{.Total}}</td>
+      <td style="text-align:right;font-family:var(--mono)">{{.Delivered}}</td>
+      <td style="text-align:right;font-family:var(--mono)">{{.Blocked}}</td>
+      <td style="text-align:right;font-family:var(--mono)">{{if .Total}}{{printf "%.0f" (divf (mulf .Blocked 100) .Total)}}%{{else}}0%{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+
 <div class="card">
   <h2>Configuration</h2>
   <table>
@@ -882,6 +1085,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   </table>
   <div style="margin-top:16px;display:flex;gap:8px">
     <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm" onclick="return confirm('Generate new keypair for {{.Name}}? Existing key will be overwritten.')">Generate Keypair</button></form>
+    <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm" style="background:var(--success)">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm" style="background:var(--warn);color:#000">Suspend</button>{{end}}</form>
     <button class="btn btn-sm btn-danger" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete Agent</button>
   </div>
 </div>
@@ -1363,7 +1567,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 
 // --- Category detail page ---
 
-var categoryDetailTmpl = template.Must(template.New("category-detail").Parse(layoutHead + `
+var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
 .breadcrumb{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:0.82rem}
 .breadcrumb a{color:var(--accent-light);text-decoration:none}
@@ -1703,7 +1907,7 @@ var quarantineRowTmpl = template.Must(template.New("quarantine-row").Funcs(tmplF
     {{else if eq .Item.Status "expired"}}<span class="badge-expired">expired</span>
     {{else}}{{.Item.Status}}{{end}}
   </td>
-  <td style="font-size:0.72rem">{{.Item.ExpiresAt}}</td>
+  <td style="font-size:0.72rem;white-space:nowrap">{{if eq .Item.Status "pending"}}<span data-expires="{{.Item.ExpiresAt}}"></span>{{else}}&mdash;{{end}}</td>
   <td>
     <div style="display:flex;gap:4px;align-items:center">
       <button class="btn btn-sm" style="padding:2px 8px;font-size:0.7rem" hx-get="/dashboard/api/quarantine/{{.Item.ID}}" hx-target="#panel-content" hx-swap="innerHTML">view</button>
@@ -1722,7 +1926,7 @@ var ruleToggleTmpl = template.Must(template.New("rule-toggle").Parse(`<span id="
 
 // --- Settings page ---
 
-var settingsTmpl = template.Must(template.New("settings").Parse(layoutHead + `
+var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Settings</h1>
 <p class="page-desc">Security mode, agent identity keys, quarantine behavior, and server configuration.</p>
 
@@ -1899,10 +2103,35 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
 <h1>Events</h1>
 <p class="page-desc">Quarantined messages need human review. Blocked messages were stopped automatically. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
+<div style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
+  <select id="filter-agent" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem">
+    <option value="">All Agents</option>
+    {{range .AgentNames}}<option value="{{.}}" {{if eq . $.FilterAgent}}selected{{end}}>{{.}}</option>{{end}}
+  </select>
+  <input type="date" id="filter-since" value="{{.FilterSince}}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem">
+  <button class="btn btn-sm" onclick="clearEventFilters()" style="font-size:0.78rem">Clear</button>
+</div>
+<script>
+function applyEventFilters() {
+  var agent = document.getElementById('filter-agent').value;
+  var since = document.getElementById('filter-since').value;
+  var tab = '{{.Tab}}';
+  var url = '/dashboard/events?tab=' + tab;
+  if (agent) url += '&agent=' + encodeURIComponent(agent);
+  if (since) url += '&since=' + encodeURIComponent(since + 'T00:00:00Z');
+  window.location = url;
+}
+function clearEventFilters() {
+  window.location = '/dashboard/events?tab={{.Tab}}';
+}
+document.getElementById('filter-agent').addEventListener('change', applyEventFilters);
+document.getElementById('filter-since').addEventListener('change', applyEventFilters);
+</script>
+
 <div class="tabs" data-tab-group="events">
-  <a href="/dashboard/events?tab=all" class="tab {{if eq .Tab "all"}}active{{end}}">All Events</a>
-  <a href="/dashboard/events?tab=quarantine" class="tab {{if eq .Tab "quarantine"}}active{{end}}">Quarantine{{if .QPending}} <span class="pending-badge">{{.QPending}}</span>{{end}}</a>
-  <a href="/dashboard/events?tab=blocked" class="tab {{if eq .Tab "blocked"}}active{{end}}">Blocked</a>
+  <a href="/dashboard/events?tab=all{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}" class="tab {{if eq .Tab "all"}}active{{end}}">All Events</a>
+  <a href="/dashboard/events?tab=quarantine{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}" class="tab {{if eq .Tab "quarantine"}}active{{end}}">Quarantine{{if .QPending}} <span class="pending-badge">{{.QPending}}</span>{{end}}</a>
+  <a href="/dashboard/events?tab=blocked{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}" class="tab {{if eq .Tab "blocked"}}active{{end}}">Blocked</a>
 </div>
 
 <!-- All Events -->
@@ -1971,7 +2200,7 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
 
   {{if .QItems}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Content</th><th>Status</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Content</th><th>Status</th><th>Expires</th><th>Actions</th></tr></thead>
     <tbody>
     {{range .QItems}}
     <tr id="q-row-{{.ID}}">
@@ -1980,6 +2209,7 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
       <td>{{agentCell .ToAgent}}</td>
       <td><div class="q-preview" style="cursor:pointer" hx-get="/dashboard/api/quarantine/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">{{truncate .Content 80}}</div></td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
+      <td style="font-size:0.72rem;white-space:nowrap">{{if eq .Status "pending"}}<span data-expires="{{.ExpiresAt}}"></span>{{else}}&mdash;{{end}}</td>
       <td>
         {{if eq .Status "pending"}}
         <div class="q-actions">
@@ -1994,6 +2224,23 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
     {{end}}
     </tbody>
   </table>
+  <script>
+  function updateExpiry() {
+    document.querySelectorAll('[data-expires]').forEach(function(el) {
+      var exp = new Date(el.dataset.expires);
+      var now = new Date();
+      var diff = exp - now;
+      var hours = Math.floor(diff / 3600000);
+      var mins = Math.floor((diff % 3600000) / 60000);
+      if (diff <= 0) { el.textContent = 'expired'; el.style.color = 'var(--danger)'; }
+      else if (hours < 1) { el.textContent = mins + 'm'; el.style.color = 'var(--danger)'; }
+      else if (hours < 4) { el.textContent = hours + 'h ' + mins + 'm'; el.style.color = 'var(--warn)'; }
+      else { el.textContent = hours + 'h'; el.style.color = 'var(--text3)'; }
+    });
+  }
+  setInterval(updateExpiry, 60000);
+  updateExpiry();
+  </script>
   {{else}}
   <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.</div>
   {{end}}
@@ -2079,6 +2326,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     <span style="margin-left:12px"><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#22c55e" stroke-width="2"/></svg> Healthy edge</span>
     <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#f59e0b" stroke-width="2"/></svg> Degraded</span>
     <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#ef4444" stroke-width="2"/></svg> Unhealthy</span>
+    <span style="margin-left:12px"><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#71717a" stroke-width="1" stroke-dasharray="4 3" stroke-opacity="0.5"/></svg> ACL (no traffic)</span>
   </div>
 </div>
 
@@ -2188,7 +2436,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     var NR = 18; // node radius
     var PAD = 60;
     var nodes = data.nodes.map(function(n) {
-      return {name: n.name, threat: n.threat_score, x: PAD + Math.random()*(W-2*PAD), y: PAD + Math.random()*(H-2*PAD), vx: 0, vy: 0};
+      return {name: n.name, threat: n.threat_score, sent: n.total_sent||0, recv: n.total_recv||0, betweenness: n.betweenness!=null?n.betweenness:-1, x: PAD + Math.random()*(W-2*PAD), y: PAD + Math.random()*(H-2*PAD), vx: 0, vy: 0};
     });
     var nodeIdx = {};
     nodes.forEach(function(n, i) { nodeIdx[n.name] = i; });
@@ -2198,6 +2446,18 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     }).map(function(e) {
       return {from: nodeIdx[e.from], to: nodeIdx[e.to], health: e.health_score, total: e.total, fromName: e.from, toName: e.to};
     });
+
+    // ACL edges — policy connections (shown as dashed lines)
+    var trafficSet = {};
+    links.forEach(function(e) { trafficSet[e.fromName+'>'+e.toName] = true; });
+    var aclLinks = (data.acl_edges || []).filter(function(e) {
+      return nodeIdx[e.from] !== undefined && nodeIdx[e.to] !== undefined && !trafficSet[e.from+'>'+e.to];
+    }).map(function(e) {
+      return {from: nodeIdx[e.from], to: nodeIdx[e.to], fromName: e.from, toName: e.to};
+    });
+
+    // All connections for layout (traffic + ACL)
+    var allLinks = links.concat(aclLinks);
 
     // Fruchterman-Reingold layout
     var k = Math.sqrt(W * H / Math.max(nodes.length, 1)) * 0.9;
@@ -2214,8 +2474,8 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
           nodes[i].vy += (dy / dist) * f;
         }
       }
-      for (var e = 0; e < links.length; e++) {
-        var s = nodes[links[e].from], t = nodes[links[e].to];
+      for (var e = 0; e < allLinks.length; e++) {
+        var s = nodes[allLinks[e].from], t = nodes[allLinks[e].to];
         var dx = t.x - s.x, dy = t.y - s.y;
         var dist = Math.sqrt(dx*dx + dy*dy) || 1;
         var f = (dist * dist) / k;
@@ -2254,43 +2514,61 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       p.setAttribute('d', 'M0,0.5 L7,3 L0,5.5'); p.setAttribute('fill', edgeColors[k]);
       m.appendChild(p); defs.appendChild(m);
     });
+    // ACL arrow marker (dim)
+    var mAcl = document.createElementNS(NS, 'marker');
+    mAcl.setAttribute('id', 'arr-acl'); mAcl.setAttribute('viewBox', '0 0 8 6');
+    mAcl.setAttribute('refX', '8'); mAcl.setAttribute('refY', '3');
+    mAcl.setAttribute('markerWidth', '5'); mAcl.setAttribute('markerHeight', '4');
+    mAcl.setAttribute('orient', 'auto');
+    var pAcl = document.createElementNS(NS, 'path');
+    pAcl.setAttribute('d', 'M0,0.5 L7,3 L0,5.5'); pAcl.setAttribute('fill', '#71717a');
+    mAcl.appendChild(pAcl); defs.appendChild(mAcl);
     svg.appendChild(defs);
 
     var lineEls = [];
-    // Draw edges — curved paths for parallel edges
+
+    // Draw ACL edges — dashed lines showing policy connections
+    aclLinks.forEach(function(e) {
+      var s = nodes[e.from], t = nodes[e.to];
+      var dx = t.x - s.x, dy = t.y - s.y;
+      var dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      var ex = t.x - (dx/dist)*(NR+6), ey = t.y - (dy/dist)*(NR+6);
+      var el = document.createElementNS(NS, 'line');
+      el.setAttribute('x1', s.x); el.setAttribute('y1', s.y);
+      el.setAttribute('x2', ex); el.setAttribute('y2', ey);
+      el.setAttribute('stroke', '#71717a');
+      el.setAttribute('stroke-width', '1');
+      el.setAttribute('stroke-opacity', '0.25');
+      el.setAttribute('stroke-dasharray', '4 3');
+      el.setAttribute('marker-end', 'url(#arr-acl)');
+      svg.appendChild(el);
+      lineEls.push({el: el, link: e, curved: false});
+    });
+
+    // Draw traffic edges — curved paths for parallel edges
     var edgePairs = {};
     links.forEach(function(e) {
       var key = Math.min(e.from,e.to)+'-'+Math.max(e.from,e.to);
       edgePairs[key] = (edgePairs[key]||0)+1;
     });
     var edgePairCount = {};
+    var particles = [];
     links.forEach(function(e) {
-      var s = nodes[e.from], t = nodes[e.to];
       var hk = e.health >= 70 ? 'ok' : (e.health >= 40 ? 'warn' : 'bad');
-      var dx = t.x - s.x, dy = t.y - s.y;
-      var dist = Math.sqrt(dx*dx + dy*dy) || 1;
 
       // Offset for parallel edges
       var key = Math.min(e.from,e.to)+'-'+Math.max(e.from,e.to);
       var pairTotal = edgePairs[key]||1;
       edgePairCount[key] = (edgePairCount[key]||0)+1;
-      var curveOffset = 0;
-      if (pairTotal > 1) curveOffset = (edgePairCount[key]%2===0?1:-1) * 20;
-
-      var sx = s.x, sy = s.y;
-      var ex = t.x - (dx/dist)*(NR+6), ey = t.y - (dy/dist)*(NR+6);
+      var co = 0;
+      if (pairTotal > 1) co = (edgePairCount[key]%2===0?1:-1) * 20;
 
       var el;
-      if (curveOffset !== 0) {
-        var mx = (sx+ex)/2 + (-dy/dist)*curveOffset;
-        var my = (sy+ey)/2 + (dx/dist)*curveOffset;
+      if (co !== 0) {
         el = document.createElementNS(NS, 'path');
-        el.setAttribute('d', 'M'+sx+','+sy+' Q'+mx+','+my+' '+ex+','+ey);
         el.setAttribute('fill', 'none');
       } else {
         el = document.createElementNS(NS, 'line');
-        el.setAttribute('x1', sx); el.setAttribute('y1', sy);
-        el.setAttribute('x2', ex); el.setAttribute('y2', ey);
       }
       el.setAttribute('stroke', edgeColors[hk]);
       el.setAttribute('stroke-width', '1.5');
@@ -2303,7 +2581,99 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       el.addEventListener('mouseenter', function(){ this.setAttribute('stroke-opacity','0.9'); this.setAttribute('stroke-width','2.5'); });
       el.addEventListener('mouseleave', function(){ this.setAttribute('stroke-opacity','0.5'); this.setAttribute('stroke-width','1.5'); });
       svg.appendChild(el);
-      lineEls.push({el: el, link: e, curved: curveOffset!==0});
+
+      // Particle dot — position computed in animation loop
+      var dot = document.createElementNS(NS, 'circle');
+      dot.setAttribute('r', '2.5');
+      dot.setAttribute('fill', edgeColors[hk]);
+      dot.setAttribute('opacity', '0.8');
+      svg.appendChild(dot);
+      particles.push({dot: dot, link: e, co: co, t: Math.random(), speed: 0.003 + Math.random()*0.004});
+
+      lineEls.push({el: el, link: e, curved: co!==0, co: co});
+    });
+
+    // Helper: compute edge endpoints from live node positions
+    function edgeEndpoints(le) {
+      var s = nodes[le.link.from], t = nodes[le.link.to];
+      var dx = t.x - s.x, dy = t.y - s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
+      var ex = t.x-(dx/d)*(NR+6), ey = t.y-(dy/d)*(NR+6);
+      return {sx:s.x, sy:s.y, ex:ex, ey:ey, dx:dx, dy:dy, d:d};
+    }
+
+    // Initial edge positions
+    function updateEdges() {
+      lineEls.forEach(function(le) {
+        var ep = edgeEndpoints(le);
+        if (le.curved) {
+          var mx = (ep.sx+ep.ex)/2 + (-ep.dy/ep.d)*le.co;
+          var my = (ep.sy+ep.ey)/2 + (ep.dx/ep.d)*le.co;
+          le.el.setAttribute('d', 'M'+ep.sx+','+ep.sy+' Q'+mx+','+my+' '+ep.ex+','+ep.ey);
+        } else {
+          le.el.setAttribute('x1', ep.sx); le.el.setAttribute('y1', ep.sy);
+          le.el.setAttribute('x2', ep.ex); le.el.setAttribute('y2', ep.ey);
+        }
+      });
+    }
+    updateEdges();
+
+    // Particle animation loop — reads live node positions
+    function animParticles() {
+      particles.forEach(function(p) {
+        p.t += p.speed;
+        if (p.t > 1) p.t -= 1;
+        var s = nodes[p.link.from], t = nodes[p.link.to];
+        var dx = t.x-s.x, dy = t.y-s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
+        var ex = t.x-(dx/d)*(NR+6), ey = t.y-(dy/d)*(NR+6);
+        var tt = p.t, x, y;
+        if (p.co !== 0) {
+          var mx = (s.x+ex)/2+(-dy/d)*p.co, my = (s.y+ey)/2+(dx/d)*p.co;
+          var u = 1-tt;
+          x = u*u*s.x + 2*u*tt*mx + tt*tt*ex;
+          y = u*u*s.y + 2*u*tt*my + tt*tt*ey;
+        } else {
+          x = s.x + (ex-s.x)*tt;
+          y = s.y + (ey-s.y)*tt;
+        }
+        p.dot.setAttribute('cx', x);
+        p.dot.setAttribute('cy', y);
+      });
+      requestAnimationFrame(animParticles);
+    }
+    requestAnimationFrame(animParticles);
+
+    // Inline popover for node click
+    var popover = document.createElement('div');
+    popover.style.cssText = 'position:absolute;display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;min-width:200px;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:var(--sans);pointer-events:auto';
+    el.appendChild(popover);
+    var activePopNode = null;
+
+    function showPopover(n) {
+      if (activePopNode === n.name) { popover.style.display='none'; activePopNode=null; return; }
+      activePopNode = n.name;
+      var threatLbl = n.threat > 60 ? 'High' : (n.threat > 30 ? 'Medium' : 'Low');
+      var threatClr = n.threat > 60 ? '#f87171' : (n.threat > 30 ? '#fbbf24' : '#4ade80');
+      popover.innerHTML =
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'+agentCellHTML(n.name)+'</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:0.75rem;margin-bottom:12px">'+
+          '<div><span style="color:var(--text3)">Threat</span><div style="font-weight:700;color:'+threatClr+';font-family:var(--mono)">'+n.threat.toFixed(1)+' '+threatLbl+'</div></div>'+
+          '<div><span style="color:var(--text3)">Betweenness</span><div style="font-weight:600;font-family:var(--mono)">'+(n.betweenness>=0?n.betweenness.toFixed(3):'\u2014')+'</div></div>'+
+          '<div><span style="color:var(--text3)">Sent</span><div style="font-weight:600;font-family:var(--mono)">'+n.sent+'</div></div>'+
+          '<div><span style="color:var(--text3)">Received</span><div style="font-weight:600;font-family:var(--mono)">'+n.recv+'</div></div>'+
+        '</div>'+
+        '<a href="/dashboard/agents/'+encodeURIComponent(n.name)+'" style="display:block;text-align:center;padding:6px 14px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:6px;font-size:0.75rem;font-weight:500;text-decoration:none;transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--text)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text2)\'">View Profile &rarr;</a>';
+      // Position: above node, centered
+      var px = n.x - 100, py = n.y - NR - 160;
+      if (py < 8) py = n.y + NR + 20; // flip below if too close to top
+      if (px < 8) px = 8;
+      if (px + 200 > W) px = W - 208;
+      popover.style.left = px+'px'; popover.style.top = py+'px';
+      popover.style.display = 'block';
+    }
+
+    // Close popover on background click
+    svg.addEventListener('click', function(ev) {
+      if (ev.target === svg) { popover.style.display='none'; activePopNode=null; }
     });
 
     // Draw nodes — avatar circle + label below
@@ -2332,36 +2702,38 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       // Label below node
       var label = document.createElementNS(NS, 'text');
       label.setAttribute('x', n.x); label.setAttribute('y', n.y + NR + 14);
-      label.setAttribute('text-anchor', 'middle'); label.setAttribute('fill', '#b0b0cc');
+      label.setAttribute('text-anchor', 'middle'); label.setAttribute('fill', '#a1a1aa');
       label.setAttribute('font-size', '10'); label.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, sans-serif');
       label.textContent = n.name;
 
       g.appendChild(ring); g.appendChild(fo); g.appendChild(label);
-      g.addEventListener('click', function(ev) { if (!ev.defaultPrevented) location.href='/dashboard/agents/'+encodeURIComponent(n.name); });
+
+      // Click: show inline popover (not panel)
+      var didDrag = false;
+      g.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        if (didDrag) { didDrag = false; return; }
+        showPopover(n);
+      });
 
       // Drag support
-      var dragging = false;
-      fo.addEventListener('mousedown', function(ev) { dragging = true; ev.preventDefault(); });
+      var dragging = false, startX, startY;
+      fo.addEventListener('mousedown', function(ev) { dragging = true; startX = ev.clientX; startY = ev.clientY; ev.preventDefault(); });
       svg.addEventListener('mousemove', function(ev) {
         if (!dragging) return;
+        didDrag = true;
+        popover.style.display = 'none'; activePopNode = null;
         var rect = svg.getBoundingClientRect();
         n.x = ev.clientX - rect.left; n.y = ev.clientY - rect.top;
         ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y);
         fo.setAttribute('x', n.x-NR); fo.setAttribute('y', n.y-NR);
         label.setAttribute('x', n.x); label.setAttribute('y', n.y + NR + 14);
-        lineEls.forEach(function(le) {
-          var s = nodes[le.link.from], t = nodes[le.link.to];
-          var dx = t.x - s.x, dy = t.y - s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
-          var ex = t.x-(dx/d)*(NR+6), ey = t.y-(dy/d)*(NR+6);
-          if (le.curved) {
-            le.el.setAttribute('d', 'M'+s.x+','+s.y+' Q'+((s.x+ex)/2+(-dy/d)*20)+','+((s.y+ey)/2+(dx/d)*20)+' '+ex+','+ey);
-          } else {
-            le.el.setAttribute('x1', s.x); le.el.setAttribute('y1', s.y);
-            le.el.setAttribute('x2', ex); le.el.setAttribute('y2', ey);
-          }
-        });
+        updateEdges();
       });
-      svg.addEventListener('mouseup', function() { dragging = false; });
+      svg.addEventListener('mouseup', function() {
+        if (dragging && !didDrag) didDrag = false;
+        dragging = false;
+      });
 
       svg.appendChild(g);
     });

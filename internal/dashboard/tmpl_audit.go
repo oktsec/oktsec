@@ -34,7 +34,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-sec-title{font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)}
 
 /* Priority fix row */
-.a-fix{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid rgba(28,28,36,0.4)}
+.a-fix{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid rgba(63,63,70,0.4)}
 .a-fix:last-child{border-bottom:none}
 .a-fix-sev{min-width:60px;flex-shrink:0;padding-top:1px}
 .a-fix-body{flex:1;min-width:0}
@@ -58,12 +58,12 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-prod-counts span{font-size:0.7rem;font-family:var(--mono);font-weight:500}
 
 /* Findings */
-.a-fd summary{cursor:pointer;padding:10px 20px;font-size:0.76rem;color:var(--text3);list-style:none;font-weight:500;display:flex;align-items:center;gap:5px;transition:background 0.15s;border-bottom:1px solid rgba(28,28,36,0.3)}
+.a-fd summary{cursor:pointer;padding:10px 20px;font-size:0.76rem;color:var(--text3);list-style:none;font-weight:500;display:flex;align-items:center;gap:5px;transition:background 0.15s;border-bottom:1px solid rgba(63,63,70,0.3)}
 .a-fd summary:hover{background:rgba(255,255,255,0.02)}
 .a-fd summary::-webkit-details-marker{display:none}
 .a-fd summary::before{content:'\203A';font-size:0.9rem;transition:transform 0.15s;font-weight:400;color:var(--text3)}
 .a-fd[open] summary::before{transform:rotate(90deg)}
-.a-fi{display:flex;align-items:flex-start;gap:10px;padding:10px 20px;border-bottom:1px solid rgba(28,28,36,0.3)}
+.a-fi{display:flex;align-items:flex-start;gap:10px;padding:10px 20px;border-bottom:1px solid rgba(63,63,70,0.3)}
 .a-fi:last-child{border-bottom:none}
 .a-fi-sev{min-width:60px;flex-shrink:0;padding-top:1px}
 .a-fi-body{flex:1;min-width:0}
