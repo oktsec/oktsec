@@ -17,6 +17,7 @@ func NewRoot() *cobra.Command {
 
 	root.AddCommand(
 		newServeCmd(),
+		newGatewayCmd(),
 		newKeygenCmd(),
 		newKeysCmd(),
 		newVerifyCmd(),

@@ -192,6 +192,191 @@ quarantine:
 	}
 }
 
+func TestGatewayConfigLoad(t *testing.T) {
+	content := `
+version: "1"
+server:
+  port: 8080
+gateway:
+  enabled: true
+  port: 9999
+  endpoint_path: /api/mcp
+  scan_responses: true
+mcp_servers:
+  filesystem:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    env:
+      NODE_ENV: production
+  remote:
+    transport: http
+    url: http://localhost:3000/mcp
+    headers:
+      Authorization: Bearer test
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.Gateway.Enabled {
+		t.Error("gateway should be enabled")
+	}
+	if cfg.Gateway.Port != 9999 {
+		t.Errorf("gateway port = %d, want 9999", cfg.Gateway.Port)
+	}
+	if cfg.Gateway.EndpointPath != "/api/mcp" {
+		t.Errorf("endpoint_path = %q, want /api/mcp", cfg.Gateway.EndpointPath)
+	}
+	if !cfg.Gateway.ScanResponses {
+		t.Error("scan_responses should be true")
+	}
+	if len(cfg.MCPServers) != 2 {
+		t.Fatalf("mcp_servers = %d, want 2", len(cfg.MCPServers))
+	}
+
+	fs := cfg.MCPServers["filesystem"]
+	if fs.Transport != "stdio" {
+		t.Errorf("filesystem transport = %q, want stdio", fs.Transport)
+	}
+	if fs.Command != "npx" {
+		t.Errorf("filesystem command = %q, want npx", fs.Command)
+	}
+	if len(fs.Args) != 3 {
+		t.Errorf("filesystem args = %v, want 3 args", fs.Args)
+	}
+	if fs.Env["NODE_ENV"] != "production" {
+		t.Errorf("filesystem env NODE_ENV = %q, want production", fs.Env["NODE_ENV"])
+	}
+
+	remote := cfg.MCPServers["remote"]
+	if remote.Transport != "http" {
+		t.Errorf("remote transport = %q, want http", remote.Transport)
+	}
+	if remote.URL != "http://localhost:3000/mcp" {
+		t.Errorf("remote url = %q", remote.URL)
+	}
+	if remote.Headers["Authorization"] != "Bearer test" {
+		t.Errorf("remote header Authorization = %q", remote.Headers["Authorization"])
+	}
+}
+
+func TestGatewayConfigDefaults(t *testing.T) {
+	content := `
+version: "1"
+server:
+  port: 8080
+gateway:
+  enabled: true
+mcp_servers:
+  test:
+    transport: stdio
+    command: echo
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Gateway.Port != 9090 {
+		t.Errorf("default gateway port = %d, want 9090", cfg.Gateway.Port)
+	}
+	if cfg.Gateway.EndpointPath != "/mcp" {
+		t.Errorf("default endpoint_path = %q, want /mcp", cfg.Gateway.EndpointPath)
+	}
+}
+
+func TestGatewayValidate_NoServers(t *testing.T) {
+	cfg := Defaults()
+	cfg.Gateway.Enabled = true
+	if err := cfg.Validate(); err == nil {
+		t.Error("gateway enabled without mcp_servers should be invalid")
+	}
+}
+
+func TestGatewayValidate_InvalidTransport(t *testing.T) {
+	cfg := Defaults()
+	cfg.Gateway.Enabled = true
+	cfg.MCPServers = map[string]MCPServerConfig{
+		"bad": {Transport: "grpc"},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("invalid transport should be invalid")
+	}
+}
+
+func TestGatewayValidate_StdioNoCommand(t *testing.T) {
+	cfg := Defaults()
+	cfg.Gateway.Enabled = true
+	cfg.MCPServers = map[string]MCPServerConfig{
+		"bad": {Transport: "stdio"},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("stdio without command should be invalid")
+	}
+}
+
+func TestGatewayValidate_HttpNoURL(t *testing.T) {
+	cfg := Defaults()
+	cfg.Gateway.Enabled = true
+	cfg.MCPServers = map[string]MCPServerConfig{
+		"bad": {Transport: "http"},
+	}
+	err := cfg.Validate()
+	if err == nil {
+		t.Error("http without url should be invalid")
+	}
+}
+
+func TestGatewayBackwardCompat(t *testing.T) {
+	// Old YAML without gateway section should still load fine
+	content := `
+version: "1"
+server:
+  port: 8080
+identity:
+  require_signature: false
+agents:
+  agent-a:
+    can_message: [agent-b]
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Gateway.Enabled {
+		t.Error("gateway should be disabled by default")
+	}
+	if len(cfg.MCPServers) != 0 {
+		t.Errorf("mcp_servers should be empty, got %d", len(cfg.MCPServers))
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("old config without gateway should validate: %v", err)
+	}
+}
+
 func TestAgentBackwardCompatible(t *testing.T) {
 	// Old-format YAML with only can_message should still work
 	content := `
