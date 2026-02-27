@@ -753,7 +753,7 @@ Oktsec is aligned with the [OWASP Top 10 for Agentic Applications](https://genai
 ## Built on
 
 - **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills (148 detection rules, pattern matching, taint tracking, NLP injection detection)
-- **[mcp-go](https://github.com/mark3labs/mcp-go)** — Go SDK for Model Context Protocol
+- **[go-sdk](https://github.com/modelcontextprotocol/go-sdk)** — Official Go SDK for Model Context Protocol
 - **Go stdlib** — `crypto/ed25519`, `net/http`, `log/slog`, `crypto/sha256`
 - **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** — Pure Go SQLite (no CGO)
 
