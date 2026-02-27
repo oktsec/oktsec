@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/mcputil"
 	"github.com/oktsec/oktsec/internal/proxy"
 )
 
@@ -34,7 +34,7 @@ type toolMapping struct {
 // Gateway is the MCP security gateway server.
 type Gateway struct {
 	cfg         *config.Config
-	mcpServer   *server.MCPServer
+	mcpServer   *mcp.Server
 	httpServer  *http.Server
 	ln          net.Listener
 	backends    map[string]*Backend
@@ -102,34 +102,44 @@ func (g *Gateway) Start(ctx context.Context) error {
 	}
 
 	// Create MCP server and register tools
-	g.mcpServer = server.NewMCPServer("oktsec-gateway", "0.1.0",
-		server.WithToolCapabilities(true),
-	)
+	g.mcpServer = mcp.NewServer(&mcp.Implementation{
+		Name:    "oktsec-gateway",
+		Version: "0.1.0",
+	}, nil)
 
 	for frontendName, mapping := range g.toolMap {
 		// Find the original tool definition
-		var tool mcp.Tool
+		var tool *mcp.Tool
 		for _, t := range mapping.Backend.Tools {
 			if t.Name == mapping.OriginalName {
 				tool = t
 				break
 			}
 		}
-		// Expose with the (possibly namespaced) frontend name
-		tool.Name = frontendName
-		g.mcpServer.AddTool(tool, g.makeHandler(mapping))
+		if tool == nil {
+			continue
+		}
+		// Clone and expose with the (possibly namespaced) frontend name
+		toolCopy := *tool
+		toolCopy.Name = frontendName
+		g.mcpServer.AddTool(&toolCopy, g.makeHandler(mapping))
 	}
 
-	// Create Streamable HTTP server (used as http.Handler)
-	streamable := server.NewStreamableHTTPServer(g.mcpServer,
-		server.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
-			agent := r.Header.Get("X-Oktsec-Agent")
-			if agent == "" {
-				agent = "unknown"
-			}
-			return context.WithValue(ctx, agentContextKey, agent)
-		}),
+	// Create Streamable HTTP handler with middleware for agent header extraction
+	streamable := mcp.NewStreamableHTTPHandler(
+		func(r *http.Request) *mcp.Server { return g.mcpServer },
+		nil,
 	)
+
+	// Wrap with middleware for agent header injection
+	agentMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		agent := r.Header.Get("X-Oktsec-Agent")
+		if agent == "" {
+			agent = "unknown"
+		}
+		ctx := context.WithValue(r.Context(), agentContextKey, agent)
+		streamable.ServeHTTP(w, r.WithContext(ctx))
+	})
 
 	// Bind with auto-port
 	bind := g.cfg.Gateway.Bind
@@ -144,9 +154,9 @@ func (g *Gateway) Start(ctx context.Context) error {
 	g.ln = ln
 	g.cfg.Gateway.Port = actualPort
 
-	// Route the endpoint path to the streamable HTTP server
+	// Route the endpoint path to the streamable HTTP handler
 	mux := http.NewServeMux()
-	mux.Handle(g.cfg.Gateway.EndpointPath, streamable)
+	mux.Handle(g.cfg.Gateway.EndpointPath, agentMiddleware)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -232,10 +242,10 @@ func (g *Gateway) buildToolMap() error {
 	return nil
 }
 
-// makeHandler returns a ToolHandlerFunc that runs the security pipeline
+// makeHandler returns a ToolHandler that runs the security pipeline
 // before forwarding the call to the backend.
-func (g *Gateway) makeHandler(m toolMapping) server.ToolHandlerFunc {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		start := time.Now()
 		msgID := uuid.New().String()
 
@@ -322,8 +332,11 @@ func (g *Gateway) makeHandler(m toolMapping) server.ToolHandlerFunc {
 		}
 
 		// 12. Forward to backend with original tool name
-		req.Params.Name = m.OriginalName
-		result, err := m.Backend.CallTool(ctx, req)
+		callParams := &mcp.CallToolParams{
+			Name:      m.OriginalName,
+			Arguments: mcputil.GetArguments(req.Params.Arguments),
+		}
+		result, err := m.Backend.CallTool(ctx, callParams)
 		if err != nil {
 			return nil, fmt.Errorf("backend %s: %w", m.BackendName, err)
 		}
@@ -365,17 +378,12 @@ func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON st
 
 // toolError creates a CallToolResult with IsError=true.
 func toolError(msg string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{Type: "text", Text: msg},
-		},
-		IsError: true,
-	}
+	return mcputil.NewToolResultError(msg)
 }
 
 // extractToolContent serializes tool name + arguments for scanning.
-func extractToolContent(toolName string, req mcp.CallToolRequest) string {
-	args := req.GetArguments()
+func extractToolContent(toolName string, req *mcp.CallToolRequest) string {
+	args := mcputil.GetArguments(req.Params.Arguments)
 	if len(args) == 0 {
 		return toolName
 	}
@@ -390,7 +398,7 @@ func extractToolContent(toolName string, req mcp.CallToolRequest) string {
 func extractResultContent(result *mcp.CallToolResult) string {
 	var parts []string
 	for _, c := range result.Content {
-		if tc, ok := c.(mcp.TextContent); ok {
+		if tc, ok := c.(*mcp.TextContent); ok {
 			parts = append(parts, tc.Text)
 		}
 	}

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **MCP gateway mode**: Streamable HTTP MCP gateway that fronts backend MCP servers, intercepting every `tools/call` with the full security pipeline. Supports stdio and HTTP backend transports, tool discovery, automatic namespacing, per-agent tool allowlists, response scanning, and auto-port fallback. New `oktsec gateway` command.
+
+### Changed
+
+- **MCP SDK migration**: Replaced `mark3labs/mcp-go` (community, v0.44) with `modelcontextprotocol/go-sdk` (official Tier 1, v1.4.0). All MCP server, client, and transport code now uses the official SDK with semver stability guarantees and Linux Foundation governance.
+- **Documentation**: Added MCP gateway section to README, updated dependency references, added gateway configuration examples.
+
 ## [0.5.0] - 2026-02-24
 
 ### Added

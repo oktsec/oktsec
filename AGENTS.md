@@ -1,6 +1,6 @@
 # AGENTS.md - Oktsec Reference for AI Agents
 
-Oktsec is a security proxy for AI agent-to-agent communication. It sits between agents, scanning messages for prompt injection, credential leaks, command execution, and other threats. Single Go binary, no LLM, deterministic.
+Oktsec is a security proxy and MCP gateway for AI agent-to-agent communication. It sits between agents and their MCP servers, scanning messages and tool calls for prompt injection, credential leaks, command execution, and other threats. Single Go binary, no LLM, deterministic. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk).
 
 ## Quick Start
 
@@ -27,6 +27,20 @@ Rate limit -> Identity verification -> Suspension check -> ACL check -> Content 
 ```
 
 Verdicts: `clean` (deliver), `flag` (deliver + log), `quarantine` (hold for human review), `block` (reject).
+
+## MCP Gateway Mode
+
+Run `oktsec gateway` to intercept all MCP tool calls to backend servers. The same security pipeline runs on every `tools/call`. Configure backends in `oktsec.yaml`:
+
+```yaml
+mcp_servers:
+  filesystem:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+```
+
+The gateway auto-discovers tools from all backends, applies per-agent allowlists, and can optionally scan backend responses.
 
 ## Sending a Message
 

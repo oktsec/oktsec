@@ -7,11 +7,12 @@ import (
 	"log/slog"
 	"strings"
 
-	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
+	"github.com/oktsec/oktsec/internal/mcputil"
 )
 
 type handlers struct {
@@ -24,152 +25,136 @@ type handlers struct {
 
 // --- Tool definitions ---
 
-func scanMessageTool() mcplib.Tool {
-	return mcplib.NewTool("scan_message",
-		mcplib.WithDescription(
-			"Scan an inter-agent message for security threats. "+
-				"Checks for prompt injection, credential leaks, PII exposure, relay injection, "+
-				"and 140+ other threat patterns.",
-		),
-		mcplib.WithString("content",
-			mcplib.Required(),
-			mcplib.Description("The message content to scan"),
-		),
-		mcplib.WithString("from",
-			mcplib.Description("Sender agent name"),
-		),
-		mcplib.WithString("to",
-			mcplib.Description("Recipient agent name"),
-		),
-		mcplib.WithReadOnlyHintAnnotation(true),
-		mcplib.WithDestructiveHintAnnotation(false),
-		mcplib.WithOpenWorldHintAnnotation(false),
-	)
+// jsonSchema builds a minimal JSON Schema object for tool InputSchema.
+func jsonSchema(properties map[string]any, required []string) map[string]any {
+	s := map[string]any{
+		"type":       "object",
+		"properties": properties,
+	}
+	if len(required) > 0 {
+		s["required"] = required
+	}
+	return s
 }
 
-func listAgentsTool() mcplib.Tool {
-	return mcplib.NewTool("list_agents",
-		mcplib.WithDescription(
-			"List all agents configured in the oktsec policy, including their access control rules.",
-		),
-		mcplib.WithReadOnlyHintAnnotation(true),
-		mcplib.WithDestructiveHintAnnotation(false),
-		mcplib.WithOpenWorldHintAnnotation(false),
-	)
+func prop(typ, desc string) map[string]any {
+	return map[string]any{"type": typ, "description": desc}
 }
 
-func auditQueryTool() mcplib.Tool {
-	return mcplib.NewTool("audit_query",
-		mcplib.WithDescription(
-			"Query the oktsec audit log. Returns recent inter-agent messages with status, "+
-				"policy decisions, and security findings.",
-		),
-		mcplib.WithString("status",
-			mcplib.Description("Filter by status: delivered, blocked, rejected, quarantined"),
-		),
-		mcplib.WithString("agent",
-			mcplib.Description("Filter by agent name (matches from or to)"),
-		),
-		mcplib.WithNumber("limit",
-			mcplib.Description("Maximum entries to return (default 20)"),
-		),
-		mcplib.WithReadOnlyHintAnnotation(true),
-		mcplib.WithDestructiveHintAnnotation(false),
-		mcplib.WithOpenWorldHintAnnotation(false),
-	)
+func scanMessageTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name: "scan_message",
+		Description: "Scan an inter-agent message for security threats. " +
+			"Checks for prompt injection, credential leaks, PII exposure, relay injection, " +
+			"and 140+ other threat patterns.",
+		InputSchema: jsonSchema(map[string]any{
+			"content": prop("string", "The message content to scan"),
+			"from":    prop("string", "Sender agent name"),
+			"to":      prop("string", "Recipient agent name"),
+		}, []string{"content"}),
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}
 }
 
-func getPolicyTool() mcplib.Tool {
-	return mcplib.NewTool("get_policy",
-		mcplib.WithDescription(
-			"Get the security policy for a specific agent, including which agents it can message "+
-				"and what content restrictions apply.",
-		),
-		mcplib.WithString("agent",
-			mcplib.Required(),
-			mcplib.Description("Agent name to look up"),
-		),
-		mcplib.WithReadOnlyHintAnnotation(true),
-		mcplib.WithDestructiveHintAnnotation(false),
-		mcplib.WithOpenWorldHintAnnotation(false),
-	)
+func listAgentsTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name: "list_agents",
+		Description: "List all agents configured in the oktsec policy, " +
+			"including their access control rules.",
+		InputSchema: jsonSchema(nil, nil),
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}
 }
 
-func verifyAgentTool() mcplib.Tool {
-	return mcplib.NewTool("verify_agent",
-		mcplib.WithDescription(
-			"Verify an Ed25519 signature from an agent. Checks that the message was "+
-				"signed by the claimed sender using their registered public key.",
-		),
-		mcplib.WithString("agent",
-			mcplib.Required(),
-			mcplib.Description("Agent name who claims to have signed the message"),
-		),
-		mcplib.WithString("from",
-			mcplib.Required(),
-			mcplib.Description("Sender agent name (used in canonical payload)"),
-		),
-		mcplib.WithString("to",
-			mcplib.Required(),
-			mcplib.Description("Recipient agent name (used in canonical payload)"),
-		),
-		mcplib.WithString("content",
-			mcplib.Required(),
-			mcplib.Description("Message content that was signed"),
-		),
-		mcplib.WithString("timestamp",
-			mcplib.Required(),
-			mcplib.Description("Timestamp used when signing (RFC3339)"),
-		),
-		mcplib.WithString("signature",
-			mcplib.Required(),
-			mcplib.Description("Base64-encoded Ed25519 signature"),
-		),
-		mcplib.WithReadOnlyHintAnnotation(true),
-		mcplib.WithDestructiveHintAnnotation(false),
-		mcplib.WithOpenWorldHintAnnotation(false),
-	)
+func auditQueryTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name: "audit_query",
+		Description: "Query the oktsec audit log. Returns recent inter-agent messages " +
+			"with status, policy decisions, and security findings.",
+		InputSchema: jsonSchema(map[string]any{
+			"status": prop("string", "Filter by status: delivered, blocked, rejected, quarantined"),
+			"agent":  prop("string", "Filter by agent name (matches from or to)"),
+			"limit":  prop("number", "Maximum entries to return (default 20)"),
+		}, nil),
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}
 }
 
-func reviewQuarantineTool() mcplib.Tool {
-	return mcplib.NewTool("review_quarantine",
-		mcplib.WithDescription(
-			"Review and manage quarantined messages. List pending items, view details, "+
-				"or approve/reject messages held for human review.",
-		),
-		mcplib.WithString("action",
-			mcplib.Required(),
-			mcplib.Description("Action to perform: list, detail, approve, reject"),
-		),
-		mcplib.WithString("id",
-			mcplib.Description("Quarantine item ID (required for detail, approve, reject)"),
-		),
-		mcplib.WithNumber("limit",
-			mcplib.Description("Maximum items to return for list action (default 20)"),
-		),
-		mcplib.WithString("status",
-			mcplib.Description("Filter by status for list action: pending, approved, rejected, expired"),
-		),
-		mcplib.WithReadOnlyHintAnnotation(false),
-		mcplib.WithDestructiveHintAnnotation(false),
-		mcplib.WithOpenWorldHintAnnotation(false),
-	)
+func getPolicyTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name: "get_policy",
+		Description: "Get the security policy for a specific agent, including which agents " +
+			"it can message and what content restrictions apply.",
+		InputSchema: jsonSchema(map[string]any{
+			"agent": prop("string", "Agent name to look up"),
+		}, []string{"agent"}),
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}
 }
+
+func verifyAgentTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name: "verify_agent",
+		Description: "Verify an Ed25519 signature from an agent. Checks that the message " +
+			"was signed by the claimed sender using their registered public key.",
+		InputSchema: jsonSchema(map[string]any{
+			"agent":     prop("string", "Agent name who claims to have signed the message"),
+			"from":      prop("string", "Sender agent name (used in canonical payload)"),
+			"to":        prop("string", "Recipient agent name (used in canonical payload)"),
+			"content":   prop("string", "Message content that was signed"),
+			"timestamp": prop("string", "Timestamp used when signing (RFC3339)"),
+			"signature": prop("string", "Base64-encoded Ed25519 signature"),
+		}, []string{"agent", "from", "to", "content", "timestamp", "signature"}),
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}
+}
+
+func reviewQuarantineTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name: "review_quarantine",
+		Description: "Review and manage quarantined messages. List pending items, " +
+			"view details, or approve/reject messages held for human review.",
+		InputSchema: jsonSchema(map[string]any{
+			"action": prop("string", "Action to perform: list, detail, approve, reject"),
+			"id":     prop("string", "Quarantine item ID (required for detail, approve, reject)"),
+			"limit":  prop("number", "Maximum items to return for list action (default 20)"),
+			"status": prop("string", "Filter by status for list action: pending, approved, rejected, expired"),
+		}, []string{"action"}),
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 // --- Handlers ---
 
-func (h *handlers) handleScanMessage(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	content := request.GetString("content", "")
+func (h *handlers) handleScanMessage(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.Params.Arguments
+	content := mcputil.GetString(args, "content", "")
 	if content == "" {
-		return mcplib.NewToolResultError("content is required"), nil
+		return mcputil.NewToolResultError("content is required"), nil
 	}
 
-	from := request.GetString("from", "")
-	to := request.GetString("to", "")
+	from := mcputil.GetString(args, "from", "")
+	to := mcputil.GetString(args, "to", "")
 
-	outcome, err := h.scanner.ScanContent(ctx, content)
+	outcome, err := h.scanner.ScanContent(context.Background(), content)
 	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("scan failed: %v", err)), nil
+		return mcputil.NewToolResultError(fmt.Sprintf("scan failed: %v", err)), nil
 	}
 
 	type finding struct {
@@ -197,10 +182,10 @@ func (h *handlers) handleScanMessage(ctx context.Context, request mcplib.CallToo
 	}
 
 	data, _ := json.MarshalIndent(result, "", "  ")
-	return mcplib.NewToolResultText(string(data)), nil
+	return mcputil.NewToolResultText(string(data)), nil
 }
 
-func (h *handlers) handleListAgents(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+func (h *handlers) handleListAgents(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	type agentInfo struct {
 		Name           string   `json:"name"`
 		CanMessage     []string `json:"can_message"`
@@ -223,13 +208,14 @@ func (h *handlers) handleListAgents(ctx context.Context, request mcplib.CallTool
 	}
 
 	data, _ := json.MarshalIndent(result, "", "  ")
-	return mcplib.NewToolResultText(string(data)), nil
+	return mcputil.NewToolResultText(string(data)), nil
 }
 
-func (h *handlers) handleAuditQuery(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	status := request.GetString("status", "")
-	agent := request.GetString("agent", "")
-	limit := request.GetInt("limit", 0)
+func (h *handlers) handleAuditQuery(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.Params.Arguments
+	status := mcputil.GetString(args, "status", "")
+	agent := mcputil.GetString(args, "agent", "")
+	limit := mcputil.GetInt(args, "limit", 0)
 	if limit <= 0 {
 		limit = 20
 	}
@@ -240,17 +226,18 @@ func (h *handlers) handleAuditQuery(ctx context.Context, request mcplib.CallTool
 		Limit:  limit,
 	})
 	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
+		return mcputil.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
 	}
 
 	data, _ := json.MarshalIndent(entries, "", "  ")
-	return mcplib.NewToolResultText(string(data)), nil
+	return mcputil.NewToolResultText(string(data)), nil
 }
 
-func (h *handlers) handleGetPolicy(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	agentName := request.GetString("agent", "")
+func (h *handlers) handleGetPolicy(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.Params.Arguments
+	agentName := mcputil.GetString(args, "agent", "")
 	if agentName == "" {
-		return mcplib.NewToolResultError("agent is required"), nil
+		return mcputil.NewToolResultError("agent is required"), nil
 	}
 
 	agent, ok := h.cfg.Agents[agentName]
@@ -259,7 +246,7 @@ func (h *handlers) handleGetPolicy(ctx context.Context, request mcplib.CallToolR
 		for name := range h.cfg.Agents {
 			known = append(known, name)
 		}
-		return mcplib.NewToolResultText(fmt.Sprintf("Agent %q not found. Known agents: %s", agentName, strings.Join(known, ", "))), nil
+		return mcputil.NewToolResultText(fmt.Sprintf("Agent %q not found. Known agents: %s", agentName, strings.Join(known, ", "))), nil
 	}
 
 	result := map[string]any{
@@ -270,23 +257,24 @@ func (h *handlers) handleGetPolicy(ctx context.Context, request mcplib.CallToolR
 	}
 
 	data, _ := json.MarshalIndent(result, "", "  ")
-	return mcplib.NewToolResultText(string(data)), nil
+	return mcputil.NewToolResultText(string(data)), nil
 }
 
-func (h *handlers) handleVerifyAgent(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	agentName := request.GetString("agent", "")
-	from := request.GetString("from", "")
-	to := request.GetString("to", "")
-	content := request.GetString("content", "")
-	timestamp := request.GetString("timestamp", "")
-	signature := request.GetString("signature", "")
+func (h *handlers) handleVerifyAgent(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.Params.Arguments
+	agentName := mcputil.GetString(args, "agent", "")
+	from := mcputil.GetString(args, "from", "")
+	to := mcputil.GetString(args, "to", "")
+	content := mcputil.GetString(args, "content", "")
+	timestamp := mcputil.GetString(args, "timestamp", "")
+	signature := mcputil.GetString(args, "signature", "")
 
 	if agentName == "" || from == "" || to == "" || content == "" || timestamp == "" || signature == "" {
-		return mcplib.NewToolResultError("agent, from, to, content, timestamp, and signature are all required"), nil
+		return mcputil.NewToolResultError("agent, from, to, content, timestamp, and signature are all required"), nil
 	}
 
 	if h.keys == nil {
-		return mcplib.NewToolResultError("no keystore configured — keys are needed for verification"), nil
+		return mcputil.NewToolResultError("no keystore configured — keys are needed for verification"), nil
 	}
 
 	pubKey, ok := h.keys.Get(agentName)
@@ -298,7 +286,7 @@ func (h *handlers) handleVerifyAgent(ctx context.Context, request mcplib.CallToo
 			"known":    known,
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
-		return mcplib.NewToolResultText(string(data)), nil
+		return mcputil.NewToolResultText(string(data)), nil
 	}
 
 	vr := identity.VerifyMessage(pubKey, from, to, content, timestamp, signature)
@@ -313,16 +301,17 @@ func (h *handlers) handleVerifyAgent(ctx context.Context, request mcplib.CallToo
 	}
 
 	data, _ := json.MarshalIndent(result, "", "  ")
-	return mcplib.NewToolResultText(string(data)), nil
+	return mcputil.NewToolResultText(string(data)), nil
 }
 
-func (h *handlers) handleReviewQuarantine(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	action := request.GetString("action", "")
-	id := request.GetString("id", "")
+func (h *handlers) handleReviewQuarantine(_ context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := request.Params.Arguments
+	action := mcputil.GetString(args, "action", "")
+	id := mcputil.GetString(args, "id", "")
 
 	switch action {
 	case "list":
-		return h.quarantineList(request)
+		return h.quarantineList(args)
 	case "detail":
 		return h.quarantineDetail(id)
 	case "approve":
@@ -330,7 +319,7 @@ func (h *handlers) handleReviewQuarantine(ctx context.Context, request mcplib.Ca
 	case "reject":
 		return h.quarantineDecide(id, "reject")
 	default:
-		return mcplib.NewToolResultError("action must be one of: list, detail, approve, reject"), nil
+		return mcputil.NewToolResultError("action must be one of: list, detail, approve, reject"), nil
 	}
 }
 
@@ -344,16 +333,16 @@ type quarantineSummary struct {
 	ExpiresAt string `json:"expires_at"`
 }
 
-func (h *handlers) quarantineList(request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	limit := request.GetInt("limit", 0)
+func (h *handlers) quarantineList(args json.RawMessage) (*mcp.CallToolResult, error) {
+	limit := mcputil.GetInt(args, "limit", 0)
 	if limit <= 0 {
 		limit = 20
 	}
-	status := request.GetString("status", "pending")
+	status := mcputil.GetString(args, "status", "pending")
 
 	items, err := h.audit.QuarantineQuery(status, "", limit)
 	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
+		return mcputil.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
 	}
 	var summaries []quarantineSummary
 	for _, item := range items {
@@ -368,27 +357,27 @@ func (h *handlers) quarantineList(request mcplib.CallToolRequest) (*mcplib.CallT
 		})
 	}
 	out, _ := json.MarshalIndent(map[string]any{"items": summaries, "count": len(summaries)}, "", "  ")
-	return mcplib.NewToolResultText(string(out)), nil
+	return mcputil.NewToolResultText(string(out)), nil
 }
 
-func (h *handlers) quarantineDetail(id string) (*mcplib.CallToolResult, error) {
+func (h *handlers) quarantineDetail(id string) (*mcp.CallToolResult, error) {
 	if id == "" {
-		return mcplib.NewToolResultError("id is required for detail action"), nil
+		return mcputil.NewToolResultError("id is required for detail action"), nil
 	}
 	item, err := h.audit.QuarantineByID(id)
 	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
+		return mcputil.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
 	}
 	if item == nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("quarantine item %q not found", id)), nil
+		return mcputil.NewToolResultError(fmt.Sprintf("quarantine item %q not found", id)), nil
 	}
 	out, _ := json.MarshalIndent(item, "", "  ")
-	return mcplib.NewToolResultText(string(out)), nil
+	return mcputil.NewToolResultText(string(out)), nil
 }
 
-func (h *handlers) quarantineDecide(id, action string) (*mcplib.CallToolResult, error) {
+func (h *handlers) quarantineDecide(id, action string) (*mcp.CallToolResult, error) {
 	if id == "" {
-		return mcplib.NewToolResultError(fmt.Sprintf("id is required for %s action", action)), nil
+		return mcputil.NewToolResultError(fmt.Sprintf("id is required for %s action", action)), nil
 	}
 	var err error
 	if action == "approve" {
@@ -397,9 +386,9 @@ func (h *handlers) quarantineDecide(id, action string) (*mcplib.CallToolResult, 
 		err = h.audit.QuarantineReject(id, "mcp")
 	}
 	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("%s failed: %v", action, err)), nil
+		return mcputil.NewToolResultError(fmt.Sprintf("%s failed: %v", action, err)), nil
 	}
 	status := action + "d" // approved or rejected
 	out, _ := json.MarshalIndent(map[string]string{"status": status, "id": id}, "", "  ")
-	return mcplib.NewToolResultText(string(out)), nil
+	return mcputil.NewToolResultText(string(out)), nil
 }
