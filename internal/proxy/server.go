@@ -57,7 +57,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	scanner := engine.NewScanner(cfg.CustomRulesDir)
 
 	// Audit store
-	auditStore, err := audit.NewStore("oktsec.db", logger, cfg.Quarantine.RetentionDays)
+	auditStore, err := audit.NewStore(cfg.DBPath, logger, cfg.Quarantine.RetentionDays)
 	if err != nil {
 		return nil, fmt.Errorf("opening audit store: %w", err)
 	}

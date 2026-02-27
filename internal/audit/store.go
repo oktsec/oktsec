@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/oktsec/oktsec/internal/safefile"
 	_ "modernc.org/sqlite"
 )
 
@@ -116,7 +119,24 @@ func (s *Store) DB() *sql.DB { return s.db }
 
 // NewStore opens (or creates) the SQLite audit database.
 // retentionDays controls automatic purging of old entries (0 = no purging).
+// If the database file or its parent directory is a symlink, it is rejected.
 func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store, error) {
+	if dbPath != ":memory:" {
+		// Reject symlinked parent directory
+		parentDir := filepath.Dir(dbPath)
+		if info, err := os.Lstat(parentDir); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return nil, fmt.Errorf("audit db parent directory is a symlink: %s", parentDir)
+			}
+		}
+		// Reject symlinked database file (only if it already exists)
+		if _, err := os.Stat(dbPath); err == nil {
+			if err := safefile.RejectSymlink(dbPath); err != nil {
+				return nil, fmt.Errorf("audit db: %w", err)
+			}
+		}
+	}
+
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("opening audit db: %w", err)

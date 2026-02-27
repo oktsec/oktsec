@@ -4,7 +4,9 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
+	"github.com/oktsec/oktsec/internal/safefile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,6 +19,7 @@ type Config struct {
 	Agents         map[string]Agent   `yaml:"agents"`
 	Rules          []RuleAction       `yaml:"rules"`
 	Webhooks       []Webhook          `yaml:"webhooks"`
+	DBPath         string             `yaml:"db_path,omitempty"`
 	CustomRulesDir string             `yaml:"custom_rules_dir,omitempty"`
 	Quarantine     QuarantineConfig   `yaml:"quarantine,omitempty"`
 	RateLimit      RateLimitConfig    `yaml:"rate_limit,omitempty"`
@@ -108,8 +111,9 @@ func (c *Config) WebhookByName(name string) *Webhook {
 }
 
 // Load reads and parses an oktsec config file.
+// The file must not be a symlink and must not exceed 1 MB.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := safefile.ReadFileMax(path, 1<<20)
 	if err != nil {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -136,6 +140,18 @@ func Load(path string) (*Config, error) {
 	// Apply zero-value defaults after unmarshal
 	if cfg.Quarantine.ExpiryHours == 0 {
 		cfg.Quarantine.ExpiryHours = 24
+	}
+
+	// Default and resolve db_path to absolute
+	if cfg.DBPath == "" {
+		cfg.DBPath = "oktsec.db"
+	}
+	if cfg.DBPath != ":memory:" {
+		abs, err := filepath.Abs(cfg.DBPath)
+		if err != nil {
+			return nil, fmt.Errorf("resolving db_path: %w", err)
+		}
+		cfg.DBPath = abs
 	}
 
 	return cfg, nil
