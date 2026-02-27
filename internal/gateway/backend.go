@@ -7,28 +7,27 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os/exec"
 
-	"github.com/mark3labs/mcp-go/client"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/oktsec/oktsec/internal/config"
 )
 
-// MCPClient is the subset of mcp-go client methods used by Backend.
+// MCPSession is the subset of mcp.ClientSession methods used by Backend.
 // Extracted as an interface for testing.
-type MCPClient interface {
-	Initialize(ctx context.Context, request mcp.InitializeRequest) (*mcp.InitializeResult, error)
-	ListTools(ctx context.Context, request mcp.ListToolsRequest) (*mcp.ListToolsResult, error)
-	CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+type MCPSession interface {
+	ListTools(ctx context.Context, params *mcp.ListToolsParams) (*mcp.ListToolsResult, error)
+	CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error)
 	Close() error
 }
 
 // Backend wraps a single backend MCP server connection.
 type Backend struct {
-	Name   string
-	Config config.MCPServerConfig
-	Tools  []mcp.Tool
-	client MCPClient
-	logger *slog.Logger
+	Name    string
+	Config  config.MCPServerConfig
+	Tools   []*mcp.Tool
+	session MCPSession
+	logger  *slog.Logger
 }
 
 // NewBackend creates a backend that will connect to the given MCP server.
@@ -40,41 +39,27 @@ func NewBackend(name string, cfg config.MCPServerConfig, logger *slog.Logger) *B
 	}
 }
 
-// NewBackendWithClient creates a backend with a pre-initialized client (for testing).
-func NewBackendWithClient(name string, c MCPClient, logger *slog.Logger) *Backend {
+// NewBackendWithSession creates a backend with a pre-connected session (for testing).
+func NewBackendWithSession(name string, s MCPSession, logger *slog.Logger) *Backend {
 	return &Backend{
-		Name:   name,
-		client: c,
-		logger: logger,
+		Name:    name,
+		session: s,
+		logger:  logger,
 	}
 }
 
 // Connect starts the transport, initializes the MCP protocol, and discovers tools.
 func (b *Backend) Connect(ctx context.Context) error {
-	if b.client == nil {
-		c, err := b.createClient()
+	if b.session == nil {
+		s, err := b.createSession(ctx)
 		if err != nil {
-			return fmt.Errorf("backend %s: creating client: %w", b.Name, err)
+			return fmt.Errorf("backend %s: creating session: %w", b.Name, err)
 		}
-		b.client = c
+		b.session = s
 	}
 
-	// Initialize MCP protocol
-	_, err := b.client.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-			ClientInfo: mcp.Implementation{
-				Name:    "oktsec-gateway",
-				Version: "0.1.0",
-			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("backend %s: initialize: %w", b.Name, err)
-	}
-
-	// Discover tools
-	result, err := b.client.ListTools(ctx, mcp.ListToolsRequest{})
+	// Discover tools (initialization is implicit in Client.Connect)
+	result, err := b.session.ListTools(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("backend %s: list tools: %w", b.Name, err)
 	}
@@ -84,40 +69,45 @@ func (b *Backend) Connect(ctx context.Context) error {
 }
 
 // CallTool forwards a tool call to the backend.
-func (b *Backend) CallTool(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return b.client.CallTool(ctx, req)
+func (b *Backend) CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+	return b.session.CallTool(ctx, params)
 }
 
 // Close shuts down the backend connection.
 func (b *Backend) Close() error {
-	if b.client != nil {
-		return b.client.Close()
+	if b.session != nil {
+		return b.session.Close()
 	}
 	return nil
 }
 
-// createClient builds the appropriate mcp-go client based on transport type.
-func (b *Backend) createClient() (MCPClient, error) {
+// createSession builds the appropriate transport and connects to the backend.
+func (b *Backend) createSession(ctx context.Context) (MCPSession, error) {
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "oktsec-gateway",
+		Version: "0.1.0",
+	}, nil)
+
+	var transport mcp.Transport
 	switch b.Config.Transport {
 	case "stdio":
-		var env []string
+		args := b.Config.Args
+		cmd := exec.CommandContext(ctx, b.Config.Command, args...)
 		for k, v := range b.Config.Env {
-			env = append(env, k+"="+v)
+			cmd.Env = append(cmd.Env, k+"="+v)
 		}
-		c, err := client.NewStdioMCPClient(b.Config.Command, env, b.Config.Args...)
-		if err != nil {
-			return nil, fmt.Errorf("stdio transport: %w", err)
-		}
-		return c, nil
+		transport = &mcp.CommandTransport{Command: cmd}
 
 	case "http":
-		c, err := client.NewStreamableHttpClient(b.Config.URL)
-		if err != nil {
-			return nil, fmt.Errorf("http transport: %w", err)
-		}
-		return c, nil
+		transport = &mcp.StreamableClientTransport{Endpoint: b.Config.URL}
 
 	default:
 		return nil, fmt.Errorf("unsupported transport: %s", b.Config.Transport)
 	}
+
+	session, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connecting: %w", err)
+	}
+	return session, nil
 }

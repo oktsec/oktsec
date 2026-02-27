@@ -54,7 +54,7 @@ Tools: scan_message, list_agents, audit_query, get_policy, verify_agent`,
 			}
 
 			s := mcpserver.NewServer(cfg, scanner, auditStore, keys, logger)
-			return mcpserver.Serve(s)
+			return mcpserver.Serve(cmd.Context(), s)
 		},
 	}
 }

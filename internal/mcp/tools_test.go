@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
@@ -59,12 +59,28 @@ func newTestHandlers(t *testing.T) *handlers {
 	}
 }
 
-func makeRequest(args map[string]any) mcplib.CallToolRequest {
-	return mcplib.CallToolRequest{
-		Params: mcplib.CallToolParams{
-			Arguments: args,
+func makeRequest(args map[string]any) *mcp.CallToolRequest {
+	var raw json.RawMessage
+	if args != nil {
+		raw, _ = json.Marshal(args)
+	}
+	return &mcp.CallToolRequest{
+		Params: &mcp.CallToolParamsRaw{
+			Arguments: raw,
 		},
 	}
+}
+
+func getText(t *testing.T, result *mcp.CallToolResult) string {
+	t.Helper()
+	if len(result.Content) == 0 {
+		t.Fatal("no content in result")
+	}
+	tc, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("content[0] type = %T, want *mcp.TextContent", result.Content[0])
+	}
+	return tc.Text
 }
 
 // --- scan_message ---
@@ -86,7 +102,7 @@ func TestScanMessage_Clean(t *testing.T) {
 	}
 
 	var data map[string]any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +123,7 @@ func TestScanMessage_PromptInjection(t *testing.T) {
 	}
 
 	var data map[string]any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -146,7 +162,7 @@ func TestListAgents(t *testing.T) {
 	}
 
 	var data map[string]any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -175,7 +191,7 @@ func TestAuditQuery_Empty(t *testing.T) {
 	}
 
 	var entries []any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -206,7 +222,7 @@ func TestAuditQuery_WithEntries(t *testing.T) {
 	}
 
 	var entries []any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -234,7 +250,7 @@ func TestAuditQuery_FilterByStatus(t *testing.T) {
 	result, _ := h.handleAuditQuery(context.Background(), req)
 
 	var entries []any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &entries); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -255,7 +271,7 @@ func TestGetPolicy_KnownAgent(t *testing.T) {
 	}
 
 	var data map[string]any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -281,7 +297,7 @@ func TestGetPolicy_UnknownAgent(t *testing.T) {
 		t.Error("unknown agent should return text, not error")
 	}
 
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if !strings.Contains(text, "not found") {
 		t.Errorf("expected 'not found' in response, got: %s", text)
 	}
@@ -353,7 +369,7 @@ func TestVerifyAgent_UnknownAgent(t *testing.T) {
 	}
 
 	var data map[string]any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -396,7 +412,7 @@ func TestVerifyAgent_ValidSignature(t *testing.T) {
 	}
 
 	var data map[string]any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -430,7 +446,7 @@ func TestReviewQuarantine_ListEmpty(t *testing.T) {
 	}
 
 	var data map[string]any
-	text := result.Content[0].(mcplib.TextContent).Text
+	text := getText(t, result)
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -478,4 +494,3 @@ func TestReviewQuarantine_RejectMissingID(t *testing.T) {
 		t.Error("expected error for missing id on reject")
 	}
 }
-
