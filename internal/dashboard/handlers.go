@@ -129,6 +129,21 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	findings, _, _ := auditcheck.RunChecks(s.cfg, configDir)
 	score, grade := auditcheck.ComputeHealthScore(findings)
 
+	topRules, _ := s.audit.QueryTopRules(5)
+	agentRisks, _ := s.audit.QueryAgentRisk()
+	unsigned, totalRecent, _ := s.audit.QueryUnsignedRate()
+
+	detectionRate := 0
+	if stats.TotalMessages > 0 {
+		detectionRate = (stats.Blocked + stats.Quarantined) * 100 / stats.TotalMessages
+	}
+	unsignedPct := 0
+	if totalRecent > 0 {
+		unsignedPct = unsigned * 100 / totalRecent
+	}
+
+	avgLatency, _ := s.audit.QueryAvgLatency()
+
 	data := map[string]any{
 		"Active":        "overview",
 		"Stats":         stats,
@@ -139,6 +154,12 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"PendingReview": pendingReview,
 		"Score":         score,
 		"Grade":         grade,
+		"TopRules":      topRules,
+		"AgentRisks":    agentRisks,
+		"DetectionRate": detectionRate,
+		"UnsignedCount": unsigned,
+		"UnsignedPct":   unsignedPct,
+		"AvgLatency":    avgLatency,
 	}
 
 	s.renderTemplate(w, overviewTmpl, data)
@@ -315,11 +336,87 @@ func (s *Server) getHourlyChart() []hourlyBar {
 	return bars
 }
 
+type agentRow struct {
+	Name        string
+	Description string
+	CanMessage  []string
+	Tags        []string
+	Suspended   bool
+	Total       int
+	Blocked     int
+	BlockedPct  int
+	RiskScore   float64
+	HasKey      bool
+	LastSeen    string
+}
+
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
+	// Build risk map
+	agentRisks, _ := s.audit.QueryAgentRisk()
+	riskMap := make(map[string]*audit.AgentRisk)
+	for i := range agentRisks {
+		riskMap[agentRisks[i].Agent] = &agentRisks[i]
+	}
+
+	// Build agent rows
+	var rows []agentRow
+	for name, agent := range s.cfg.Agents {
+		row := agentRow{
+			Name:        name,
+			Description: agent.Description,
+			CanMessage:  agent.CanMessage,
+			Tags:        agent.Tags,
+			Suspended:   agent.Suspended,
+		}
+
+		// Traffic stats
+		if stats, err := s.audit.QueryAgentStats(name); err == nil && stats != nil {
+			row.Total = stats.Total
+			row.Blocked = stats.Blocked
+			if stats.Total > 0 {
+				row.BlockedPct = (stats.Blocked + stats.Rejected) * 100 / stats.Total
+			}
+		}
+
+		// Risk score
+		if ar, ok := riskMap[name]; ok {
+			row.RiskScore = ar.RiskScore
+		}
+
+		// Key status
+		if s.keys != nil {
+			if _, ok := s.keys.Get(name); ok {
+				row.HasKey = true
+			}
+		}
+
+		// Last seen
+		if entries, err := s.audit.Query(audit.QueryOpts{Agent: name, Limit: 1}); err == nil && len(entries) > 0 {
+			row.LastSeen = entries[0].Timestamp
+		}
+
+		rows = append(rows, row)
+	}
+
+	// Sort by name for stable ordering
+	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+
+	// Discover agents in traffic but not in config
+	var discovered []string
+	if trafficAgents, err := s.audit.QueryTrafficAgents(); err == nil {
+		for _, ta := range trafficAgents {
+			if _, ok := s.cfg.Agents[ta]; !ok && ta != "" {
+				discovered = append(discovered, ta)
+			}
+		}
+	}
+
 	data := map[string]any{
-		"Active":     "agents",
-		"Agents":     s.cfg.Agents,
-		"RequireSig": s.cfg.Identity.RequireSignature,
+		"Active":           "agents",
+		"Agents":           s.cfg.Agents,
+		"AgentRows":        rows,
+		"DiscoveredAgents": discovered,
+		"RequireSig":       s.cfg.Identity.RequireSignature,
 	}
 
 	s.renderTemplate(w, agentsTmpl, data)
@@ -666,19 +763,49 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Top triggered rules for this agent
+	topRules, _ := s.audit.QueryAgentTopRules(name, 5)
+
+	// Risk score for this agent
+	var riskScore float64
+	if agentRisks, err := s.audit.QueryAgentRisk(); err == nil {
+		for _, ar := range agentRisks {
+			if ar.Agent == name {
+				riskScore = ar.RiskScore
+				break
+			}
+		}
+	}
+
+	// Communication partners — edges involving this agent
+	var commPartners []audit.EdgeStat
+	if edges, err := s.audit.QueryEdgeStats(); err == nil {
+		for _, es := range edges {
+			if es.From == name || es.To == name {
+				commPartners = append(commPartners, es)
+			}
+		}
+		if len(commPartners) > 10 {
+			commPartners = commPartners[:10]
+		}
+	}
+
 	data := map[string]any{
-		"Active":      "agents",
-		"Name":        name,
-		"Agent":       agent,
-		"Suspended":   agent.Suspended,
-		"Entries":     entries,
-		"TotalMsgs":   stats.Total,
-		"Delivered":   stats.Delivered,
-		"Blocked":     stats.Blocked,
-		"Rejected":    stats.Rejected,
-		"Quarantined": stats.Quarantined,
-		"KeyFP":       keyFP,
-		"RequireSig":  s.cfg.Identity.RequireSignature,
+		"Active":       "agents",
+		"Name":         name,
+		"Agent":        agent,
+		"Suspended":    agent.Suspended,
+		"Entries":      entries,
+		"TotalMsgs":    stats.Total,
+		"Delivered":    stats.Delivered,
+		"Blocked":      stats.Blocked,
+		"Rejected":     stats.Rejected,
+		"Quarantined":  stats.Quarantined,
+		"KeyFP":        keyFP,
+		"RequireSig":   s.cfg.Identity.RequireSignature,
+		"TopRules":     topRules,
+		"RiskScore":    riskScore,
+		"CommPartners": commPartners,
 	}
 
 	s.renderTemplate(w, agentDetailTmpl, data)
@@ -1519,6 +1646,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		tab = "all"
 	}
 
+	// Read filter params
+	filterAgent := r.URL.Query().Get("agent")
+	filterSince := r.URL.Query().Get("since")
+
 	// Quarantine stats always loaded (cheap query, needed for badge count)
 	qStats, _ := s.audit.QuarantineStats()
 	if qStats == nil {
@@ -1536,12 +1667,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		if qStatusFilter == "" {
 			qStatusFilter = "pending"
 		}
-		qItems, _ = s.audit.QuarantineQuery(qStatusFilter, "", 50)
+		qItems, _ = s.audit.QuarantineQuery(qStatusFilter, filterAgent, 50)
 	case "blocked":
-		blockedEntries, _ = s.audit.Query(audit.QueryOpts{Statuses: []string{"blocked", "rejected"}, Limit: 50})
+		blockedEntries, _ = s.audit.Query(audit.QueryOpts{Statuses: []string{"blocked", "rejected"}, Agent: filterAgent, Since: filterSince, Limit: 50})
 	default: // "all"
-		entries, _ = s.audit.Query(audit.QueryOpts{Limit: 50})
+		entries, _ = s.audit.Query(audit.QueryOpts{Agent: filterAgent, Since: filterSince, Limit: 50})
 	}
+
+	// Build sorted agent names for filter dropdown
+	agentNames := make([]string, 0, len(s.cfg.Agents))
+	for name := range s.cfg.Agents {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
 
 	data := map[string]any{
 		"Active":         "events",
@@ -1553,6 +1691,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		"QPending":       qStats.Pending,
 		"BlockedEntries": blockedEntries,
 		"RequireSig":     s.cfg.Identity.RequireSignature,
+		"AgentNames":     agentNames,
+		"FilterAgent":    filterAgent,
+		"FilterSince":    filterSince,
 	}
 
 	s.renderTemplate(w, eventsTmpl, data)
