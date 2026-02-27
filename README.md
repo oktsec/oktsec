@@ -13,6 +13,7 @@
 <p align="center">
   <a href="#installation">Installation</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#mcp-gateway">Gateway</a> &middot;
   <a href="#openclaw-support">OpenClaw</a> &middot;
   <a href="#nanoclaw-support">NanoClaw</a> &middot;
   <a href="#deployment-audit">Audit</a> &middot;
@@ -24,7 +25,7 @@
 
 ---
 
-Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients, OpenClaw, and NanoClaw. No LLM. Single binary. **169 detection rules.** Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients, OpenClaw, and NanoClaw. No LLM. Single binary. **169 detection rules.** Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 
@@ -416,6 +417,54 @@ The `status` command provides a quick health summary:
 oktsec status
 ```
 
+## MCP gateway
+
+Oktsec can run as a **Streamable HTTP MCP gateway** that fronts one or more backend MCP servers, intercepting every `tools/call` with the full security pipeline. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk) (v1, Tier 1).
+
+```bash
+oktsec gateway --config ./oktsec.yaml
+```
+
+The gateway sits between your agents and their MCP servers:
+
+```
+Agent  ──►  Oktsec Gateway  ──►  Backend MCP Server(s)
+             │
+             ├─ Rate limit
+             ├─ Agent ACL check
+             ├─ Content scan (169 rules)
+             ├─ Rule overrides
+             ├─ Verdict (allow/block/quarantine)
+             ├─ Audit log
+             └─ Webhook notification
+```
+
+Configure backend MCP servers in `oktsec.yaml`:
+
+```yaml
+gateway:
+  enabled: true
+  port: 9090
+  endpoint_path: /mcp
+  scan_responses: true    # also scan what backends return
+
+mcp_servers:
+  filesystem:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+  github:
+    transport: http
+    url: https://api.github.com/mcp
+```
+
+Features:
+- **Tool discovery** — Automatically discovers and exposes tools from all backends
+- **Tool namespacing** — Conflicting tool names get prefixed (`backend_toolname`)
+- **Per-agent tool allowlists** — Restrict which tools each agent can access
+- **Response scanning** — Optionally scan backend responses before returning to the agent
+- **Auto-port** — Falls back to adjacent ports if the configured one is busy
+
 ## MCP server mode
 
 Oktsec can run as an MCP tool server, giving AI agents direct access to security operations:
@@ -753,7 +802,7 @@ Oktsec is aligned with the [OWASP Top 10 for Agentic Applications](https://genai
 ## Built on
 
 - **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills (148 detection rules, pattern matching, taint tracking, NLP injection detection)
-- **[go-sdk](https://github.com/modelcontextprotocol/go-sdk)** — Official Go SDK for Model Context Protocol
+- **[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)** — Official Tier 1 Go SDK for Model Context Protocol (v1, Linux Foundation governance, semver stability)
 - **Go stdlib** — `crypto/ed25519`, `net/http`, `log/slog`, `crypto/sha256`
 - **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** — Pure Go SQLite (no CGO)
 
