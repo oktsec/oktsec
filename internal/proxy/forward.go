@@ -36,8 +36,8 @@ func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, au
 		rateLimiter: rateLimiter,
 		logger:      logger,
 		transport: &http.Transport{
-			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
-			TLSHandshakeTimeout:  5 * time.Second,
+			DialContext:            safeDialContext,
+			TLSHandshakeTimeout:   5 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 			MaxIdleConns:          100,
 			IdleConnTimeout:       90 * time.Second,
@@ -78,8 +78,20 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dial the target
-	targetConn, err := net.DialTimeout("tcp", host, 10*time.Second)
+	// SSRF: validate host before connecting
+	connectHost := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		connectHost = h
+	}
+	if err := ValidateHost(connectHost); err != nil {
+		fp.logger.Warn("forward proxy: SSRF blocked CONNECT", "host", host, "error", err)
+		fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, "blocked", "proxy_ssrf_blocked", "", 0, start)
+		http.Error(w, "Forbidden: SSRF protection", http.StatusForbidden)
+		return
+	}
+
+	// Dial the target using SSRF-safe dialer
+	targetConn, err := safeDialContext(r.Context(), "tcp", host)
 	if err != nil {
 		fp.logger.Error("forward proxy: CONNECT dial failed", "host", host, "error", err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)

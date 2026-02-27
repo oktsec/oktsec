@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/oktsec/oktsec/internal/safefile"
 )
 
 // Keypair holds an Ed25519 key pair for an agent.
@@ -64,9 +66,10 @@ func (kp *Keypair) Save(dir string) error {
 }
 
 // LoadKeypair loads a full keypair (private + public) from disk.
+// Key files must not be symlinks and must not exceed 64 KB.
 func LoadKeypair(dir, name string) (*Keypair, error) {
 	privPath := filepath.Join(dir, name+".key")
-	privPEM, err := os.ReadFile(privPath)
+	privPEM, err := safefile.ReadFileMax(privPath, 64*1024)
 	if err != nil {
 		return nil, fmt.Errorf("reading private key: %w", err)
 	}
@@ -90,9 +93,10 @@ func LoadKeypair(dir, name string) (*Keypair, error) {
 }
 
 // LoadPublicKey loads only the public key from disk.
+// The file must not be a symlink and must not exceed 64 KB.
 func LoadPublicKey(dir, name string) (ed25519.PublicKey, error) {
 	pubPath := filepath.Join(dir, name+".pub")
-	pubPEM, err := os.ReadFile(pubPath)
+	pubPEM, err := safefile.ReadFileMax(pubPath, 64*1024)
 	if err != nil {
 		return nil, fmt.Errorf("reading public key: %w", err)
 	}
@@ -114,6 +118,9 @@ func LoadPublicKeys(dir string) (map[string]ed25519.PublicKey, error) {
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".pub" {
 			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			continue // skip symlinks
 		}
 		name := entry.Name()[:len(entry.Name())-4] // strip .pub
 		pub, err := LoadPublicKey(dir, name)
