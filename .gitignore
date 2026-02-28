@@ -27,6 +27,10 @@ Thumbs.db
 testdata/
 coverage.out
 
+# Demo artifacts
+demo/
+
 # Claude
 .claude/
 DOCS/
+CLAUDE.md
