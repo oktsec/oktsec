@@ -2,16 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.6.0] - 2026-02-28
 
 ### Added
 
 - **MCP gateway mode**: Streamable HTTP MCP gateway that fronts backend MCP servers, intercepting every `tools/call` with the full security pipeline. Supports stdio and HTTP backend transports, tool discovery, automatic namespacing, per-agent tool allowlists, response scanning, and auto-port fallback. New `oktsec gateway` command.
+- **`internal/safefile` package**: Symlink rejection via `Lstat`, size-limited reads via `ReadFileMax`, applied across config loading (1 MB cap), keypair loading (64 KB cap), and audit DB initialization.
+- **`internal/mcputil` package**: Convenience helpers (`GetString`, `GetInt`, `GetArguments`, `NewToolResultText`, `NewToolResultError`) bridging the go-sdk raw JSON API to typed accessors.
+- **SSRF hardening**: 21 RFC special-use CIDR ranges blocked for outbound connections (RFC 1918, loopback, link-local, TEST-NET, CGN, multicast, IPv6 ULA/Teredo/6to4/NAT64). Post-DNS `safeDialContext` validation prevents DNS rebinding. Alternative IP encoding detection (hex, octal, packed decimal). Applied to webhooks and forward proxy CONNECT tunneling.
+- **Credential redaction**: 15 regex patterns (Anthropic, GitHub, AWS, Slack, GitLab, Stripe, SendGrid, PEM keys, JWTs) strip secrets from API responses, audit trail, and webhook payloads.
+- **Replay protection**: 5-minute timestamp freshness window rejects replayed messages.
+- **MCP client discovery expanded to 17 clients**: Added OpenCode, Zed, Amp, Gemini CLI, Copilot CLI, Amazon Q, Claude Code, Roo Code, Kilo Code, BoltAI, JetBrains/Junie.
+- **Webhook enrichment**: Notifications now include `rule_name`, `category`, and `match` fields. Named webhook channels: define destinations once, reference by name in enforcement overrides. New template variables: `{{RULE_NAME}}`, `{{CATEGORY}}`, `{{MATCH}}`.
+- **Dashboard enhancements**: Redesigned login page with SVG shield icon and animations. New 404 page. Root splash page at `/`. Agent metrics page with risk scores, traffic stats, communication partners. Events page with agent/time-range filters. Overview with detection rate, unsigned message %, average latency, top rules.
+- **Dashboard analytics queries**: `QueryUnsignedRate`, `QueryTrafficAgents`, `QueryTopRules`, `QueryAgentRisk`, `QueryEdgeStats`, `QueryEdgeRules`, `QueryAgentTopRules`, `QueryAvgLatency`.
+- **curl|bash install script**: One-liner installation from GitHub releases with checksum verification and cross-platform OS/arch detection.
 
 ### Changed
 
 - **MCP SDK migration**: Replaced `mark3labs/mcp-go` (community, v0.44) with `modelcontextprotocol/go-sdk` (official Tier 1, v1.4.0). All MCP server, client, and transport code now uses the official SDK with semver stability guarantees and Linux Foundation governance.
-- **Documentation**: Added MCP gateway section to README, updated dependency references, added gateway configuration examples.
+- **Detection rules**: 169 total (148 Aguara + 6 IAP + 15 OpenClaw), up from 159 after aguara v0.3.1 bump.
+- **File I/O hardened**: Config loading (1 MB cap), keypair loading (64 KB cap), audit DB rejects symlinked paths, public key loader skips symlinked `.pub` entries.
+- **Configurable DB path**: New `db_path` config field (default `oktsec.db`), resolved to absolute path.
+
+### Fixed
+
+- **SSRF in forward proxy**: CONNECT tunneling now validates destinations through `safeDialContext` and `ValidateHost`.
+- **Symlink attacks**: Audit DB, config files, and key files reject symlinks via `Lstat` checks.
 
 ## [0.5.0] - 2026-02-24
 
