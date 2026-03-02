@@ -245,7 +245,7 @@ func (s *Server) checkAnomalies() {
 		return
 	}
 
-	risks, err := s.audit.QueryAgentRisk()
+	risks, err := s.audit.QueryAgentRisk("")
 	if err != nil {
 		s.logger.Error("anomaly check failed", "error", err)
 		return

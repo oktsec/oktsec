@@ -80,8 +80,8 @@ func main() {
 			{"Stats (all rows)", func() { _, _ = store.QueryStats() }},
 			{"Search LIKE", func() { _, _ = store.Query(audit.QueryOpts{Search: "agent-3", Limit: 50}) }},
 			{"Hourly stats (24h)", func() { _, _ = store.QueryHourlyStats() }},
-			{"Top rules (24h)", func() { _, _ = store.QueryTopRules(15) }},
-			{"Agent risk (24h)", func() { _, _ = store.QueryAgentRisk() }},
+			{"Top rules (24h)", func() { _, _ = store.QueryTopRules(15, "") }},
+			{"Agent risk (24h)", func() { _, _ = store.QueryAgentRisk("") }},
 		}
 
 		fi, _ := os.Stat(filepath.Join(dir, "bench.db"))

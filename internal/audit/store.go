@@ -229,6 +229,10 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		query += " AND timestamp >= ?"
 		args = append(args, opts.Since)
 	}
+	if opts.Until != "" {
+		query += " AND timestamp <= ?"
+		args = append(args, opts.Until)
+	}
 	if opts.Search != "" {
 		query += " AND (from_agent LIKE ? OR to_agent LIKE ? OR rules_triggered LIKE ? OR status LIKE ?)"
 		wild := "%" + opts.Search + "%"
@@ -466,6 +470,7 @@ type QueryOpts struct {
 	Agent      string
 	Unverified bool
 	Since      string
+	Until      string // upper bound for timestamp
 	Search     string
 	Limit      int
 }
@@ -677,8 +682,12 @@ func (s *Store) QueryTrafficAgents() ([]string, error) {
 }
 
 // QueryTopRules returns the most frequently triggered rules from the last 24 hours.
-func (s *Store) QueryTopRules(limit int) ([]RuleStat, error) {
-	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+// If since is non-empty, it is used as the cutoff instead of the default 24h.
+func (s *Store) QueryTopRules(limit int, since string) ([]RuleStat, error) {
+	cutoff := since
+	if cutoff == "" {
+		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
 	rows, err := s.db.Query(`SELECT rules_triggered FROM audit_log WHERE timestamp >= ? AND rules_triggered IS NOT NULL AND rules_triggered != '' AND rules_triggered != '[]'`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("query top rules: %w", err)
@@ -731,8 +740,12 @@ func (s *Store) QueryTopRules(limit int) ([]RuleStat, error) {
 }
 
 // QueryAgentRisk computes risk scores for all agents based on the last 24 hours.
-func (s *Store) QueryAgentRisk() ([]AgentRisk, error) {
-	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+// If since is non-empty, it is used as the cutoff instead of the default 24h.
+func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
+	cutoff := since
+	if cutoff == "" {
+		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
 	rows, err := s.db.Query(`SELECT from_agent, status, COUNT(*) FROM audit_log WHERE timestamp >= ? GROUP BY from_agent, status`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("query agent risk: %w", err)
@@ -781,8 +794,12 @@ func (s *Store) QueryAgentRisk() ([]AgentRisk, error) {
 }
 
 // QueryEdgeStats returns aggregated message counts per from→to edge for the last 24 hours.
-func (s *Store) QueryEdgeStats() ([]EdgeStat, error) {
-	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+// If since is non-empty, it is used as the cutoff instead of the default 24h.
+func (s *Store) QueryEdgeStats(since string) ([]EdgeStat, error) {
+	cutoff := since
+	if cutoff == "" {
+		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
 	rows, err := s.db.Query(`SELECT from_agent, to_agent, status, COUNT(*) FROM audit_log WHERE timestamp >= ? GROUP BY from_agent, to_agent, status`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("query edge stats: %w", err)
@@ -834,8 +851,12 @@ func (s *Store) QueryEdgeStats() ([]EdgeStat, error) {
 }
 
 // QueryEdgeRules returns the top triggered rules for a specific from→to edge.
-func (s *Store) QueryEdgeRules(from, to string, limit int) ([]RuleStat, error) {
-	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+// If since is non-empty, it is used as the cutoff instead of the default 24h.
+func (s *Store) QueryEdgeRules(from, to string, limit int, since string) ([]RuleStat, error) {
+	cutoff := since
+	if cutoff == "" {
+		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
 	rows, err := s.db.Query(
 		`SELECT rules_triggered FROM audit_log WHERE timestamp >= ? AND from_agent = ? AND to_agent = ? AND rules_triggered IS NOT NULL AND rules_triggered != '' AND rules_triggered != '[]'`,
 		cutoff, from, to,
@@ -891,8 +912,12 @@ func (s *Store) QueryEdgeRules(from, to string, limit int) ([]RuleStat, error) {
 }
 
 // QueryAgentTopRules returns the most frequently triggered rules for a specific agent (last 24h).
-func (s *Store) QueryAgentTopRules(agent string, limit int) ([]RuleStat, error) {
-	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+// If since is non-empty, it is used as the cutoff instead of the default 24h.
+func (s *Store) QueryAgentTopRules(agent string, limit int, since string) ([]RuleStat, error) {
+	cutoff := since
+	if cutoff == "" {
+		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
 	rows, err := s.db.Query(
 		`SELECT rules_triggered FROM audit_log WHERE timestamp >= ? AND (from_agent = ? OR to_agent = ?) AND rules_triggered IS NOT NULL AND rules_triggered != '' AND rules_triggered != '[]'`,
 		cutoff, agent, agent,
