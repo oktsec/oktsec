@@ -41,6 +41,9 @@ func newGatewayCmd() *cobra.Command {
 			if err := cfg.Validate(); err != nil {
 				return err
 			}
+			if len(cfg.MCPServers) == 0 {
+				return fmt.Errorf("gateway requires at least one entry in mcp_servers")
+			}
 
 			level := slog.LevelInfo
 			switch cfg.Server.LogLevel {

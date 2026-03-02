@@ -300,10 +300,12 @@ mcp_servers:
 }
 
 func TestGatewayValidate_NoServers(t *testing.T) {
+	// Gateway enabled without mcp_servers is allowed at config level;
+	// the gateway command validates backend count at startup.
 	cfg := Defaults()
 	cfg.Gateway.Enabled = true
-	if err := cfg.Validate(); err == nil {
-		t.Error("gateway enabled without mcp_servers should be invalid")
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("gateway enabled without mcp_servers should be valid at config level: %v", err)
 	}
 }
 
