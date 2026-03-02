@@ -155,7 +155,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/identity", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/dashboard/settings", http.StatusMovedPermanently)
 	})
-	s.mux.HandleFunc("GET /dashboard/agents/{name}", s.handleAgentDetail)
+	s.mux.HandleFunc("GET /dashboard/agents/{name...}", s.handleAgentDetail)
 	s.mux.HandleFunc("GET /dashboard/audit", s.handleAudit)
 	s.mux.HandleFunc("GET /dashboard/audit/sandbox", s.handleAuditSandbox)
 	s.mux.HandleFunc("GET /dashboard/rules", s.handleRules)
@@ -166,6 +166,10 @@ func (s *Server) routes() {
 	// HTMX partial endpoints
 	s.mux.HandleFunc("GET /dashboard/api/stats", s.handleAPIStats)
 	s.mux.HandleFunc("GET /dashboard/api/recent", s.handleAPIRecent)
+
+	// Export
+	s.mux.HandleFunc("GET /dashboard/api/export/csv", s.handleExportCSV)
+	s.mux.HandleFunc("GET /dashboard/api/export/json", s.handleExportJSON)
 
 	// SSE
 	s.mux.HandleFunc("GET /dashboard/api/events", s.handleSSE)
@@ -204,6 +208,7 @@ func (s *Server) routes() {
 	// Rule toggles (inline enable/disable)
 	s.mux.HandleFunc("POST /dashboard/api/rule/{id}/toggle", s.handleToggleRule)
 	s.mux.HandleFunc("POST /dashboard/api/category/{name}/toggle", s.handleToggleCategory)
+	s.mux.HandleFunc("POST /dashboard/api/rules/bulk-toggle", s.handleBulkToggleRules)
 
 	// Webhook channels
 	s.mux.HandleFunc("POST /dashboard/settings/webhooks", s.handleSaveWebhookChannel)

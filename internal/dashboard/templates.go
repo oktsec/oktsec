@@ -1206,6 +1206,13 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 {{if eq .Tab "detection"}}
 <!-- Detection Rules Tab -->
 {{if .Categories}}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <span style="color:var(--text3);font-size:0.82rem">{{.RuleCount}} rules across {{len .Categories}} categories</span>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-sm" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"enable-all"}' hx-confirm="Enable ALL detection rules?">Enable All</button>
+    <button class="btn btn-sm btn-danger" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"disable-all"}' hx-confirm="Disable ALL detection rules? This removes all security scanning.">Disable All</button>
+  </div>
+</div>
 <div class="cat-grid">
   {{range .Categories}}
   <a href="/dashboard/rules/{{.Name}}" class="cat-card">
@@ -2118,22 +2125,45 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
 <h1>Events</h1>
 <p class="page-desc">Quarantined messages need human review. Blocked messages were stopped automatically. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
-<div style="display:flex;gap:12px;margin-bottom:16px;align-items:center">
+<div style="display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
   <select id="filter-agent" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem">
     <option value="">All Agents</option>
     {{range .AgentNames}}<option value="{{.}}" {{if eq . $.FilterAgent}}selected{{end}}>{{.}}</option>{{end}}
   </select>
-  <input type="date" id="filter-since" value="{{.FilterSince}}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem">
+  <input type="date" id="filter-since" value="{{.FilterSince}}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem" title="From date">
+  <span style="color:var(--text3);font-size:0.78rem">to</span>
+  <input type="date" id="filter-until" value="{{.FilterUntil}}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem" title="Until date">
   <button class="btn btn-sm" onclick="clearEventFilters()" style="font-size:0.78rem">Clear</button>
+  <span style="flex:1"></span>
+  <a id="export-csv" class="btn btn-sm" style="font-size:0.78rem;text-decoration:none" download>CSV</a>
+  <a id="export-json" class="btn btn-sm" style="font-size:0.78rem;text-decoration:none" download>JSON</a>
 </div>
 <script>
+function buildExportURL(format) {
+  var agent = document.getElementById('filter-agent').value;
+  var since = document.getElementById('filter-since').value;
+  var until = document.getElementById('filter-until').value;
+  var url = '/dashboard/api/export/' + format + '?_=1';
+  if (agent) url += '&agent=' + encodeURIComponent(agent);
+  if (since) url += '&since=' + encodeURIComponent(since + 'T00:00:00Z');
+  if (until) url += '&until=' + encodeURIComponent(until + 'T23:59:59Z');
+  return url;
+}
+function updateExportLinks() {
+  var csv = document.getElementById('export-csv');
+  var json = document.getElementById('export-json');
+  if (csv) csv.href = buildExportURL('csv');
+  if (json) json.href = buildExportURL('json');
+}
 function applyEventFilters() {
   var agent = document.getElementById('filter-agent').value;
   var since = document.getElementById('filter-since').value;
+  var until = document.getElementById('filter-until').value;
   var tab = '{{.Tab}}';
   var url = '/dashboard/events?tab=' + tab;
   if (agent) url += '&agent=' + encodeURIComponent(agent);
   if (since) url += '&since=' + encodeURIComponent(since + 'T00:00:00Z');
+  if (until) url += '&until=' + encodeURIComponent(until + 'T23:59:59Z');
   window.location = url;
 }
 function clearEventFilters() {
@@ -2141,12 +2171,14 @@ function clearEventFilters() {
 }
 document.getElementById('filter-agent').addEventListener('change', applyEventFilters);
 document.getElementById('filter-since').addEventListener('change', applyEventFilters);
+document.getElementById('filter-until').addEventListener('change', applyEventFilters);
+updateExportLinks();
 </script>
 
 <div class="tabs" data-tab-group="events">
-  <a href="/dashboard/events?tab=all{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}" class="tab {{if eq .Tab "all"}}active{{end}}">All Events</a>
-  <a href="/dashboard/events?tab=quarantine{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}" class="tab {{if eq .Tab "quarantine"}}active{{end}}">Quarantine{{if .QPending}} <span class="pending-badge">{{.QPending}}</span>{{end}}</a>
-  <a href="/dashboard/events?tab=blocked{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}" class="tab {{if eq .Tab "blocked"}}active{{end}}">Blocked</a>
+  <a href="/dashboard/events?tab=all{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}{{if .FilterUntil}}&until={{.FilterUntil}}{{end}}" class="tab {{if eq .Tab "all"}}active{{end}}">All Events</a>
+  <a href="/dashboard/events?tab=quarantine{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}{{if .FilterUntil}}&until={{.FilterUntil}}{{end}}" class="tab {{if eq .Tab "quarantine"}}active{{end}}">Quarantine{{if .QPending}} <span class="pending-badge">{{.QPending}}</span>{{end}}</a>
+  <a href="/dashboard/events?tab=blocked{{if .FilterAgent}}&agent={{.FilterAgent}}{{end}}{{if .FilterSince}}&since={{.FilterSince}}{{end}}{{if .FilterUntil}}&until={{.FilterUntil}}{{end}}" class="tab {{if eq .Tab "blocked"}}active{{end}}">Blocked</a>
 </div>
 
 <!-- All Events -->
@@ -2316,7 +2348,11 @@ document.getElementById('filter-since').addEventListener('change', applyEventFil
 
 var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Agent Interaction <span>Graph</span></h1>
-<p class="page-desc">Red nodes have high threat scores. Shadow edges indicate traffic outside ACL policy. Data covers the last 24 hours.</p>
+<p class="page-desc">Red nodes have high threat scores. Shadow edges indicate traffic outside ACL policy. Data covers the last {{.Range}}.</p>
+
+<div style="display:flex;gap:8px;margin-bottom:16px">
+  {{range $v := .Ranges}}<a href="/dashboard/graph?range={{$v}}" class="btn btn-sm{{if eq $v $.Range}} active{{end}}" style="{{if eq $v $.Range}}background:var(--accent-dim);color:#fff;border-color:var(--accent){{end}}">{{$v}}</a>{{end}}
+</div>
 
 <div class="stats">
   <div class="stat"><div class="label">Nodes</div><div class="value">{{.Graph.TotalNodes}}</div></div>
@@ -2371,7 +2407,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       {{end}}
       </tbody>
     </table>
-    {{else}}<p class="empty">No agents detected in the last 24h</p>{{end}}
+    {{else}}<p class="empty">No agents detected in this time range</p>{{end}}
   </div>
 
   <div class="card">
@@ -2382,7 +2418,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       <thead><tr><th>From</th><th>To</th><th>Total</th><th data-tooltip="Ratio of delivered messages to total — lower scores indicate more blocked or quarantined traffic">Health</th></tr></thead>
       <tbody>
       {{range .Graph.Edges}}
-      <tr class="clickable" hx-get="/dashboard/api/graph/edge?from={{.From}}&amp;to={{.To}}" hx-target="#panel-content" hx-swap="innerHTML">
+      <tr class="clickable" hx-get="/dashboard/api/graph/edge?from={{.From}}&amp;to={{.To}}&amp;range={{$.Range}}" hx-target="#panel-content" hx-swap="innerHTML">
         <td>{{.From}}</td>
         <td>{{.To}}</td>
         <td>{{.Total}}</td>
@@ -2398,7 +2434,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       {{end}}
       </tbody>
     </table>
-    {{else}}<p class="empty">No traffic in the last 24h</p>{{end}}
+    {{else}}<p class="empty">No traffic in this time range</p>{{end}}
   </div>
 </div>
 

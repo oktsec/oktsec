@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -18,6 +19,7 @@ import (
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/graph"
 	"github.com/oktsec/oktsec/internal/identity"
+	"gopkg.in/yaml.v3"
 )
 
 func (s *Server) renderTemplate(w http.ResponseWriter, tmpl *template.Template, data any) {
@@ -130,8 +132,8 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	findings, _, _ := auditcheck.RunChecks(s.cfg, configDir)
 	score, grade := auditcheck.ComputeHealthScore(findings)
 
-	topRules, _ := s.audit.QueryTopRules(5)
-	agentRisks, _ := s.audit.QueryAgentRisk()
+	topRules, _ := s.audit.QueryTopRules(5, "")
+	agentRisks, _ := s.audit.QueryAgentRisk("")
 	unsigned, totalRecent, _ := s.audit.QueryUnsignedRate()
 
 	detectionRate := 0
@@ -353,7 +355,7 @@ type agentRow struct {
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	// Build risk map
-	agentRisks, _ := s.audit.QueryAgentRisk()
+	agentRisks, _ := s.audit.QueryAgentRisk("")
 	riskMap := make(map[string]*audit.AgentRisk)
 	for i := range agentRisks {
 		riskMap[agentRisks[i].Agent] = &agentRisks[i]
@@ -743,8 +745,9 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	agent, ok := s.cfg.Agents[name]
 	if !ok {
-		s.handleNotFound(w, r)
-		return
+		// Could be a gateway-namespaced agent (e.g. "gateway/create_card")
+		// visible in traffic but not in config. Show a read-only view.
+		agent = config.Agent{Description: "Discovered from gateway traffic"}
 	}
 
 	// Get recent messages for this agent
@@ -765,11 +768,11 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Top triggered rules for this agent
-	topRules, _ := s.audit.QueryAgentTopRules(name, 5)
+	topRules, _ := s.audit.QueryAgentTopRules(name, 5, "")
 
 	// Risk score for this agent
 	var riskScore float64
-	if agentRisks, err := s.audit.QueryAgentRisk(); err == nil {
+	if agentRisks, err := s.audit.QueryAgentRisk(""); err == nil {
 		for _, ar := range agentRisks {
 			if ar.Agent == name {
 				riskScore = ar.RiskScore
@@ -780,7 +783,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Communication partners — edges involving this agent
 	var commPartners []audit.EdgeStat
-	if edges, err := s.audit.QueryEdgeStats(); err == nil {
+	if edges, err := s.audit.QueryEdgeStats(""); err == nil {
 		for _, es := range edges {
 			if es.From == name || es.To == name {
 				commPartners = append(commPartners, es)
@@ -914,6 +917,97 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, _ := s.audit.Query(audit.QueryOpts{Search: q, Limit: 50})
 	s.renderTemplate(w, searchResultsTmpl, entries)
+}
+
+// --- Export handlers ---
+
+func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
+	agent := r.URL.Query().Get("agent")
+	since := r.URL.Query().Get("since")
+	until := r.URL.Query().Get("until")
+
+	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: 10000})
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+
+	filename := "oktsec-audit-" + time.Now().Format("2006-01-02") + ".csv"
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"id", "timestamp", "from", "to", "status", "signature_verified", "rules_triggered", "policy_decision", "latency_ms"})
+	for _, e := range entries {
+		_ = cw.Write([]string{
+			e.ID, e.Timestamp, e.FromAgent, e.ToAgent, e.Status,
+			strconv.Itoa(e.SignatureVerified), e.RulesTriggered, e.PolicyDecision, strconv.FormatInt(e.LatencyMs, 10),
+		})
+	}
+	cw.Flush()
+}
+
+func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
+	agent := r.URL.Query().Get("agent")
+	since := r.URL.Query().Get("since")
+	until := r.URL.Query().Get("until")
+
+	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: 10000})
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+
+	filename := "oktsec-audit-" + time.Now().Format("2006-01-02") + ".json"
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+
+	if err := json.NewEncoder(w).Encode(entries); err != nil {
+		s.logger.Error("json export failed", "error", err)
+	}
+}
+
+// --- Bulk rule toggle handler ---
+
+func (s *Server) handleBulkToggleRules(w http.ResponseWriter, r *http.Request) {
+	action := r.FormValue("action")
+	if action != "enable-all" && action != "disable-all" {
+		http.Error(w, "action must be enable-all or disable-all", http.StatusBadRequest)
+		return
+	}
+
+	if s.scanner == nil {
+		http.Error(w, "no scanner loaded", http.StatusBadRequest)
+		return
+	}
+
+	if action == "disable-all" {
+		disabledSet := s.disabledRuleSet()
+		for _, ri := range s.scanner.ListRules() {
+			if !disabledSet[ri.ID] {
+				s.cfg.Rules = append(s.cfg.Rules, config.RuleAction{ID: ri.ID, Action: "ignore"})
+			}
+		}
+	} else {
+		// enable-all: remove all "ignore" overrides
+		filtered := s.cfg.Rules[:0]
+		for _, ra := range s.cfg.Rules {
+			if ra.Action != "ignore" {
+				filtered = append(filtered, ra)
+			}
+		}
+		s.cfg.Rules = filtered
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after bulk toggle", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/rules", http.StatusFound)
 }
 
 // --- Event detail handler ---
@@ -1191,6 +1285,13 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 
 	ruleID := normalizeCustomRuleID(strings.TrimSpace(r.FormValue("rule_id")), name)
 	yamlContent := buildCustomRuleYAML(ruleID, name, r.FormValue("severity"), strings.TrimSpace(r.FormValue("category")), patterns)
+
+	// Validate the generated YAML before writing
+	var validateBuf map[string]any
+	if err := yaml.Unmarshal([]byte(yamlContent), &validateBuf); err != nil {
+		http.Error(w, "Generated YAML is invalid: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if err := os.MkdirAll(s.cfg.CustomRulesDir, 0o755); err != nil {
 		http.Error(w, "cannot create custom rules dir", http.StatusInternalServerError)
@@ -1657,6 +1758,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// Read filter params
 	filterAgent := r.URL.Query().Get("agent")
 	filterSince := r.URL.Query().Get("since")
+	filterUntil := r.URL.Query().Get("until")
+
+	// Extract YYYY-MM-DD for <input type="date"> display (ignores the T... suffix)
+	displaySince := dateOnly(filterSince)
+	displayUntil := dateOnly(filterUntil)
 
 	// Quarantine stats always loaded (cheap query, needed for badge count)
 	qStats, _ := s.audit.QuarantineStats()
@@ -1677,9 +1783,9 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 		qItems, _ = s.audit.QuarantineQuery(qStatusFilter, filterAgent, 50)
 	case "blocked":
-		blockedEntries, _ = s.audit.Query(audit.QueryOpts{Statuses: []string{"blocked", "rejected"}, Agent: filterAgent, Since: filterSince, Limit: 50})
+		blockedEntries, _ = s.audit.Query(audit.QueryOpts{Statuses: []string{"blocked", "rejected"}, Agent: filterAgent, Since: filterSince, Until: filterUntil, Limit: 50})
 	default: // "all"
-		entries, _ = s.audit.Query(audit.QueryOpts{Agent: filterAgent, Since: filterSince, Limit: 50})
+		entries, _ = s.audit.Query(audit.QueryOpts{Agent: filterAgent, Since: filterSince, Until: filterUntil, Limit: 50})
 	}
 
 	// Build sorted agent names for filter dropdown
@@ -1701,7 +1807,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		"RequireSig":     s.cfg.Identity.RequireSignature,
 		"AgentNames":     agentNames,
 		"FilterAgent":    filterAgent,
-		"FilterSince":    filterSince,
+		"FilterSince":    displaySince,
+		"FilterUntil":    displayUntil,
 	}
 
 	s.renderTemplate(w, eventsTmpl, data)
@@ -1865,7 +1972,7 @@ func (s *Server) getRecentEvents(n int) []audit.Entry {
 
 // --- Graph handlers ---
 
-func (s *Server) buildGraph() *graph.AgentGraph {
+func (s *Server) buildGraph(since string) *graph.AgentGraph {
 	var agents []graph.AgentMeta
 	for name, a := range s.cfg.Agents {
 		agents = append(agents, graph.AgentMeta{
@@ -1877,7 +1984,7 @@ func (s *Server) buildGraph() *graph.AgentGraph {
 		})
 	}
 
-	edgeStats, _ := s.audit.QueryEdgeStats()
+	edgeStats, _ := s.audit.QueryEdgeStats(since)
 	edges := make([]graph.EdgeInput, len(edgeStats))
 	for i, es := range edgeStats {
 		edges[i] = graph.EdgeInput{
@@ -1894,18 +2001,55 @@ func (s *Server) buildGraph() *graph.AgentGraph {
 	return graph.Build(agents, edges)
 }
 
+// dateOnly extracts the YYYY-MM-DD portion from an RFC3339 timestamp
+// for use in <input type="date"> value attributes.
+func dateOnly(ts string) string {
+	if i := strings.IndexByte(ts, 'T'); i >= 0 {
+		return ts[:i]
+	}
+	return ts
+}
+
+// parseSinceRange converts a range string (e.g. "1h", "6h", "24h", "7d", "30d")
+// to an RFC3339 cutoff timestamp. Empty or unrecognized values default to 24h.
+func parseSinceRange(r string) string {
+	var d time.Duration
+	switch r {
+	case "1h":
+		d = time.Hour
+	case "6h":
+		d = 6 * time.Hour
+	case "7d":
+		d = 7 * 24 * time.Hour
+	case "30d":
+		d = 30 * 24 * time.Hour
+	default:
+		d = 24 * time.Hour
+	}
+	return time.Now().Add(-d).UTC().Format(time.RFC3339)
+}
+
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
-	g := s.buildGraph()
+	rangeStr := r.URL.Query().Get("range")
+	if rangeStr == "" {
+		rangeStr = "24h"
+	}
+	since := parseSinceRange(rangeStr)
+	g := s.buildGraph(since)
 	data := map[string]any{
 		"Active":     "graph",
 		"Graph":      g,
+		"Range":      rangeStr,
+		"Ranges":     []string{"1h", "6h", "24h", "7d", "30d"},
 		"RequireSig": s.cfg.Identity.RequireSignature,
 	}
 	s.renderTemplate(w, graphTmpl, data)
 }
 
 func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
-	g := s.buildGraph()
+	rangeStr := r.URL.Query().Get("range")
+	since := parseSinceRange(rangeStr)
+	g := s.buildGraph(since)
 	s.renderJSON(w, g)
 }
 
@@ -1917,7 +2061,9 @@ func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rules, _ := s.audit.QueryEdgeRules(from, to, 10)
+	rangeStr := r.URL.Query().Get("range")
+	since := parseSinceRange(rangeStr)
+	rules, _ := s.audit.QueryEdgeRules(from, to, 10, since)
 	entries, _ := s.audit.Query(audit.QueryOpts{Agent: from, Limit: 20})
 
 	// Filter entries to only this edge

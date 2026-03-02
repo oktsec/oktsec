@@ -36,7 +36,7 @@ func TestQueryEdgeStats(t *testing.T) {
 	}
 	store.Flush()
 
-	stats, err := store.QueryEdgeStats()
+	stats, err := store.QueryEdgeStats("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestQueryTopRulesAndEdgeRules(t *testing.T) {
 	store.Flush()
 
 	// QueryTopRules
-	top, err := store.QueryTopRules(5)
+	top, err := store.QueryTopRules(5, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestQueryTopRulesAndEdgeRules(t *testing.T) {
 	}
 
 	// QueryEdgeRules
-	er, err := store.QueryEdgeRules("a", "b", 5)
+	er, err := store.QueryEdgeRules("a", "b", 5, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestQueryTopRulesAndEdgeRules(t *testing.T) {
 	}
 
 	// Non-existent edge returns empty
-	er, err = store.QueryEdgeRules("x", "y", 5)
+	er, err = store.QueryEdgeRules("x", "y", 5, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestQueryAgentRisk(t *testing.T) {
 	store.Log(Entry{ID: "ar4", Timestamp: now, FromAgent: "good-agent", ToAgent: "b", ContentHash: "h", Status: "delivered", PolicyDecision: "allow"})
 	store.Flush()
 
-	risks, err := store.QueryAgentRisk()
+	risks, err := store.QueryAgentRisk("")
 	if err != nil {
 		t.Fatal(err)
 	}
