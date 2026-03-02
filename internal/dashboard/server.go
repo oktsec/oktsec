@@ -210,6 +210,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /dashboard/api/category/{name}/toggle", s.handleToggleCategory)
 	s.mux.HandleFunc("POST /dashboard/api/rules/bulk-toggle", s.handleBulkToggleRules)
 
+	// Settings sections
+	s.mux.HandleFunc("POST /dashboard/settings/default-policy", s.handleSaveDefaultPolicy)
+	s.mux.HandleFunc("POST /dashboard/settings/rate-limit", s.handleSaveRateLimit)
+	s.mux.HandleFunc("POST /dashboard/settings/anomaly", s.handleSaveAnomaly)
+	s.mux.HandleFunc("POST /dashboard/settings/forward-proxy", s.handleSaveForwardProxy)
+	s.mux.HandleFunc("POST /dashboard/settings/quarantine", s.handleSaveQuarantine)
+
 	// Webhook channels
 	s.mux.HandleFunc("POST /dashboard/settings/webhooks", s.handleSaveWebhookChannel)
 	s.mux.HandleFunc("DELETE /dashboard/settings/webhooks/{name}", s.handleDeleteWebhookChannel)
