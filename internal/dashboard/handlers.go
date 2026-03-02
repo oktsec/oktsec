@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1384,13 +1385,18 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	canMessage := strings.Fields(strings.ReplaceAll(r.FormValue("can_message"), ",", " "))
 	tags := strings.Fields(strings.ReplaceAll(r.FormValue("tags"), ",", " "))
 
+	blockedContent := strings.Fields(strings.ReplaceAll(r.FormValue("blocked_content"), ",", " "))
+	allowedTools := strings.Fields(strings.ReplaceAll(r.FormValue("allowed_tools"), ",", " "))
+
 	s.cfg.Agents[name] = config.Agent{
-		CanMessage:  canMessage,
-		Description: strings.TrimSpace(r.FormValue("description")),
-		CreatedBy:   "dashboard",
-		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
-		Location:    strings.TrimSpace(r.FormValue("location")),
-		Tags:        tags,
+		CanMessage:     canMessage,
+		Description:    strings.TrimSpace(r.FormValue("description")),
+		CreatedBy:      "dashboard",
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		Location:       strings.TrimSpace(r.FormValue("location")),
+		Tags:           tags,
+		BlockedContent: blockedContent,
+		AllowedTools:   allowedTools,
 	}
 
 	if s.cfgPath != "" {
@@ -1417,6 +1423,8 @@ func (s *Server) handleEditAgent(w http.ResponseWriter, r *http.Request) {
 	if len(canMessage) > 0 {
 		agent.CanMessage = canMessage
 	}
+	agent.BlockedContent = strings.Fields(strings.ReplaceAll(r.FormValue("blocked_content"), ",", " "))
+	agent.AllowedTools = strings.Fields(strings.ReplaceAll(r.FormValue("allowed_tools"), ",", " "))
 
 	s.cfg.Agents[name] = agent
 
@@ -1928,4 +1936,228 @@ func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderTemplate(w, edgeDetailTmpl, data)
+}
+
+// --- Gateway handlers ---
+
+type mcpServerRow struct {
+	Name      string
+	Transport string
+	Command   string
+	URL       string
+}
+
+func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
+	var servers []mcpServerRow
+	for name, srv := range s.cfg.MCPServers {
+		servers = append(servers, mcpServerRow{
+			Name:      name,
+			Transport: srv.Transport,
+			Command:   srv.Command,
+			URL:       srv.URL,
+		})
+	}
+	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
+
+	gw := s.cfg.Gateway
+	data := map[string]any{
+		"Active":  "gateway",
+		"Gateway": gw,
+		"Servers": servers,
+	}
+	s.renderTemplate(w, gatewayTmpl, data)
+}
+
+func (s *Server) handleSaveGatewaySettings(w http.ResponseWriter, r *http.Request) {
+	wasEnabled := s.cfg.Gateway.Enabled
+	nowEnabled := r.FormValue("enabled") == "true"
+
+	s.cfg.Gateway.Enabled = nowEnabled
+	s.cfg.Gateway.ScanResponses = r.FormValue("scan_responses") == "true"
+
+	if p := strings.TrimSpace(r.FormValue("port")); p != "" {
+		if port, err := strconv.Atoi(p); err == nil && port > 0 && port <= 65535 {
+			s.cfg.Gateway.Port = port
+		}
+	}
+	if b := strings.TrimSpace(r.FormValue("bind")); b != "" {
+		s.cfg.Gateway.Bind = b
+	}
+	if ep := strings.TrimSpace(r.FormValue("endpoint_path")); ep != "" {
+		s.cfg.Gateway.EndpointPath = ep
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after gateway settings update", "error", err)
+		}
+	}
+
+	// Manage gateway lifecycle based on enabled toggle
+	s.gwMu.Lock()
+	hasBackends := len(s.cfg.MCPServers) > 0
+	if nowEnabled && !wasEnabled && hasBackends {
+		s.startGateway()
+	} else if !nowEnabled && wasEnabled {
+		s.stopGateway()
+	} else if nowEnabled && wasEnabled && hasBackends {
+		// Settings changed while running — restart
+		s.stopGateway()
+		s.startGateway()
+	}
+	s.gwMu.Unlock()
+
+	http.Redirect(w, r, "/dashboard/gateway", http.StatusFound)
+}
+
+var mcpServerNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" || !mcpServerNameRe.MatchString(name) {
+		http.Error(w, "invalid server name (alphanumeric, hyphens, underscores)", http.StatusBadRequest)
+		return
+	}
+	if _, exists := s.cfg.MCPServers[name]; exists {
+		http.Error(w, "server already exists", http.StatusConflict)
+		return
+	}
+
+	if s.cfg.MCPServers == nil {
+		s.cfg.MCPServers = make(map[string]config.MCPServerConfig)
+	}
+
+	transport := r.FormValue("transport")
+	srv := config.MCPServerConfig{Transport: transport}
+	if transport == "stdio" {
+		srv.Command = strings.TrimSpace(r.FormValue("command"))
+		if args := strings.TrimSpace(r.FormValue("args")); args != "" {
+			srv.Args = strings.Fields(args)
+		}
+	} else {
+		srv.URL = strings.TrimSpace(r.FormValue("url"))
+	}
+
+	s.cfg.MCPServers[name] = srv
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after MCP server create", "error", err)
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/gateway/servers/"+name, http.StatusFound)
+}
+
+type relatedAgent struct {
+	Name         string
+	AllowedTools []string
+}
+
+func (s *Server) handleMCPServerDetail(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	srv, ok := s.cfg.MCPServers[name]
+	if !ok {
+		s.handleNotFound(w, r)
+		return
+	}
+
+	var related []relatedAgent
+	for aName, agent := range s.cfg.Agents {
+		if len(agent.AllowedTools) > 0 {
+			related = append(related, relatedAgent{Name: aName, AllowedTools: agent.AllowedTools})
+		}
+	}
+	sort.Slice(related, func(i, j int) bool { return related[i].Name < related[j].Name })
+
+	data := map[string]any{
+		"Active":        "gateway",
+		"Name":          name,
+		"Server":        srv,
+		"RelatedAgents": related,
+	}
+	s.renderTemplate(w, mcpServerDetailTmpl, data)
+}
+
+func (s *Server) handleEditMCPServer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if _, ok := s.cfg.MCPServers[name]; !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	transport := r.FormValue("transport")
+	srv := config.MCPServerConfig{Transport: transport}
+	if transport == "stdio" {
+		srv.Command = strings.TrimSpace(r.FormValue("command"))
+		if args := strings.TrimSpace(r.FormValue("args")); args != "" {
+			srv.Args = strings.Fields(args)
+		}
+	} else {
+		srv.URL = strings.TrimSpace(r.FormValue("url"))
+	}
+
+	// Parse env vars from textarea (KEY=VALUE per line)
+	if envText := strings.TrimSpace(r.FormValue("env")); envText != "" {
+		srv.Env = make(map[string]string)
+		for _, line := range strings.Split(envText, "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			if k, v, ok := strings.Cut(line, "="); ok {
+				srv.Env[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			}
+		}
+	}
+
+	s.cfg.MCPServers[name] = srv
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after MCP server edit", "error", err)
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/gateway/servers/"+name, http.StatusFound)
+}
+
+func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	delete(s.cfg.MCPServers, name)
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after MCP server delete", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleGatewayHealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	pill := func(bg, color, text string) string {
+		return fmt.Sprintf(`<span style="display:inline-block;padding:4px 12px;border-radius:12px;font-size:0.75rem;background:%s;color:%s">%s</span>`, bg, color, text)
+	}
+
+	if !s.cfg.Gateway.Enabled {
+		fmt.Fprint(w, pill("var(--surface2)", "var(--text3)", "disabled"))
+		return
+	}
+
+	if len(s.cfg.MCPServers) == 0 {
+		fmt.Fprint(w, pill("var(--warn)", "#000", "no backends"))
+		return
+	}
+
+	if s.GatewayRunning() {
+		fmt.Fprint(w, pill("var(--success)", "#fff", "online"))
+		return
+	}
+
+	fmt.Fprint(w, pill("var(--danger)", "#fff", "offline"))
 }

@@ -529,6 +529,10 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
   </div>
   <div class="sidebar-section">
     <div class="sidebar-section-label">Management</div>
+    <a href="/dashboard/gateway" class="sidebar-item {{if eq .Active "gateway"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+      Gateway
+    </a>
     <a href="/dashboard/settings" class="sidebar-item {{if eq .Active "settings"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       Settings
@@ -1077,6 +1081,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   <table>
     <tr><td style="color:var(--text3)">Can message</td><td>{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</td></tr>
     {{if .Agent.BlockedContent}}<tr><td style="color:var(--text3)">Blocked content</td><td>{{range $i, $c := .Agent.BlockedContent}}{{if $i}}, {{end}}{{$c}}{{end}}</td></tr>{{end}}
+    {{if .Agent.AllowedTools}}<tr><td style="color:var(--text3)">Allowed tools</td><td>{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.75rem">{{$t}}</code>{{end}}</td></tr>{{end}}
     {{if .Agent.Location}}<tr><td style="color:var(--text3)">Location</td><td>{{.Agent.Location}}</td></tr>{{end}}
     {{if .Agent.Tags}}<tr><td style="color:var(--text3)">Tags</td><td>{{range $i, $tag := .Agent.Tags}}{{if $i}} {{end}}<span class="agent-tag">{{$tag}}</span>{{end}}</td></tr>{{end}}
     {{if .Agent.CreatedBy}}<tr><td style="color:var(--text3)">Created by</td><td>{{.Agent.CreatedBy}}</td></tr>{{end}}
@@ -1111,6 +1116,16 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       <div class="form-group">
         <label>Tags (space-separated)</label>
         <input type="text" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Blocked Content (space-separated categories)</label>
+        <input type="text" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}">
+      </div>
+      <div class="form-group">
+        <label>Allowed Tools (space-separated, empty = all)</label>
+        <input type="text" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}">
       </div>
     </div>
     <button type="submit" class="btn btn-sm">Save</button>
@@ -2791,4 +2806,203 @@ var edgeDetailTmpl = template.Must(template.New("edge-detail").Funcs(tmplFuncs).
   {{end}}
 </div>
 `))
+
+var gatewayTmpl = template.Must(template.New("gateway").Funcs(tmplFuncs).Parse(layoutHead + `
+<h1>MCP <span>Gateway</span></h1>
+<p class="page-desc">The MCP gateway fronts backend MCP servers, applying security scanning and per-agent tool allowlists to every tool call.</p>
+
+<div class="card">
+  <h2>Gateway Status</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    The gateway runs as a separate process (<code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">oktsec gateway</code>). This dashboard manages its configuration.
+  </p>
+  <div style="display:flex;gap:24px;margin-bottom:12px">
+    <div>
+      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Health</span>
+      <div style="margin-top:6px" id="gateway-health" hx-get="/dashboard/api/gateway/health" hx-trigger="load" hx-swap="innerHTML">
+        <span style="color:var(--text3);font-size:0.85rem">checking...</span>
+      </div>
+    </div>
+    <div>
+      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Listen</span>
+      <div style="font-size:1rem;font-weight:600;margin-top:4px;font-family:var(--mono)">{{if .Gateway.Bind}}{{.Gateway.Bind}}{{else}}127.0.0.1{{end}}:{{if .Gateway.Port}}{{.Gateway.Port}}{{else}}9090{{end}}</div>
+    </div>
+    <div>
+      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Endpoint</span>
+      <div style="font-size:1rem;font-weight:600;margin-top:4px;font-family:var(--mono)">{{if .Gateway.EndpointPath}}{{.Gateway.EndpointPath}}{{else}}/mcp{{end}}</div>
+    </div>
+    <div>
+      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Backends</span>
+      <div style="font-size:1rem;font-weight:600;margin-top:4px">{{len .Servers}}</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Configuration</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Controls whether the gateway is active and how it processes MCP traffic. Changes are saved to <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">oktsec.yaml</code> and take effect on next gateway start.
+  </p>
+  <form method="POST" action="/dashboard/gateway/settings">
+    <div style="display:flex;gap:32px;margin-bottom:20px">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .Gateway.Enabled}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Gateway enabled</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .Gateway.ScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Scan backend responses</span>
+      </label>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Port</label>
+        <input type="number" name="port" value="{{.Gateway.Port}}" min="1" max="65535">
+      </div>
+      <div class="form-group">
+        <label>Bind Address</label>
+        <input type="text" name="bind" value="{{.Gateway.Bind}}" placeholder="127.0.0.1">
+      </div>
+      <div class="form-group">
+        <label>Endpoint Path</label>
+        <input type="text" name="endpoint_path" value="{{.Gateway.EndpointPath}}" placeholder="/mcp">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm">Save Configuration</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Backend MCP Servers</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Each backend server exposes MCP tools that agents can call through the gateway. The gateway auto-discovers tools from each server and applies security policies.
+  </p>
+  {{if .Servers}}
+  <table>
+    <thead><tr><th>Name</th><th>Transport</th><th>Target</th><th></th></tr></thead>
+    <tbody>
+    {{range .Servers}}
+    <tr id="server-row-{{.Name}}" class="clickable" onclick="window.location='/dashboard/gateway/servers/{{.Name}}'">
+      <td style="font-weight:600"><a href="/dashboard/gateway/servers/{{.Name}}" style="color:var(--accent-light);text-decoration:none">{{.Name}}</a></td>
+      <td><span class="badge-{{if eq .Transport "stdio"}}delivered{{else}}quarantined{{end}}" style="font-size:0.7rem">{{.Transport}}</span></td>
+      <td style="color:var(--text3);font-family:var(--mono);font-size:0.8rem">{{if eq .Transport "stdio"}}{{.Command}}{{else}}{{.URL}}{{end}}</td>
+      <td style="text-align:right" onclick="event.stopPropagation()"><button class="btn btn-sm btn-danger" hx-delete="/dashboard/gateway/servers/{{.Name}}" hx-confirm="Delete server {{.Name}}?" hx-target="#server-row-{{.Name}}" hx-swap="outerHTML swap:200ms">delete</button></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No MCP servers configured. Add one below to get started.</div>
+  {{end}}
+
+  <form method="POST" action="/dashboard/gateway/servers" class="inline-add">
+    <div class="form-group" style="min-width:150px">
+      <label>Name</label>
+      <input type="text" name="name" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*" placeholder="e.g. my-server">
+    </div>
+    <div class="form-group" style="min-width:100px;flex:0.5">
+      <label>Transport</label>
+      <select name="transport" onchange="var s=this.value;document.getElementById('stdio-fields').style.display=s==='stdio'?'':'none';document.getElementById('http-fields').style.display=s==='http'?'':'none'">
+        <option value="stdio">stdio</option>
+        <option value="http">http</option>
+      </select>
+    </div>
+    <div class="form-group" style="flex:2" id="stdio-fields">
+      <label>Command</label>
+      <input type="text" name="command" placeholder="e.g. npx -y @example/server">
+    </div>
+    <div class="form-group" style="flex:2;display:none" id="http-fields">
+      <label>URL</label>
+      <input type="text" name="url" placeholder="e.g. http://localhost:8080/mcp">
+    </div>
+    <button type="submit" class="btn">Add</button>
+  </form>
+  <p style="color:var(--text3);font-size:0.72rem;margin-top:8px">Configure args, env vars, and headers from the server detail page.</p>
+</div>
+` + layoutFoot))
+
+var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tmplFuncs).Parse(layoutHead + `
+<p style="margin-bottom:16px"><a href="/dashboard/gateway" style="color:var(--accent)">&larr; Back to Gateway</a></p>
+<h1>MCP Server: <span>{{.Name}}</span></h1>
+
+<div class="card">
+  <h2>Server Configuration</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Current settings for this backend MCP server. The gateway connects to this server to discover and proxy tool calls.
+  </p>
+  <table>
+    <tbody>
+    <tr><td style="color:var(--text3);font-weight:600;width:140px">Transport</td><td><span class="badge-{{if eq .Server.Transport "stdio"}}delivered{{else}}quarantined{{end}}" style="font-size:0.7rem">{{.Server.Transport}}</span></td></tr>
+    {{if eq .Server.Transport "stdio"}}
+    <tr><td style="color:var(--text3);font-weight:600">Command</td><td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem;color:var(--accent-light)">{{.Server.Command}}</code></td></tr>
+    {{if .Server.Args}}<tr><td style="color:var(--text3);font-weight:600">Args</td><td>{{range $i, $a := .Server.Args}}{{if $i}} {{end}}<code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{$a}}</code>{{end}}</td></tr>{{end}}
+    {{else}}
+    <tr><td style="color:var(--text3);font-weight:600">URL</td><td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem;color:var(--accent-light)">{{.Server.URL}}</code></td></tr>
+    {{if .Server.Headers}}<tr><td style="color:var(--text3);font-weight:600">Headers</td><td>{{range $k, $v := .Server.Headers}}<code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.78rem">{{$k}}: {{$v}}</code><br>{{end}}</td></tr>{{end}}
+    {{end}}
+    {{if .Server.Env}}<tr><td style="color:var(--text3);font-weight:600">Env vars</td><td>{{range $k, $v := .Server.Env}}<code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.78rem">{{$k}}={{$v}}</code><br>{{end}}</td></tr>{{end}}
+    </tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Edit Server</h2>
+  <form method="POST" action="/dashboard/gateway/servers/{{.Name}}/edit">
+    <div class="form-row">
+      <div class="form-group" style="flex:0.5;min-width:120px">
+        <label>Transport</label>
+        <select name="transport" onchange="var s=this.value;document.getElementById('edit-stdio').style.display=s==='stdio'?'flex':'none';document.getElementById('edit-http').style.display=s==='http'?'flex':'none'">
+          <option value="stdio" {{if eq .Server.Transport "stdio"}}selected{{end}}>stdio</option>
+          <option value="http" {{if eq .Server.Transport "http"}}selected{{end}}>http</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row" id="edit-stdio" style="display:{{if eq .Server.Transport "stdio"}}flex{{else}}none{{end}}">
+      <div class="form-group" style="flex:2">
+        <label>Command</label>
+        <input type="text" name="command" value="{{.Server.Command}}">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Args (space-separated)</label>
+        <input type="text" name="args" value="{{range $i, $a := .Server.Args}}{{if $i}} {{end}}{{$a}}{{end}}">
+      </div>
+    </div>
+    <div class="form-row" id="edit-http" style="display:{{if eq .Server.Transport "http"}}flex{{else}}none{{end}}">
+      <div class="form-group">
+        <label>URL</label>
+        <input type="text" name="url" value="{{.Server.URL}}">
+      </div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Env Vars (KEY=VALUE per line)</label>
+      <textarea name="env" rows="3" style="font-family:var(--mono);font-size:0.82rem">{{range $k, $v := .Server.Env}}{{$k}}={{$v}}
+{{end}}</textarea>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button type="submit" class="btn btn-sm">Save Changes</button>
+      <button type="button" class="btn btn-sm btn-danger" hx-delete="/dashboard/gateway/servers/{{.Name}}" hx-confirm="Delete server {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/gateway'},300)">Delete Server</button>
+    </div>
+  </form>
+</div>
+
+{{if .RelatedAgents}}
+<div class="card">
+  <h2>Related Agents</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Agents that have tool allowlists configured. These restrictions apply when agents call tools through the gateway.
+  </p>
+  <table>
+    <thead><tr><th>Agent</th><th>Allowed Tools</th></tr></thead>
+    <tbody>
+    {{range .RelatedAgents}}
+    <tr class="clickable" onclick="window.location='/dashboard/agents/{{.Name}}'">
+      <td style="font-weight:600"><a href="/dashboard/agents/{{.Name}}" style="color:var(--accent-light);text-decoration:none">{{.Name}}</a></td>
+      <td>{{range $i, $t := .AllowedTools}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}
+` + layoutFoot))
 

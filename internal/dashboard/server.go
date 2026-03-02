@@ -3,6 +3,9 @@ package dashboard
 import (
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -21,6 +24,9 @@ type Server struct {
 	scanner *engine.Scanner
 	logger  *slog.Logger
 	mux     *http.ServeMux
+
+	gwMu  sync.Mutex
+	gwCmd *exec.Cmd
 }
 
 // NewServer creates a dashboard server with access-code authentication.
@@ -36,6 +42,13 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore *audit.Store, keys
 		mux:     http.NewServeMux(),
 	}
 	s.routes()
+
+	// Auto-start gateway if enabled in config and backends exist
+	if cfg.Gateway.Enabled && len(cfg.MCPServers) > 0 {
+		s.gwMu.Lock()
+		s.startGateway()
+		s.gwMu.Unlock()
+	}
 
 	// Periodic cleanup of expired sessions and stale rate-limit entries
 	go func() {
@@ -57,6 +70,63 @@ func (s *Server) AccessCode() string {
 // Handler returns the dashboard HTTP handler with auth middleware applied.
 func (s *Server) Handler() http.Handler {
 	return s.auth.Middleware(s.mux)
+}
+
+// startGateway spawns `oktsec gateway` as a child process. Caller must hold gwMu.
+func (s *Server) startGateway() {
+	if s.gwCmd != nil && s.gwCmd.Process != nil {
+		return // already running
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		s.logger.Error("failed to find executable for gateway", "error", err)
+		return
+	}
+	args := []string{"gateway"}
+	if s.cfgPath != "" {
+		args = append(args, "--config", s.cfgPath)
+	}
+	cmd := exec.Command(exe, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		s.logger.Error("failed to start gateway process", "error", err)
+		return
+	}
+	s.gwCmd = cmd
+	s.logger.Info("gateway process started", "pid", cmd.Process.Pid)
+
+	// Reap the process in the background so we detect when it exits
+	go func() {
+		_ = cmd.Wait()
+		s.gwMu.Lock()
+		if s.gwCmd == cmd {
+			s.gwCmd = nil
+		}
+		s.gwMu.Unlock()
+		s.logger.Info("gateway process exited")
+	}()
+}
+
+// stopGateway stops the gateway child process. Caller must hold gwMu.
+func (s *Server) stopGateway() {
+	if s.gwCmd == nil || s.gwCmd.Process == nil {
+		s.gwCmd = nil
+		return
+	}
+	if err := s.gwCmd.Process.Signal(os.Interrupt); err != nil {
+		s.logger.Warn("failed to send interrupt to gateway, killing", "error", err)
+		_ = s.gwCmd.Process.Kill()
+	}
+	s.gwCmd = nil
+	s.logger.Info("gateway process stopped")
+}
+
+// GatewayRunning returns true if the gateway child process is alive.
+func (s *Server) GatewayRunning() bool {
+	s.gwMu.Lock()
+	defer s.gwMu.Unlock()
+	return s.gwCmd != nil && s.gwCmd.Process != nil
 }
 
 func (s *Server) routes() {
@@ -138,6 +208,15 @@ func (s *Server) routes() {
 	// Webhook channels
 	s.mux.HandleFunc("POST /dashboard/settings/webhooks", s.handleSaveWebhookChannel)
 	s.mux.HandleFunc("DELETE /dashboard/settings/webhooks/{name}", s.handleDeleteWebhookChannel)
+
+	// Gateway management
+	s.mux.HandleFunc("GET /dashboard/gateway", s.handleGateway)
+	s.mux.HandleFunc("POST /dashboard/gateway/settings", s.handleSaveGatewaySettings)
+	s.mux.HandleFunc("POST /dashboard/gateway/servers", s.handleCreateMCPServer)
+	s.mux.HandleFunc("GET /dashboard/gateway/servers/{name}", s.handleMCPServerDetail)
+	s.mux.HandleFunc("POST /dashboard/gateway/servers/{name}/edit", s.handleEditMCPServer)
+	s.mux.HandleFunc("DELETE /dashboard/gateway/servers/{name}", s.handleDeleteMCPServer)
+	s.mux.HandleFunc("GET /dashboard/api/gateway/health", s.handleGatewayHealthCheck)
 
 	// Catch-all for unmatched dashboard paths (must be registered last)
 	s.mux.HandleFunc("GET /dashboard/", s.handleNotFound)

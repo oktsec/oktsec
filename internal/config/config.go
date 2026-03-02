@@ -252,11 +252,10 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("rule %q has invalid action %q", ra.ID, ra.Action)
 		}
 	}
-	// Gateway validation
-	if c.Gateway.Enabled {
-		if len(c.MCPServers) == 0 {
-			return fmt.Errorf("gateway is enabled but no mcp_servers configured")
-		}
+	// Gateway validation (transport checks only; backend count and port
+	// binding are validated at gateway startup so `serve` can manage it
+	// via the dashboard).
+	if c.Gateway.Enabled && len(c.MCPServers) > 0 {
 		if c.Gateway.Port < 1 || c.Gateway.Port > 65535 {
 			return fmt.Errorf("invalid gateway port: %d", c.Gateway.Port)
 		}
