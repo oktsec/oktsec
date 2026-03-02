@@ -1950,7 +1950,17 @@ var ruleToggleTmpl = template.Must(template.New("rule-toggle").Parse(`<span id="
 
 var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse(layoutHead + `
 <h1>Settings</h1>
-<p class="page-desc">Security mode, agent identity keys, quarantine behavior, and server configuration.</p>
+<p class="page-desc">Security mode, agent identity, pipeline behavior, and infrastructure configuration.</p>
+
+<div class="tabs" data-tab-group="settings">
+  <a href="/dashboard/settings?tab=security" class="tab {{if eq .Tab "security"}}active{{end}}">Security</a>
+  <a href="/dashboard/settings?tab=identity" class="tab {{if eq .Tab "identity"}}active{{end}}">Identity</a>
+  <a href="/dashboard/settings?tab=pipeline" class="tab {{if eq .Tab "pipeline"}}active{{end}}">Pipeline</a>
+  <a href="/dashboard/settings?tab=infra" class="tab {{if eq .Tab "infra"}}active{{end}}">Infrastructure</a>
+</div>
+
+<!-- Security -->
+<div class="tab-content {{if eq .Tab "security"}}active{{end}}" data-tab-content="settings" data-tab-name="security">
 
 <div class="card">
   <h2>Security Mode</h2>
@@ -1981,6 +1991,42 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     </button>
   </form>
 </div>
+
+<div class="card">
+  <h2>Default Policy</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Controls the baseline access control for agent-to-agent communication. When set to <strong>deny</strong>, agents can only message targets listed in their <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">can_message</code> list.
+  </p>
+  <div style="display:flex;gap:16px;margin-bottom:16px">
+    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if eq .DefaultPolicy "deny"}}var(--accent){{else}}var(--border){{end}};background:{{if eq .DefaultPolicy "deny"}}rgba(99,102,241,0.06){{else}}var(--surface){{end}}">
+      <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if eq .DefaultPolicy "deny"}}var(--accent-light){{else}}var(--text2){{end}}">
+        {{if eq .DefaultPolicy "deny"}}&#x2713; {{end}}Default Deny
+      </div>
+      <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
+        Agents can only communicate with explicitly allowed targets. Recommended for <strong style="color:var(--accent-light)">production</strong>.
+      </p>
+    </div>
+    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--border){{end}};background:{{if ne .DefaultPolicy "deny"}}rgba(245,158,11,0.06){{else}}var(--surface){{end}}">
+      <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--text2){{end}}">
+        {{if ne .DefaultPolicy "deny"}}&#x2713; {{end}}Default Allow
+      </div>
+      <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
+        All agents can message each other unless explicitly denied. <strong style="color:var(--warn)">Open</strong> — useful during onboarding.
+      </p>
+    </div>
+  </div>
+  <form method="POST" action="/dashboard/settings/default-policy">
+    <input type="hidden" name="default_policy" value="{{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}">
+    <button type="submit" class="btn" style="background:{{if eq .DefaultPolicy "deny"}}var(--warn){{else}}var(--accent){{end}}">
+      Switch to Default {{if eq .DefaultPolicy "deny"}}Allow{{else}}Deny{{end}}
+    </button>
+  </form>
+</div>
+
+</div>
+
+<!-- Identity -->
+<div class="tab-content {{if eq .Tab "identity"}}active{{end}}" data-tab-content="settings" data-tab-name="identity">
 
 <div class="card">
   <h2>Agent Identity &amp; Keys</h2>
@@ -2034,6 +2080,11 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   {{end}}
 </div>
 
+</div>
+
+<!-- Pipeline -->
+<div class="tab-content {{if eq .Tab "pipeline"}}active{{end}}" data-tab-content="settings" data-tab-name="pipeline">
+
 <div class="card">
   <h2>Quarantine Queue</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
@@ -2041,25 +2092,128 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   </p>
   <div style="display:flex;gap:24px;margin-bottom:16px">
     <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Status</span>
-      <div style="font-size:1rem;font-weight:600;margin-top:4px;color:{{if .QEnabled}}var(--success){{else}}var(--danger){{end}}">
-        {{if .QEnabled}}Enabled{{else}}Disabled{{end}}
-      </div>
-    </div>
-    <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Auto-Expiry</span>
-      <div style="font-size:1rem;font-weight:600;margin-top:4px">{{.QExpiryHours}}h</div>
-    </div>
-    <div>
       <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Pending</span>
       <div style="font-size:1rem;font-weight:600;margin-top:4px;color:{{if .QPending}}var(--warn){{else}}var(--success){{end}}">{{.QPending}}</div>
     </div>
   </div>
-  <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-    Quarantined messages expire after <strong>{{.QExpiryHours}} hours</strong> if not reviewed.
-    Expired messages are preserved for audit but the content is not delivered.
-    Edit <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">quarantine.expiry_hours</code> in the config file to change this.
+  <form method="POST" action="/dashboard/settings/quarantine">
+    <div style="margin-bottom:20px">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Quarantine enabled</span>
+      </label>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Expiry Hours</label>
+        <input type="number" name="expiry_hours" value="{{.QExpiryHours}}" min="1">
+      </div>
+      <div class="form-group">
+        <label>Retention Days</label>
+        <input type="number" name="retention_days" value="{{.QRetentionDays}}" min="0">
+      </div>
+    </div>
+    <p style="color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:16px">
+      Quarantined messages expire after the configured hours if not reviewed.
+      Retention days controls auto-purge of old audit entries (0 = keep forever).
+    </p>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Rate Limiting</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Limit how many messages each agent can send within a sliding time window. Set per-agent to 0 to disable rate limiting.
   </p>
+  <form method="POST" action="/dashboard/settings/rate-limit">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Per Agent (max messages)</label>
+        <input type="number" name="per_agent" value="{{.RateLimitPerAgent}}" min="0">
+      </div>
+      <div class="form-group">
+        <label>Window (seconds)</label>
+        <input type="number" name="window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}" min="1">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Anomaly Detection</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Automatic risk scoring evaluates agent behavior over time. When an agent's risk score exceeds the threshold, it triggers an alert — or an automatic suspension if enabled.
+  </p>
+  <form method="POST" action="/dashboard/settings/anomaly">
+    <div style="margin-bottom:20px">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Auto-suspend agents when threshold exceeded</span>
+      </label>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Check Interval (seconds)</label>
+        <input type="number" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}" min="1">
+      </div>
+      <div class="form-group">
+        <label>Risk Threshold (0–100)</label>
+        <input type="number" name="risk_threshold" value="{{printf "%.1f" .AnomalyRiskThreshold}}" min="0" max="100" step="0.1">
+      </div>
+      <div class="form-group">
+        <label>Min Messages</label>
+        <input type="number" name="min_messages" value="{{.AnomalyMinMessages}}" min="0">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
+</div>
+
+</div>
+
+<!-- Infrastructure -->
+<div class="tab-content {{if eq .Tab "infra"}}active{{end}}" data-tab-content="settings" data-tab-name="infra">
+
+<div class="card">
+  <h2>Forward Proxy</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    HTTP forward proxy for Docker Sandbox integration. Intercepts outbound HTTP traffic from sandboxed agents and applies domain filtering and content scanning.
+  </p>
+  <form method="POST" action="/dashboard/settings/forward-proxy">
+    <div style="display:flex;gap:32px;margin-bottom:20px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Enabled</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Scan requests</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Scan responses</span>
+      </label>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label>Allowed Domains (one per line)</label>
+        <textarea name="allowed_domains" rows="4" style="font-family:var(--mono);font-size:0.82rem" placeholder="e.g. api.example.com">{{.FPAllowedDomains}}</textarea>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Blocked Domains (one per line)</label>
+        <textarea name="blocked_domains" rows="4" style="font-family:var(--mono);font-size:0.82rem" placeholder="e.g. evil.com">{{.FPBlockedDomains}}</textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Max Body Size (bytes)</label>
+        <input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
 </div>
 
 <div class="card">
@@ -2116,6 +2270,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <tr><td style="color:var(--text3);font-weight:600">Webhooks</td><td>{{.WebhookCount}} configured</td></tr>
     </tbody>
   </table>
+</div>
+
 </div>
 ` + layoutFoot))
 

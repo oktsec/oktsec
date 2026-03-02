@@ -965,3 +965,506 @@ func TestServer_EnforcementDelete(t *testing.T) {
 		t.Errorf("remaining rule = %q, want PI-001", srv.cfg.Rules[0].ID)
 	}
 }
+
+// --- Settings tab tests ---
+
+func TestServer_SettingsTabsRender(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	tabs := []struct {
+		tab      string
+		contains string
+	}{
+		{"security", "Security Mode"},
+		{"identity", "Agent Identity"},
+		{"pipeline", "Quarantine Queue"},
+		{"infra", "Forward Proxy"},
+	}
+	for _, tc := range tabs {
+		req := httptest.NewRequest("GET", "/dashboard/settings?tab="+tc.tab, nil)
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("settings tab=%s: status = %d, want 200", tc.tab, w.Code)
+		}
+		if !strings.Contains(w.Body.String(), tc.contains) {
+			t.Errorf("settings tab=%s: body missing %q", tc.tab, tc.contains)
+		}
+	}
+}
+
+func TestServer_SettingsDefaultTab(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/settings", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("settings default: status = %d, want 200", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "Security Mode") {
+		t.Error("settings with no tab param should show Security tab content")
+	}
+}
+
+func TestServer_SaveDefaultPolicy(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "oktsec.yaml")
+	srv.cfgPath = cfgPath
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Switch to deny
+	form := url.Values{"default_policy": {"deny"}}
+	req := httptest.NewRequest("POST", "/dashboard/settings/default-policy", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("save default policy: status = %d, want 302", w.Code)
+	}
+	if srv.cfg.DefaultPolicy != "deny" {
+		t.Errorf("in-memory policy = %q, want deny", srv.cfg.DefaultPolicy)
+	}
+
+	// Verify YAML persistence
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if loaded.DefaultPolicy != "deny" {
+		t.Errorf("persisted policy = %q, want deny", loaded.DefaultPolicy)
+	}
+
+	// Switch back to allow
+	form = url.Values{"default_policy": {"allow"}}
+	req = httptest.NewRequest("POST", "/dashboard/settings/default-policy", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if srv.cfg.DefaultPolicy != "allow" {
+		t.Errorf("policy after toggle back = %q, want allow", srv.cfg.DefaultPolicy)
+	}
+}
+
+func TestServer_SaveDefaultPolicyInvalid(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{"default_policy": {"bogus"}}
+	req := httptest.NewRequest("POST", "/dashboard/settings/default-policy", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid policy: status = %d, want 400", w.Code)
+	}
+}
+
+func TestServer_SaveRateLimit(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "oktsec.yaml")
+	srv.cfgPath = cfgPath
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{"per_agent": {"100"}, "window": {"30"}}
+	req := httptest.NewRequest("POST", "/dashboard/settings/rate-limit", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("save rate limit: status = %d, want 302", w.Code)
+	}
+	if srv.cfg.RateLimit.PerAgent != 100 {
+		t.Errorf("per_agent = %d, want 100", srv.cfg.RateLimit.PerAgent)
+	}
+	if srv.cfg.RateLimit.WindowS != 30 {
+		t.Errorf("window = %d, want 30", srv.cfg.RateLimit.WindowS)
+	}
+
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if loaded.RateLimit.PerAgent != 100 || loaded.RateLimit.WindowS != 30 {
+		t.Errorf("persisted rate limit = %+v", loaded.RateLimit)
+	}
+}
+
+func TestServer_SaveRateLimitValidation(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	cases := []struct {
+		name    string
+		form    url.Values
+	}{
+		{"negative per_agent", url.Values{"per_agent": {"-1"}, "window": {"60"}}},
+		{"zero window", url.Values{"per_agent": {"10"}, "window": {"0"}}},
+		{"non-numeric", url.Values{"per_agent": {"abc"}, "window": {"60"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/dashboard/settings/rate-limit", strings.NewReader(tc.form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("%s: status = %d, want 400", tc.name, w.Code)
+			}
+		})
+	}
+}
+
+func TestServer_SaveAnomaly(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "oktsec.yaml")
+	srv.cfgPath = cfgPath
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{
+		"check_interval": {"120"},
+		"risk_threshold": {"75.5"},
+		"min_messages":   {"10"},
+		"auto_suspend":   {"true"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/settings/anomaly", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("save anomaly: status = %d, want 302", w.Code)
+	}
+	if srv.cfg.Anomaly.CheckIntervalS != 120 {
+		t.Errorf("check_interval = %d, want 120", srv.cfg.Anomaly.CheckIntervalS)
+	}
+	if srv.cfg.Anomaly.RiskThreshold != 75.5 {
+		t.Errorf("risk_threshold = %f, want 75.5", srv.cfg.Anomaly.RiskThreshold)
+	}
+	if srv.cfg.Anomaly.MinMessages != 10 {
+		t.Errorf("min_messages = %d, want 10", srv.cfg.Anomaly.MinMessages)
+	}
+	if !srv.cfg.Anomaly.AutoSuspend {
+		t.Error("auto_suspend should be true")
+	}
+
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if loaded.Anomaly.RiskThreshold != 75.5 || !loaded.Anomaly.AutoSuspend {
+		t.Errorf("persisted anomaly = %+v", loaded.Anomaly)
+	}
+}
+
+func TestServer_SaveAnomalyAutoSuspendUnchecked(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Anomaly.AutoSuspend = true
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Unchecked checkbox omits the field entirely
+	form := url.Values{
+		"check_interval": {"60"},
+		"risk_threshold": {"50"},
+		"min_messages":   {"5"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/settings/anomaly", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("save anomaly: status = %d, want 302", w.Code)
+	}
+	if srv.cfg.Anomaly.AutoSuspend {
+		t.Error("auto_suspend should be false when checkbox is unchecked")
+	}
+}
+
+func TestServer_SaveAnomalyValidation(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	cases := []struct {
+		name string
+		form url.Values
+	}{
+		{"threshold over 100", url.Values{"check_interval": {"60"}, "risk_threshold": {"101"}, "min_messages": {"0"}}},
+		{"negative threshold", url.Values{"check_interval": {"60"}, "risk_threshold": {"-1"}, "min_messages": {"0"}}},
+		{"zero check_interval", url.Values{"check_interval": {"0"}, "risk_threshold": {"50"}, "min_messages": {"0"}}},
+		{"negative min_messages", url.Values{"check_interval": {"60"}, "risk_threshold": {"50"}, "min_messages": {"-1"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/dashboard/settings/anomaly", strings.NewReader(tc.form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("%s: status = %d, want 400", tc.name, w.Code)
+			}
+		})
+	}
+}
+
+func TestServer_SaveForwardProxy(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "oktsec.yaml")
+	srv.cfgPath = cfgPath
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{
+		"enabled":         {"true"},
+		"scan_requests":   {"true"},
+		"scan_responses":  {"true"},
+		"allowed_domains": {"api.example.com\ngithub.com"},
+		"blocked_domains": {"evil.com"},
+		"max_body_size":   {"2097152"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/settings/forward-proxy", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("save forward proxy: status = %d, want 302", w.Code)
+	}
+	if !srv.cfg.ForwardProxy.Enabled {
+		t.Error("enabled should be true")
+	}
+	if !srv.cfg.ForwardProxy.ScanRequests {
+		t.Error("scan_requests should be true")
+	}
+	if !srv.cfg.ForwardProxy.ScanResponses {
+		t.Error("scan_responses should be true")
+	}
+	if len(srv.cfg.ForwardProxy.AllowedDomains) != 2 {
+		t.Errorf("allowed_domains count = %d, want 2", len(srv.cfg.ForwardProxy.AllowedDomains))
+	}
+	if len(srv.cfg.ForwardProxy.BlockedDomains) != 1 || srv.cfg.ForwardProxy.BlockedDomains[0] != "evil.com" {
+		t.Errorf("blocked_domains = %v, want [evil.com]", srv.cfg.ForwardProxy.BlockedDomains)
+	}
+	if srv.cfg.ForwardProxy.MaxBodySize != 2097152 {
+		t.Errorf("max_body_size = %d, want 2097152", srv.cfg.ForwardProxy.MaxBodySize)
+	}
+
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !loaded.ForwardProxy.Enabled || len(loaded.ForwardProxy.AllowedDomains) != 2 {
+		t.Errorf("persisted forward proxy = %+v", loaded.ForwardProxy)
+	}
+}
+
+func TestServer_SaveForwardProxyTogglesOff(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.ForwardProxy.Enabled = true
+	srv.cfg.ForwardProxy.ScanRequests = true
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Unchecked checkboxes omitted
+	form := url.Values{
+		"allowed_domains": {""},
+		"blocked_domains": {""},
+		"max_body_size":   {"0"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/settings/forward-proxy", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	if srv.cfg.ForwardProxy.Enabled {
+		t.Error("enabled should be false")
+	}
+	if srv.cfg.ForwardProxy.ScanRequests {
+		t.Error("scan_requests should be false")
+	}
+}
+
+func TestServer_SaveForwardProxyInvalidMaxBody(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{
+		"allowed_domains": {""},
+		"blocked_domains": {""},
+		"max_body_size":   {"-1"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/settings/forward-proxy", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid max_body: status = %d, want 400", w.Code)
+	}
+}
+
+func TestServer_SaveQuarantine(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "oktsec.yaml")
+	srv.cfgPath = cfgPath
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{
+		"enabled":        {"true"},
+		"expiry_hours":   {"48"},
+		"retention_days": {"90"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/settings/quarantine", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("save quarantine: status = %d, want 302", w.Code)
+	}
+	if !srv.cfg.Quarantine.Enabled {
+		t.Error("enabled should be true")
+	}
+	if srv.cfg.Quarantine.ExpiryHours != 48 {
+		t.Errorf("expiry_hours = %d, want 48", srv.cfg.Quarantine.ExpiryHours)
+	}
+	if srv.cfg.Quarantine.RetentionDays != 90 {
+		t.Errorf("retention_days = %d, want 90", srv.cfg.Quarantine.RetentionDays)
+	}
+
+	loaded, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if loaded.Quarantine.ExpiryHours != 48 || loaded.Quarantine.RetentionDays != 90 {
+		t.Errorf("persisted quarantine = %+v", loaded.Quarantine)
+	}
+}
+
+func TestServer_SaveQuarantineValidation(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	cases := []struct {
+		name string
+		form url.Values
+	}{
+		{"zero expiry", url.Values{"enabled": {"true"}, "expiry_hours": {"0"}, "retention_days": {"0"}}},
+		{"negative retention", url.Values{"enabled": {"true"}, "expiry_hours": {"24"}, "retention_days": {"-1"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/dashboard/settings/quarantine", strings.NewReader(tc.form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("%s: status = %d, want 400", tc.name, w.Code)
+			}
+		})
+	}
+}
+
+func TestParseDomainList(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"simple", "foo.com\nbar.com", []string{"foo.com", "bar.com"}},
+		{"with whitespace", "  foo.com  \n  bar.com  \n", []string{"foo.com", "bar.com"}},
+		{"empty lines", "foo.com\n\n\nbar.com\n", []string{"foo.com", "bar.com"}},
+		{"empty string", "", nil},
+		{"only whitespace", "  \n  \n  ", nil},
+		{"single domain", "example.com", []string{"example.com"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseDomainList(tc.input)
+			if len(got) != len(tc.want) {
+				t.Fatalf("parseDomainList(%q) = %v (len %d), want %v (len %d)", tc.input, got, len(got), tc.want, len(tc.want))
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("parseDomainList(%q)[%d] = %q, want %q", tc.input, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestServer_ModeToggleRedirectsToSecurityTab(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("POST", "/dashboard/mode/toggle", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("mode toggle: status = %d, want 302", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if loc != "/dashboard/settings?tab=security" {
+		t.Errorf("redirect = %q, want /dashboard/settings?tab=security", loc)
+	}
+}

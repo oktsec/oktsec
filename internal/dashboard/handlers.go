@@ -864,7 +864,7 @@ func (s *Server) handleModeToggle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Redirect(w, r, "/dashboard", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings?tab=security", http.StatusFound)
 }
 
 // --- SSE handler ---
@@ -1817,6 +1817,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 // --- Settings handler ---
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
+	tab := r.URL.Query().Get("tab")
+	if tab == "" {
+		tab = "security"
+	}
+
 	type keyInfo struct {
 		Name        string
 		Fingerprint string
@@ -1855,6 +1860,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 	data := map[string]any{
 		"Active":         "settings",
+		"Tab":            tab,
 		"RequireSig":     s.cfg.Identity.RequireSignature,
 		"Keys":           keys,
 		"KeysDir":        s.cfg.Identity.KeysDir,
@@ -1869,9 +1875,154 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"CustomRulesDir": s.cfg.CustomRulesDir,
 		"WebhookCount":    len(s.cfg.Webhooks),
 		"WebhookChannels": s.cfg.Webhooks,
+
+		"DefaultPolicy":        s.cfg.DefaultPolicy,
+		"RateLimitPerAgent":    s.cfg.RateLimit.PerAgent,
+		"RateLimitWindow":      s.cfg.RateLimit.WindowS,
+		"AnomalyCheckInterval": s.cfg.Anomaly.CheckIntervalS,
+		"AnomalyRiskThreshold": s.cfg.Anomaly.RiskThreshold,
+		"AnomalyMinMessages":   s.cfg.Anomaly.MinMessages,
+		"AnomalyAutoSuspend":   s.cfg.Anomaly.AutoSuspend,
+		"FPEnabled":            s.cfg.ForwardProxy.Enabled,
+		"FPAllowedDomains":     strings.Join(s.cfg.ForwardProxy.AllowedDomains, "\n"),
+		"FPBlockedDomains":     strings.Join(s.cfg.ForwardProxy.BlockedDomains, "\n"),
+		"FPScanRequests":       s.cfg.ForwardProxy.ScanRequests,
+		"FPScanResponses":      s.cfg.ForwardProxy.ScanResponses,
+		"FPMaxBodySize":        s.cfg.ForwardProxy.MaxBodySize,
+		"QRetentionDays":       s.cfg.Quarantine.RetentionDays,
 	}
 
 	s.renderTemplate(w, settingsTmpl, data)
+}
+
+// --- Settings section handlers ---
+
+func (s *Server) handleSaveDefaultPolicy(w http.ResponseWriter, r *http.Request) {
+	policy := r.FormValue("default_policy")
+	if policy != "allow" && policy != "deny" {
+		http.Error(w, "invalid policy (must be allow or deny)", http.StatusBadRequest)
+		return
+	}
+	s.cfg.DefaultPolicy = policy
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after default policy update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/settings?tab=security", http.StatusFound)
+}
+
+func (s *Server) handleSaveRateLimit(w http.ResponseWriter, r *http.Request) {
+	perAgent, err := strconv.Atoi(r.FormValue("per_agent"))
+	if err != nil || perAgent < 0 {
+		http.Error(w, "per_agent must be a non-negative integer", http.StatusBadRequest)
+		return
+	}
+	window, err := strconv.Atoi(r.FormValue("window"))
+	if err != nil || window < 1 {
+		http.Error(w, "window must be a positive integer", http.StatusBadRequest)
+		return
+	}
+	s.cfg.RateLimit.PerAgent = perAgent
+	s.cfg.RateLimit.WindowS = window
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after rate limit update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/settings?tab=pipeline", http.StatusFound)
+}
+
+func (s *Server) handleSaveAnomaly(w http.ResponseWriter, r *http.Request) {
+	checkInterval, err := strconv.Atoi(r.FormValue("check_interval"))
+	if err != nil || checkInterval < 1 {
+		http.Error(w, "check_interval must be a positive integer", http.StatusBadRequest)
+		return
+	}
+	riskThreshold, err := strconv.ParseFloat(r.FormValue("risk_threshold"), 64)
+	if err != nil || riskThreshold < 0 || riskThreshold > 100 {
+		http.Error(w, "risk_threshold must be between 0 and 100", http.StatusBadRequest)
+		return
+	}
+	minMessages, err := strconv.Atoi(r.FormValue("min_messages"))
+	if err != nil || minMessages < 0 {
+		http.Error(w, "min_messages must be a non-negative integer", http.StatusBadRequest)
+		return
+	}
+	s.cfg.Anomaly.CheckIntervalS = checkInterval
+	s.cfg.Anomaly.RiskThreshold = riskThreshold
+	s.cfg.Anomaly.MinMessages = minMessages
+	s.cfg.Anomaly.AutoSuspend = r.FormValue("auto_suspend") == "true"
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after anomaly update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/settings?tab=pipeline", http.StatusFound)
+}
+
+func (s *Server) handleSaveForwardProxy(w http.ResponseWriter, r *http.Request) {
+	s.cfg.ForwardProxy.Enabled = r.FormValue("enabled") == "true"
+	s.cfg.ForwardProxy.ScanRequests = r.FormValue("scan_requests") == "true"
+	s.cfg.ForwardProxy.ScanResponses = r.FormValue("scan_responses") == "true"
+	s.cfg.ForwardProxy.AllowedDomains = parseDomainList(r.FormValue("allowed_domains"))
+	s.cfg.ForwardProxy.BlockedDomains = parseDomainList(r.FormValue("blocked_domains"))
+	maxBody, err := strconv.ParseInt(r.FormValue("max_body_size"), 10, 64)
+	if err != nil || maxBody < 0 {
+		http.Error(w, "max_body_size must be a non-negative integer", http.StatusBadRequest)
+		return
+	}
+	s.cfg.ForwardProxy.MaxBodySize = maxBody
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after forward proxy update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/settings?tab=infra", http.StatusFound)
+}
+
+func (s *Server) handleSaveQuarantine(w http.ResponseWriter, r *http.Request) {
+	expiryHours, err := strconv.Atoi(r.FormValue("expiry_hours"))
+	if err != nil || expiryHours < 1 {
+		http.Error(w, "expiry_hours must be a positive integer", http.StatusBadRequest)
+		return
+	}
+	retentionDays, err := strconv.Atoi(r.FormValue("retention_days"))
+	if err != nil || retentionDays < 0 {
+		http.Error(w, "retention_days must be a non-negative integer", http.StatusBadRequest)
+		return
+	}
+	s.cfg.Quarantine.Enabled = r.FormValue("enabled") == "true"
+	s.cfg.Quarantine.ExpiryHours = expiryHours
+	s.cfg.Quarantine.RetentionDays = retentionDays
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after quarantine update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/settings?tab=pipeline", http.StatusFound)
+}
+
+// parseDomainList splits a newline-delimited textarea value into a trimmed domain slice.
+func parseDomainList(raw string) []string {
+	var domains []string
+	for _, line := range strings.Split(raw, "\n") {
+		d := strings.TrimSpace(line)
+		if d != "" {
+			domains = append(domains, d)
+		}
+	}
+	return domains
 }
 
 // --- Webhook channel handlers ---
@@ -1916,7 +2067,7 @@ func (s *Server) handleSaveWebhookChannel(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings?tab=infra", http.StatusFound)
 }
 
 func (s *Server) handleDeleteWebhookChannel(w http.ResponseWriter, r *http.Request) {
