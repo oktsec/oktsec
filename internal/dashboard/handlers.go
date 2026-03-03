@@ -732,11 +732,22 @@ func (s *Server) handleCategoryRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Look up category webhooks
+	var catWebhook *config.CategoryWebhook
+	for i := range s.cfg.CategoryWebhooks {
+		if s.cfg.CategoryWebhooks[i].Category == catName {
+			catWebhook = &s.cfg.CategoryWebhooks[i]
+			break
+		}
+	}
+
 	data := map[string]any{
-		"Active":       "rules",
-		"Category":     cat,
-		"EnabledCount": cat.Total - cat.Disabled,
-		"RequireSig":   s.cfg.Identity.RequireSignature,
+		"Active":          "rules",
+		"Category":        cat,
+		"EnabledCount":    cat.Total - cat.Disabled,
+		"RequireSig":      s.cfg.Identity.RequireSignature,
+		"Webhooks":        s.cfg.Webhooks,
+		"CategoryWebhook": catWebhook,
 	}
 
 	s.renderTemplate(w, categoryDetailTmpl, data)
@@ -2544,4 +2555,208 @@ func (s *Server) handleGatewayHealthCheck(w http.ResponseWriter, r *http.Request
 	}
 
 	fmt.Fprint(w, pill("var(--danger)", "#fff", "offline"))
+}
+
+// --- Rule detail page handlers ---
+
+func (s *Server) handleRuleDetailPage(w http.ResponseWriter, r *http.Request) {
+	category := r.PathValue("category")
+	ruleID := r.PathValue("ruleID")
+
+	if s.scanner == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	detail, err := s.scanner.ExplainRule(ruleID)
+	if err != nil || detail.Category != category {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Look up existing enforcement override
+	var override *config.RuleAction
+	for i := range s.cfg.Rules {
+		if s.cfg.Rules[i].ID == ruleID {
+			override = &s.cfg.Rules[i]
+			break
+		}
+	}
+
+	// Look up category webhooks
+	var catWebhook *config.CategoryWebhook
+	for i := range s.cfg.CategoryWebhooks {
+		if s.cfg.CategoryWebhooks[i].Category == category {
+			catWebhook = &s.cfg.CategoryWebhooks[i]
+			break
+		}
+	}
+
+	// Check disabled state
+	disabled := false
+	for _, ra := range s.cfg.Rules {
+		if ra.ID == ruleID && ra.Action == "ignore" {
+			disabled = true
+			break
+		}
+	}
+
+	data := map[string]any{
+		"Active":          "rules",
+		"RequireSig":      s.cfg.Identity.RequireSignature,
+		"Detail":          detail,
+		"Category":        category,
+		"Override":         override,
+		"CategoryWebhook": catWebhook,
+		"Webhooks":         s.cfg.Webhooks,
+		"Disabled":         disabled,
+	}
+
+	s.renderTemplate(w, ruleDetailPageTmpl, data)
+}
+
+func (s *Server) handleTestRule(w http.ResponseWriter, r *http.Request) {
+	ruleID := r.PathValue("id")
+	content := r.FormValue("content")
+
+	if s.scanner == nil || content == "" {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<div style="color:var(--text3);font-size:0.82rem">No scanner or empty content.</div>`)
+		return
+	}
+
+	outcome, err := s.scanner.ScanContent(r.Context(), content)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprintf(w, `<div style="color:var(--danger);font-size:0.82rem">Scan error: %s</div>`, template.HTMLEscapeString(err.Error()))
+		return
+	}
+
+	// Check if ruleID is in findings
+	var matched bool
+	var matchText string
+	for _, f := range outcome.Findings {
+		if f.RuleID == ruleID {
+			matched = true
+			matchText = f.Match
+			break
+		}
+	}
+
+	data := map[string]any{
+		"Matched":   matched,
+		"MatchText": matchText,
+		"RuleID":    ruleID,
+	}
+	s.renderTemplate(w, ruleTestResultTmpl, data)
+}
+
+func (s *Server) handleSaveRuleEnforcement(w http.ResponseWriter, r *http.Request) {
+	category := r.PathValue("category")
+	ruleID := r.PathValue("ruleID")
+	action := r.FormValue("action")
+
+	if ruleID == "" || action == "" {
+		http.Error(w, "rule_id and action required", http.StatusBadRequest)
+		return
+	}
+
+	severity := r.FormValue("severity")
+
+	// Merge notify sources
+	var notify []string
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form data", http.StatusBadRequest)
+		return
+	}
+	for _, ch := range r.Form["notify_channel"] {
+		if ch = strings.TrimSpace(ch); ch != "" {
+			notify = append(notify, ch)
+		}
+	}
+	for _, line := range strings.Split(r.FormValue("notify_urls"), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			notify = append(notify, line)
+		}
+	}
+	tmpl := strings.TrimSpace(r.FormValue("template"))
+
+	// Update existing or append new
+	found := false
+	for i := range s.cfg.Rules {
+		if s.cfg.Rules[i].ID == ruleID {
+			s.cfg.Rules[i].Severity = severity
+			s.cfg.Rules[i].Action = action
+			s.cfg.Rules[i].Notify = notify
+			s.cfg.Rules[i].Template = tmpl
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.cfg.Rules = append(s.cfg.Rules, config.RuleAction{
+			ID:       ruleID,
+			Severity: severity,
+			Action:   action,
+			Notify:   notify,
+			Template: tmpl,
+		})
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after rule enforcement update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/rules/"+category+"/"+ruleID, http.StatusFound)
+}
+
+func (s *Server) handleSaveCategoryWebhooks(w http.ResponseWriter, r *http.Request) {
+	category := r.PathValue("category")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form data", http.StatusBadRequest)
+		return
+	}
+
+	var notify []string
+	for _, ch := range r.Form["notify_channel"] {
+		if ch = strings.TrimSpace(ch); ch != "" {
+			notify = append(notify, ch)
+		}
+	}
+	for _, line := range strings.Split(r.FormValue("notify_urls"), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			notify = append(notify, line)
+		}
+	}
+
+	// Update or create
+	found := false
+	for i := range s.cfg.CategoryWebhooks {
+		if s.cfg.CategoryWebhooks[i].Category == category {
+			s.cfg.CategoryWebhooks[i].Notify = notify
+			found = true
+			break
+		}
+	}
+	if !found && len(notify) > 0 {
+		s.cfg.CategoryWebhooks = append(s.cfg.CategoryWebhooks, config.CategoryWebhook{
+			Category: category,
+			Notify:   notify,
+		})
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after category webhook update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/rules/"+category, http.StatusFound)
 }

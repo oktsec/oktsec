@@ -478,8 +478,9 @@ func (h *Handler) resolveWebhookRef(ref string) string {
 }
 
 // notifyByRuleOverrides sends webhook notifications for rules that have notify URLs configured.
+// Falls back to category-level webhooks when a rule has no explicit notify configuration.
 func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findings []engine.FindingSummary) {
-	if len(h.cfg.Rules) == 0 {
+	if len(h.cfg.Rules) == 0 && len(h.cfg.CategoryWebhooks) == 0 {
 		return
 	}
 
@@ -495,11 +496,15 @@ func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findi
 		}
 	}
 
-	for _, f := range findings {
-		rn, ok := notifyMap[f.RuleID]
-		if !ok {
-			continue
+	// Build category → notify refs lookup
+	catNotifyMap := make(map[string][]string)
+	for _, cw := range h.cfg.CategoryWebhooks {
+		if len(cw.Notify) > 0 {
+			catNotifyMap[cw.Category] = cw.Notify
 		}
+	}
+
+	for _, f := range findings {
 		event := WebhookEvent{
 			Event:     "rule_triggered",
 			MessageID: msgID,
@@ -512,12 +517,24 @@ func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findi
 			Match:     f.Match,
 			Timestamp: req.Timestamp,
 		}
-		for _, ref := range rn.Refs {
-			url := h.resolveWebhookRef(ref)
-			if url == "" {
-				continue
+
+		// Use rule-level notify if available, else fall back to category-level
+		if rn, ok := notifyMap[f.RuleID]; ok {
+			for _, ref := range rn.Refs {
+				url := h.resolveWebhookRef(ref)
+				if url == "" {
+					continue
+				}
+				h.webhooks.NotifyTemplated(url, rn.Template, event)
 			}
-			h.webhooks.NotifyTemplated(url, rn.Template, event)
+		} else if catRefs, ok := catNotifyMap[f.Category]; ok {
+			for _, ref := range catRefs {
+				url := h.resolveWebhookRef(ref)
+				if url == "" {
+					continue
+				}
+				h.webhooks.NotifyTemplated(url, "", event)
+			}
 		}
 	}
 }

@@ -165,6 +165,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/audit/sandbox", s.handleAuditSandbox)
 	s.mux.HandleFunc("GET /dashboard/rules", s.handleRules)
 	s.mux.HandleFunc("GET /dashboard/rules/{category}", s.handleCategoryRules)
+	s.mux.HandleFunc("GET /dashboard/rules/{category}/{ruleID}", s.handleRuleDetailPage)
+	s.mux.HandleFunc("POST /dashboard/rules/{category}/{ruleID}/enforcement", s.handleSaveRuleEnforcement)
+	s.mux.HandleFunc("POST /dashboard/rules/{category}/webhooks", s.handleSaveCategoryWebhooks)
 	s.mux.HandleFunc("POST /dashboard/identity/revoke", s.handleIdentityRevoke)
 	s.mux.HandleFunc("POST /dashboard/mode/toggle", s.handleModeToggle)
 
@@ -187,6 +190,7 @@ func (s *Server) routes() {
 
 	// Rule detail panel
 	s.mux.HandleFunc("GET /dashboard/api/rule/{id}", s.handleRuleDetail)
+	s.mux.HandleFunc("POST /dashboard/api/rule/{id}/test", s.handleTestRule)
 
 	// Enforcement overrides
 	s.mux.HandleFunc("GET /dashboard/rules/enforcement", s.handleEnforcementOverrides)
