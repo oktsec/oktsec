@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-03-03
+
+### Added
+
+- **Mobile-responsive dashboard**: Three-tier breakpoint system (768px tablet, 480px phone) replaces the single desktop-only layout. Hamburger menu with slide-out sidebar, responsive grid utilities (`.grid-2/3/4`), horizontal-scrollable tables, and stacked stats on mobile. Inline grid styles extracted to CSS classes across all dashboard pages.
+- **Dashboard visual polish**: Stat card accent gradient on hover with subtle lift, card hover shadows, card header border separators, accent-tinted table row hover, gradient buttons with micro-lift, sidebar section dividers, category card hover lift, blocked badge pulse animation, and improved login button glow.
+- **Full-page rule detail view**: New `/dashboard/rules/{category}/{ruleID}` page with breadcrumb navigation, rule metadata (severity, category, description, patterns, true/false positive examples), inline rule testing via HTMX, and per-rule enforcement configuration. Replaces the side-panel rule view.
+- **Inline rule testing**: New `POST /dashboard/api/rule/{id}/test` endpoint. Submit test content directly from the rule detail page and see real-time match/no-match results.
+- **Per-category webhook configuration**: New `CategoryWebhook` config type and `POST /dashboard/rules/{category}/webhooks` endpoint. Assign default notification channels to entire rule categories. Rules without explicit webhook config fall back to their category's webhooks automatically.
+- **Category webhook fallback in proxy**: `notifyByRuleOverrides()` now builds a category→notify lookup from `CategoryWebhooks` config and falls back to category-level notifications when a rule has no explicit notify configuration.
+- **Traffic generator**: New `demo/traffic-gen` Go binary for realistic continuous traffic simulation. Uses all 10 agents with weighted selection (coordinator/coder weighted higher), Ed25519 signed messages (75% signed, 25% unsigned), malicious payload mix (20% of traffic) covering prompt injection, credential leaks, PII exposure, exfiltration, privilege escalation, code execution, and system prompt extraction. Configurable API endpoint and keys directory.
+- **`inSlice` template function**: Helper for checking if a value exists in a slice, used in category webhook channel checkboxes.
+- **Dashboard improvements (PRs #29, #30)**: Settings page with tabbed layout and full config editing. 5 production workflow improvements including event filters, agent detail enhancements, and search.
+- **MCP audit checks**: Tool inventory validation and MCP-specific security checks in the deployment audit. New `checks_mcp.go` with test coverage.
+- **Discovery improvements**: Enhanced MCP client scanner with better error handling and platform detection.
+- **Deterministic graph layout**: Agent topology visualization uses circular initial placement instead of random positions, ensuring consistent layout across page reloads. Label background pills for readability, node layer rendered on top of edges/particles, subtler edge lines and particles.
+- **Dashboard server tests**: 657-line test suite covering all dashboard routes, HTMX partials, authentication, and CSRF protection.
+- **175 detection rules**: Up from 169, with 6 new rules across inter-agent and MCP categories.
+
+### Changed
+
+- **Fonts**: Switched from Google Fonts (Inter, JetBrains Mono) to system font stacks (`system-ui` for sans, `ui-monospace` for mono). Eliminates external font loading latency and GDPR/privacy concerns.
+- **HTMX self-hosted**: Replaced CDN-loaded `htmx.org@2.0.4` with self-hosted `htmx.min.js` via `internal/dashboard/static/embed.go`. Dashboard now works fully offline.
+- **Color palette softened**: Danger, success, and warning colors adjusted to softer variants (`#f87171`, `#34d399`, `#fbbf24`) for reduced eye strain on dark backgrounds. All severity and status badge backgrounds use consistent `rgba()` values.
+- **Brand logo enlarged**: Sidebar brand font size increased from `1.12rem` to `1.35rem`. SVG favicon added across all pages.
+- **Rule links**: Category detail page now links to full-page rule detail views instead of HTMX side panels.
+- **Sidebar**: Uses CSS `transform:translateX(-100%)` with transition instead of `display:none` for mobile toggle, enabling smooth slide animation.
+- **Overview page**: Removed redundant `h1` heading (page title already in topbar).
+
+### Fixed
+
+- **Flaky stdio test deadlock**: Reduced test timeout from 10 minutes to 0.1 seconds, preventing CI hangs from deadlocked goroutines.
+- **Bulk toggle idempotency**: Enable/disable all rules toggle now correctly handles already-toggled states.
+- **Export limit**: Audit log export no longer truncates at 1000 entries.
+- **Agent descriptions**: Agent detail page now correctly displays the description field from config.
+
 ## [0.6.0] - 2026-02-28
 
 ### Added
