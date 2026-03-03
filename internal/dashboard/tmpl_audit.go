@@ -81,6 +81,11 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 @media(max-width:768px){
   .a-stats{grid-template-columns:repeat(2,1fr)}
+  .a-prod-head{flex-direction:column}
+  .a-prod-counts{margin-left:0}
+}
+@media(max-width:480px){
+  .a-stats{grid-template-columns:1fr}
 }
 </style>
 

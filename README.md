@@ -25,7 +25,7 @@
 
 ---
 
-Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients, OpenClaw, and NanoClaw. No LLM. Single binary. **169 detection rules.** Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Supports MCP clients, OpenClaw, and NanoClaw. No LLM. Single binary. **175 detection rules.** Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 
@@ -35,7 +35,7 @@ Oktsec sits between AI agents and enforces a multi-layer security pipeline:
 2. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing (ASI03).
 3. **Agent suspension** — Suspended agents are immediately rejected, no further processing (ASI10).
 4. **Policy** — YAML-based ACLs control which agent can message which. Default-deny mode rejects unknown senders (ASI03).
-5. **Content scanning** — 169 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, supply chain risks, and more (ASI01, ASI02, ASI05).
+5. **Content scanning** — 175 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, supply chain risks, and more (ASI01, ASI02, ASI05).
 6. **BlockedContent enforcement** — Per-agent category-based content blocking escalates verdicts when findings match blocked categories (ASI02).
 7. **Multi-message escalation** — Agents with repeated blocks get their verdicts escalated automatically (ASI01, ASI10).
 8. **Audit** — Every message is logged to SQLite with content hash, sender verification status, policy decision, and triggered rules.
@@ -380,7 +380,7 @@ Server→client responses are always forwarded (observe-only). This is what `okt
 
 ## Deployment audit
 
-The `audit` command checks your oktsec deployment and any detected agent platforms for security misconfigurations. It runs 41 checks across Oktsec (16), OpenClaw (18), and NanoClaw (7), and outputs a health score with remediation guidance:
+The `audit` command checks your oktsec deployment and any detected agent platforms for security misconfigurations. It runs checks across Oktsec, OpenClaw, NanoClaw, and discovered MCP servers, and outputs a health score with remediation guidance:
 
 ```bash
 oktsec audit
@@ -432,7 +432,7 @@ Agent  ──►  Oktsec Gateway  ──►  Backend MCP Server(s)
              │
              ├─ Rate limit
              ├─ Agent ACL check
-             ├─ Content scan (169 rules)
+             ├─ Content scan (175 rules)
              ├─ Rule overrides
              ├─ Verdict (allow/block/quarantine)
              ├─ Audit log
@@ -489,7 +489,7 @@ Available tools (6):
 
 | Tool | Description |
 |---|---|
-| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 160+ threat patterns |
+| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 175 threat patterns |
 | `list_agents` | List all agents with their ACLs and content restrictions |
 | `audit_query` | Query the audit log with filters (status, agent, limit) |
 | `get_policy` | Get the security policy for a specific agent |
@@ -506,7 +506,7 @@ oktsec serve
 
 ```
   ┌──────────────────────────────────────┐
-  │           OKTSEC v0.5.0              │
+  │           OKTSEC v0.7.0              │
   │   Security Proxy for AI Agents       │
   ├──────────────────────────────────────┤
   │  API:       http://127.0.0.1:8080   │
@@ -521,13 +521,14 @@ The access code is generated fresh each time the server starts. Sessions expire 
 
 ### Pages
 
-- **Overview** — Stats grid (total, blocked, quarantined, flagged), top triggered rules, agent risk scores, hourly activity chart
+- **Overview** — Stats grid (total, blocked, quarantined, flagged), detection rate, unsigned message %, average latency, top triggered rules, agent risk scores, hourly activity chart. Mobile-responsive with hamburger menu.
 - **Events** — Unified audit log and quarantine view with live SSE streaming, tab filters (All / Quarantine / Blocked), search, human-readable event detail panels with clickable rule cards
-- **Rules** — Category card grid with drill-down to individual rules, inline enable/disable toggles, per-rule enforcement overrides (block/quarantine/allow-and-flag/ignore) with per-rule webhook notifications and customizable Slack/Discord templates, custom rule creation. 15 categories including `openclaw-config` and `nanoclaw-config`
+- **Rules** — Category card grid with drill-down to individual rules, full-page rule detail view with inline testing, per-rule enforcement overrides (block/quarantine/allow-and-flag/ignore) with per-rule and per-category webhook notifications, customizable Slack/Discord templates, custom rule creation. 15 categories including `openclaw-config` and `nanoclaw-config`
 - **Agents** — Agent CRUD, ACLs, content restrictions, Ed25519 keygen per agent, suspension toggle
-- **Graph** — Agent communication topology visualization with traffic health scores, threat scores (betweenness centrality), shadow edge detection for policy violations, edge drill-down
+- **Graph** — Agent communication topology visualization with deterministic layout, traffic health scores, threat scores (betweenness centrality), shadow edge detection for policy violations, edge drill-down
 - **Audit** — Deployment security posture: health score and grade, per-product finding cards (Oktsec, OpenClaw, NanoClaw) with severity breakdown, inline remediation, priority fixes
-- **Settings** — Security mode (enforce/observe), key management with revocation, quarantine config, named webhook channel management
+- **Discovery** — MCP client discovery results with detected servers, tools, and security posture
+- **Settings** — Tabbed layout with security mode (enforce/observe), key management with revocation, quarantine config, named webhook channel management, full config editing
 
 ### Quarantine queue
 
@@ -630,6 +631,12 @@ rules:                       # Per-rule enforcement overrides
     notify: [slack-security] # Named channels or raw URLs
     template: "🚨 *{{RULE}}* — {{RULE_NAME}}\n• *Severity:* {{SEVERITY}} | *Category:* {{CATEGORY}}\n• *Agents:* {{FROM}} → {{TO}}\n• *Match:* '{{MATCH}}'"
 
+category_webhooks:           # Default webhooks for entire categories (rules inherit these)
+  - category: credential-leak
+    notify: [slack-security]
+  - category: prompt-injection
+    notify: [slack-security]
+
 webhooks:
   - name: slack-security    # Named channel (referenced in rules.notify)
     url: https://hooks.slack.com/services/xxx
@@ -643,12 +650,12 @@ oktsec verify --config oktsec.yaml
 
 ## Detection rules
 
-Oktsec includes **169 detection rules** across 15 categories:
+Oktsec includes **175 detection rules** across 15 categories:
 
 | Source | Count | Categories |
 |--------|-------|------------|
 | [Aguara](https://github.com/garagon/aguara) | 148 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
-| Inter-agent protocol (IAP) | 6 | inter-agent |
+| Inter-agent protocol (IAP) | 12 | inter-agent |
 | OpenClaw (OCLAW) | 15 | openclaw-config |
 
 ### Inter-agent protocol rules
@@ -661,6 +668,12 @@ Oktsec includes **169 detection rules** across 15 categories:
 | `IAP-004` | High | System prompt extraction via agent |
 | `IAP-005` | High | Privilege escalation between agents |
 | `IAP-006` | High | Data exfiltration via agent relay |
+| `IAP-007` | Critical | Tool description prompt injection |
+| `IAP-008` | Critical | Tool description data exfiltration |
+| `IAP-009` | High | Tool description privilege escalation |
+| `IAP-010` | High | Tool description shadowing |
+| `IAP-011` | Critical | Tool description hidden commands |
+| `IAP-012` | High | Tool name typosquatting |
 
 ### OpenClaw rules
 

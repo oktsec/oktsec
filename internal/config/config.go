@@ -18,8 +18,9 @@ type Config struct {
 	DefaultPolicy  string                         `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
 	Agents         map[string]Agent               `yaml:"agents"`
 	Rules          []RuleAction                   `yaml:"rules"`
-	Webhooks       []Webhook                      `yaml:"webhooks"`
-	DBPath         string                         `yaml:"db_path,omitempty"`
+	Webhooks         []Webhook                      `yaml:"webhooks"`
+	CategoryWebhooks []CategoryWebhook              `yaml:"category_webhooks,omitempty"`
+	DBPath           string                         `yaml:"db_path,omitempty"`
 	CustomRulesDir string                         `yaml:"custom_rules_dir,omitempty"`
 	Quarantine     QuarantineConfig               `yaml:"quarantine,omitempty"`
 	RateLimit      RateLimitConfig                `yaml:"rate_limit,omitempty"`
@@ -112,6 +113,12 @@ type MCPServerConfig struct {
 	URL       string            `yaml:"url,omitempty"`     // for http
 	Headers   map[string]string `yaml:"headers,omitempty"`
 	Env       map[string]string `yaml:"env,omitempty"` // env vars for stdio
+}
+
+// CategoryWebhook binds a rule category to default notification channels.
+type CategoryWebhook struct {
+	Category string   `yaml:"category"`
+	Notify   []string `yaml:"notify"`
 }
 
 // Webhook defines an outgoing notification endpoint.

@@ -28,6 +28,14 @@ var tmplFuncs = template.FuncMap{
 		}
 	},
 	"upper": strings.ToUpper,
+	"inSlice": func(item string, list []string) bool {
+		for _, s := range list {
+			if s == item {
+				return true
+			}
+		}
+		return false
+	},
 	"lower": strings.ToLower,
 	"inc": func(i int) int { return i + 1 },
 	"divf": func(a, b int) float64 {
@@ -81,7 +89,7 @@ button{
   border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;
   transition:background 0.2s,transform 0.1s,box-shadow 0.2s;
 }
-button:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
+button:hover{background:var(--accent-dim);box-shadow:0 4px 16px rgba(99,102,241,0.35)}
 button:active{transform:scale(0.98)}
 .error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.15);border-radius:8px;color:var(--danger);font-size:0.82rem}
 .error svg{flex-shrink:0;width:16px;height:16px}
@@ -229,6 +237,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .sidebar{position:fixed;top:0;left:0;width:240px;height:100vh;background:var(--bg);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;overflow-y:auto}
 .sidebar .brand{padding:20px 20px 24px;font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:-0.3px;color:var(--text);text-decoration:none;display:block}
 .sidebar-section{padding:0 12px;margin-bottom:16px}
+.sidebar-section+.sidebar-section{border-top:1px solid var(--border);padding-top:8px}
 .sidebar-section-label{font-size:0.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);font-weight:500;padding:8px 12px 6px;user-select:none}
 .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;color:var(--text3);font-size:0.82rem;font-weight:500;text-decoration:none;transition:all 0.15s;border-left:2px solid transparent;margin-bottom:1px}
 .sidebar-item:hover{background:var(--surface-hover);color:var(--text2)}
@@ -254,10 +263,17 @@ h1{font-size:1.3rem;font-weight:600;margin-bottom:6px;letter-spacing:-0.2px}
 h1 span{color:var(--text2);font-weight:400}
 .page-desc{color:var(--text3);font-size:0.82rem;margin-bottom:28px}
 
+/* Grid utility classes */
+.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+
 /* Stats */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
-.stat{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;transition:all 0.2s}
-.stat:hover{background:var(--surface-hover);border-color:var(--border-hover)}
+.stat{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;transition:all 0.2s;position:relative;overflow:hidden}
+.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent-dim),var(--accent-light));opacity:0;transition:opacity 0.2s}
+.stat:hover{background:var(--surface-hover);border-color:var(--border-hover);transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,0.15)}
+.stat:hover::before{opacity:1}
 .stat .label{color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:500;margin-bottom:6px}
 .stat .value{font-family:var(--mono);font-size:1.7rem;font-weight:700}
 .stat .value.success{color:var(--success)}
@@ -265,20 +281,22 @@ h1 span{color:var(--text2);font-weight:400}
 .stat .value.warn{color:var(--warn)}
 
 /* Card */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;transition:all 0.15s}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;transition:all 0.2s}
+.card:hover{box-shadow:0 2px 8px rgba(0,0,0,0.1)}
 .card:hover{border-color:var(--border-hover)}
-.card h2{font-size:0.92rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.card h2{font-size:0.92rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--border)}
 .card h2 .dot{width:6px;height:6px;border-radius:50%;background:var(--success);animation:pulse 2s infinite}
 
 /* Table */
 table{width:100%;border-collapse:collapse;font-size:0.82rem}
 th{text-align:left;color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:500;padding:8px 12px;border-bottom:1px solid var(--border)}
 td{padding:10px 12px;border-bottom:1px solid rgba(63,63,70,0.6);color:var(--text2);font-family:var(--mono);font-size:0.78rem;transition:background 0.15s}
-tr:hover td{background:var(--surface2)}
+tr:hover td{background:rgba(99,102,241,0.04)}
 
 /* Status badges */
 .badge-delivered{background:rgba(74,222,128,0.09);color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-blocked{background:rgba(248,113,113,0.09);color:#f87171;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-blocked{background:rgba(248,113,113,0.09);color:#f87171;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600;animation:badgePulse 3s ease-in-out infinite}
+@keyframes badgePulse{0%,100%{box-shadow:none}50%{box-shadow:0 0 6px rgba(248,113,113,0.2)}}
 .badge-rejected{background:rgba(251,146,60,0.09);color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
 .badge-quarantined{background:#a855f718;color:#c084fc;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
 .badge-verified{color:var(--success)}
@@ -366,7 +384,8 @@ tr:hover td{background:var(--surface2)}
 .form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
 .form-group select{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23555570' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
 .form-group textarea{resize:vertical;min-height:80px}
-.btn{display:inline-block;padding:8px 18px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;transition:all 0.15s;width:auto;margin:0}
+.btn{display:inline-block;padding:8px 18px;background:linear-gradient(135deg,var(--accent),var(--accent-dim));color:#fff;border:none;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;transition:all 0.2s;width:auto;margin:0;box-shadow:0 1px 3px rgba(99,102,241,0.2)}
+.btn:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(99,102,241,0.3)}
 .btn:hover{background:var(--accent-light)}
 .btn-sm{padding:4px 12px;font-size:0.72rem}
 .btn-danger{background:var(--danger)}
@@ -478,15 +497,43 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
 /* Stat sub-description */
 .stat .sub{color:var(--text3);font-size:0.68rem;margin-top:4px;font-family:var(--sans)}
 
-/* Responsive */
+/* Hamburger menu */
+.hamburger{display:none;background:none;border:none;color:var(--text2);cursor:pointer;padding:4px;margin-right:10px;width:auto;line-height:0}
+.hamburger:hover{color:var(--text)}
+
+/* Sidebar overlay */
+.sidebar-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:99;opacity:0;pointer-events:none;transition:opacity 0.3s}
+.sidebar-overlay.open{opacity:1;pointer-events:auto}
+
+/* Responsive — tablet */
 @media(max-width:768px){
-  .sidebar{display:none}
+  .hamburger{display:block}
+  .sidebar{transform:translateX(-100%);transition:transform 0.3s ease}
+  .sidebar.mobile-open{transform:translateX(0)}
   .topbar{left:0}
   main{margin-left:0;padding:64px 16px 16px}
   .stats{grid-template-columns:repeat(2,1fr)}
+  .grid-4{grid-template-columns:repeat(2,1fr)}
+  .grid-3{grid-template-columns:repeat(2,1fr)}
+  .grid-2{grid-template-columns:1fr}
+  .cat-grid{grid-template-columns:1fr}
   .panel{width:100%;max-width:100%}
   .form-row{flex-direction:column}
   .inline-add{flex-direction:column;align-items:stretch}
+  table{display:block;overflow-x:auto}
+  .agent-name{min-width:auto}
+  .rule-id-col,.rule-cat-name{min-width:auto}
+}
+
+/* Responsive — phone */
+@media(max-width:480px){
+  main{padding:60px 12px 12px}
+  h1{font-size:1.1rem}
+  .stats,.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
+  .stat .value{font-size:1.3rem}
+  .tabs{flex-wrap:wrap}
+  .tab{padding:8px 14px;font-size:0.78rem}
+  .rules-tab{padding:10px 16px;font-size:0.82rem}
 }
 </style>
 </head>
@@ -539,7 +586,11 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
     </a>
   </div>
 </aside>
+<div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 <div class="topbar">
+  <button class="hamburger" onclick="toggleSidebar()" aria-label="Toggle menu">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
   <span class="page-title">{{.Active | upper}}</span>
   <div class="spacer"></div>
   <span class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
@@ -556,6 +607,11 @@ const layoutFoot = `</main>
 </div>
 
 <script>
+function toggleSidebar() {
+  document.querySelector('.sidebar').classList.toggle('mobile-open');
+  document.querySelector('.sidebar-overlay').classList.toggle('open');
+}
+
 function openPanel(html) {
   document.getElementById('panel-content').innerHTML = html;
   document.getElementById('detail-panel').classList.add('open');
@@ -669,7 +725,7 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
 </div>
 
 {{if .Stats.TotalMessages}}
-<div class="stats" style="grid-template-columns:1fr 1fr 1fr">
+<div class="stats grid-3">
   <div class="stat">
     <div class="label">Detection Rate</div>
     <div class="value {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</div>
@@ -1017,7 +1073,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+<div class="grid-3" style="gap:16px;margin-bottom:20px">
   <div class="card" style="margin-bottom:0">
     <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Risk Score</div>
     <div style="display:flex;align-items:center;gap:10px">
@@ -1172,7 +1228,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px}
 @media(max-width:768px){.cat-grid{grid-template-columns:1fr}}
 .cat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;cursor:pointer;transition:all 0.2s;position:relative;text-decoration:none;color:inherit;display:block}
-.cat-card:hover{border-color:var(--accent);background:var(--surface2)}
+.cat-card:hover{border-color:var(--accent);background:var(--surface2);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.15)}
 .cat-card-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
 .cat-card-name{font-weight:600;font-size:0.92rem}
 .cat-card-count{color:var(--text3);font-size:0.72rem;font-family:var(--mono);white-space:nowrap}
@@ -1646,7 +1702,7 @@ var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmp
         </span>
       </td>
       <td>
-        <span class="rule-name" hx-get="/dashboard/api/rule/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">{{.ID}}</span>
+        <a class="rule-name" href="/dashboard/rules/{{.Category}}/{{.ID}}" style="text-decoration:none;color:inherit">{{.ID}}</a>
         <span class="rule-desc">{{.Name}}{{if .Description}} — {{.Description}}{{end}}</span>
       </td>
       <td style="text-align:right">
@@ -1664,6 +1720,27 @@ var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmp
   <div class="empty">No rules in this category.</div>
   {{end}}
 </div>
+
+{{if .Webhooks}}
+<div class="card" style="margin-top:20px">
+  <h2>Category Webhooks</h2>
+  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:16px">Notifications sent when any rule in this category triggers, unless the rule has its own webhook override.</p>
+  <form method="POST" action="/dashboard/rules/{{.Category.Name}}/webhooks">
+    {{range .Webhooks}}
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:0.82rem;cursor:pointer">
+      <input type="checkbox" name="notify_channel" value="{{.Name}}" {{if $.CategoryWebhook}}{{if inSlice .Name $.CategoryWebhook.Notify}}checked{{end}}{{end}}>
+      <span style="font-family:var(--mono);color:var(--text)">{{.Name}}</span>
+    </label>
+    {{end}}
+    <div style="margin-top:12px">
+      <label style="display:block;color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Additional URLs (one per line)</label>
+      <textarea name="notify_urls" rows="2" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.78rem;padding:8px;resize:vertical">{{if .CategoryWebhook}}{{range .CategoryWebhook.Notify}}{{if contains . "://"}}{{.}}
+{{end}}{{end}}{{end}}</textarea>
+    </div>
+    <button type="submit" class="btn" style="margin-top:12px">Save Category Webhooks</button>
+  </form>
+</div>
+{{end}}
 ` + layoutFoot))
 
 var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs).Parse(`
@@ -2369,7 +2446,7 @@ updateExportLinks();
 <!-- Quarantine -->
 <div class="tab-content {{if eq .Tab "quarantine"}}active{{end}}" data-tab-content="events" data-tab-name="quarantine">
   {{if .QStats}}
-  <div class="stats" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+  <div class="stats grid-4" style="margin-bottom:20px">
     <div class="stat">
       <div class="label">Pending</div>
       <div class="value warn">{{.QStats.Pending}}</div>
@@ -2531,7 +2608,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
   </div>
 </div>
 
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+<div class="grid-2" style="gap:20px">
   <div class="card">
     <h2>Node Threat Scores</h2>
     <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Higher scores mean more blocked or quarantined messages originating from this agent.</p>
@@ -2635,9 +2712,15 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 
     var W = el.clientWidth, H = el.clientHeight;
     var NR = 18; // node radius
-    var PAD = 60;
-    var nodes = data.nodes.map(function(n) {
-      return {name: n.name, threat: n.threat_score, sent: n.total_sent||0, recv: n.total_recv||0, betweenness: n.betweenness!=null?n.betweenness:-1, x: PAD + Math.random()*(W-2*PAD), y: PAD + Math.random()*(H-2*PAD), vx: 0, vy: 0};
+    var PAD = 70;
+
+    // Deterministic initial placement: arrange nodes in a circle
+    var cx = W / 2, cy = H / 2;
+    var radius = Math.min(W, H) / 2 - PAD - 20;
+    var nodeCount = data.nodes.length;
+    var nodes = data.nodes.map(function(n, i) {
+      var angle = (2 * Math.PI * i / nodeCount) - Math.PI / 2;
+      return {name: n.name, threat: n.threat_score, sent: n.total_sent||0, recv: n.total_recv||0, betweenness: n.betweenness!=null?n.betweenness:-1, x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle), vx: 0, vy: 0};
     });
     var nodeIdx = {};
     nodes.forEach(function(n, i) { nodeIdx[n.name] = i; });
@@ -2660,10 +2743,10 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     // All connections for layout (traffic + ACL)
     var allLinks = links.concat(aclLinks);
 
-    // Fruchterman-Reingold layout
-    var k = Math.sqrt(W * H / Math.max(nodes.length, 1)) * 0.9;
-    var temp = W / 3;
-    for (var iter = 0; iter < 150; iter++) {
+    // Fruchterman-Reingold layout (deterministic — starts from circle)
+    var k = Math.sqrt(W * H / Math.max(nodes.length, 1)) * 1.1;
+    var temp = W / 4;
+    for (var iter = 0; iter < 200; iter++) {
       for (var i = 0; i < nodes.length; i++) {
         nodes[i].vx = 0; nodes[i].vy = 0;
         for (var j = 0; j < nodes.length; j++) {
@@ -2738,9 +2821,9 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       el.setAttribute('x1', s.x); el.setAttribute('y1', s.y);
       el.setAttribute('x2', ex); el.setAttribute('y2', ey);
       el.setAttribute('stroke', '#71717a');
-      el.setAttribute('stroke-width', '1');
-      el.setAttribute('stroke-opacity', '0.25');
-      el.setAttribute('stroke-dasharray', '4 3');
+      el.setAttribute('stroke-width', '0.8');
+      el.setAttribute('stroke-opacity', '0.15');
+      el.setAttribute('stroke-dasharray', '4 4');
       el.setAttribute('marker-end', 'url(#arr-acl)');
       svg.appendChild(el);
       lineEls.push({el: el, link: e, curved: false});
@@ -2772,24 +2855,24 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         el = document.createElementNS(NS, 'line');
       }
       el.setAttribute('stroke', edgeColors[hk]);
-      el.setAttribute('stroke-width', '1.5');
-      el.setAttribute('stroke-opacity', '0.5');
+      el.setAttribute('stroke-width', '1.2');
+      el.setAttribute('stroke-opacity', '0.35');
       el.setAttribute('marker-end', 'url(#arr-'+hk+')');
       el.style.cursor = 'pointer';
       el.addEventListener('click', function() {
         htmx.ajax('GET', '/dashboard/api/graph/edge?from='+encodeURIComponent(e.fromName)+'&to='+encodeURIComponent(e.toName), {target:'#panel-content', swap:'innerHTML'});
       });
-      el.addEventListener('mouseenter', function(){ this.setAttribute('stroke-opacity','0.9'); this.setAttribute('stroke-width','2.5'); });
-      el.addEventListener('mouseleave', function(){ this.setAttribute('stroke-opacity','0.5'); this.setAttribute('stroke-width','1.5'); });
+      el.addEventListener('mouseenter', function(){ this.setAttribute('stroke-opacity','0.8'); this.setAttribute('stroke-width','2'); });
+      el.addEventListener('mouseleave', function(){ this.setAttribute('stroke-opacity','0.35'); this.setAttribute('stroke-width','1.2'); });
       svg.appendChild(el);
 
-      // Particle dot — position computed in animation loop
+      // Particle dot — position computed in animation loop (subtle, slow)
       var dot = document.createElementNS(NS, 'circle');
-      dot.setAttribute('r', '2.5');
+      dot.setAttribute('r', '2');
       dot.setAttribute('fill', edgeColors[hk]);
-      dot.setAttribute('opacity', '0.8');
+      dot.setAttribute('opacity', '0.5');
       svg.appendChild(dot);
-      particles.push({dot: dot, link: e, co: co, t: Math.random(), speed: 0.003 + Math.random()*0.004});
+      particles.push({dot: dot, link: e, co: co, t: Math.random(), speed: 0.0015 + Math.random()*0.002});
 
       lineEls.push({el: el, link: e, curved: co!==0, co: co});
     });
@@ -2877,7 +2960,9 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       if (ev.target === svg) { popover.style.display='none'; activePopNode=null; }
     });
 
-    // Draw nodes — avatar circle + label below
+    // Draw nodes — avatar circle + label below (rendered last so they appear on top of edges)
+    // We create a group that sits above edges+particles
+    var nodeLayer = document.createElementNS(NS, 'g');
     nodes.forEach(function(n, i) {
       var g = document.createElementNS(NS, 'g');
       g.style.cursor = 'pointer';
@@ -2900,14 +2985,27 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       avDiv.innerHTML = agentAvatar(n.name, NR*2);
       fo.appendChild(avDiv);
 
+      // Label background pill (makes text readable over edges)
+      var labelY = n.y + NR + 14;
+      var textLen = n.name.length * 5.8 + 10;
+      var labelBg = document.createElementNS(NS, 'rect');
+      labelBg.setAttribute('x', n.x - textLen/2); labelBg.setAttribute('y', labelY - 9);
+      labelBg.setAttribute('width', textLen); labelBg.setAttribute('height', 14);
+      labelBg.setAttribute('rx', '3');
+      labelBg.setAttribute('fill', '#09090b'); labelBg.setAttribute('fill-opacity', '0.85');
+
       // Label below node
       var label = document.createElementNS(NS, 'text');
-      label.setAttribute('x', n.x); label.setAttribute('y', n.y + NR + 14);
-      label.setAttribute('text-anchor', 'middle'); label.setAttribute('fill', '#a1a1aa');
-      label.setAttribute('font-size', '10'); label.setAttribute('font-family', '-apple-system, BlinkMacSystemFont, sans-serif');
+      label.setAttribute('x', n.x); label.setAttribute('y', labelY);
+      label.setAttribute('text-anchor', 'middle'); label.setAttribute('fill', '#e4e4e7');
+      label.setAttribute('font-size', '11'); label.setAttribute('font-weight', '500');
+      label.setAttribute('font-family', 'ui-monospace, SFMono-Regular, SF Mono, Menlo, monospace');
       label.textContent = n.name;
 
-      g.appendChild(ring); g.appendChild(fo); g.appendChild(label);
+      g.appendChild(ring); g.appendChild(fo); g.appendChild(labelBg); g.appendChild(label);
+
+      // Store refs on node for drag updates
+      n._ring = ring; n._fo = fo; n._label = label; n._labelBg = labelBg;
 
       // Click: show inline popover (not panel)
       var didDrag = false;
@@ -2918,17 +3016,20 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       });
 
       // Drag support
-      var dragging = false, startX, startY;
-      fo.addEventListener('mousedown', function(ev) { dragging = true; startX = ev.clientX; startY = ev.clientY; ev.preventDefault(); });
+      var dragging = false;
+      fo.addEventListener('mousedown', function(ev) { dragging = true; ev.preventDefault(); });
       svg.addEventListener('mousemove', function(ev) {
         if (!dragging) return;
         didDrag = true;
         popover.style.display = 'none'; activePopNode = null;
         var rect = svg.getBoundingClientRect();
-        n.x = ev.clientX - rect.left; n.y = ev.clientY - rect.top;
+        n.x = Math.max(PAD, Math.min(W-PAD, ev.clientX - rect.left));
+        n.y = Math.max(PAD, Math.min(H-PAD, ev.clientY - rect.top));
+        var ly = n.y + NR + 14;
         ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y);
         fo.setAttribute('x', n.x-NR); fo.setAttribute('y', n.y-NR);
-        label.setAttribute('x', n.x); label.setAttribute('y', n.y + NR + 14);
+        label.setAttribute('x', n.x); label.setAttribute('y', ly);
+        labelBg.setAttribute('x', n.x - textLen/2); labelBg.setAttribute('y', ly - 9);
         updateEdges();
       });
       svg.addEventListener('mouseup', function() {
@@ -2936,8 +3037,9 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         dragging = false;
       });
 
-      svg.appendChild(g);
+      nodeLayer.appendChild(g);
     });
+    svg.appendChild(nodeLayer);
 
     el.appendChild(svg);
   }
@@ -3243,4 +3345,150 @@ var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tm
 </div>
 {{end}}
 ` + layoutFoot))
+
+// --- Rule detail full page ---
+
+var ruleDetailPageTmpl = template.Must(template.New("rule-detail-page").Funcs(tmplFuncs).Parse(layoutHead + `
+<style>
+.rd-breadcrumb{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:0.82rem}
+.rd-breadcrumb a{color:var(--accent-light);text-decoration:none}
+.rd-breadcrumb a:hover{text-decoration:underline}
+.rd-breadcrumb .sep{color:var(--text3)}
+.rd-header{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.rd-header h1{margin:0;font-size:1.1rem}
+.rd-meta{display:flex;gap:16px;align-items:center;margin-bottom:24px}
+.rd-patterns{list-style:none;padding:0;margin:0}
+.rd-patterns li{font-family:var(--mono);font-size:0.78rem;color:var(--text2);padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:6px}
+.rd-examples{margin-top:8px}
+.rd-examples .ex{font-family:var(--mono);font-size:0.75rem;padding:6px 10px;background:var(--bg);border-radius:4px;margin-bottom:4px;border-left:3px solid var(--border)}
+.rd-examples .ex.tp{border-left-color:var(--danger)}
+.rd-examples .ex.fp{border-left-color:var(--success)}
+.rd-test-result{margin-top:12px}
+</style>
+
+<div class="rd-breadcrumb">
+  <a href="/dashboard/rules">Rules</a>
+  <span class="sep">/</span>
+  <a href="/dashboard/rules/{{.Category}}">{{.Category}}</a>
+  <span class="sep">/</span>
+  <span>{{.Detail.ID}}</span>
+</div>
+
+<div class="rd-header">
+  <h1>{{.Detail.ID}}</h1>
+  <span id="toggle-{{.Detail.ID}}">
+    <label class="toggle" title="{{if .Disabled}}Enable{{else}}Disable{{end}} this rule">
+      <input type="checkbox" {{if not .Disabled}}checked{{end}} hx-post="/dashboard/api/rule/{{.Detail.ID}}/toggle" hx-target="#toggle-{{.Detail.ID}}" hx-swap="outerHTML">
+      <span class="toggle-slider"></span>
+    </label>
+  </span>
+</div>
+<div class="rd-meta">
+  {{if eq .Detail.Severity "critical"}}<span class="sev-critical">critical</span>
+  {{else if eq .Detail.Severity "high"}}<span class="sev-high">high</span>
+  {{else if eq .Detail.Severity "medium"}}<span class="sev-medium">medium</span>
+  {{else}}<span class="sev-low">{{.Detail.Severity}}</span>{{end}}
+  <span style="color:var(--text3);font-size:0.78rem">{{.Detail.Name}}</span>
+</div>
+
+<!-- Details Card -->
+<div class="card">
+  <h2>Details</h2>
+  {{if .Detail.Description}}<p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">{{.Detail.Description}}</p>{{end}}
+
+  {{if .Detail.Patterns}}
+  <div style="margin-bottom:16px">
+    <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Patterns</div>
+    <ul class="rd-patterns">
+      {{range .Detail.Patterns}}<li>{{.}}</li>{{end}}
+    </ul>
+  </div>
+  {{end}}
+
+  {{if .Detail.TruePositives}}
+  <div class="rd-examples" style="margin-bottom:16px">
+    <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">True Positive Examples</div>
+    {{range .Detail.TruePositives}}<div class="ex tp">{{.}}</div>{{end}}
+  </div>
+  {{end}}
+
+  {{if .Detail.FalsePositives}}
+  <div class="rd-examples">
+    <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">False Positive Examples</div>
+    {{range .Detail.FalsePositives}}<div class="ex fp">{{.}}</div>{{end}}
+  </div>
+  {{end}}
+</div>
+
+<!-- Test Rule Card -->
+<div class="card">
+  <h2>Test Rule</h2>
+  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Paste sample text to check if this rule triggers.</p>
+  <form hx-post="/dashboard/api/rule/{{.Detail.ID}}/test" hx-target="#test-result" hx-swap="innerHTML">
+    <textarea name="content" rows="4" placeholder="Paste content to test..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.78rem;padding:10px;resize:vertical;margin-bottom:10px"></textarea>
+    <button type="submit" class="btn">Run Test</button>
+  </form>
+  <div id="test-result" class="rd-test-result"></div>
+</div>
+
+<!-- Enforcement Card -->
+<div class="card">
+  <h2>Enforcement Override</h2>
+  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:16px">Configure how this rule is enforced. Overrides the default severity-based verdict.</p>
+  <form method="POST" action="/dashboard/rules/{{.Category}}/{{.Detail.ID}}/enforcement">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Action</label>
+        <select name="action" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.82rem">
+          <option value="block" {{if .Override}}{{if eq .Override.Action "block"}}selected{{end}}{{end}}>Block</option>
+          <option value="quarantine" {{if .Override}}{{if eq .Override.Action "quarantine"}}selected{{end}}{{end}}>Quarantine</option>
+          <option value="allow-and-flag" {{if .Override}}{{if eq .Override.Action "allow-and-flag"}}selected{{end}}{{end}}>Allow &amp; Flag</option>
+          <option value="ignore" {{if .Override}}{{if eq .Override.Action "ignore"}}selected{{end}}{{end}}>Ignore</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Severity Override</label>
+        <select name="severity" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.82rem">
+          <option value="">Default ({{.Detail.Severity}})</option>
+          <option value="critical" {{if .Override}}{{if eq .Override.Severity "critical"}}selected{{end}}{{end}}>Critical</option>
+          <option value="high" {{if .Override}}{{if eq .Override.Severity "high"}}selected{{end}}{{end}}>High</option>
+          <option value="medium" {{if .Override}}{{if eq .Override.Severity "medium"}}selected{{end}}{{end}}>Medium</option>
+          <option value="low" {{if .Override}}{{if eq .Override.Severity "low"}}selected{{end}}{{end}}>Low</option>
+        </select>
+      </div>
+    </div>
+
+    {{if $.Webhooks}}
+    <div style="margin-bottom:12px">
+      <label style="display:block;color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Notify Channels</label>
+      {{range $.Webhooks}}
+      <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:0.82rem;cursor:pointer">
+        <input type="checkbox" name="notify_channel" value="{{.Name}}" {{if $.Override}}{{if inSlice .Name $.Override.Notify}}checked{{end}}{{end}}>
+        <span style="font-family:var(--mono);color:var(--text)">{{.Name}}</span>
+      </label>
+      {{end}}
+      {{if .CategoryWebhook}}
+      <div style="color:var(--text3);font-size:0.72rem;margin-top:6px">Inherited from category: {{range .CategoryWebhook.Notify}}<span style="font-family:var(--mono)">{{.}}</span> {{end}}</div>
+      {{end}}
+    </div>
+    {{end}}
+
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Additional Webhook URLs (one per line)</label>
+      <textarea name="notify_urls" rows="2" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.78rem;padding:8px;resize:vertical">{{if .Override}}{{range .Override.Notify}}{{if contains . "://"}}{{.}}
+{{end}}{{end}}{{end}}</textarea>
+    </div>
+
+    <div class="form-group" style="margin-bottom:16px">
+      <label>Message Template</label>
+      <textarea name="template" rows="3" placeholder="RULE triggered on message from FROM to TO" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.78rem;padding:8px;resize:vertical">{{if .Override}}{{.Override.Template}}{{end}}</textarea>
+      <div style="color:var(--text3);font-size:0.68rem;margin-top:4px">Variables: {{"{{RULE}} {{RULE_NAME}} {{SEVERITY}} {{CATEGORY}} {{MATCH}} {{ACTION}} {{FROM}} {{TO}}"}}</div>
+    </div>
+
+    <button type="submit" class="btn">Save Enforcement</button>
+  </form>
+</div>
+` + layoutFoot))
+
+var ruleTestResultTmpl = template.Must(template.New("rule-test-result").Parse(`{{if .Matched}}<div style="padding:12px 16px;border-radius:8px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.15);color:var(--danger);font-size:0.82rem"><strong>Match found</strong> &mdash; rule <span style="font-family:var(--mono)">{{.RuleID}}</span> triggered.{{if .MatchText}}<div style="font-family:var(--mono);font-size:0.75rem;margin-top:6px;padding:6px 10px;background:rgba(0,0,0,0.2);border-radius:4px">{{.MatchText}}</div>{{end}}</div>{{else}}<div style="padding:12px 16px;border-radius:8px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.15);color:var(--success);font-size:0.82rem"><strong>Clean</strong> &mdash; rule <span style="font-family:var(--mono)">{{.RuleID}}</span> did not trigger.</div>{{end}}`))
 
