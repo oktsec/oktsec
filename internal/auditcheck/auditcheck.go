@@ -84,6 +84,13 @@ func ProductInfoFor(name, configDir string) ProductInfo {
 			DocsURL:     "https://github.com/nanoclaw/nanoclaw",
 			Icon:        "\U0001f512",
 		}
+	case "MCP Servers":
+		return ProductInfo{
+			Name:        "MCP Servers",
+			Description: "Discovered MCP server configurations across AI clients",
+			DocsURL:     "https://modelcontextprotocol.io",
+			Icon:        "\U0001f50c",
+		}
 	default:
 		return ProductInfo{Name: name}
 	}
@@ -109,6 +116,7 @@ type productAuditor struct {
 var productAuditors = []productAuditor{
 	{"OpenClaw", auditOpenClaw},
 	{"NanoClaw", auditNanoClaw},
+	{"MCP Servers", auditMCPServers},
 }
 
 // RunChecks executes all audit checks against the given config and returns

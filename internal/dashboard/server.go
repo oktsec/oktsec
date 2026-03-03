@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/dashboard/static"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
 )
@@ -130,6 +132,9 @@ func (s *Server) GatewayRunning() bool {
 }
 
 func (s *Server) routes() {
+	staticFS, _ := fs.Sub(static.FS, ".")
+	s.mux.Handle("GET /dashboard/static/", http.StripPrefix("/dashboard/static/", http.FileServer(http.FS(staticFS))))
+
 	s.mux.HandleFunc("GET /dashboard/login", s.handleLoginPage)
 	s.mux.HandleFunc("POST /dashboard/login", s.handleLoginSubmit)
 	s.mux.HandleFunc("POST /dashboard/logout", s.handleLogout)
@@ -220,6 +225,9 @@ func (s *Server) routes() {
 	// Webhook channels
 	s.mux.HandleFunc("POST /dashboard/settings/webhooks", s.handleSaveWebhookChannel)
 	s.mux.HandleFunc("DELETE /dashboard/settings/webhooks/{name}", s.handleDeleteWebhookChannel)
+
+	// Discovery
+	s.mux.HandleFunc("GET /dashboard/discovery", s.handleToolInventory)
 
 	// Gateway management
 	s.mux.HandleFunc("GET /dashboard/gateway", s.handleGateway)

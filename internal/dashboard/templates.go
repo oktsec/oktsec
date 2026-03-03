@@ -48,17 +48,16 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>oktsec — dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#09090b;--surface:#18181b;--surface2:#27272a;--border:#3f3f46;
   --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --danger:#ef4444;--success:#10b981;--warn:#f59e0b;
-  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
-  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --danger:#f87171;--success:#34d399;--warn:#fbbf24;
+  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
@@ -84,7 +83,7 @@ button{
 }
 button:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
 button:active{transform:scale(0.98)}
-.error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);border-radius:8px;color:var(--danger);font-size:0.82rem}
+.error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.15);border-radius:8px;color:var(--danger);font-size:0.82rem}
 .error svg{flex-shrink:0;width:16px;height:16px}
 .footer{margin-top:32px;color:var(--text3);font-size:0.72rem}
 </style>
@@ -113,16 +112,15 @@ var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>oktsec</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#09090b;--surface:#18181b;--border:#3f3f46;
   --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
-  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:0.15}50%{opacity:0.25}}
@@ -167,16 +165,15 @@ var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>oktsec — 404</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#09090b;--surface:#18181b;--surface2:#27272a;--border:#3f3f46;
   --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
-  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
@@ -212,9 +209,8 @@ const layoutHead = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>oktsec — {{.Active}}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E">
+<script src="/dashboard/static/htmx.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -223,15 +219,15 @@ const layoutHead = `<!DOCTYPE html>
   --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
   --accent-glow:rgba(99,102,241,0.08);--accent-glow-md:rgba(99,102,241,0.15);--accent-border:rgba(99,102,241,0.2);
-  --danger:#ef4444;--success:#10b981;--warn:#f59e0b;
-  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
-  --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --danger:#f87171;--success:#34d399;--warn:#fbbf24;
+  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
+  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;font-size:0.88rem;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 
 /* Sidebar */
 .sidebar{position:fixed;top:0;left:0;width:240px;height:100vh;background:var(--bg);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;overflow-y:auto}
-.sidebar .brand{padding:20px 20px 24px;font-family:var(--mono);font-size:1.12rem;font-weight:700;letter-spacing:-0.3px;color:var(--text);text-decoration:none;display:block}
+.sidebar .brand{padding:20px 20px 24px;font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:-0.3px;color:var(--text);text-decoration:none;display:block}
 .sidebar-section{padding:0 12px;margin-bottom:16px}
 .sidebar-section-label{font-size:0.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);font-weight:500;padding:8px 12px 6px;user-select:none}
 .sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;color:var(--text3);font-size:0.82rem;font-weight:500;text-decoration:none;transition:all 0.15s;border-left:2px solid transparent;margin-bottom:1px}
@@ -247,9 +243,10 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .topbar .mode-pill{display:inline-flex;align-items:center;gap:6px;background:var(--accent-glow);border:1px solid var(--accent-border);padding:4px 14px 4px 10px;border-radius:100px;font-size:0.72rem;font-weight:500;color:var(--accent-light);font-family:var(--mono);transition:all 0.2s}
 .topbar .mode-pill .dot{width:5px;height:5px;border-radius:50%;animation:pulse 2s infinite}
 .topbar .mode-pill.enforce .dot{background:var(--success)}
-.topbar .mode-pill.enforce{background:rgba(16,185,129,0.08);border-color:rgba(16,185,129,0.2);color:var(--success)}
+.topbar .mode-pill.enforce{background:rgba(52,211,153,0.08);border-color:rgba(52,211,153,0.2);color:var(--success)}
 .topbar .mode-pill.observe .dot{background:var(--warn)}
-.topbar .mode-pill.observe{background:rgba(245,158,11,0.08);border-color:rgba(245,158,11,0.2);color:var(--warn)}
+.topbar .mode-pill.observe{background:rgba(251,191,36,0.08);border-color:rgba(251,191,36,0.2);color:var(--warn)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
 
 /* Main */
 main{margin-left:240px;padding:80px 32px 32px;background:var(--surface);min-height:100vh}
@@ -272,7 +269,6 @@ h1 span{color:var(--text2);font-weight:400}
 .card:hover{border-color:var(--border-hover)}
 .card h2{font-size:0.92rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
 .card h2 .dot{width:6px;height:6px;border-radius:50%;background:var(--success);animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
 
 /* Table */
 table{width:100%;border-collapse:collapse;font-size:0.82rem}
@@ -280,10 +276,10 @@ th{text-align:left;color:var(--text3);font-size:0.68rem;text-transform:uppercase
 td{padding:10px 12px;border-bottom:1px solid rgba(63,63,70,0.6);color:var(--text2);font-family:var(--mono);font-size:0.78rem;transition:background 0.15s}
 tr:hover td{background:var(--surface2)}
 
-/* Status badges — pills with tinted bg (what happened to the message) */
-.badge-delivered{background:#22c55e18;color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-blocked{background:#ef444418;color:#f87171;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-rejected{background:#f9731618;color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+/* Status badges */
+.badge-delivered{background:rgba(74,222,128,0.09);color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-blocked{background:rgba(248,113,113,0.09);color:#f87171;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-rejected{background:rgba(251,146,60,0.09);color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
 .badge-quarantined{background:#a855f718;color:#c084fc;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
 .badge-verified{color:var(--success)}
 .badge-unsigned{color:var(--text3)}
@@ -298,16 +294,16 @@ tr:hover td{background:var(--surface2)}
 .agent-targets{color:var(--text3);font-size:0.78rem}
 
 /* Severity labels */
-.sev-critical{color:#ef4444;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-high{color:#f97316;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-medium{color:#3b82f6;font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-critical{color:#f87171;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-high{color:#fb923c;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-medium{color:#60a5fa;font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
 .sev-low{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
 .sev-info{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
 
 /* Action badges */
-.act-block{background:#ef444418;color:#f87171;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.act-quarantine{background:#a855f718;color:#c084fc;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.act-allow-and-flag{background:#f9731618;color:#fb923c;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.act-block{background:rgba(248,113,113,0.09);color:#f87171;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.act-quarantine{background:rgba(168,85,247,0.09);color:#c084fc;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.act-allow-and-flag{background:rgba(251,146,60,0.09);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
 .act-ignore{background:var(--surface2);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
 
 /* Chart */
@@ -374,7 +370,7 @@ tr:hover td{background:var(--surface2)}
 .btn:hover{background:var(--accent-light)}
 .btn-sm{padding:4px 12px;font-size:0.72rem}
 .btn-danger{background:var(--danger)}
-.btn-danger:hover{background:#dc2626}
+.btn-danger:hover{background:#ef4444}
 
 /* Clickable rows */
 tr.clickable{cursor:pointer}
@@ -400,12 +396,12 @@ tr.clickable:hover td{background:var(--surface2)}
 .q-preview{font-family:var(--mono);font-size:0.75rem;color:var(--text2);background:var(--bg);padding:8px 12px;border-radius:6px;max-height:60px;overflow:hidden;white-space:pre-wrap;word-break:break-all}
 .q-content{font-family:var(--mono);font-size:0.78rem;color:var(--text);background:var(--bg);padding:12px 16px;border-radius:6px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;border:1px solid var(--border)}
 .q-actions{display:flex;gap:8px;margin-top:8px}
-.pending-badge{background:#f97316;color:#000;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:6px}
-.badge-pending{background:#f9731618;color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-approved{background:#22c55e18;color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.pending-badge{background:#fb923c;color:#000;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:6px}
+.badge-pending{background:rgba(251,146,60,0.09);color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
+.badge-approved{background:rgba(74,222,128,0.09);color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
 .badge-expired{background:var(--surface2);color:var(--text3);padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
 
-/* Agent tags — outlined pills */
+/* Agent tags */
 .agent-tag{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.7rem;color:var(--text2);font-family:var(--sans);background:transparent}
 .avatar{border-radius:50%;vertical-align:middle;flex-shrink:0}
 .agent-cell{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
@@ -429,7 +425,7 @@ tr.clickable:hover td{background:var(--surface2)}
 
 /* Alert banner */
 .alert-banner{padding:14px 20px;border-radius:10px;margin-bottom:20px;display:flex;align-items:center;gap:12px;font-size:0.88rem}
-.alert-banner.warn{background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);color:var(--warn)}
+.alert-banner.warn{background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);color:var(--warn)}
 .alert-banner strong{font-weight:600}
 .alert-banner .btn{margin-left:auto;white-space:nowrap}
 
@@ -533,6 +529,10 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
       Gateway
     </a>
+    <a href="/dashboard/discovery" class="sidebar-item {{if eq .Active "discovery"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Discovery
+    </a>
     <a href="/dashboard/settings" class="sidebar-item {{if eq .Active "settings"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       Settings
@@ -543,7 +543,7 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
   <span class="page-title">{{.Active | upper}}</span>
   <div class="spacer"></div>
   <span class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
-  <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" style="background:none;border:1px solid var(--border);color:var(--text3);padding:5px 12px;border-radius:8px;font-size:0.72rem;cursor:pointer;font-family:var(--sans);transition:all 0.2s" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--border-hover)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)'">Logout</button></form>
+  <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" style="background:transparent;border:1px solid var(--border);color:var(--text3);padding:5px 12px;border-radius:6px;font-size:0.72rem;cursor:pointer;font-family:var(--sans);transition:all 0.15s" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--border-hover)';this.style.background='var(--surface2)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)';this.style.background='transparent'">Logout</button></form>
 </div>
 <main>`
 
@@ -635,7 +635,6 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 </html>`
 
 var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
-<h1>Dashboard <span>Overview</span></h1>
 <p class="page-desc">Messages between agents are scanned for threats, verified for identity, and logged here. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 {{if .PendingReview}}
@@ -916,7 +915,6 @@ var searchResultsTmpl = template.Must(template.New("search-results").Funcs(tmplF
 {{end}}`))
 
 var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(layoutHead + `
-<h1>Registered <span>Agents</span></h1>
 <p class="page-desc">Each agent can only message destinations listed in its ACL. Manage agents, generate keypairs, and view message history.</p>
 
 <div class="card">
@@ -1162,7 +1160,6 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
 ` + layoutFoot))
 
 var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layoutHead + `
-<h1>Detection <span>Rules</span></h1>
 <p class="page-desc">Manage built-in detection rules and create custom rules for your organization.</p>
 
 <style>
@@ -1182,9 +1179,9 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .cat-card-desc{color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:14px}
 .cat-card-footer{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .cat-card-sev{display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;font-family:var(--mono);padding:3px 8px;border-radius:4px}
-.cat-card-sev.critical{background:#ef444415;color:#f87171}
-.cat-card-sev.high{background:#f9731615;color:#fb923c}
-.cat-card-sev.medium{background:#3b82f615;color:#60a5fa}
+.cat-card-sev.critical{background:rgba(248,113,113,0.08);color:#f87171}
+.cat-card-sev.high{background:rgba(251,146,60,0.08);color:#fb923c}
+.cat-card-sev.medium{background:rgba(96,165,250,0.08);color:#60a5fa}
 .cat-card-sev.low{background:var(--surface2);color:var(--text3)}
 .cat-card-status{margin-left:auto;font-size:0.72rem;font-weight:600}
 .cat-card-status.all-on{color:var(--success)}
@@ -1246,15 +1243,15 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .enf-id{font-family:var(--mono);font-weight:600;font-size:0.85rem;color:var(--text)}
 .enf-name{color:var(--text2);font-size:0.78rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .enf-badge{font-size:0.68rem;font-family:var(--mono);padding:3px 10px;border-radius:4px;font-weight:600;text-transform:uppercase;white-space:nowrap}
-.enf-badge.block{background:#ef444415;color:#f87171}
-.enf-badge.quarantine{background:#f9731615;color:#fb923c}
-.enf-badge.allow-and-flag{background:#3b82f615;color:#60a5fa}
+.enf-badge.block{background:rgba(248,113,113,0.08);color:#f87171}
+.enf-badge.quarantine{background:rgba(251,146,60,0.08);color:#fb923c}
+.enf-badge.allow-and-flag{background:rgba(96,165,250,0.08);color:#60a5fa}
 .enf-badge.ignore{background:var(--surface2);color:var(--text3)}
 .enf-meta{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
 .enf-tag{font-size:0.68rem;font-family:var(--mono);padding:2px 8px;border-radius:4px;background:var(--surface2);color:var(--text3)}
-.enf-tag.sev-critical{background:#ef444410;color:#f87171}
-.enf-tag.sev-high{background:#f9731610;color:#fb923c}
-.enf-tag.sev-medium{background:#3b82f610;color:#60a5fa}
+.enf-tag.sev-critical{background:rgba(248,113,113,0.06);color:#f87171}
+.enf-tag.sev-high{background:rgba(251,146,60,0.06);color:#fb923c}
+.enf-tag.sev-medium{background:rgba(96,165,250,0.06);color:#60a5fa}
 .enf-urls{margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:6px;font-family:var(--mono);font-size:0.72rem;color:var(--text3);line-height:1.8;word-break:break-all}
 .enf-btns{display:flex;gap:6px}
 /* Combobox */
@@ -1268,9 +1265,9 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .combo-item .cid{font-family:var(--mono);font-weight:600;font-size:0.78rem;color:var(--text);min-width:120px}
 .combo-item .cnm{color:var(--text2);font-size:0.75rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .combo-item .csv{font-size:0.65rem;font-family:var(--mono);padding:2px 6px;border-radius:3px}
-.csv.critical{background:#ef444415;color:#f87171}
-.csv.high{background:#f9731615;color:#fb923c}
-.csv.medium{background:#3b82f615;color:#60a5fa}
+.csv.critical{background:rgba(248,113,113,0.08);color:#f87171}
+.csv.high{background:rgba(251,146,60,0.08);color:#fb923c}
+.csv.medium{background:rgba(96,165,250,0.08);color:#60a5fa}
 .csv.low{background:var(--surface2);color:var(--text3)}
 .combo-empty{padding:12px 14px;color:var(--text3);font-size:0.78rem;font-style:italic}
 /* Channel chips */
@@ -1678,10 +1675,10 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
 
   <!-- Status banner -->
   <div style="padding:12px 16px;border-radius:8px;margin-bottom:20px;font-size:0.85rem;line-height:1.5;
-    {{if eq .Entry.Status "delivered"}}background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);color:var(--success)
-    {{else if eq .Entry.Status "blocked"}}background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);color:var(--danger)
-    {{else if eq .Entry.Status "quarantined"}}background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);color:var(--warn)
-    {{else if eq .Entry.Status "rejected"}}background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);color:var(--warn)
+    {{if eq .Entry.Status "delivered"}}background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);color:var(--success)
+    {{else if eq .Entry.Status "blocked"}}background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);color:var(--danger)
+    {{else if eq .Entry.Status "quarantined"}}background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:var(--warn)
+    {{else if eq .Entry.Status "rejected"}}background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:var(--warn)
     {{else}}background:var(--surface2);border:1px solid var(--border);color:var(--text2){{end}}">
     {{.Decision}}
   </div>
@@ -1852,9 +1849,9 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs
 
   <!-- Status banner -->
   <div style="padding:12px 16px;border-radius:8px;margin-bottom:20px;font-size:0.85rem;line-height:1.5;
-    {{if eq .Item.Status "pending"}}background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);color:var(--warn)
-    {{else if eq .Item.Status "approved"}}background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);color:var(--success)
-    {{else if eq .Item.Status "rejected"}}background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);color:var(--danger)
+    {{if eq .Item.Status "pending"}}background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:var(--warn)
+    {{else if eq .Item.Status "approved"}}background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);color:var(--success)
+    {{else if eq .Item.Status "rejected"}}background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);color:var(--danger)
     {{else}}background:var(--surface2);border:1px solid var(--border);color:var(--text3){{end}}">
     {{if eq .Item.Status "pending"}}This message is held for review. Approve to deliver or reject to discard.
     {{else if eq .Item.Status "approved"}}Approved by {{.Item.ReviewedBy}} — message was delivered.
@@ -1949,7 +1946,6 @@ var ruleToggleTmpl = template.Must(template.New("rule-toggle").Parse(`<span id="
 // --- Settings page ---
 
 var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse(layoutHead + `
-<h1>Settings</h1>
 <p class="page-desc">Security mode, agent identity, pipeline behavior, and infrastructure configuration.</p>
 
 <div class="tabs" data-tab-group="settings">
@@ -1976,7 +1972,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         Every message must include a valid Ed25519 signature. Unsigned or tampered messages are <strong style="color:var(--danger)">rejected</strong>. Use this in production.
       </p>
     </div>
-    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if not .RequireSig}}var(--warn){{else}}var(--border){{end}};background:{{if not .RequireSig}}rgba(245,158,11,0.06){{else}}var(--surface){{end}}">
+    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if not .RequireSig}}var(--warn){{else}}var(--border){{end}};background:{{if not .RequireSig}}rgba(251,191,36,0.06){{else}}var(--surface){{end}}">
       <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if not .RequireSig}}var(--warn){{else}}var(--text2){{end}}">
         {{if not .RequireSig}}&#x2713; {{end}}Observe Mode
       </div>
@@ -2006,7 +2002,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         Agents can only communicate with explicitly allowed targets. Recommended for <strong style="color:var(--accent-light)">production</strong>.
       </p>
     </div>
-    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--border){{end}};background:{{if ne .DefaultPolicy "deny"}}rgba(245,158,11,0.06){{else}}var(--surface){{end}}">
+    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--border){{end}};background:{{if ne .DefaultPolicy "deny"}}rgba(251,191,36,0.06){{else}}var(--surface){{end}}">
       <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--text2){{end}}">
         {{if ne .DefaultPolicy "deny"}}&#x2713; {{end}}Default Allow
       </div>
@@ -2278,7 +2274,6 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 // --- Events page (merged audit log + quarantine) ---
 
 var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(layoutHead + `
-<h1>Events</h1>
 <p class="page-desc">Quarantined messages need human review. Blocked messages were stopped automatically. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 <div style="display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
@@ -2503,7 +2498,6 @@ updateExportLinks();
 ` + layoutFoot))
 
 var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layoutHead + `
-<h1>Agent Interaction <span>Graph</span></h1>
 <p class="page-desc">Red nodes have high threat scores. Shadow edges indicate traffic outside ACL policy. Data covers the last {{.Range}}.</p>
 
 <div style="display:flex;gap:8px;margin-bottom:16px">
@@ -2527,12 +2521,12 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
   <h2>Network Topology</h2>
   <div id="graph-container" style="width:100%;height:500px;background:var(--bg);border-radius:8px;border:1px solid var(--border);position:relative;overflow:hidden"></div>
   <div style="display:flex;gap:20px;margin-top:12px;font-size:0.72rem;color:var(--text3)">
-    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#22c55e" fill-opacity="0.3" stroke="#22c55e" stroke-width="1.5"/></svg> Low threat</span>
-    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#f59e0b" fill-opacity="0.3" stroke="#f59e0b" stroke-width="1.5"/></svg> Medium threat</span>
-    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#ef4444" fill-opacity="0.3" stroke="#ef4444" stroke-width="1.5"/></svg> High threat</span>
-    <span style="margin-left:12px"><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#22c55e" stroke-width="2"/></svg> Healthy edge</span>
-    <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#f59e0b" stroke-width="2"/></svg> Degraded</span>
-    <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#ef4444" stroke-width="2"/></svg> Unhealthy</span>
+    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#4ade80" fill-opacity="0.3" stroke="#4ade80" stroke-width="1.5"/></svg> Low threat</span>
+    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#fbbf24" fill-opacity="0.3" stroke="#fbbf24" stroke-width="1.5"/></svg> Medium threat</span>
+    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#f87171" fill-opacity="0.3" stroke="#f87171" stroke-width="1.5"/></svg> High threat</span>
+    <span style="margin-left:12px"><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#4ade80" stroke-width="2"/></svg> Healthy edge</span>
+    <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#fbbf24" stroke-width="2"/></svg> Degraded</span>
+    <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#f87171" stroke-width="2"/></svg> Unhealthy</span>
     <span style="margin-left:12px"><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#71717a" stroke-width="1" stroke-dasharray="4 3" stroke-opacity="0.5"/></svg> ACL (no traffic)</span>
   </div>
 </div>
@@ -3000,7 +2994,6 @@ var edgeDetailTmpl = template.Must(template.New("edge-detail").Funcs(tmplFuncs).
 `))
 
 var gatewayTmpl = template.Must(template.New("gateway").Funcs(tmplFuncs).Parse(layoutHead + `
-<h1>MCP <span>Gateway</span></h1>
 <p class="page-desc">The MCP gateway fronts backend MCP servers, applying security scanning and per-agent tool allowlists to every tool call.</p>
 
 <div class="card">
@@ -3110,6 +3103,59 @@ var gatewayTmpl = template.Must(template.New("gateway").Funcs(tmplFuncs).Parse(l
     <button type="submit" class="btn">Add</button>
   </form>
   <p style="color:var(--text3);font-size:0.72rem;margin-top:8px">Configure args, env vars, and headers from the server detail page.</p>
+</div>
+` + layoutFoot))
+
+var toolInventoryTmpl = template.Must(template.New("toolInventory").Funcs(tmplFuncs).Parse(layoutHead + `
+<p style="color:var(--text2);font-size:0.85rem;margin-bottom:24px;line-height:1.6">
+  MCP servers configured in the oktsec gateway and discovered across AI clients on this machine.
+</p>
+
+<div class="card" style="margin-bottom:24px">
+  <h2>Gateway Backends</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    MCP servers configured in <code>oktsec.yaml</code> and proxied through the gateway.
+  </p>
+  {{if .Configured}}
+  <table>
+    <thead><tr><th>Name</th><th>Transport</th><th>Command / URL</th></tr></thead>
+    <tbody>
+    {{range .Configured}}
+    <tr>
+      <td><strong>{{.Name}}</strong></td>
+      <td><span class="badge-{{if eq .Transport "stdio"}}delivered{{else}}quarantined{{end}}" style="font-size:0.7rem">{{.Transport}}</span></td>
+      <td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{.Command}}</code></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p style="color:var(--text3);font-size:0.82rem">No MCP servers configured in the gateway. Add backends via the <a href="/dashboard/gateway" style="color:var(--accent)">Gateway</a> page.</p>
+  {{end}}
+</div>
+
+<div class="card">
+  <h2>Discovered MCP Servers</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Servers found in local AI client configurations (Claude Desktop, Cursor, VS Code, Cline, Windsurf, etc.).
+  </p>
+  {{if .Discovered}}
+  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Found {{len .Discovered}} unique server(s).</p>
+  <table>
+    <thead><tr><th>Name</th><th>Client(s)</th><th>Command</th></tr></thead>
+    <tbody>
+    {{range .Discovered}}
+    <tr>
+      <td><strong>{{.Name}}</strong></td>
+      <td>{{.Client}}</td>
+      <td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{truncate .Command 80}}</code></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p style="color:var(--text3);font-size:0.82rem">No MCP servers discovered. Checked paths for Claude Desktop, Cursor, VS Code, Cline, Windsurf, and more.</p>
+  {{end}}
 </div>
 ` + layoutFoot))
 
