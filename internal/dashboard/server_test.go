@@ -1447,6 +1447,114 @@ func TestParseDomainList(t *testing.T) {
 	}
 }
 
+func TestServer_BulkToggleIdempotent(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Disable-all twice
+	for i := 0; i < 2; i++ {
+		form := url.Values{"action": {"disable-all"}}
+		req := httptest.NewRequest("POST", "/dashboard/api/rules/bulk-toggle", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusFound {
+			t.Fatalf("bulk toggle %d: status = %d, want 302", i+1, w.Code)
+		}
+	}
+
+	// Verify no duplicate rule IDs
+	seen := make(map[string]bool)
+	for _, ra := range srv.cfg.Rules {
+		if seen[ra.ID] {
+			t.Errorf("duplicate rule ID in cfg.Rules: %s", ra.ID)
+		}
+		seen[ra.ID] = true
+	}
+}
+
+func TestServer_BulkToggleWithExistingOverride(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+
+	// Pre-set a rule with a "block" override
+	rules := srv.scanner.ListRules()
+	if len(rules) == 0 {
+		t.Skip("no rules loaded")
+	}
+	srv.cfg.Rules = []config.RuleAction{
+		{ID: rules[0].ID, Action: "block"},
+	}
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Disable-all should not create a duplicate for the "block" rule
+	form := url.Values{"action": {"disable-all"}}
+	req := httptest.NewRequest("POST", "/dashboard/api/rules/bulk-toggle", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusFound {
+		t.Fatalf("bulk toggle: status = %d, want 302", w.Code)
+	}
+
+	seen := make(map[string]bool)
+	for _, ra := range srv.cfg.Rules {
+		if seen[ra.ID] {
+			t.Errorf("duplicate rule ID in cfg.Rules: %s", ra.ID)
+		}
+		seen[ra.ID] = true
+	}
+
+	// The original "block" override must still be there (not replaced)
+	found := false
+	for _, ra := range srv.cfg.Rules {
+		if ra.ID == rules[0].ID && ra.Action == "block" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("original 'block' override was lost after disable-all")
+	}
+}
+
+func TestServer_ExportLimitParam(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	tests := []struct {
+		name     string
+		query    string
+		wantCode int
+	}{
+		{"default", "/dashboard/api/export/csv", http.StatusOK},
+		{"custom limit", "/dashboard/api/export/csv?limit=5", http.StatusOK},
+		{"cap at 50k", "/dashboard/api/export/json?limit=100000", http.StatusOK},
+		{"invalid ignored", "/dashboard/api/export/json?limit=abc", http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tt.query, nil)
+			req.AddCookie(cookie)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+			if w.Code != tt.wantCode {
+				t.Errorf("status = %d, want %d", w.Code, tt.wantCode)
+			}
+		})
+	}
+}
+
 func TestServer_ModeToggleRedirectsToSecurityTab(t *testing.T) {
 	srv := newTestServer(t)
 	dir := t.TempDir()

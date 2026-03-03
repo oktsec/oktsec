@@ -745,9 +745,11 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	agent, ok := s.cfg.Agents[name]
 	if !ok {
-		// Could be a gateway-namespaced agent (e.g. "gateway/create_card")
-		// visible in traffic but not in config. Show a read-only view.
-		agent = config.Agent{Description: "Discovered from gateway traffic"}
+		desc := "Discovered from traffic"
+		if strings.HasPrefix(name, "gateway/") {
+			desc = "MCP gateway tool: " + strings.TrimPrefix(name, "gateway/")
+		}
+		agent = config.Agent{Description: desc}
 	}
 
 	// Get recent messages for this agent
@@ -921,12 +923,25 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 // --- Export handlers ---
 
+func parseExportLimit(r *http.Request) int {
+	limit := 10000
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 50000 {
+		limit = 50000
+	}
+	return limit
+}
+
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
 	since := r.URL.Query().Get("since")
 	until := r.URL.Query().Get("until")
 
-	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: 10000})
+	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: parseExportLimit(r)})
 	if err != nil {
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
@@ -952,7 +967,7 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	since := r.URL.Query().Get("since")
 	until := r.URL.Query().Get("until")
 
-	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: 10000})
+	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: parseExportLimit(r)})
 	if err != nil {
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
@@ -982,9 +997,9 @@ func (s *Server) handleBulkToggleRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if action == "disable-all" {
-		disabledSet := s.disabledRuleSet()
+		existingIDs := s.existingRuleIDSet()
 		for _, ri := range s.scanner.ListRules() {
-			if !disabledSet[ri.ID] {
+			if !existingIDs[ri.ID] {
 				s.cfg.Rules = append(s.cfg.Rules, config.RuleAction{ID: ri.ID, Action: "ignore"})
 			}
 		}
@@ -1651,11 +1666,12 @@ func (s *Server) handleToggleCategory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	disabledSet := s.disabledRuleSet()
+	existingIDs := s.existingRuleIDSet()
 	disabledCount := countInSet(ruleIDs, disabledSet)
 
 	// If most are enabled → disable all; if most disabled → enable all
 	if disabledCount < len(ruleIDs)/2+1 {
-		s.disableCategoryRules(ruleIDs, disabledSet)
+		s.disableCategoryRules(ruleIDs, existingIDs)
 	} else {
 		s.enableCategoryRules(ruleIDs)
 	}
@@ -1695,6 +1711,14 @@ func (s *Server) disabledRuleSet() map[string]bool {
 	return set
 }
 
+func (s *Server) existingRuleIDSet() map[string]bool {
+	set := make(map[string]bool, len(s.cfg.Rules))
+	for _, ra := range s.cfg.Rules {
+		set[ra.ID] = true
+	}
+	return set
+}
+
 func countInSet(ids []string, set map[string]bool) int {
 	n := 0
 	for _, id := range ids {
@@ -1705,9 +1729,9 @@ func countInSet(ids []string, set map[string]bool) int {
 	return n
 }
 
-func (s *Server) disableCategoryRules(ruleIDs []string, alreadyDisabled map[string]bool) {
+func (s *Server) disableCategoryRules(ruleIDs []string, existingIDs map[string]bool) {
 	for _, id := range ruleIDs {
-		if !alreadyDisabled[id] {
+		if !existingIDs[id] {
 			s.cfg.Rules = append(s.cfg.Rules, config.RuleAction{ID: id, Action: "ignore"})
 		}
 	}
