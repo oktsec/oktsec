@@ -250,7 +250,8 @@ func TestStdioProxy_ToolAllowlistEmptyAllowsAll(t *testing.T) {
 	p := newStdioTestSetup(t, true) // enforce mode
 	// No SetAllowedTools call — empty allowlist means all tools allowed
 
-	any_tool := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"exec_command","arguments":{"cmd":"ls"}}}`
+	// Use a benign tool call that won't trigger content detection rules
+	any_tool := `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_weather","arguments":{"city":"London"}}}`
 
 	clientRead, clientWrite := io.Pipe()
 	serverRead, serverWrite := io.Pipe()
@@ -264,12 +265,30 @@ func TestStdioProxy_ToolAllowlistEmptyAllowsAll(t *testing.T) {
 	_, _ = io.WriteString(clientWrite, any_tool+"\n")
 	_ = clientWrite.Close()
 
-	buf := make([]byte, len(any_tool)+100)
-	n, _ := serverRead.Read(buf)
-	output := strings.TrimSpace(string(buf[:n]))
+	// Read from both pipes concurrently to avoid deadlock if the message
+	// gets blocked by the content scanner instead of forwarded.
+	type readResult struct {
+		data string
+		from string
+	}
+	ch := make(chan readResult, 2)
+	go func() {
+		buf := make([]byte, len(any_tool)+200)
+		n, _ := serverRead.Read(buf)
+		ch <- readResult{strings.TrimSpace(string(buf[:n])), "server"}
+	}()
+	go func() {
+		buf := make([]byte, len(any_tool)+200)
+		n, _ := errClientRead.Read(buf)
+		ch <- readResult{strings.TrimSpace(string(buf[:n])), "error"}
+	}()
 
-	if output != any_tool {
-		t.Errorf("empty allowlist should forward all tools\ngot:  %s\nwant: %s", output, any_tool)
+	res := <-ch
+	if res.from == "error" {
+		t.Fatalf("empty allowlist should forward all tools, but message was blocked: %s", res.data)
+	}
+	if res.data != any_tool {
+		t.Errorf("empty allowlist should forward all tools\ngot:  %s\nwant: %s", res.data, any_tool)
 	}
 
 	_ = serverRead.Close()
