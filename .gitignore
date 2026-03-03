@@ -1,6 +1,6 @@
 # Binary (only at root, not cmd/oktsec/)
 /oktsec
-oktsec.yaml
+/oktsec.yaml
 *.exe
 dist/
 
@@ -27,8 +27,11 @@ Thumbs.db
 testdata/
 coverage.out
 
-# Demo artifacts
-demo/
+# Demo build artifacts
+demo/**/mock-server/mock-server
+demo/**/*.db
+demo/**/oktsec-bin
+demo/**/oktsec-linux
 
 # Claude
 .claude/

@@ -292,7 +292,7 @@ func FormatTree(result *Result) string {
 	fmt.Fprintf(&b, "Found %d MCP configuration(s):\n\n", result.TotalClients())
 
 	for _, cr := range result.Clients {
-		fmt.Fprintf(&b, "  %s  %s\n", clientDisplayName(cr.Client), cr.Path)
+		fmt.Fprintf(&b, "  %s  %s\n", ClientDisplayName(cr.Client), cr.Path)
 		for i, srv := range cr.Servers {
 			prefix := "├──"
 			if i == len(cr.Servers)-1 {
@@ -311,7 +311,8 @@ func FormatTree(result *Result) string {
 	return b.String()
 }
 
-func clientDisplayName(name string) string {
+// ClientDisplayName returns a human-readable name for a client identifier.
+func ClientDisplayName(name string) string {
 	switch name {
 	case "claude-desktop":
 		return "Claude Desktop"

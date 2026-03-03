@@ -454,8 +454,8 @@ func TestClientDisplayName_AllClients(t *testing.T) {
 		"jetbrains":      "JetBrains",
 	}
 	for name, want := range expected {
-		if got := clientDisplayName(name); got != want {
-			t.Errorf("clientDisplayName(%q) = %q, want %q", name, got, want)
+		if got := ClientDisplayName(name); got != want {
+			t.Errorf("ClientDisplayName(%q) = %q, want %q", name, got, want)
 		}
 	}
 }

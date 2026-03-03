@@ -155,6 +155,7 @@ func TestServer_DashboardPages(t *testing.T) {
 		{"/dashboard/graph", "Graph"},
 		{"/dashboard/rules", "Rules"},
 		{"/dashboard/audit", "Audit"},
+		{"/dashboard/discovery", "Discovery"},
 		{"/dashboard/settings", "Settings"},
 	}
 
@@ -170,6 +171,51 @@ func TestServer_DashboardPages(t *testing.T) {
 		if !strings.Contains(w.Body.String(), p.contains) {
 			t.Errorf("%s: body should contain %q", p.path, p.contains)
 		}
+	}
+}
+
+func TestServer_DiscoveryPage(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store, err := audit.NewStore(filepath.Join(dir, "test.db"), logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	cfg := &config.Config{
+		Version: "1",
+		Server:  config.ServerConfig{Port: 0},
+		Agents:  map[string]config.Agent{},
+		MCPServers: map[string]config.MCPServerConfig{
+			"test-backend": {
+				Transport: "stdio",
+				Command:   "npx -y @test/mcp-server",
+			},
+		},
+	}
+
+	scanner := engine.NewScanner("")
+	t.Cleanup(scanner.Close)
+
+	srv := NewServer(cfg, "", store, identity.NewKeyStore(), scanner, logger)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/discovery", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("discovery page: status = %d, want 200", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Discovery") {
+		t.Error("discovery page should contain 'Discovery'")
+	}
+	if !strings.Contains(body, "test-backend") {
+		t.Error("discovery page should show configured backend 'test-backend'")
 	}
 }
 

@@ -101,6 +101,8 @@ func (g *Gateway) Start(ctx context.Context) error {
 		return err
 	}
 
+	g.filterPoisonedTools()
+
 	// Create MCP server and register tools
 	g.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    "oktsec-gateway",
@@ -240,6 +242,42 @@ func (g *Gateway) buildToolMap() error {
 		}
 	}
 	return nil
+}
+
+// filterPoisonedTools scans every tool description through the security engine
+// and removes tools whose descriptions trigger a block or quarantine verdict.
+func (g *Gateway) filterPoisonedTools() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	for frontendName, mapping := range g.toolMap {
+		var tool *mcp.Tool
+		for _, t := range mapping.Backend.Tools {
+			if t.Name == mapping.OriginalName {
+				tool = t
+				break
+			}
+		}
+		if tool == nil || tool.Description == "" {
+			continue
+		}
+
+		outcome, err := g.scanner.ScanContent(ctx, tool.Description)
+		if err != nil {
+			g.logger.Warn("failed to scan tool description, keeping tool",
+				"tool", frontendName, "error", err)
+			continue
+		}
+		if outcome != nil && (outcome.Verdict == engine.VerdictBlock || outcome.Verdict == engine.VerdictQuarantine) {
+			g.logger.Warn("removing poisoned tool",
+				"tool", frontendName,
+				"backend", mapping.BackendName,
+				"verdict", outcome.Verdict,
+				"findings", len(outcome.Findings),
+			)
+			delete(g.toolMap, frontendName)
+		}
+	}
 }
 
 // makeHandler returns a ToolHandler that runs the security pipeline
