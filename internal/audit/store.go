@@ -675,7 +675,7 @@ func (s *Store) QueryUnsignedByAgent() ([]UnsignedByAgent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query unsigned by agent: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var result []UnsignedByAgent
 	for rows.Next() {
 		var u UnsignedByAgent
