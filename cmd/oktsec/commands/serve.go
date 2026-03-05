@@ -24,7 +24,11 @@ func newServeCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(cfgFile)
 			if err != nil {
-				// Fall back to defaults if no config file
+				fmt.Fprintln(os.Stderr)
+				fmt.Fprintf(os.Stderr, "  Warning: could not load %s (%v)\n", cfgFile, err)
+				fmt.Fprintf(os.Stderr, "  Starting with default config (0 agents, observe mode).\n")
+				fmt.Fprintf(os.Stderr, "  Run 'oktsec setup' to generate a config from your MCP servers.\n")
+				fmt.Fprintln(os.Stderr)
 				cfg = config.Defaults()
 			}
 
@@ -105,8 +109,13 @@ func printBanner(cfg *config.Config, dashCode string) {
 	fmt.Printf("  Access code:  %s\n", dashCode)
 	fmt.Println("  ────────────────────────────────────────")
 	fmt.Printf("  Mode: %s  |  Agents: %d\n", mode, len(cfg.Agents))
+	if len(cfg.Agents) == 0 {
+		fmt.Println("  ────────────────────────────────────────")
+		fmt.Println("  No agents configured. Run 'oktsec setup' to get started.")
+	}
 	fmt.Println()
 	fmt.Println("  Enter this code in the browser to access the dashboard.")
+	fmt.Println("  Code is valid for this session only (regenerated on restart).")
 	fmt.Println("  Press Ctrl+C to stop.")
 	fmt.Println()
 }

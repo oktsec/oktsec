@@ -56,6 +56,10 @@ func newWrapCmd() *cobra.Command {
 
 			if wrapped == 0 {
 				fmt.Println("  All servers already wrapped.")
+				if enforce {
+					fmt.Println("  To change mode, unwrap first: oktsec unwrap " + client)
+				}
+				fmt.Println("  Run 'oktsec logs --live' to verify traffic is flowing.")
 			} else {
 				fmt.Printf("  %d server(s) wrapped.\n", wrapped)
 				if enforce {
@@ -110,6 +114,7 @@ func wrapAll(opts discover.WrapOpts) error {
 		fmt.Println("  Run 'oktsec logs --live' to watch in real time.")
 	} else {
 		fmt.Println("  All servers already wrapped.")
+		fmt.Println("  Run 'oktsec logs --live' to verify traffic is flowing.")
 	}
 
 	return nil

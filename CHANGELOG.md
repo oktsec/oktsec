@@ -19,11 +19,20 @@ All notable changes to this project will be documented in this file.
 
 - **`oktsec init` output**: Now suggests `oktsec wrap --all` and `oktsec setup` as next steps instead of per-client `oktsec wrap <client>`.
 - **Generated config includes `db_path`**: Both `init` and `setup` set `db_path` to the shared location so proxy and serve align automatically.
+- **README quick-start**: Replaced 4-step manual flow with `oktsec setup` + `oktsec serve` two-liner. Added `setup` to CLI reference.
+- **Config validation errors**: Invalid rule action now lists valid values (`block`, `quarantine`, `allow-and-flag`, `ignore`).
 
 ### Fixed
 
 - **Proxy audit trail invisible in dashboard**: Proxy wrote to `/tmp/oktsec.db` while serve used CWD `oktsec.db`. Now both default to `~/.oktsec/oktsec.db`.
 - **Proxy ignored config features**: Wrapped proxy commands had no `--config` flag, so `allowed_tools` and other per-agent config was silently ignored.
+- **`serve` without config failed silently**: Now prints warning with the error, suggests running `oktsec setup`, then falls back to defaults. Banner shows "No agents configured" hint when agent count is 0.
+- **Dashboard empty state**: Overview page now shows welcome message when no agents are configured (links to `oktsec setup`) and "waiting for traffic" message when agents exist but no messages have been scanned yet.
+- **Login page access code UX**: Added note that the code changes on each server restart.
+- **`logs` empty state unhelpful**: Now explains that no messages have been scanned yet, shows the DB path, and suggests `oktsec logs --live`.
+- **`logs --live` silent when idle**: Shows periodic heartbeat message ("waiting for messages...") after 10 seconds of inactivity, then every 30 seconds.
+- **`wrap` "already wrapped" ambiguous**: Now suggests `oktsec logs --live` to verify traffic and hints at unwrap for mode changes.
+- **`logs` used hardcoded DB path**: Now uses shared `~/.oktsec/oktsec.db` default and respects config `db_path`, matching the proxy and serve behavior.
 
 ## [0.7.0] - 2026-03-03
 

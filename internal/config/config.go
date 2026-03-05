@@ -256,7 +256,7 @@ func (c *Config) Validate() error {
 		case "block", "quarantine", "allow-and-flag", "ignore":
 			// valid
 		default:
-			return fmt.Errorf("rule %q has invalid action %q", ra.ID, ra.Action)
+			return fmt.Errorf("rule %q has invalid action %q (valid: block, quarantine, allow-and-flag, ignore)", ra.ID, ra.Action)
 		}
 	}
 	// Gateway validation (transport checks only; backend count and port

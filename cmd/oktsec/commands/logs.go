@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +30,15 @@ func newLogsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
-			store, err := audit.NewStore("oktsec.db", logger)
+			dbPath := defaultDBPath()
+			configPath, _ := cmd.Flags().GetString("config")
+			if configPath != "" {
+				if cfg, err := config.Load(configPath); err == nil && cfg.DBPath != "" {
+					dbPath = cfg.DBPath
+				}
+			}
+
+			store, err := audit.NewStore(dbPath, logger)
 			if err != nil {
 				return fmt.Errorf("opening audit db: %w", err)
 			}
@@ -61,6 +70,13 @@ func newLogsCmd() *cobra.Command {
 
 			if len(entries) == 0 {
 				fmt.Println("No audit entries found.")
+				fmt.Println()
+				fmt.Println("  If you just set up oktsec, this is expected — no messages")
+				fmt.Println("  have been scanned yet. Use your MCP tools normally and")
+				fmt.Println("  entries will appear here.")
+				fmt.Println()
+				fmt.Printf("  Audit DB: %s\n", dbPath)
+				fmt.Println("  Try: oktsec logs --live")
 				return nil
 			}
 
@@ -110,6 +126,7 @@ func streamLive(store *audit.Store, status, agent string, unverified bool) error
 
 	// Seed with recent entries
 	sinceTime := time.Now().Add(-1 * time.Minute).UTC().Format(time.RFC3339)
+	idleTicks := 0
 
 	for {
 		select {
@@ -128,6 +145,7 @@ func streamLive(store *audit.Store, status, agent string, unverified bool) error
 				continue
 			}
 
+			newCount := 0
 			// Entries come DESC; reverse for chronological printing
 			for i := len(entries) - 1; i >= 0; i-- {
 				e := entries[i]
@@ -135,6 +153,8 @@ func streamLive(store *audit.Store, status, agent string, unverified bool) error
 					continue
 				}
 				seen[e.ID] = struct{}{}
+				newCount++
+				idleTicks = 0
 
 				verified := "unsigned"
 				switch e.SignatureVerified {
@@ -148,6 +168,14 @@ func streamLive(store *audit.Store, status, agent string, unverified bool) error
 				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%dms\n", //nolint:errcheck
 					e.Timestamp, e.FromAgent, e.ToAgent, e.Status, e.PolicyDecision, verified, e.LatencyMs)
 				_ = tw.Flush()
+			}
+
+			if newCount == 0 {
+				idleTicks++
+				// Show heartbeat at 10s, then every 30s
+				if idleTicks == 10 || (idleTicks > 10 && idleTicks%30 == 0) {
+					fmt.Fprintf(os.Stderr, "  ... waiting for messages (use your MCP tools to generate traffic)\n")
+				}
 			}
 
 			// Move window forward

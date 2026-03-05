@@ -102,7 +102,7 @@ button:active{transform:scale(0.98)}
   <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M12 11V9a2 2 0 0 0-4 0"/></svg></div>
   <div class="logo">oktsec</div>
   <div class="subtitle">Dashboard Access</div>
-  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec serve</code> to get a code.</p>
+  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec serve</code> to get a code.<br><small style="opacity:0.5">Code changes each time the server restarts.</small></p>
   <form method="POST" action="/dashboard/login" autocomplete="off">
     <input type="text" name="code" placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric" autofocus required>
     <button type="submit">Authenticate</button>
@@ -692,6 +692,18 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 
 var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
 <p class="page-desc">Messages between agents are scanned for threats, verified for identity, and logged here. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+
+{{if and (eq .Stats.TotalMessages 0) (eq .AgentCount 0)}}
+<div class="card" style="text-align:center;padding:40px 24px">
+  <div style="font-size:1.4rem;font-weight:600;margin-bottom:8px">Welcome to oktsec</div>
+  <p style="color:var(--text2);margin-bottom:16px;max-width:480px;margin-left:auto;margin-right:auto">No agents configured yet. Run <code style="background:var(--bg2);padding:2px 6px;border-radius:4px">oktsec setup</code> to discover your MCP servers and start scanning automatically.</p>
+  <p style="color:var(--text3);font-size:0.8rem">Once traffic flows through the proxy, this page will show real-time security metrics.</p>
+</div>
+{{else if eq .Stats.TotalMessages 0}}
+<div class="card" style="text-align:center;padding:24px">
+  <p style="color:var(--text2);margin:0">{{.AgentCount}} agent{{if gt .AgentCount 1}}s{{end}} configured. Waiting for traffic &mdash; use your MCP tools normally and activity will appear here.</p>
+</div>
+{{end}}
 
 {{if .PendingReview}}
 <div class="alert-banner warn">
