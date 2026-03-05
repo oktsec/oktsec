@@ -111,32 +111,32 @@ For using Oktsec alongside **Docker Sandboxes** (isolated micro VMs for AI agent
 
 ## Quick start
 
-### Automatic setup (recommended)
-
-Oktsec discovers your existing MCP servers and OpenClaw installations, generates a config, and wraps MCP clients with security monitoring:
+### One-command setup (recommended)
 
 ```bash
-# 1. Discover all agent platforms on this machine
-oktsec discover
-
-# 2. Auto-generate config + keypairs
-oktsec init
-
-# 3. Wrap your MCP client so traffic routes through oktsec
-oktsec wrap cursor          # or: claude-desktop, vscode, cline, windsurf
-
-# 4. Start the proxy with dashboard
+oktsec setup
 oktsec serve
 ```
 
-Oktsec starts in **observe mode** — it logs everything but blocks nothing. Review activity in the dashboard at `http://127.0.0.1:8080/dashboard` using the access code shown in your terminal.
+That's it. `oktsec setup` discovers all MCP clients on your machine, generates a config with sensible defaults, creates Ed25519 keypairs, and wraps every MCP server through the security proxy — all in one step.
+
+Oktsec starts in **observe mode** — it logs everything but blocks nothing. Review activity in the dashboard at `http://127.0.0.1:8080/dashboard` using the access code shown in your terminal. Restart your MCP clients (Claude Desktop, Cursor, etc.) to activate.
 
 To enable **enforcement mode** (block malicious requests with JSON-RPC errors):
 
 ```bash
-oktsec wrap --enforce cursor
+oktsec wrap --all --enforce
 # or for a single server:
 oktsec proxy --enforce --agent filesystem -- npx @mcp/server-filesystem /data
+```
+
+### Step-by-step setup (if you prefer control)
+
+```bash
+oktsec discover                    # See what's installed
+oktsec init                        # Generate config + keypairs
+oktsec wrap claude-desktop         # Wrap one client at a time
+oktsec serve                       # Start proxy + dashboard
 ```
 
 ### Manual setup
@@ -718,9 +718,10 @@ Analytics queries use a 24-hour time window with covering indexes. All dashboard
 ## CLI reference
 
 ```
+oktsec setup [--enforce] [--skip-wrap]                   # One-command onboarding: discover + init + wrap all
 oktsec discover                                          # Scan for MCP servers, OpenClaw, NanoClaw
 oktsec init [--keys ./keys] [--config oktsec.yaml]       # Auto-generate config + keypairs
-oktsec wrap [--enforce] <client>                         # Route MCP client through oktsec proxy
+oktsec wrap [--enforce] [--all | <client>]               # Route MCP client(s) through oktsec proxy
 oktsec unwrap <client>                                   # Restore original client config
 oktsec scan-openclaw [--path ~/.openclaw/openclaw.json]  # Analyze OpenClaw installation
 oktsec proxy [--enforce] --agent <name> -- <cmd> [args]  # Stdio proxy for single MCP server
