@@ -33,3 +33,6 @@ jobs:
 
       - name: Vet
         run: make vet
+
+      - name: Benchmark
+        run: make bench

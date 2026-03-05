@@ -18,6 +18,16 @@ import (
 	"github.com/oktsec/oktsec/internal/identity"
 )
 
+// sharedScanner is initialized once in TestMain to avoid recompiling 175 rules per test (~15s each).
+var sharedScanner *engine.Scanner
+
+func TestMain(m *testing.M) {
+	sharedScanner = engine.NewScanner("")
+	code := m.Run()
+	sharedScanner.Close()
+	os.Exit(code)
+}
+
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 
@@ -37,10 +47,7 @@ func newTestServer(t *testing.T) *Server {
 		},
 	}
 
-	scanner := engine.NewScanner("")
-	t.Cleanup(scanner.Close)
-
-	return NewServer(cfg, "", store, identity.NewKeyStore(), scanner, logger)
+	return NewServer(cfg, "", store, identity.NewKeyStore(), sharedScanner, logger)
 }
 
 func loginSession(t *testing.T, srv *Server, handler http.Handler) *http.Cookie {
