@@ -86,7 +86,8 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		id := r.PathValue("id")
 		item, err := auditStore.QuarantineByID(id)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			logger.Error("quarantine query failed", "error", err, "id", id)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
 			return
 		}
 		if item == nil {

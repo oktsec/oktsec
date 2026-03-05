@@ -1318,7 +1318,8 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 	// Validate the generated YAML before writing
 	var validateBuf map[string]any
 	if err := yaml.Unmarshal([]byte(yamlContent), &validateBuf); err != nil {
-		http.Error(w, "Generated YAML is invalid: "+err.Error(), http.StatusBadRequest)
+		s.logger.Warn("invalid YAML in custom rule", "error", err)
+		http.Error(w, "Generated YAML is invalid — check syntax and try again", http.StatusBadRequest)
 		return
 	}
 
