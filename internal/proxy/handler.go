@@ -472,6 +472,7 @@ func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string,
 		h.logger.Error("quarantine enqueue failed", "error", err, "id", msgID)
 		return quarantineResult{}
 	}
+	quarantinePending.Inc()
 	return quarantineResult{ID: msgID, ExpiresAt: expiresAt}
 }
 
