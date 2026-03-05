@@ -78,7 +78,8 @@ func newInitCmd() *cobra.Command {
 					"keys_dir":          keysDir,
 					"require_signature": false,
 				},
-				"agents": agents,
+				"db_path": defaultDBPath(),
+				"agents":  agents,
 			}
 
 			data, err := yaml.Marshal(cfg)
@@ -110,7 +111,12 @@ func newInitCmd() *cobra.Command {
 			fmt.Println()
 			fmt.Printf("  Keypairs generated for %d agents in %s/\n", len(generated), keysDir)
 			fmt.Println()
-			fmt.Println("Ready to observe. Run 'oktsec wrap <client>' to start.")
+			fmt.Println("Ready to observe. Next steps:")
+			fmt.Println()
+			fmt.Println("  oktsec wrap --all            # Protect all discovered MCP servers")
+			fmt.Println("  oktsec serve                 # Start dashboard at localhost:8080")
+			fmt.Println()
+			fmt.Println("Or run 'oktsec setup' to do everything in one step.")
 
 			return nil
 		},

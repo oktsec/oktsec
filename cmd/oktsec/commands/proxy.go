@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -14,6 +15,26 @@ import (
 	"github.com/oktsec/oktsec/internal/proxy"
 	"github.com/spf13/cobra"
 )
+
+// defaultDBPath returns a shared DB location so proxy and serve share the same audit trail.
+// Uses ~/.oktsec/oktsec.db on macOS/Linux, %LOCALAPPDATA%\oktsec\oktsec.db on Windows.
+func defaultDBPath() string {
+	var dir string
+	switch runtime.GOOS {
+	case "windows":
+		dir = os.Getenv("LOCALAPPDATA")
+		if dir == "" {
+			home, _ := os.UserHomeDir()
+			dir = filepath.Join(home, "AppData", "Local")
+		}
+		dir = filepath.Join(dir, "oktsec")
+	default:
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".oktsec")
+	}
+	_ = os.MkdirAll(dir, 0o700)
+	return filepath.Join(dir, "oktsec.db")
+}
 
 func newProxyCmd() *cobra.Command {
 	var agent string
@@ -35,8 +56,19 @@ func newProxyCmd() *cobra.Command {
 			scanner := engine.NewScanner("")
 			defer scanner.Close()
 
-			// Use a shared audit store location
-			dbPath := filepath.Join(os.TempDir(), "oktsec.db")
+			// Resolve DB path: config > default shared location
+			dbPath := defaultDBPath()
+			configPath, _ := cmd.Flags().GetString("config")
+			var cfg *config.Config
+			if configPath != "" {
+				if loaded, err := config.Load(configPath); err == nil {
+					cfg = loaded
+					if cfg.DBPath != "" {
+						dbPath = cfg.DBPath
+					}
+				}
+			}
+
 			auditStore, err := audit.NewStore(dbPath, logger)
 			if err != nil {
 				return err
@@ -49,13 +81,10 @@ func newProxyCmd() *cobra.Command {
 			}
 
 			// Load allowed_tools from config if available
-			configPath, _ := cmd.Flags().GetString("config")
-			if configPath != "" {
-				if cfg, err := config.Load(configPath); err == nil {
-					if agentCfg, ok := cfg.Agents[agent]; ok && len(agentCfg.AllowedTools) > 0 {
-						p.SetAllowedTools(agentCfg.AllowedTools)
-						logger.Info("tool allowlist active", "agent", agent, "tools", len(agentCfg.AllowedTools))
-					}
+			if cfg != nil {
+				if agentCfg, ok := cfg.Agents[agent]; ok && len(agentCfg.AllowedTools) > 0 {
+					p.SetAllowedTools(agentCfg.AllowedTools)
+					logger.Info("tool allowlist active", "agent", agent, "tools", len(agentCfg.AllowedTools))
 				}
 			}
 

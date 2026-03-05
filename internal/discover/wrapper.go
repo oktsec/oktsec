@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // findClientConfig returns the config file path for a client, or empty string if not found.
@@ -20,9 +21,15 @@ func findClientConfig(clientName string) string {
 	return ""
 }
 
+// WrapOpts controls how servers are wrapped.
+type WrapOpts struct {
+	Enforce    bool   // Include --enforce flag in proxy commands
+	ConfigPath string // Absolute path to oktsec.yaml (passed as --config to proxy)
+}
+
 // WrapClient modifies a client's MCP config to route servers through oktsec proxy.
 // It saves a backup of the original config as <path>.bak.
-func WrapClient(clientName string) (wrapped int, err error) {
+func WrapClient(clientName string, opts WrapOpts) (wrapped int, err error) {
 	configPath := findClientConfig(clientName)
 	if configPath == "" {
 		return 0, fmt.Errorf("no config found for client %q", clientName)
@@ -42,9 +49,68 @@ func WrapClient(clientName string) (wrapped int, err error) {
 		return 0, err
 	}
 
-	wrapped = wrapServers(servers)
+	wrapped = wrapServers(servers, opts)
 
 	return wrapped, writeMCPConfig(configPath, raw, servers)
+}
+
+// WrapAllClients wraps all discovered clients that support stdio wrapping.
+// Returns per-client results.
+func WrapAllClients(opts WrapOpts) []WrapResult {
+	var results []WrapResult
+	result, err := Scan()
+	if err != nil {
+		return nil
+	}
+
+	for _, cr := range result.Clients {
+		if !isWrappable(cr.Client) {
+			continue
+		}
+		if len(cr.Servers) == 0 {
+			continue
+		}
+		wrapped, err := WrapClient(cr.Client, opts)
+		r := WrapResult{
+			Client:  cr.Client,
+			Path:    cr.Path,
+			Servers: len(cr.Servers),
+			Wrapped: wrapped,
+		}
+		if err != nil {
+			errStr := err.Error()
+			r.Error = &errStr
+		}
+		results = append(results, r)
+	}
+	return results
+}
+
+// WrapResult holds the outcome of wrapping a single client.
+type WrapResult struct {
+	Client  string
+	Path    string
+	Servers int
+	Wrapped int
+	Error   *string
+}
+
+// WrappableClients returns client names that support stdio wrapping.
+func WrappableClients() []string {
+	return []string{
+		"claude-desktop", "cursor", "vscode", "cline", "windsurf",
+		"amp", "gemini-cli", "copilot-cli", "amazon-q",
+		"roo-code", "kilo-code", "boltai", "jetbrains",
+	}
+}
+
+func isWrappable(client string) bool {
+	for _, c := range WrappableClients() {
+		if c == client {
+			return true
+		}
+	}
+	return false
 }
 
 func parseMCPConfig(data []byte) (map[string]json.RawMessage, map[string]mcpServerJSON, error) {
@@ -63,17 +129,22 @@ func parseMCPConfig(data []byte) (map[string]json.RawMessage, map[string]mcpServ
 	return raw, servers, nil
 }
 
-// WrapServersWithEnforce controls whether --enforce flag is included.
-var WrapServersWithEnforce bool
-
-func wrapServers(servers map[string]mcpServerJSON) int {
+func wrapServers(servers map[string]mcpServerJSON, opts WrapOpts) int {
 	wrapped := 0
 	for name, srv := range servers {
 		if srv.Command == "oktsec" {
 			continue
 		}
-		newArgs := []string{"proxy", "--agent", name}
-		if WrapServersWithEnforce {
+		newArgs := []string{"proxy"}
+		if opts.ConfigPath != "" {
+			absPath, err := filepath.Abs(opts.ConfigPath)
+			if err == nil {
+				opts.ConfigPath = absPath
+			}
+			newArgs = append(newArgs, "--config", opts.ConfigPath)
+		}
+		newArgs = append(newArgs, "--agent", name)
+		if opts.Enforce {
 			newArgs = append(newArgs, "--enforce")
 		}
 		newArgs = append(newArgs, "--")

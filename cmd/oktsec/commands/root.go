@@ -16,6 +16,7 @@ func NewRoot() *cobra.Command {
 	root.PersistentFlags().StringVar(&cfgFile, "config", "oktsec.yaml", "config file path")
 
 	root.AddCommand(
+		newSetupCmd(),
 		newServeCmd(),
 		newGatewayCmd(),
 		newKeygenCmd(),
