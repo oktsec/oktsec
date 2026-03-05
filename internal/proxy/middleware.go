@@ -23,9 +23,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Permissions-Policy", "interest-cohort=()")
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; "+
-				"script-src 'self' 'unsafe-inline' https://unpkg.com; "+
-				"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
-				"font-src 'self' https://fonts.gstatic.com; "+
+				"script-src 'self' 'unsafe-inline'; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"font-src 'self'; "+
 				"img-src 'self' data:; "+
 				"connect-src 'self'")
 		if strings.HasPrefix(r.URL.Path, "/dashboard") {
