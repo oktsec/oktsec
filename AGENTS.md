@@ -6,16 +6,19 @@ Oktsec is a security proxy and MCP gateway for AI agent-to-agent communication. 
 
 ```bash
 # Install
-go install github.com/oktsec/oktsec@latest
+curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
 
-# Generate keys for your agents
-oktsec keygen --agent coordinator --agent researcher --out ./keys
+# One-command setup (discovers, configures, wraps all MCP servers)
+oktsec setup
 
-# Create config (or auto-detect from installed MCP clients)
-oktsec init
-
-# Start the proxy
+# Start the dashboard
 oktsec serve
+```
+
+Or install from source:
+
+```bash
+go install github.com/oktsec/oktsec@latest
 ```
 
 ## How It Works
@@ -27,6 +30,15 @@ Rate limit -> Identity verification -> Suspension check -> ACL check -> Content 
 ```
 
 Verdicts: `clean` (deliver), `flag` (deliver + log), `quarantine` (hold for human review), `block` (reject).
+
+## Operational Modes
+
+| Mode | Command | Use Case |
+|------|---------|----------|
+| HTTP proxy | `oktsec serve` | Agent-to-agent API, dashboard |
+| Stdio proxy | `oktsec proxy` | Wrap individual MCP servers |
+| MCP gateway | `oktsec gateway` | Front multiple backend MCP servers |
+| MCP tool server | `oktsec mcp` | Expose security tools to AI agents |
 
 ## MCP Gateway Mode
 
@@ -117,6 +129,12 @@ agents:
     suspended: false
     description: "Orchestrator agent"
 
+mcp_servers:              # backend MCP servers (gateway mode)
+  filesystem:
+    transport: stdio      # "stdio" or "http"
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
 rules:                    # per-rule enforcement overrides
   - id: "IAP-001"
     action: "block"       # block | quarantine | allow-and-flag | ignore
@@ -145,7 +163,10 @@ All commands accept `--config <path>` (default: `oktsec.yaml`).
 
 | Command | Purpose |
 |---|---|
-| `serve` | Start proxy server (`--port`, `--bind`) |
+| `setup` | One-command onboarding: discover + init + wrap all |
+| `serve` | Start proxy server + dashboard (`--port`, `--bind`) |
+| `gateway` | Start MCP gateway fronting backend servers |
+| `proxy --agent <name> -- <cmd>` | Wrap a single MCP server with stdio interception (`--enforce`) |
 | `keygen --agent <name>` | Generate Ed25519 keypair |
 | `verify` | Validate config file |
 | `status` | Show proxy status and audit stats |
@@ -166,14 +187,13 @@ All commands accept `--config <path>` (default: `oktsec.yaml`).
 | `keys revoke --agent <name>` | Revoke keypair |
 | `discover` | Scan for MCP server configs on the machine |
 | `init` | Generate config and keys from discovered MCP servers |
-| `wrap <client>` | Route client's MCP servers through oktsec proxy (`--enforce`) |
+| `wrap <client>` | Route client's MCP servers through oktsec proxy (`--enforce`, `--all`) |
 | `unwrap <client>` | Restore original MCP config |
-| `proxy --agent <name> -- <cmd>` | Wrap a single MCP server with stdio interception (`--enforce`) |
 | `scan-openclaw` | Analyze OpenClaw installation security |
 | `mcp` | Start oktsec as an MCP server (stdio) |
 | `version` | Print version info |
 
-Supported wrap/unwrap clients: `claude-desktop`, `cursor`, `vscode`, `cline`, `windsurf`.
+Supported wrap/unwrap clients: `claude-desktop`, `cursor`, `vscode`, `cline`, `windsurf`, `amp`, `gemini-cli`, `copilot-cli`, `amazon-q`, `roo-code`, `kilo-code`, `boltai`, `jetbrains`.
 
 ## MCP Tools
 
@@ -216,7 +236,7 @@ Empty list (or omitted) means all tools are allowed. The check runs before conte
 
 ## Detection Rules
 
-151 built-in rules across 14 categories. Key inter-agent rules:
+175 built-in rules across 14 categories. Key inter-agent rules:
 
 | ID | Name | Severity |
 |---|---|---|
@@ -231,11 +251,45 @@ Categories include: `prompt-injection`, `command-execution`, `credential-leak`, 
 
 Use `oktsec rules` to list all rules. Use `oktsec rules --explain <id>` for pattern details.
 
+## Python SDK
+
+```bash
+pip install oktsec  # coming soon -- install from sdk/python/ for now
+```
+
+```python
+from oktsec import OktsecClient
+
+client = OktsecClient(base_url="http://127.0.0.1:8080")
+
+# Send a message
+result = client.send_message(
+    from_agent="coordinator",
+    to_agent="researcher",
+    content="Analyze the latest threat report",
+)
+
+# With Ed25519 signing
+from oktsec import load_keypair
+keypair = load_keypair("./keys", "coordinator")
+client = OktsecClient(base_url="http://127.0.0.1:8080", keypair=keypair)
+```
+
+Async support via `AsyncOktsecClient` (httpx-based).
+
 ## Health Check
 
 ```
-GET /health -> {"status": "ok", "version": "0.4.1"}
+GET /health -> {"status": "ok", "version": "0.8.0"}
 ```
+
+## Prometheus Metrics
+
+```
+GET /metrics
+```
+
+Available metric families: `oktsec_messages_total`, `oktsec_message_latency_seconds`, `oktsec_rules_triggered_total`, `oktsec_rate_limit_hits_total`, `oktsec_quarantine_pending`, `oktsec_signature_verified_total`.
 
 ## Webhook Events
 
@@ -260,7 +314,7 @@ When `rate_limit.per_agent > 0`, each agent is limited to N messages per window 
 
 ## Anomaly Detection
 
-When `anomaly.risk_threshold > 0`, a background loop scores each agent every `check_interval` seconds:
+When `anomaly.risk_threshold > 0`, a background loop scores each agent:
 
 ```
 risk_score = (blocked * 3 + quarantined * 2) / total * 100
