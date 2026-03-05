@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-03-05
+
+### Added
+
+- **`oktsec setup` command**: One-command onboarding that discovers all MCP clients, generates config with sensible defaults (observe mode), creates Ed25519 keypairs, wraps all servers through the security proxy, and prints a guided summary with next steps. Flags: `--enforce`, `--skip-wrap`, `--keys`, `--config`.
+- **`oktsec wrap --all` flag**: Wraps all discovered MCP clients at once instead of requiring per-client `wrap` calls. Expanded wrappable client list to 13 clients (added Amp, Gemini CLI, Copilot CLI, Amazon Q, Roo Code, Kilo Code, BoltAI, JetBrains).
+- **`WrapOpts` API**: Replaced global `WrapServersWithEnforce` variable with a `WrapOpts` struct carrying `Enforce` and `ConfigPath` fields. New `WrapAllClients()` and `WrappableClients()` exported functions.
+- **Config passthrough in wrapper**: Wrapped proxy commands now include `--config <abs-path>`, so the proxy loads `allowed_tools`, `db_path`, and all config features. Previously the proxy ran without config access.
+- **Shared audit trail**: Default DB location moved from `/tmp/oktsec.db` to `~/.oktsec/oktsec.db` (macOS/Linux) or `%LOCALAPPDATA%\oktsec\oktsec.db` (Windows). Both `oktsec proxy` and `oktsec serve` now use the same database, so dashboard shows proxy activity.
+- **Quick-start documentation**: `DOCS/quick-start.md` — "Secure your MCP servers in 2 minutes" guide covering setup, enforcement, undo, and supported clients.
+- **Wrapper test suite**: 11 new tests covering `wrapServers` (basic, skip-already-wrapped, enforce, config path, enforce+config, empty map, env preservation), `WrapClient` integration, `WrappableClients`, `isWrappable`, and backup creation.
+- **Setup/wrap command tests**: 8 new tests covering `defaultDBPath` (path structure, idempotency, directory permissions), `setup` command flags and defaults, `wrap` argument validation (requires client or `--all`, mutual exclusion).
+
+### Changed
+
+- **`oktsec init` output**: Now suggests `oktsec wrap --all` and `oktsec setup` as next steps instead of per-client `oktsec wrap <client>`.
+- **Generated config includes `db_path`**: Both `init` and `setup` set `db_path` to the shared location so proxy and serve align automatically.
+
+### Fixed
+
+- **Proxy audit trail invisible in dashboard**: Proxy wrote to `/tmp/oktsec.db` while serve used CWD `oktsec.db`. Now both default to `~/.oktsec/oktsec.db`.
+- **Proxy ignored config features**: Wrapped proxy commands had no `--config` flag, so `allowed_tools` and other per-agent config was silently ignored.
+
 ## [0.7.0] - 2026-03-03
 
 ### Added

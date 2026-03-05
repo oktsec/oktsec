@@ -7,23 +7,37 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var supportedClients = []string{"claude-desktop", "cursor", "vscode", "cline", "windsurf", "openclaw"}
-
 func newWrapCmd() *cobra.Command {
 	var enforce bool
+	var all bool
 
 	cmd := &cobra.Command{
-		Use:   "wrap <client>",
-		Short: "Route a client's MCP servers through oktsec proxy",
-		Long:  "Modifies the MCP config of the specified client so each server runs through 'oktsec proxy'. A backup is saved as .bak.",
+		Use:   "wrap [client]",
+		Short: "Route MCP servers through oktsec proxy",
+		Long:  "Modifies the MCP config of the specified client (or all clients with --all) so each server runs through 'oktsec proxy'. A backup is saved as .bak.",
 		Example: `  oktsec wrap claude-desktop
-  oktsec wrap cursor
-  oktsec wrap --enforce claude-desktop`,
-		Args:      cobra.ExactArgs(1),
-		ValidArgs: supportedClients,
+  oktsec wrap --all
+  oktsec wrap --enforce --all
+  oktsec wrap --enforce cursor`,
+		ValidArgs: discover.WrappableClients(),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client := args[0]
+			if !all && len(args) == 0 {
+				return fmt.Errorf("specify a client name or use --all")
+			}
+			if all && len(args) > 0 {
+				return fmt.Errorf("--all and a client name are mutually exclusive")
+			}
 
+			opts := discover.WrapOpts{
+				Enforce:    enforce,
+				ConfigPath: cfgFile,
+			}
+
+			if all {
+				return wrapAll(opts)
+			}
+
+			client := args[0]
 			if client == "openclaw" {
 				return fmt.Errorf("OpenClaw uses a WebSocket gateway (not MCP stdio), so 'wrap' is not supported.\n\nUse 'oktsec scan-openclaw' to analyze your OpenClaw installation instead")
 			}
@@ -33,11 +47,9 @@ func newWrapCmd() *cobra.Command {
 				return fmt.Errorf("no config found for %q — is it installed?", client)
 			}
 
-			discover.WrapServersWithEnforce = enforce
-
 			fmt.Printf("Wrapping %s MCP servers...\n\n", clientDisplay(client))
 
-			wrapped, err := discover.WrapClient(client)
+			wrapped, err := discover.WrapClient(client, opts)
 			if err != nil {
 				return err
 			}
@@ -59,7 +71,48 @@ func newWrapCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&enforce, "enforce", false, "enable enforcement mode (block malicious requests)")
+	cmd.Flags().BoolVar(&all, "all", false, "wrap all discovered clients at once")
 	return cmd
+}
+
+func wrapAll(opts discover.WrapOpts) error {
+	results := discover.WrapAllClients(opts)
+
+	if len(results) == 0 {
+		fmt.Println("No wrappable MCP clients found.")
+		fmt.Println("Run 'oktsec discover' to see what's installed.")
+		return nil
+	}
+
+	totalWrapped := 0
+	for _, r := range results {
+		name := clientDisplay(r.Client)
+		if r.Error != nil {
+			fmt.Printf("  %-16s  error: %s\n", name, *r.Error)
+			continue
+		}
+		if r.Wrapped == 0 {
+			fmt.Printf("  %-16s  %d servers (already wrapped)\n", name, r.Servers)
+		} else {
+			fmt.Printf("  %-16s  %d server(s) wrapped\n", name, r.Wrapped)
+			totalWrapped += r.Wrapped
+		}
+	}
+
+	fmt.Println()
+	if totalWrapped > 0 {
+		fmt.Printf("  %d server(s) wrapped across %d client(s).\n", totalWrapped, len(results))
+		if opts.Enforce {
+			fmt.Println("  Enforcement mode: malicious requests will be blocked.")
+		}
+		fmt.Println()
+		fmt.Println("  Restart your MCP clients to activate.")
+		fmt.Println("  Run 'oktsec logs --live' to watch in real time.")
+	} else {
+		fmt.Println("  All servers already wrapped.")
+	}
+
+	return nil
 }
 
 func newUnwrapCmd() *cobra.Command {
@@ -70,7 +123,7 @@ func newUnwrapCmd() *cobra.Command {
 		Example: `  oktsec unwrap claude-desktop
   oktsec unwrap cursor`,
 		Args:      cobra.ExactArgs(1),
-		ValidArgs: supportedClients,
+		ValidArgs: discover.WrappableClients(),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			client := args[0]
 
@@ -86,20 +139,5 @@ func newUnwrapCmd() *cobra.Command {
 }
 
 func clientDisplay(name string) string {
-	switch name {
-	case "claude-desktop":
-		return "Claude Desktop"
-	case "cursor":
-		return "Cursor"
-	case "vscode":
-		return "VS Code"
-	case "cline":
-		return "Cline"
-	case "windsurf":
-		return "Windsurf"
-	case "openclaw":
-		return "OpenClaw"
-	default:
-		return name
-	}
+	return discover.ClientDisplayName(name)
 }
