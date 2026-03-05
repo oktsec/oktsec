@@ -59,7 +59,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	// Audit store
 	auditStore, err := audit.NewStore(cfg.DBPath, logger, cfg.Quarantine.RetentionDays)
 	if err != nil {
-		return nil, fmt.Errorf("opening audit store: %w", err)
+		return nil, fmt.Errorf("opening audit store: %w — if another oktsec instance is running, stop it first", err)
 	}
 
 	// Webhook notifier
@@ -189,7 +189,7 @@ func listenAutoPort(bind string, port int, logger *slog.Logger) (net.Listener, i
 			return ln, tryPort, nil
 		}
 	}
-	return nil, 0, fmt.Errorf("port %d and next 10 ports are all in use", port)
+	return nil, 0, fmt.Errorf("port %d and next 10 ports are all in use — try 'oktsec serve --port <port>' or stop existing instances", port)
 }
 
 func isAddrInUse(err error) bool {

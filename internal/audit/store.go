@@ -655,6 +655,38 @@ func (s *Store) QueryUnsignedRate() (unsigned, total int, err error) {
 	return unsigned, total, nil
 }
 
+// UnsignedByAgent holds per-agent unsigned message counts.
+type UnsignedByAgent struct {
+	Agent    string
+	Unsigned int
+	Total    int
+}
+
+// QueryUnsignedByAgent returns unsigned/total message counts per agent in the last 24h.
+func (s *Store) QueryUnsignedByAgent() ([]UnsignedByAgent, error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	rows, err := s.db.Query(
+		`SELECT from_agent, COUNT(*),
+			COALESCE(SUM(CASE WHEN signature_verified != 1 THEN 1 ELSE 0 END), 0)
+		FROM audit_log WHERE timestamp >= ?
+		GROUP BY from_agent ORDER BY COUNT(*) DESC`,
+		cutoff,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query unsigned by agent: %w", err)
+	}
+	defer rows.Close()
+	var result []UnsignedByAgent
+	for rows.Next() {
+		var u UnsignedByAgent
+		if err := rows.Scan(&u.Agent, &u.Total, &u.Unsigned); err != nil {
+			return nil, err
+		}
+		result = append(result, u)
+	}
+	return result, rows.Err()
+}
+
 // QueryTrafficAgents returns distinct agent names seen in traffic in the last 24h.
 func (s *Store) QueryTrafficAgents() ([]string, error) {
 	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)

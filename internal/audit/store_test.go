@@ -373,3 +373,55 @@ func TestStoreLogAndQuery(t *testing.T) {
 		t.Errorf("got %d entries for agent-a, want 1", len(agentEntries))
 	}
 }
+
+func TestQueryUnsignedByAgent(t *testing.T) {
+	store := newTestStore(t)
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	entries := []Entry{
+		{ID: "u1", Timestamp: now, FromAgent: "alice", ToAgent: "bob", ContentHash: "h", Status: "delivered", PolicyDecision: "allow", SignatureVerified: 1},
+		{ID: "u2", Timestamp: now, FromAgent: "alice", ToAgent: "bob", ContentHash: "h", Status: "delivered", PolicyDecision: "allow", SignatureVerified: 0},
+		{ID: "u3", Timestamp: now, FromAgent: "bob", ToAgent: "alice", ContentHash: "h", Status: "delivered", PolicyDecision: "allow", SignatureVerified: 0},
+		{ID: "u4", Timestamp: now, FromAgent: "bob", ToAgent: "alice", ContentHash: "h", Status: "delivered", PolicyDecision: "allow", SignatureVerified: 0},
+	}
+	for _, e := range entries {
+		store.Log(e)
+	}
+	store.Flush()
+
+	results, err := store.QueryUnsignedByAgent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d agents, want 2", len(results))
+	}
+
+	// bob has 2 total (both unsigned), alice has 2 total (1 unsigned)
+	agentMap := make(map[string]UnsignedByAgent)
+	for _, r := range results {
+		agentMap[r.Agent] = r
+	}
+
+	if a, ok := agentMap["alice"]; !ok {
+		t.Error("missing alice")
+	} else {
+		if a.Total != 2 {
+			t.Errorf("alice total = %d, want 2", a.Total)
+		}
+		if a.Unsigned != 1 {
+			t.Errorf("alice unsigned = %d, want 1", a.Unsigned)
+		}
+	}
+
+	if b, ok := agentMap["bob"]; !ok {
+		t.Error("missing bob")
+	} else {
+		if b.Total != 2 {
+			t.Errorf("bob total = %d, want 2", b.Total)
+		}
+		if b.Unsigned != 2 {
+			t.Errorf("bob unsigned = %d, want 2", b.Unsigned)
+		}
+	}
+}
