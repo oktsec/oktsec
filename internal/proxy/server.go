@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/dashboard"
@@ -93,6 +95,9 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		}
 		writeJSON(w, http.StatusOK, item)
 	})
+	// Prometheus metrics endpoint
+	mux.Handle("GET /metrics", promhttp.Handler())
+
 	// Root splash page
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

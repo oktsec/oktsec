@@ -85,6 +85,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Rate limit check (before any expensive operations)
 	if !h.rateLimiter.Allow(req.From) {
+		rateLimitHits.Inc()
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{
 			"error": "rate limit exceeded",
 		})
@@ -104,6 +105,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sigStatus, verified, fingerprint := h.verifyIdentity(req)
 	entry.SignatureVerified = sigStatus
 	entry.PubkeyFingerprint = fingerprint
+
+	switch sigStatus {
+	case 1:
+		signatureVerified.WithLabelValues("verified").Inc()
+	case -1:
+		signatureVerified.WithLabelValues("invalid").Inc()
+	default:
+		signatureVerified.WithLabelValues("unsigned").Inc()
+	}
 
 	if code, resp := h.checkIdentity(sigStatus, msgID); resp != nil {
 		h.rejectAndLog(w, code, *resp, &entry, start)
@@ -168,6 +178,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	entry.RulesTriggered = rulesJSON
 	entry.LatencyMs = time.Since(start).Milliseconds()
 	h.audit.Log(entry)
+
+	// Record Prometheus metrics
+	messagesTotal.WithLabelValues(status, policyDecision).Inc()
+	messageLatency.WithLabelValues(status).Observe(time.Since(start).Seconds())
+	for _, f := range outcome.Findings {
+		rulesTriggered.WithLabelValues(f.RuleID, f.Severity).Inc()
+	}
 
 	qr := h.enqueueIfQuarantined(outcome.Verdict, msgID, req, rulesJSON)
 	h.notifyIfSevere(outcome.Verdict, status, msgID, req, outcome.Findings)

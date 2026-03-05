@@ -33,6 +33,13 @@ demo/**/*.db
 demo/**/oktsec-bin
 demo/**/oktsec-linux
 
+# Python SDK
+sdk/python/.venv/
+sdk/python/*.egg-info/
+sdk/python/dist/
+__pycache__/
+*.pyc
+
 # Claude
 .claude/
 DOCS/

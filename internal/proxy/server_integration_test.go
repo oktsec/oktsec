@@ -305,7 +305,100 @@ func TestIntegration_QuarantineFlow(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Errorf("GET /v1/quarantine/%s = %d, want 200", result.QuarantineID, resp.StatusCode)
 		}
+		// Verify expires_at is present
+		if result.ExpiresAt == "" {
+			t.Error("quarantined message should have expires_at")
+		}
 	} else {
 		t.Logf("content was %s (not quarantined); test inconclusive for quarantine flow", result.Status)
+	}
+}
+
+func TestIntegration_RateLimitNoInfoDisclosure(t *testing.T) {
+	_, baseURL := testServer(t)
+
+	// Exhaust rate limit (default is 100/60s, override in testServer config)
+	// We need to send many messages to hit the limit
+	for i := 0; i < 110; i++ {
+		msg := MessageRequest{
+			From:      "test-agent",
+			To:        "target-agent",
+			Content:   fmt.Sprintf("msg %d", i),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		}
+		body, _ := json.Marshal(msg)
+		resp, err := http.Post(baseURL+"/v1/message", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			// Check that the error does NOT contain the agent name
+			var errResp map[string]string
+			if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+
+			errMsg := errResp["error"]
+			if errMsg != "rate limit exceeded" {
+				t.Errorf("rate limit error = %q, want generic message without agent name", errMsg)
+			}
+			return // test passed
+		}
+		resp.Body.Close()
+	}
+	t.Log("did not hit rate limit in 110 messages; test inconclusive")
+}
+
+func TestIntegration_DashboardAccessible(t *testing.T) {
+	_, baseURL := testServer(t)
+
+	// Dashboard should return a redirect to login or the login page
+	client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Get(baseURL + "/dashboard/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Should get 302 (redirect to login) or 200 (login page)
+	if resp.StatusCode != 200 && resp.StatusCode != 302 {
+		t.Errorf("GET /dashboard/ = %d, want 200 or 302", resp.StatusCode)
+	}
+}
+
+func TestIntegration_UnsignedByAgentQuery(t *testing.T) {
+	srv, baseURL := testServer(t)
+
+	// Send a few unsigned messages
+	for i := 0; i < 3; i++ {
+		sendMessage(t, baseURL, MessageRequest{
+			From:      "test-agent",
+			To:        "target-agent",
+			Content:   fmt.Sprintf("unsigned msg %d", i),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	srv.AuditStore().Flush()
+
+	// Query per-agent unsigned
+	results, err := srv.AuditStore().QueryUnsignedByAgent()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results) == 0 {
+		t.Error("expected at least 1 agent in unsigned breakdown")
+	}
+
+	// All should be unsigned since we didn't sign
+	for _, r := range results {
+		if r.Unsigned != r.Total {
+			t.Errorf("agent %s: unsigned=%d total=%d, expected all unsigned", r.Agent, r.Unsigned, r.Total)
+		}
 	}
 }
