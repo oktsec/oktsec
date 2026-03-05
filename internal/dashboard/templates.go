@@ -334,6 +334,14 @@ tr:hover td{background:rgba(99,102,241,0.04)}
 .toggle-btn{display:inline-block;padding:6px 14px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:8px;font-size:0.78rem;cursor:pointer;text-decoration:none;transition:all 0.2s}
 .toggle-btn:hover{background:var(--accent-dim);color:#fff;border-color:var(--accent)}
 
+/* HTMX loading indicator */
+.htmx-indicator{display:none}
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator{display:inline-block}
+.loading-spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.6s linear infinite;display:inline-block;vertical-align:middle;margin-left:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.htmx-request td,.htmx-request .stat{opacity:0.5;transition:opacity 0.2s}
+
 /* Key table */
 .fp{color:var(--text3);font-size:0.72rem}
 
@@ -603,6 +611,7 @@ const layoutFoot = `</main>
 <!-- Slide-in panel -->
 <div class="panel-overlay" id="panel-overlay" onclick="closePanel()"></div>
 <div class="panel" id="detail-panel">
+  <div id="panel-loading" class="htmx-indicator" style="text-align:center;padding:40px"><span class="loading-spinner" style="width:24px;height:24px"></span></div>
   <div id="panel-content"></div>
 </div>
 
@@ -625,9 +634,19 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closePanel();
 });
 
+// HTMX: show loading spinner when panel requests start
+document.body.addEventListener('htmx:beforeRequest', function(e) {
+  if (e.detail.target && e.detail.target.id === 'panel-content') {
+    document.getElementById('panel-loading').style.display='block';
+    document.getElementById('panel-content').innerHTML='';
+    document.getElementById('detail-panel').classList.add('open');
+    document.getElementById('panel-overlay').classList.add('open');
+  }
+});
 // HTMX: when a panel response arrives, open the panel
 document.body.addEventListener('htmx:afterSwap', function(e) {
   if (e.detail.target.id === 'panel-content') {
+    document.getElementById('panel-loading').style.display='none';
     document.getElementById('detail-panel').classList.add('open');
     document.getElementById('panel-overlay').classList.add('open');
   }
@@ -746,7 +765,7 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
   <div class="stat">
     <div class="label">Unsigned Messages (24h)</div>
     <div class="value {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}}</div>
-    <div class="sub">{{.UnsignedPct}}% of recent traffic</div>
+    <div class="sub">{{.UnsignedPct}}% of recent traffic{{if .UnsignedByAgent}} — {{range $i, $a := .UnsignedByAgent}}{{if $i}}, {{end}}{{$a.Agent}}: {{$a.Unsigned}}/{{$a.Total}}{{end}}{{end}}</div>
   </div>
   <div class="stat">
     <div class="label">Avg Latency (24h)</div>
@@ -827,7 +846,8 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
   <h2><span class="dot"></span> Recent Events</h2>
   <div class="search-bar">
     <span class="search-icon">&#x1f50d;</span>
-    <input type="text" placeholder="Search events..." hx-get="/dashboard/api/search" hx-trigger="input changed delay:300ms" hx-target="#search-results" name="q">
+    <input type="text" placeholder="Search events..." hx-get="/dashboard/api/search" hx-trigger="input changed delay:300ms" hx-target="#search-results" hx-indicator="#search-loading" name="q">
+    <span id="search-loading" class="htmx-indicator"><span class="loading-spinner"></span></span>
   </div>
   <div id="search-results" style="display:none"></div>
   <div id="recent-events">
@@ -2426,7 +2446,8 @@ updateExportLinks();
   <div class="search-bar">
     <span class="search-icon">&#x1F50D;</span>
     <input type="text" placeholder="Search events by agent, rule, or content hash..."
-           hx-get="/dashboard/api/search" hx-trigger="keyup changed delay:300ms" hx-target="#search-results" name="q">
+           hx-get="/dashboard/api/search" hx-trigger="keyup changed delay:300ms" hx-target="#search-results" hx-indicator="#events-search-loading" name="q">
+    <span id="events-search-loading" class="htmx-indicator"><span class="loading-spinner"></span></span>
   </div>
 
   <div id="search-results">

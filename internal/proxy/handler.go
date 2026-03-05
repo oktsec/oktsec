@@ -37,6 +37,7 @@ type MessageResponse struct {
 	RulesTriggered []engine.FindingSummary `json:"rules_triggered"`
 	VerifiedSender bool                    `json:"verified_sender"`
 	QuarantineID   string                  `json:"quarantine_id,omitempty"`
+	ExpiresAt      string                  `json:"expires_at,omitempty"`
 }
 
 // Handler processes /v1/message requests through the full pipeline.
@@ -85,7 +86,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Rate limit check (before any expensive operations)
 	if !h.rateLimiter.Allow(req.From) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{
-			"error": fmt.Sprintf("rate limit exceeded for agent %q", req.From),
+			"error": "rate limit exceeded",
 		})
 		return
 	}
@@ -139,7 +140,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		entry.PolicyDecision = "scan_error"
 		entry.LatencyMs = time.Since(start).Milliseconds()
 		h.audit.Log(entry)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "scan failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "content scan failed — retry or check server logs"})
 		return
 	}
 
@@ -168,7 +169,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	entry.LatencyMs = time.Since(start).Milliseconds()
 	h.audit.Log(entry)
 
-	quarantineID := h.enqueueIfQuarantined(outcome.Verdict, msgID, req, rulesJSON)
+	qr := h.enqueueIfQuarantined(outcome.Verdict, msgID, req, rulesJSON)
 	h.notifyIfSevere(outcome.Verdict, status, msgID, req, outcome.Findings)
 	h.notifyByRuleOverrides(msgID, req, outcome.Findings)
 
@@ -178,7 +179,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		PolicyDecision: policyDecision,
 		RulesTriggered: outcome.Findings,
 		VerifiedSender: verified,
-		QuarantineID:   quarantineID,
+		QuarantineID:   qr.ID,
+		ExpiresAt:      qr.ExpiresAt,
 	})
 }
 
@@ -422,14 +424,20 @@ func encodeFindings(findings []engine.FindingSummary) string {
 	return "[]"
 }
 
-func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string, req *MessageRequest, rulesJSON string) string {
+type quarantineResult struct {
+	ID        string
+	ExpiresAt string
+}
+
+func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string, req *MessageRequest, rulesJSON string) quarantineResult {
 	if verdict != engine.VerdictQuarantine {
-		return ""
+		return quarantineResult{}
 	}
 	expiryHours := h.cfg.Quarantine.ExpiryHours
 	if expiryHours <= 0 {
 		expiryHours = 24
 	}
+	expiresAt := time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339)
 	qItem := audit.QuarantineItem{
 		ID:             msgID,
 		AuditEntryID:   msgID,
@@ -437,7 +445,7 @@ func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string,
 		FromAgent:      req.From,
 		ToAgent:        req.To,
 		Status:         "pending",
-		ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
+		ExpiresAt:      expiresAt,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 		RulesTriggered: rulesJSON,
 		Signature:      req.Signature,
@@ -445,9 +453,9 @@ func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string,
 	}
 	if err := h.audit.Enqueue(qItem); err != nil {
 		h.logger.Error("quarantine enqueue failed", "error", err, "id", msgID)
-		return ""
+		return quarantineResult{}
 	}
-	return msgID
+	return quarantineResult{ID: msgID, ExpiresAt: expiresAt}
 }
 
 func (h *Handler) notifyIfSevere(verdict engine.ScanVerdict, status, msgID string, req *MessageRequest, findings []engine.FindingSummary) {

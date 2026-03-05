@@ -136,6 +136,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	topRules, _ := s.audit.QueryTopRules(5, "")
 	agentRisks, _ := s.audit.QueryAgentRisk("")
 	unsigned, totalRecent, _ := s.audit.QueryUnsignedRate()
+	unsignedByAgent, _ := s.audit.QueryUnsignedByAgent()
 
 	detectionRate := 0
 	if stats.TotalMessages > 0 {
@@ -161,9 +162,10 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"TopRules":      topRules,
 		"AgentRisks":    agentRisks,
 		"DetectionRate": detectionRate,
-		"UnsignedCount": unsigned,
-		"UnsignedPct":   unsignedPct,
-		"AvgLatency":    avgLatency,
+		"UnsignedCount":   unsigned,
+		"UnsignedPct":     unsignedPct,
+		"UnsignedByAgent": unsignedByAgent,
+		"AvgLatency":      avgLatency,
 	}
 
 	s.renderTemplate(w, overviewTmpl, data)
