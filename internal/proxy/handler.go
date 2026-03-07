@@ -168,10 +168,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		intentResult := ValidateIntent(req.Intent, req.Content)
 		if intentResult.Status == "mismatch" {
 			h.logger.Warn("intent mismatch", "from", req.From, "intent", req.Intent, "reason", intentResult.Reason, "message_id", msgID)
-			// Escalate to at least Flag on mismatch
 			if verdictSeverity(outcome.Verdict) < verdictSeverity(engine.VerdictFlag) {
 				outcome.Verdict = engine.VerdictFlag
 			}
+		}
+	} else if h.cfg.Server.RequireIntent {
+		h.logger.Warn("missing required intent", "from", req.From, "message_id", msgID)
+		if verdictSeverity(outcome.Verdict) < verdictSeverity(engine.VerdictFlag) {
+			outcome.Verdict = engine.VerdictFlag
 		}
 	}
 

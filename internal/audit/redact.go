@@ -43,7 +43,7 @@ func Redact(e Entry, level RedactionLevel) RedactedEntry {
 			PolicyDecision: e.PolicyDecision,
 		}
 	case RedactAnalyst:
-		rules := redactRuleFindings(e.RulesTriggered)
+		rules := RedactRuleFindings(e.RulesTriggered)
 		return RedactedEntry{
 			ID:                e.ID,
 			Timestamp:         e.Timestamp,
@@ -81,10 +81,10 @@ func RedactEntries(entries []Entry, level RedactionLevel) []RedactedEntry {
 	return result
 }
 
-// redactRuleFindings strips matched content from rule findings JSON while
+// RedactRuleFindings strips matched content from rule findings JSON while
 // preserving rule IDs, names, and severities. This is a simple string-level
 // redaction that removes "matched" fields.
-func redactRuleFindings(rulesJSON string) string {
+func RedactRuleFindings(rulesJSON string) string {
 	if rulesJSON == "" || rulesJSON == "[]" {
 		return rulesJSON
 	}

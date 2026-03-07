@@ -32,9 +32,10 @@ type Config struct {
 
 // ServerConfig holds proxy server settings.
 type ServerConfig struct {
-	Port     int    `yaml:"port"`
-	Bind     string `yaml:"bind"` // Address to bind (default: 127.0.0.1)
-	LogLevel string `yaml:"log_level"`
+	Port          int    `yaml:"port"`
+	Bind          string `yaml:"bind"`           // Address to bind (default: 127.0.0.1)
+	LogLevel      string `yaml:"log_level"`
+	RequireIntent bool   `yaml:"require_intent"` // Require agents to declare intent in messages
 }
 
 // IdentityConfig configures agent identity verification.

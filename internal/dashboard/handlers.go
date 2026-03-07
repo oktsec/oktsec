@@ -960,6 +960,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
 	since := r.URL.Query().Get("since")
 	until := r.URL.Query().Get("until")
+	redaction := audit.RedactionLevel(r.URL.Query().Get("redaction"))
 
 	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: parseExportLimit(r)})
 	if err != nil {
@@ -972,12 +973,23 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
 
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"id", "timestamp", "from", "to", "status", "signature_verified", "rules_triggered", "policy_decision", "latency_ms"})
-	for _, e := range entries {
-		_ = cw.Write([]string{
-			e.ID, e.Timestamp, e.FromAgent, e.ToAgent, e.Status,
-			strconv.Itoa(e.SignatureVerified), e.RulesTriggered, e.PolicyDecision, strconv.FormatInt(e.LatencyMs, 10),
-		})
+	if redaction == audit.RedactExternal {
+		_ = cw.Write([]string{"id", "timestamp", "from", "to", "status", "policy_decision"})
+		for _, e := range entries {
+			_ = cw.Write([]string{e.ID, e.Timestamp, e.FromAgent, e.ToAgent, e.Status, e.PolicyDecision})
+		}
+	} else {
+		_ = cw.Write([]string{"id", "timestamp", "from", "to", "status", "signature_verified", "rules_triggered", "policy_decision", "latency_ms", "intent"})
+		for _, e := range entries {
+			rules := e.RulesTriggered
+			if redaction == audit.RedactAnalyst {
+				rules = audit.RedactRuleFindings(rules)
+			}
+			_ = cw.Write([]string{
+				e.ID, e.Timestamp, e.FromAgent, e.ToAgent, e.Status,
+				strconv.Itoa(e.SignatureVerified), rules, e.PolicyDecision, strconv.FormatInt(e.LatencyMs, 10), e.Intent,
+			})
+		}
 	}
 	cw.Flush()
 }
@@ -986,6 +998,7 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
 	since := r.URL.Query().Get("since")
 	until := r.URL.Query().Get("until")
+	redaction := audit.RedactionLevel(r.URL.Query().Get("redaction"))
 
 	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: parseExportLimit(r)})
 	if err != nil {
@@ -997,8 +1010,15 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
 
-	if err := json.NewEncoder(w).Encode(entries); err != nil {
-		s.logger.Error("json export failed", "error", err)
+	if redaction != "" {
+		redacted := audit.RedactEntries(entries, redaction)
+		if err := json.NewEncoder(w).Encode(redacted); err != nil {
+			s.logger.Error("json export failed", "error", err)
+		}
+	} else {
+		if err := json.NewEncoder(w).Encode(entries); err != nil {
+			s.logger.Error("json export failed", "error", err)
+		}
 	}
 }
 
@@ -1935,6 +1955,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"FPScanResponses":      s.cfg.ForwardProxy.ScanResponses,
 		"FPMaxBodySize":        s.cfg.ForwardProxy.MaxBodySize,
 		"QRetentionDays":       s.cfg.Quarantine.RetentionDays,
+		"RequireIntent":        s.cfg.Server.RequireIntent,
 	}
 
 	s.renderTemplate(w, settingsTmpl, data)
@@ -2005,6 +2026,18 @@ func (s *Server) handleSaveAnomaly(w http.ResponseWriter, r *http.Request) {
 	if s.cfgPath != "" {
 		if err := s.cfg.Save(s.cfgPath); err != nil {
 			s.logger.Error("failed to save config after anomaly update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/settings?tab=pipeline", http.StatusFound)
+}
+
+func (s *Server) handleSaveIntent(w http.ResponseWriter, r *http.Request) {
+	s.cfg.Server.RequireIntent = r.FormValue("require_intent") == "true"
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after intent update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
 		}
