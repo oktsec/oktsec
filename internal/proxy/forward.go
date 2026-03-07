@@ -19,30 +19,47 @@ import (
 // ForwardProxy implements an HTTP forward proxy that scans traffic with Aguara.
 // It handles CONNECT tunneling (HTTPS) and plain HTTP forwarding.
 type ForwardProxy struct {
-	cfg         *config.ForwardProxyConfig
-	scanner     *engine.Scanner
-	audit       *audit.Store
-	rateLimiter *RateLimiter
-	logger      *slog.Logger
-	transport   *http.Transport
+	cfg           *config.ForwardProxyConfig
+	scanner       *engine.Scanner
+	audit         *audit.Store
+	rateLimiter   *RateLimiter
+	egressEval    *EgressEvaluator
+	agentLimiters map[string]*RateLimiter
+	logger        *slog.Logger
+	transport     *http.Transport
 }
 
 // NewForwardProxy creates a forward proxy with scanning and audit capabilities.
-func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter *RateLimiter, logger *slog.Logger) *ForwardProxy {
-	return &ForwardProxy{
-		cfg:         cfg,
-		scanner:     scanner,
-		audit:       auditStore,
-		rateLimiter: rateLimiter,
-		logger:      logger,
+func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter *RateLimiter, agents map[string]config.Agent, logger *slog.Logger) *ForwardProxy {
+	fp := &ForwardProxy{
+		cfg:           cfg,
+		scanner:       scanner,
+		audit:         auditStore,
+		rateLimiter:   rateLimiter,
+		egressEval:    NewEgressEvaluator(cfg, agents),
+		agentLimiters: make(map[string]*RateLimiter),
+		logger:        logger,
 		transport: &http.Transport{
-			DialContext:            safeDialContext,
-			TLSHandshakeTimeout:   5 * time.Second,
+			DialContext:           safeDialContext,
+			TLSHandshakeTimeout:  5 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 			MaxIdleConns:          100,
 			IdleConnTimeout:       90 * time.Second,
 		},
 	}
+
+	// Pre-create per-agent rate limiters
+	for name, agent := range agents {
+		if agent.Egress != nil && agent.Egress.RateLimit > 0 {
+			window := agent.Egress.RateWindow
+			if window <= 0 {
+				window = 60
+			}
+			fp.agentLimiters[name] = NewRateLimiter(agent.Egress.RateLimit, window)
+		}
+	}
+
+	return fp
 }
 
 // Wrap returns a handler that dispatches CONNECT and absolute-URL requests to the
@@ -61,19 +78,28 @@ func (fp *ForwardProxy) Wrap(mux http.Handler) http.Handler {
 	})
 }
 
+// extractAgent reads and strips the X-Oktsec-Agent header.
+func extractAgent(r *http.Request) string {
+	agent := r.Header.Get("X-Oktsec-Agent")
+	r.Header.Del("X-Oktsec-Agent")
+	return strings.TrimSpace(agent)
+}
+
 // handleConnect handles HTTPS tunneling via the CONNECT method.
 func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	host := r.Host
+	agent := extractAgent(r)
 
-	if !fp.domainAllowed(host) {
-		fp.logger.Warn("forward proxy: blocked CONNECT domain", "host", host, "remote", r.RemoteAddr)
-		fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, "blocked", "proxy_blocked_domain", "", 0, start)
+	policy := fp.resolvePolicy(agent)
+	if !policy.DomainAllowed(host) {
+		fp.logger.Warn("forward proxy: blocked CONNECT domain", "host", host, "agent", agent, "remote", r.RemoteAddr)
+		fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, "blocked", "proxy_blocked_domain", "", 0, start)
 		http.Error(w, "Forbidden: domain blocked by proxy policy", http.StatusForbidden)
 		return
 	}
 
-	if !fp.rateLimiter.Allow(r.RemoteAddr) {
+	if !fp.allowRate(agent, r.RemoteAddr) {
 		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 		return
 	}
@@ -136,7 +162,7 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Wait for either direction to finish
 	<-done
 
-	fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, "tunneled", "proxy_allowed", "", clientBytes+targetBytes, start)
+	fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, "tunneled", "proxy_allowed", "", clientBytes+targetBytes, start)
 }
 
 // handleHTTP handles plain HTTP forward proxying with content scanning.
@@ -146,15 +172,18 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if host == "" {
 		host = r.Host
 	}
+	agent := extractAgent(r)
+	logAgent := fp.logAgent(agent, r.RemoteAddr)
 
-	if !fp.domainAllowed(host) {
-		fp.logger.Warn("forward proxy: blocked HTTP domain", "host", host, "remote", r.RemoteAddr)
-		fp.logProxyEntry(r.RemoteAddr, r.Method, host, "blocked", "proxy_blocked_domain", "", 0, start)
+	policy := fp.resolvePolicy(agent)
+	if !policy.DomainAllowed(host) {
+		fp.logger.Warn("forward proxy: blocked HTTP domain", "host", host, "agent", agent, "remote", r.RemoteAddr)
+		fp.logProxyEntry(logAgent, r.Method, host, "blocked", "proxy_blocked_domain", "", 0, start)
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "domain blocked by proxy policy"})
 		return
 	}
 
-	if !fp.rateLimiter.Allow(r.RemoteAddr) {
+	if !fp.allowRate(agent, r.RemoteAddr) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limit exceeded"})
 		return
 	}
@@ -178,15 +207,15 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Scan request body
-	if fp.cfg.ScanRequests && len(bodyBytes) > 0 && int64(len(bodyBytes)) <= maxBody {
+	if policy.ScanRequests && len(bodyBytes) > 0 && int64(len(bodyBytes)) <= maxBody {
 		outcome, err := fp.scanner.ScanContent(context.Background(), string(bodyBytes))
 		if err != nil {
 			fp.logger.Error("forward proxy: request scan failed", "error", err)
-		} else if outcome.Verdict == engine.VerdictBlock {
+		} else if outcome.Verdict == engine.VerdictBlock || fp.hasCategoryBlock(outcome, policy) {
 			rulesJSON := encodeFindings(outcome.Findings)
 			fp.logger.Warn("forward proxy: blocked request content",
-				"host", host, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
-			fp.logProxyEntry(r.RemoteAddr, r.Method, host, "blocked", "proxy_blocked_content", rulesJSON, 0, start)
+				"host", host, "agent", agent, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
+			fp.logProxyEntry(logAgent, r.Method, host, "blocked", "proxy_blocked_content", rulesJSON, 0, start)
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "request blocked by content scan",
 				"detail": fmt.Sprintf("%d security finding(s) detected", len(outcome.Findings)),
@@ -223,15 +252,15 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Scan response body if configured
-	if fp.cfg.ScanResponses && len(respBody) > 0 && int64(len(respBody)) <= maxBody {
+	if policy.ScanResponses && len(respBody) > 0 && int64(len(respBody)) <= maxBody {
 		outcome, err := fp.scanner.ScanContent(context.Background(), string(respBody))
 		if err != nil {
 			fp.logger.Error("forward proxy: response scan failed", "error", err)
-		} else if outcome.Verdict == engine.VerdictBlock {
+		} else if outcome.Verdict == engine.VerdictBlock || fp.hasCategoryBlock(outcome, policy) {
 			rulesJSON := encodeFindings(outcome.Findings)
 			fp.logger.Warn("forward proxy: blocked response content",
-				"host", host, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
-			fp.logProxyEntry(r.RemoteAddr, r.Method, host, "blocked", "proxy_blocked_response", rulesJSON, 0, start)
+				"host", host, "agent", agent, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
+			fp.logProxyEntry(logAgent, r.Method, host, "blocked", "proxy_blocked_response", rulesJSON, 0, start)
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "response blocked by content scan",
 				"detail": fmt.Sprintf("%d security finding(s) detected", len(outcome.Findings)),
@@ -245,36 +274,54 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
 
-	fp.logProxyEntry(r.RemoteAddr, r.Method, host, "forwarded", "proxy_allowed", "", int64(len(bodyBytes)+len(respBody)), start)
+	fp.logProxyEntry(logAgent, r.Method, host, "forwarded", "proxy_allowed", "", int64(len(bodyBytes)+len(respBody)), start)
 }
 
-// domainAllowed checks the host against allowed and blocked domain lists.
-// BlockedDomains takes precedence. If AllowedDomains is non-empty, only those are allowed.
-func (fp *ForwardProxy) domainAllowed(host string) bool {
-	// Strip port for domain matching
-	hostname := host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		hostname = h
-	}
-
-	// Blocked domains take precedence
-	for _, d := range fp.cfg.BlockedDomains {
-		if strings.EqualFold(hostname, d) {
-			return false
+// resolvePolicy returns the merged egress policy for an agent.
+func (fp *ForwardProxy) resolvePolicy(agent string) *ResolvedEgressPolicy {
+	if agent == "" {
+		// No agent header — use global policy
+		return &ResolvedEgressPolicy{
+			AllowedDomains: fp.cfg.AllowedDomains,
+			BlockedDomains: fp.cfg.BlockedDomains,
+			ScanRequests:   fp.cfg.ScanRequests,
+			ScanResponses:  fp.cfg.ScanResponses,
 		}
 	}
+	return fp.egressEval.Resolve(agent)
+}
 
-	// If allowlist is set, only allowed domains pass
-	if len(fp.cfg.AllowedDomains) > 0 {
-		for _, d := range fp.cfg.AllowedDomains {
-			if strings.EqualFold(hostname, d) {
-				return true
+// allowRate checks per-agent rate limit first, then global.
+func (fp *ForwardProxy) allowRate(agent, remoteAddr string) bool {
+	if agent != "" {
+		if limiter, ok := fp.agentLimiters[agent]; ok {
+			if !limiter.Allow(agent) {
+				return false
 			}
 		}
+	}
+	return fp.rateLimiter.Allow(remoteAddr)
+}
+
+// logAgent returns the agent name for audit logging, falling back to remoteAddr.
+func (fp *ForwardProxy) logAgent(agent, remoteAddr string) string {
+	if agent != "" {
+		return agent
+	}
+	return remoteAddr
+}
+
+// hasCategoryBlock checks if any finding's category is in the policy's blocked list.
+func (fp *ForwardProxy) hasCategoryBlock(outcome *engine.ScanOutcome, policy *ResolvedEgressPolicy) bool {
+	if len(policy.BlockedCategories) == 0 {
 		return false
 	}
-
-	return true
+	for _, f := range outcome.Findings {
+		if policy.CategoryBlocked(f.Category) {
+			return true
+		}
+	}
+	return false
 }
 
 // logProxyEntry writes an audit log entry for proxy traffic.

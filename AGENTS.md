@@ -128,6 +128,13 @@ agents:
     allowed_tools: []                         # MCP tool names allowed via stdio proxy (empty = all)
     suspended: false
     description: "Orchestrator agent"
+    egress:                                   # per-agent outbound traffic controls (optional)
+      allowed_domains: [api.google.com]       # additive to global forward_proxy.allowed_domains
+      blocked_domains: [pastebin.com]         # additive to global; global blocklist always wins
+      scan_requests: true                     # null = inherit global; explicit overrides
+      blocked_categories: [credentials, pii]  # DLP: block outbound content matching these categories
+      rate_limit: 100                         # per-agent egress rate limit (0 = disabled)
+      rate_window: 60                         # seconds
 
 mcp_servers:              # backend MCP servers (gateway mode)
   filesystem:
@@ -277,6 +284,52 @@ client = OktsecClient(base_url="http://127.0.0.1:8080", keypair=keypair)
 
 Async support via `AsyncOktsecClient` (httpx-based).
 
+## Agent CRUD API
+
+Manage agents programmatically without editing `oktsec.yaml`:
+
+### List agents
+```
+GET /v1/agents → [{"name": "coordinator", "description": "...", "can_message": [...], "suspended": false, "has_key": true}, ...]
+```
+
+### Get agent
+```
+GET /v1/agents/{name} → {"name": "coordinator", "description": "...", ...}
+```
+
+### Create agent
+```
+POST /v1/agents
+{"name": "new-agent", "description": "My agent", "can_message": ["other"], "tags": ["prod"]}
+→ 201 Created
+```
+
+### Update agent (partial)
+```
+PUT /v1/agents/{name}
+{"description": "Updated", "suspended": true}
+→ 200 OK (only provided fields are changed)
+```
+
+### Delete agent
+```
+DELETE /v1/agents/{name} → 204 No Content
+```
+
+### Rotate keys
+```
+POST /v1/agents/{name}/keys → {"status": "rotated", "agent": "name", "fingerprint": "sha256:..."}
+```
+Revokes the old key and generates a new Ed25519 keypair.
+
+### Toggle suspension
+```
+POST /v1/agents/{name}/suspend → {"agent": "name", "suspended": "true"}
+```
+
+All endpoints return JSON. Changes are persisted to `oktsec.yaml` automatically.
+
 ## Health Check
 
 ```
@@ -307,6 +360,21 @@ Payload:
   "timestamp": "2026-02-23T15:00:00Z"
 }
 ```
+
+## Per-Agent Egress Control
+
+When the forward proxy is enabled, agents identify themselves via `X-Oktsec-Agent: <agent_name>` header on proxy requests. This enables per-agent outbound traffic policies.
+
+**Merge rules:**
+- Per-agent `allowed_domains` is additive to global `forward_proxy.allowed_domains`
+- Per-agent `blocked_domains` is additive to global `forward_proxy.blocked_domains`
+- Global `blocked_domains` always wins (cannot be overridden per-agent)
+- `scan_requests`/`scan_responses`: null inherits global, explicit value overrides
+- No `egress` block = fall back to global settings entirely
+
+**DLP category blocking:** After scanning outbound content, findings are checked against the agent's `blocked_categories`. If any finding matches, the request is blocked. Reuses the same Aguara rule categories as inbound content scanning.
+
+The `X-Oktsec-Agent` header is stripped before forwarding upstream (never leaked to destination).
 
 ## Rate Limiting
 

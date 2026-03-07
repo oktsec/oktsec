@@ -27,11 +27,8 @@ Thumbs.db
 testdata/
 coverage.out
 
-# Demo build artifacts
-demo/**/mock-server/mock-server
-demo/**/*.db
-demo/**/oktsec-bin
-demo/**/oktsec-linux
+# Demos (local only, not committed)
+demo/
 
 # Python SDK
 sdk/python/.venv/
@@ -39,6 +36,12 @@ sdk/python/*.egg-info/
 sdk/python/dist/
 __pycache__/
 *.pyc
+
+# Documentation build output
+site/
+
+# Node
+node_modules/
 
 # Claude
 .claude/

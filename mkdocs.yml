@@ -1,0 +1,109 @@
+site_name: Oktsec
+site_description: Security layer for AI agent-to-agent communication — identity verification, content scanning, and audit trail. No LLM. Single binary.
+site_url: https://oktsec.github.io/oktsec
+repo_url: https://github.com/oktsec/oktsec
+repo_name: oktsec/oktsec
+docs_dir: documentation
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.indexes
+    - navigation.footer
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - search.suggest
+    - search.highlight
+    - search.share
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/oktsec/oktsec
+      name: Oktsec on GitHub
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - attr_list
+  - md_in_html
+  - def_list
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: getting-started/quickstart.md
+    - Installation: getting-started/installation.md
+    - Onboarding: getting-started/onboarding.md
+  - Use Cases:
+    - Overview: use-cases/index.md
+    - Multi-Agent Pipeline: use-cases/multi-agent-pipeline.md
+    - MCP Server Hardening: use-cases/mcp-hardening.md
+    - Egress DLP: use-cases/egress-dlp.md
+  - Guides:
+    - Dashboard: guides/dashboard.md
+    - MCP Gateway: guides/gateway.md
+    - Per-Agent Egress Control: guides/egress.md
+    - Python SDK: guides/python-sdk.md
+    - Go SDK: guides/go-sdk.md
+  - Reference:
+    - Configuration: reference/configuration.md
+    - CLI: reference/cli.md
+    - API: reference/api.md
+    - Detection Rules: reference/rules.md
+  - Architecture: architecture.md
+  - Contributing: contributing.md
