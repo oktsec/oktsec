@@ -168,6 +168,12 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"AvgLatency":      avgLatency,
 	}
 
+	// Verify audit chain integrity (lightweight — skip sig verification)
+	chainEntries, _ := s.audit.QueryChainEntries(10000)
+	chainResult := audit.VerifyChain(chainEntries, nil)
+	data["ChainValid"] = chainResult.Valid
+	data["ChainCount"] = chainResult.Entries
+
 	s.renderTemplate(w, overviewTmpl, data)
 }
 
@@ -1582,6 +1588,40 @@ func (s *Server) handleEditAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	agent.BlockedContent = strings.Fields(strings.ReplaceAll(r.FormValue("blocked_content"), ",", " "))
 	agent.AllowedTools = strings.Fields(strings.ReplaceAll(r.FormValue("allowed_tools"), ",", " "))
+
+	// Parse tool policies from form
+	if policyTools := strings.Fields(strings.ReplaceAll(r.FormValue("policy_tools"), ",", " ")); len(policyTools) > 0 {
+		if agent.ToolPolicies == nil {
+			agent.ToolPolicies = make(map[string]config.ToolPolicy)
+		}
+		for _, toolName := range policyTools {
+			prefix := "tp_" + toolName + "_"
+			var tp config.ToolPolicy
+			if v := strings.TrimSpace(r.FormValue(prefix + "max_amount")); v != "" {
+				if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+					tp.MaxAmount = f
+				}
+			}
+			if v := strings.TrimSpace(r.FormValue(prefix + "daily_limit")); v != "" {
+				if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+					tp.DailyLimit = f
+				}
+			}
+			if v := strings.TrimSpace(r.FormValue(prefix + "require_approval")); v != "" {
+				if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+					tp.RequireApprovalAbove = f
+				}
+			}
+			if v := strings.TrimSpace(r.FormValue(prefix + "rate_limit")); v != "" {
+				if n, err := strconv.Atoi(v); err == nil && n > 0 {
+					tp.RateLimit = n
+				}
+			}
+			if tp.MaxAmount > 0 || tp.DailyLimit > 0 || tp.RequireApprovalAbove > 0 || tp.RateLimit > 0 {
+				agent.ToolPolicies[toolName] = tp
+			}
+		}
+	}
 
 	s.cfg.Agents[name] = agent
 

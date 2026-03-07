@@ -45,6 +45,7 @@ var tmplFuncs = template.FuncMap{
 		return float64(a) / float64(b)
 	},
 	"mulf":   func(a, b int) int { return a * b },
+	"add":    func(a, b int) int { return a + b },
 	"safeJS":   func(s string) template.JS { return template.JS(s) },
 	"contains": strings.Contains,
 	"printf":   fmt.Sprintf,
@@ -710,84 +711,100 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 </html>`
 
 var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Messages between agents are scanned for threats, verified for identity, and logged here. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<style>
+.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
+.hero-stat{background:var(--surface);padding:28px 24px;text-align:center}
+.hero-stat .num{font-size:2.4rem;font-weight:800;letter-spacing:-0.04em;font-family:var(--mono);line-height:1}
+.hero-stat .lbl{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-top:8px;font-weight:500}
+.ov-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.ov-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
+.ov-card h3{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:14px;font-weight:500}
+.ov-metric{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--border)}
+.ov-metric:last-child{border-bottom:none}
+.ov-metric .k{font-size:0.82rem;color:var(--text2)}
+.ov-metric .v{font-family:var(--mono);font-weight:600;font-size:0.88rem}
+@media(max-width:768px){.hero-stats{grid-template-columns:1fr}.ov-grid{grid-template-columns:1fr}}
+</style>
+
+<p class="page-desc"><span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 {{if and (eq .Stats.TotalMessages 0) (eq .AgentCount 0)}}
 <div class="card" style="text-align:center;padding:40px 24px">
   <div style="font-size:1.4rem;font-weight:600;margin-bottom:8px">Welcome to oktsec</div>
-  <p style="color:var(--text2);margin-bottom:16px;max-width:480px;margin-left:auto;margin-right:auto">No agents configured yet. Run <code style="background:var(--bg2);padding:2px 6px;border-radius:4px">oktsec setup</code> to discover your MCP servers and start scanning automatically.</p>
-  <p style="color:var(--text3);font-size:0.8rem">Once traffic flows through the proxy, this page will show real-time security metrics.</p>
+  <p style="color:var(--text2);margin-bottom:16px;max-width:480px;margin-left:auto;margin-right:auto">No agents configured yet. Run <code style="background:var(--bg2);padding:2px 6px;border-radius:4px">oktsec setup</code> to discover your MCP servers and start scanning.</p>
 </div>
-{{else if eq .Stats.TotalMessages 0}}
-<div class="card" style="text-align:center;padding:24px">
-  <p style="color:var(--text2);margin:0">{{.AgentCount}} agent{{if gt .AgentCount 1}}s{{end}} configured. Waiting for traffic &mdash; use your MCP tools normally and activity will appear here.</p>
+{{else}}
+
+<!-- Hero: the 3 numbers that tell the story -->
+<div class="hero-stats" hx-get="/dashboard/api/stats" hx-trigger="every 5s" hx-swap="none">
+  <div class="hero-stat">
+    <div class="num success" id="stat-total">{{.Stats.TotalMessages}}</div>
+    <div class="lbl">Messages Protected</div>
+  </div>
+  <div class="hero-stat">
+    <div class="num danger" id="stat-blocked">{{add .Stats.Blocked .Stats.Rejected}}</div>
+    <div class="lbl">Threats Blocked</div>
+  </div>
+  <div class="hero-stat">
+    <div class="num" style="color:var(--accent-light)" id="stat-agents">{{.AgentCount}}</div>
+    <div class="lbl">Agents Secured</div>
+  </div>
 </div>
-{{end}}
 
 {{if .PendingReview}}
-<div class="alert-banner warn">
+<div class="alert-banner warn" style="margin-bottom:16px">
   <strong>{{.PendingReview}} message{{if gt .PendingReview 1}}s{{end}} pending review</strong>
   <span style="color:var(--text2);font-size:0.78rem">Quarantined content awaiting human decision</span>
   <a href="/dashboard/events?tab=quarantine" class="btn btn-sm" style="background:var(--warn);color:#000">Review Now</a>
 </div>
 {{end}}
 
-<div class="stats" hx-get="/dashboard/api/stats" hx-trigger="every 5s" hx-swap="none">
-  <div class="stat">
-    <div class="label">Total Messages</div>
-    <div class="value" id="stat-total">{{.Stats.TotalMessages}}</div>
-    <div class="sub">All messages processed</div>
+<!-- Pipeline health at a glance -->
+<div class="ov-grid">
+  <div class="ov-card">
+    <h3>Security Pipeline</h3>
+    <div class="ov-metric">
+      <span class="k">Detection rate</span>
+      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</span>
+    </div>
+    <div class="ov-metric">
+      <span class="k">Avg latency</span>
+      <span class="v {{if ge .AvgLatency 200}}danger{{else if ge .AvgLatency 50}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
+    </div>
+    <div class="ov-metric">
+      <span class="k">Posture score</span>
+      <span class="v {{gradeColor .Grade}}">{{.Score}}/100 ({{.Grade}})</span>
+    </div>
+    <div class="ov-metric">
+      <span class="k">Detection rules</span>
+      <span class="v" style="color:var(--text)">175 active</span>
+    </div>
   </div>
-  <div class="stat">
-    <div class="label">Delivered</div>
-    <div class="value success" id="stat-delivered">{{.Stats.Delivered}}</div>
-    <div class="sub">Passed all checks</div>
-  </div>
-  <div class="stat">
-    <div class="label">Blocked</div>
-    <div class="value danger" id="stat-blocked">{{.Stats.Blocked}}</div>
-    <div class="sub">Dangerous content detected</div>
-  </div>
-  <div class="stat">
-    <div class="label">Rejected</div>
-    <div class="value warn" id="stat-rejected">{{.Stats.Rejected}}</div>
-    <div class="sub">ACL or signature failure</div>
-  </div>
-</div>
 
-{{if .Stats.TotalMessages}}
-<div class="stats grid-3">
-  <div class="stat">
-    <div class="label">Detection Rate</div>
-    <div class="value {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</div>
-    <div class="sub">Messages blocked or quarantined</div>
+  <div class="ov-card">
+    <h3>Identity &amp; Trust</h3>
+    <div class="ov-metric">
+      <span class="k">Signature mode</span>
+      <span class="v">{{if .RequireSig}}<span style="color:var(--success)">enforce</span>{{else}}<span style="color:var(--warn)">observe</span>{{end}}</span>
+    </div>
+    <div class="ov-metric">
+      <span class="k">Unsigned messages</span>
+      <span class="v {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}} ({{.UnsignedPct}}%)</span>
+    </div>
+    <div class="ov-metric">
+      <span class="k">Audit chain</span>
+      <span class="v" style="color:var(--success)">{{if .ChainValid}}verified{{else}}<span style="color:var(--danger)">broken</span>{{end}} ({{.ChainCount}})</span>
+    </div>
+    <div class="ov-metric">
+      <span class="k">Quarantine queue</span>
+      <span class="v">{{if .PendingReview}}<span style="color:var(--warn)">{{.PendingReview}} pending</span>{{else}}<span style="color:var(--success)">clear</span>{{end}}</span>
+    </div>
   </div>
-  <div class="stat">
-    <div class="label">Unsigned Messages (24h)</div>
-    <div class="value {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}}</div>
-    <div class="sub">{{.UnsignedPct}}% of recent traffic{{if .UnsignedByAgent}} — {{range $i, $a := .UnsignedByAgent}}{{if $i}}, {{end}}{{$a.Agent}}: {{$a.Unsigned}}/{{$a.Total}}{{end}}{{end}}</div>
-  </div>
-  <div class="stat">
-    <div class="label">Avg Latency (24h)</div>
-    <div class="value {{if ge .AvgLatency 200}}danger{{else if ge .AvgLatency 50}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</div>
-    <div class="sub">Average proxy processing time</div>
-  </div>
-</div>
-{{end}}
-
-<div class="card" style="display:flex;align-items:center;gap:20px;padding:16px 24px">
-  <div>
-    <div class="label" style="font-size:0.75rem;color:var(--text2)">Security Health</div>
-    <div style="font-size:1.8rem;font-weight:700" class="{{gradeColor .Grade}}">{{.Score}}/100</div>
-  </div>
-  <div style="font-size:2.2rem;font-weight:700;color:var(--text3)">{{.Grade}}</div>
-  <div style="flex:1"></div>
-  <a href="/dashboard/audit" style="font-size:0.78rem;color:var(--accent-light);text-decoration:none;border:1px solid var(--border);padding:6px 14px;border-radius:6px;transition:all 0.2s" onmouseover="this.style.borderColor='var(--accent-light)'" onmouseout="this.style.borderColor='var(--border)'">View Audit</a>
 </div>
 
 {{if .Chart}}
-<div class="card">
-  <h2>24h Activity</h2>
+<div class="card" style="margin-bottom:16px">
+  <h2 style="font-size:0.82rem;margin-bottom:12px">Activity (24h)</h2>
   <div class="chart">
     {{range .Chart}}<div class="chart-bar" style="height:{{.Percent}}%" title="{{.Label}}: {{.Count}} msgs"></div>{{end}}
   </div>
@@ -797,59 +814,39 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
 </div>
 {{end}}
 
-{{if .TopRules}}
-<div class="card">
-  <h2>Top Triggered Rules (24h)</h2>
-  <table>
-    <thead><tr><th>Rule</th><th>Severity</th><th>Triggers</th></tr></thead>
-    <tbody>
+<!-- Threats and agents side by side -->
+<div class="ov-grid">
+  {{if .TopRules}}
+  <div class="ov-card">
+    <h3>Top Threats (24h)</h3>
     {{range .TopRules}}
-    <tr class="clickable" hx-get="/dashboard/api/rules/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
-      <td><span style="font-weight:600">{{.Name}}</span><br><span style="color:var(--text3);font-size:0.72rem;font-family:var(--mono)">{{.RuleID}}</span></td>
-      <td>{{if eq .Severity "critical"}}<span class="badge-blocked">critical</span>{{else if eq .Severity "high"}}<span class="badge-blocked">high</span>{{else if eq .Severity "medium"}}<span class="badge-quarantined">medium</span>{{else}}<span class="badge-delivered">low</span>{{end}}</td>
-      <td style="font-family:var(--mono);font-weight:600">{{.Count}}</td>
-    </tr>
+    <div class="ov-metric clickable" style="cursor:pointer" hx-get="/dashboard/api/rule/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
+      <span class="k">{{.Name}}<br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.RuleID}}</span></span>
+      <span class="v">{{if eq .Severity "critical"}}<span style="color:var(--danger)">{{.Count}}</span>{{else if eq .Severity "high"}}<span style="color:#fb923c">{{.Count}}</span>{{else}}<span>{{.Count}}</span>{{end}}</span>
+    </div>
     {{end}}
-    </tbody>
-  </table>
-</div>
-{{end}}
-
-{{if .AgentRisks}}
-<div class="card">
-  <h2>Agent Risk (24h)</h2>
-  <table>
-    <thead><tr><th>Agent</th><th>Messages</th><th>Blocked</th><th>Quarantined</th><th>Risk</th></tr></thead>
-    <tbody>
-    {{range .AgentRisks}}
-    <tr class="clickable" onclick="window.location='/dashboard/agents/{{.Agent}}'">
-      <td>{{agentCell .Agent}}</td>
-      <td style="font-family:var(--mono)">{{.Total}}</td>
-      <td style="font-family:var(--mono)">{{.Blocked}}</td>
-      <td style="font-family:var(--mono)">{{.Quarantined}}</td>
-      <td style="min-width:120px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <div class="risk-bar" style="flex:1">
-            <div class="risk-bar-fill {{if gt .RiskScore 60.0}}risk-high{{else if gt .RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .RiskScore}}%"></div>
-          </div>
-          <span style="font-family:var(--mono);font-size:0.75rem;color:var(--text2)">{{printf "%.0f" .RiskScore}}</span>
-        </div>
-      </td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-</div>
-{{end}}
-
-<div class="card">
-  <h2><span class="dot"></span> Recent Events</h2>
-  <div class="search-bar">
-    <span class="search-icon">&#x1f50d;</span>
-    <input type="text" placeholder="Search events..." hx-get="/dashboard/api/search" hx-trigger="input changed delay:300ms" hx-target="#search-results" hx-indicator="#search-loading" name="q">
-    <span id="search-loading" class="htmx-indicator"><span class="loading-spinner"></span></span>
   </div>
-  <div id="search-results" style="display:none"></div>
+  {{end}}
+
+  {{if .AgentRisks}}
+  <div class="ov-card">
+    <h3>Agent Risk (24h)</h3>
+    {{range .AgentRisks}}
+    <div class="ov-metric clickable" style="cursor:pointer" onclick="window.location='/dashboard/agents/{{.Agent}}'">
+      <span class="k">{{.Agent}}<br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.Total}} msgs</span></span>
+      <span class="v">
+        <span style="display:inline-block;width:60px;height:6px;background:var(--bg2);border-radius:3px;vertical-align:middle;margin-right:6px"><span style="display:block;height:100%;width:{{printf "%.0f" .RiskScore}}%;border-radius:3px;background:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}"></span></span>
+        <span style="font-size:0.78rem">{{printf "%.0f" .RiskScore}}</span>
+      </span>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+</div>
+
+<!-- Live feed -->
+<div class="card">
+  <h2 style="font-size:0.82rem;margin-bottom:12px"><span class="dot"></span> Live Feed</h2>
   <div id="recent-events">
     {{if .Recent}}
     <table>
@@ -872,10 +869,11 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
       </tbody>
     </table>
     {{else}}
-    <div class="empty" id="empty-msg">No events yet. Send a message through the proxy to see activity.</div>
+    <div class="empty" id="empty-msg">Waiting for agent traffic...</div>
     {{end}}
   </div>
 </div>
+{{end}}
 
 
 <script>
@@ -1124,7 +1122,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       <thead><tr><th>Rule</th><th>Severity</th><th style="text-align:right">Count</th></tr></thead>
       <tbody>
       {{range .TopRules}}
-      <tr class="clickable" hx-get="/dashboard/api/rules/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
+      <tr class="clickable" hx-get="/dashboard/api/rule/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
         <td><span style="font-weight:600">{{.Name}}</span><br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.RuleID}}</span></td>
         <td>{{if eq .Severity "critical"}}<span class="badge-blocked">critical</span>{{else if eq .Severity "high"}}<span class="badge-blocked">high</span>{{else if eq .Severity "medium"}}<span class="badge-quarantined">medium</span>{{else}}<span class="badge-delivered">low</span>{{end}}</td>
         <td style="text-align:right;font-family:var(--mono);font-weight:600">{{.Count}}</td>
@@ -1148,7 +1146,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     <thead><tr><th>From</th><th>To</th><th style="text-align:right">Total</th><th style="text-align:right">Delivered</th><th style="text-align:right">Blocked</th><th style="text-align:right">Block Rate</th></tr></thead>
     <tbody>
     {{range .CommPartners}}
-    <tr class="clickable" onclick="window.location='/dashboard/graph/edge?from={{.From}}&to={{.To}}'">
+    <tr class="clickable" onclick="window.location='/dashboard/graph?from={{.From}}&to={{.To}}'">
       <td>{{agentCell .From}}</td>
       <td>{{agentCell .To}}</td>
       <td style="text-align:right;font-family:var(--mono)">{{.Total}}</td>
@@ -1168,6 +1166,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     <tr><td style="color:var(--text3)">Can message</td><td>{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</td></tr>
     {{if .Agent.BlockedContent}}<tr><td style="color:var(--text3)">Blocked content</td><td>{{range $i, $c := .Agent.BlockedContent}}{{if $i}}, {{end}}{{$c}}{{end}}</td></tr>{{end}}
     {{if .Agent.AllowedTools}}<tr><td style="color:var(--text3)">Allowed tools</td><td>{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.75rem">{{$t}}</code>{{end}}</td></tr>{{end}}
+    {{if .Agent.ToolPolicies}}<tr><td style="color:var(--text3)">Tool policies</td><td>{{range $tool, $p := .Agent.ToolPolicies}}<span class="acl-target">{{$tool}}</span> {{end}}</td></tr>{{end}}
     {{if .Agent.Location}}<tr><td style="color:var(--text3)">Location</td><td>{{.Agent.Location}}</td></tr>{{end}}
     {{if .Agent.Tags}}<tr><td style="color:var(--text3)">Tags</td><td>{{range $i, $tag := .Agent.Tags}}{{if $i}} {{end}}<span class="agent-tag">{{$tag}}</span>{{end}}</td></tr>{{end}}
     {{if .Agent.CreatedBy}}<tr><td style="color:var(--text3)">Created by</td><td>{{.Agent.CreatedBy}}</td></tr>{{end}}
@@ -1217,6 +1216,92 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     <button type="submit" class="btn btn-sm">Save</button>
   </form>
 </div>
+
+<div class="card">
+  <h2>Tool Policies</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.
+  </p>
+  {{if .Agent.ToolPolicies}}
+  <table style="margin-bottom:16px">
+    <thead><tr><th>Tool</th><th>Max/call</th><th>Daily limit</th><th>Approval above</th><th>Rate limit</th></tr></thead>
+    <tbody>
+    {{range $tool, $p := .Agent.ToolPolicies}}
+    <tr>
+      <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{$tool}}</td>
+      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.MaxAmount}}{{printf "$%.0f" $p.MaxAmount}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.DailyLimit}}{{printf "$%.0f" $p.DailyLimit}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RequireApprovalAbove}}{{printf "$%.0f" $p.RequireApprovalAbove}} <span style="color:var(--warn);font-size:0.68rem">quarantine</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RateLimit}}{{$p.RateLimit}}/hr{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty" style="margin-bottom:16px">No tool policies configured. Add policies below to enforce spending limits, rate limits, or approval thresholds on specific tools.</div>
+  {{end}}
+
+  <form method="POST" action="/dashboard/agents/{{.Name}}/edit" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+    <input type="hidden" name="description" value="{{.Agent.Description}}">
+    <input type="hidden" name="location" value="{{.Agent.Location}}">
+    <input type="hidden" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}">
+    <input type="hidden" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}">
+    <input type="hidden" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}">
+    <input type="hidden" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}">
+    {{range $tool, $p := .Agent.ToolPolicies}}
+    <input type="hidden" name="tp_{{$tool}}_max_amount" value="{{printf "%.0f" $p.MaxAmount}}">
+    <input type="hidden" name="tp_{{$tool}}_daily_limit" value="{{printf "%.0f" $p.DailyLimit}}">
+    <input type="hidden" name="tp_{{$tool}}_require_approval" value="{{printf "%.0f" $p.RequireApprovalAbove}}">
+    <input type="hidden" name="tp_{{$tool}}_rate_limit" value="{{$p.RateLimit}}">
+    {{end}}
+    <input type="hidden" name="policy_tools" id="tp-policy-tools" value="{{range $tool, $p := .Agent.ToolPolicies}}{{$tool}} {{end}}">
+    <div style="font-size:0.78rem;font-weight:500;color:var(--text2);margin-bottom:10px">Add tool policy</div>
+    <div class="form-row" style="align-items:flex-end">
+      <div class="form-group" style="flex:1.5">
+        <label>Tool name</label>
+        <input type="text" id="tp-tool-name" placeholder="e.g. create_virtual_card" required>
+      </div>
+      <div class="form-group">
+        <label>Max/call ($)</label>
+        <input type="number" id="tp-max" min="0" step="1" placeholder="100">
+      </div>
+      <div class="form-group">
+        <label>Daily limit ($)</label>
+        <input type="number" id="tp-daily" min="0" step="1" placeholder="500">
+      </div>
+      <div class="form-group">
+        <label>Approval above ($)</label>
+        <input type="number" id="tp-approval" min="0" step="1" placeholder="50">
+      </div>
+      <div class="form-group" style="flex:0.7">
+        <label>Rate (/hr)</label>
+        <input type="number" id="tp-rate" min="0" step="1" placeholder="10">
+      </div>
+      <button type="submit" class="btn btn-sm" style="background:var(--success);margin-bottom:12px" onclick="return stagePolicy()">Save Policy</button>
+    </div>
+  </form>
+</div>
+
+<script>
+function stagePolicy() {
+  var name = document.getElementById('tp-tool-name').value.trim();
+  if (!name) return false;
+  var form = document.getElementById('tp-tool-name').closest('form');
+  var prefix = 'tp_' + name + '_';
+  form.querySelectorAll('[name^="' + prefix + '"]').forEach(function(el) { el.remove(); });
+  var fields = {max_amount: 'tp-max', daily_limit: 'tp-daily', require_approval: 'tp-approval', rate_limit: 'tp-rate'};
+  for (var k in fields) {
+    var inp = document.createElement('input');
+    inp.type = 'hidden'; inp.name = prefix + k; inp.value = document.getElementById(fields[k]).value || '0';
+    form.appendChild(inp);
+  }
+  var toolsInput = document.getElementById('tp-policy-tools');
+  var tools = toolsInput.value.trim().split(/\s+/).filter(Boolean);
+  if (tools.indexOf(name) === -1) tools.push(name);
+  toolsInput.value = tools.join(' ');
+  return true;
+}
+</script>
 
 <div class="card">
   <h2>Recent Messages</h2>
