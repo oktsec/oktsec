@@ -122,6 +122,14 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
   </div>
 </div>
 
+{{if .ChainCount}}
+<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-left:3px solid {{if .ChainValid}}var(--success){{else}}var(--danger){{end}};background:{{if .ChainValid}}rgba(74,222,128,0.04){{else}}rgba(248,113,113,0.04){{end}};margin-bottom:24px;font-size:0.8125rem;color:var(--text2);border-radius:0 10px 10px 0">
+  {{if .ChainValid}}&#x2713;{{else}}&#x2717;{{end}}
+  <span>Audit chain: <strong style="color:{{if .ChainValid}}var(--success){{else}}var(--danger){{end}}">{{if .ChainValid}}verified{{else}}broken{{end}}</strong> &middot; {{.ChainCount}} entries</span>
+  <a href="/v1/audit/verify" target="_blank" style="margin-left:auto;color:var(--text3);font-size:0.75rem;text-decoration:none;white-space:nowrap">Verify API &rarr;</a>
+</div>
+{{end}}
+
 {{if .HasCritical}}
 <div class="a-alert">
   <strong>{{.Summary.Critical}} critical {{if eq .Summary.Critical 1}}finding{{else}}findings{{end}}</strong> require immediate action
