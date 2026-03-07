@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/safefile"
@@ -120,6 +121,7 @@ type Store struct {
 	proxyKey      ed25519.PrivateKey // proxy signing key for audit chain (nil = no signing)
 	lastHash      string             // last entry hash for chain continuity
 	lastHashMu    sync.Mutex
+	inflight      atomic.Int64 // entries being processed in writeLoop
 }
 
 // DB returns the underlying *sql.DB for direct access (benchmarking/migrations).
@@ -481,7 +483,7 @@ func EntryJSON(e Entry) []byte {
 
 // Flush blocks until all pending writes have been processed.
 func (s *Store) Flush() {
-	for len(s.writes) > 0 {
+	for len(s.writes) > 0 || s.inflight.Load() > 0 {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
@@ -497,6 +499,7 @@ func (s *Store) Close() error {
 func (s *Store) writeLoop() {
 	defer close(s.done)
 	for entry := range s.writes {
+		s.inflight.Add(1)
 		// Compute hash chain
 		s.lastHashMu.Lock()
 		entry.PrevHash = s.lastHash
@@ -518,6 +521,7 @@ func (s *Store) writeLoop() {
 		} else {
 			s.Hub.broadcast(entry)
 		}
+		s.inflight.Add(-1)
 	}
 }
 
