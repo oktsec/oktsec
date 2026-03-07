@@ -376,6 +376,115 @@ When the forward proxy is enabled, agents identify themselves via `X-Oktsec-Agen
 
 The `X-Oktsec-Agent` header is stripped before forwarding upstream (never leaked to destination).
 
+## Delegation Chains
+
+Agents can delegate messaging authority to other agents using cryptographically signed delegation tokens. Inspired by Verifiable Intent's 3-layer delegation model.
+
+```go
+// Create a delegation from parent to child, valid for 24h
+token := identity.CreateDelegation(parentPrivKey, "parent", "child", []string{"target-a", "target-b"}, 24*time.Hour)
+
+// Verify: checks signature, expiry, and scope
+result := identity.VerifyDelegation(parentPubKey, token, "target-a")
+// result.Valid == true
+```
+
+Canonical signing payload: `delegator\ndelegate\nscope_csv\nissuedAt\nexpiresAt`
+
+When a delegate sends a message, the handler can verify the chain: delegate's key signed the message, delegator's key signed the delegation, and ACL uses the delegator's permissions.
+
+## Scoped Constraints
+
+ACL entries can include constraints beyond simple allow/deny:
+
+```yaml
+agents:
+  researcher:
+    can_message:
+      - target: coder
+        constraints:
+          - type: rate
+            max_messages: 50
+            window_secs: 3600
+          - type: ttl
+            expires_at: "2026-04-01T00:00:00Z"
+      - target: coordinator   # no constraints = unrestricted
+```
+
+Constraint types:
+- `rate` — max N messages per window to a specific target
+- `ttl` — permission expires at a given timestamp
+
+Backward compatible: plain string entries in `can_message` still work as unrestricted permissions.
+
+## Intent Declaration
+
+Agents can declare what they intend to do via the `intent` field:
+
+```json
+{
+  "from": "researcher",
+  "to": "coder",
+  "content": "Please review PR #92",
+  "intent": "code_review",
+  "timestamp": "2026-03-06T12:00:00Z"
+}
+```
+
+The proxy validates intent against content using deterministic pattern matching (no LLM). Known categories: `code_review`, `deploy`, `debug`, `monitoring`, `testing`, `documentation`, `security`, `data`. A mismatch between declared intent and content triggers a flag.
+
+## Selective Disclosure (Audit Redaction)
+
+Audit log exports support three redaction levels:
+
+- `full` — all fields visible (admin only)
+- `analyst` — content hashes visible, matched content in findings redacted to `[REDACTED]`
+- `external` — only status, timestamp, agents, and policy decision
+
+```
+GET /v1/audit?redaction=analyst
+```
+
+## Verifiable Audit Trail
+
+Audit entries form a tamper-evident hash chain. Each entry includes:
+- `prev_hash` — SHA-256 of the previous entry's hash
+- `entry_hash` — SHA-256 of `prev_hash + id + timestamp + from + to + content_hash + status`
+- `proxy_signature` — Ed25519 signature of `entry_hash` by the proxy's key
+
+Verify chain integrity:
+```
+oktsec verify --audit
+GET /v1/audit/verify
+```
+
+## MCP Gateway Tool Constraints
+
+Per-agent tool constraints go beyond simple allowlists:
+
+```yaml
+agents:
+  researcher:
+    tool_constraints:
+      - tool: read_file
+        parameters:
+          path:
+            allowed_patterns: ["/data/*", "/public/*"]
+            blocked_patterns: ["/secrets/*", "*.env"]
+        max_response_bytes: 1048576
+      - tool: write_file
+        cooldown_secs: 10
+    tool_chain_rules:
+      - if: get_credentials
+        then: [send_email, http_request]
+        cooldown_secs: 300
+```
+
+Features:
+- **Parameter constraints**: allowed/blocked glob patterns, max length
+- **Tool cooldowns**: minimum interval between calls to the same tool
+- **Chain rules**: calling tool A blocks tools B and C for N seconds (prevents credential exfiltration)
+
 ## Rate Limiting
 
 When `rate_limit.per_agent > 0`, each agent is limited to N messages per window (sliding window). Exceeding the limit returns HTTP 429. Rate limiting runs before identity verification (cheapest check first).

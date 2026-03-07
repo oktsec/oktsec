@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -64,6 +65,25 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		return nil, fmt.Errorf("opening audit store: %w — if another oktsec instance is running, stop it first", err)
 	}
 
+	// Proxy signing key for audit chain integrity
+	if cfg.Identity.KeysDir != "" {
+		proxyKP, err := identity.LoadKeypair(cfg.Identity.KeysDir, "_proxy")
+		if err != nil {
+			// First run: generate proxy keypair
+			proxyKP, err = identity.GenerateKeypair("_proxy")
+			if err != nil {
+				logger.Warn("could not generate proxy keypair", "error", err)
+			} else if saveErr := proxyKP.Save(cfg.Identity.KeysDir); saveErr != nil {
+				logger.Warn("could not save proxy keypair", "error", saveErr)
+			} else {
+				logger.Info("generated proxy signing key for audit chain")
+			}
+		}
+		if proxyKP != nil {
+			auditStore.SetProxyKey(proxyKP.PrivateKey)
+		}
+	}
+
 	// Webhook notifier
 	webhooks := NewWebhookNotifier(cfg.Webhooks, logger)
 
@@ -100,6 +120,38 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		}
 		writeJSON(w, http.StatusOK, item)
 	})
+	// Audit chain verification endpoint
+	mux.HandleFunc("GET /v1/audit/verify", func(w http.ResponseWriter, r *http.Request) {
+		entries, qErr := auditStore.QueryChainEntries(10000)
+		if qErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to query chain"})
+			return
+		}
+		var proxyPub ed25519.PublicKey
+		if cfg.Identity.KeysDir != "" {
+			if pub, loadErr := identity.LoadPublicKey(cfg.Identity.KeysDir, "_proxy"); loadErr == nil {
+				proxyPub = pub
+			}
+		}
+		result := audit.VerifyChain(entries, proxyPub)
+		writeJSON(w, http.StatusOK, result)
+	})
+
+	// Audit export with redaction levels
+	mux.HandleFunc("GET /v1/audit/export", func(w http.ResponseWriter, r *http.Request) {
+		level := audit.RedactionLevel(r.URL.Query().Get("redaction"))
+		if level == "" {
+			level = audit.RedactNone
+		}
+		entries, err := auditStore.Query(audit.QueryOpts{Limit: 1000})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
+			return
+		}
+		redacted := audit.RedactEntries(entries, level)
+		writeJSON(w, http.StatusOK, redacted)
+	})
+
 	// Prometheus metrics endpoint
 	mux.Handle("GET /metrics", promhttp.Handler())
 

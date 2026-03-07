@@ -26,6 +26,7 @@ type MessageRequest struct {
 	Content   string            `json:"content"`
 	Signature string            `json:"signature,omitempty"`
 	Timestamp string            `json:"timestamp"`
+	Intent    string            `json:"intent,omitempty"`
 	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
@@ -100,6 +101,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		FromAgent:   req.From,
 		ToAgent:     req.To,
 		ContentHash: sha256Hash(req.Content),
+		Intent:      req.Intent,
 	}
 
 	// Step 1: Identity verification
@@ -160,6 +162,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Step 5: Apply BlockedContent per-agent filter
 	h.applyBlockedContent(req.From, outcome)
+
+	// Step 5b: Intent validation (deterministic pattern matching, no LLM)
+	if req.Intent != "" {
+		intentResult := ValidateIntent(req.Intent, req.Content)
+		if intentResult.Status == "mismatch" {
+			h.logger.Warn("intent mismatch", "from", req.From, "intent", req.Intent, "reason", intentResult.Reason, "message_id", msgID)
+			// Escalate to at least Flag on mismatch
+			if verdictSeverity(outcome.Verdict) < verdictSeverity(engine.VerdictFlag) {
+				outcome.Verdict = engine.VerdictFlag
+			}
+		}
+	}
 
 	// Step 6: Split injection detection (multi-message window)
 	h.scanConcatenated(r.Context(), req.From, req.Content, outcome)

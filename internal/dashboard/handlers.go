@@ -227,6 +227,10 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Verify audit chain integrity
+	chainEntries, _ := s.audit.QueryChainEntries(10000)
+	chainResult := audit.VerifyChain(chainEntries, nil) // skip sig verification for dashboard speed
+
 	data := map[string]any{
 		"Active":      "audit",
 		"RequireSig":  s.cfg.Identity.RequireSignature,
@@ -237,6 +241,8 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		"TopFixes":    topFixes,
 		"TotalChecks": len(findings),
 		"HasCritical": summary.Critical > 0,
+		"ChainValid":  chainResult.Valid,
+		"ChainCount":  chainResult.Entries,
 	}
 
 	s.renderTemplate(w, auditTmpl, data)

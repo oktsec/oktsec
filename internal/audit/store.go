@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"crypto/ed25519"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -28,7 +29,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
 	status TEXT NOT NULL,
 	rules_triggered TEXT,
 	policy_decision TEXT NOT NULL,
-	latency_ms INTEGER
+	latency_ms INTEGER,
+	intent TEXT DEFAULT '',
+	prev_hash TEXT DEFAULT '',
+	entry_hash TEXT DEFAULT '',
+	proxy_signature TEXT DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_log(status);
@@ -112,6 +117,9 @@ type Store struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	retentionDays int
+	proxyKey      ed25519.PrivateKey // proxy signing key for audit chain (nil = no signing)
+	lastHash      string             // last entry hash for chain continuity
+	lastHashMu    sync.Mutex
 }
 
 // DB returns the underlying *sql.DB for direct access (benchmarking/migrations).
@@ -187,9 +195,47 @@ func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store,
 		retentionDays: retention,
 	}
 
+	// Migrate schema: add columns if they don't exist (idempotent)
+	s.migrateSchema()
+
+	// Load last hash for chain continuity
+	s.loadLastHash()
+
 	go s.writeLoop()
 	go s.expiryLoop()
 	return s, nil
+}
+
+// SetProxyKey sets the Ed25519 private key used to sign audit chain entries.
+func (s *Store) SetProxyKey(key ed25519.PrivateKey) {
+	s.proxyKey = key
+}
+
+// migrateSchema adds columns that may not exist in older databases.
+func (s *Store) migrateSchema() {
+	migrations := []string{
+		"ALTER TABLE audit_log ADD COLUMN intent TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN prev_hash TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN entry_hash TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN proxy_signature TEXT DEFAULT ''",
+	}
+	for _, m := range migrations {
+		if _, err := s.db.Exec(m); err != nil {
+			// "duplicate column name" is expected on re-runs; ignore it
+			if !strings.Contains(err.Error(), "duplicate column") {
+				s.logger.Warn("migration skipped", "sql", m, "error", err)
+			}
+		}
+	}
+}
+
+// loadLastHash reads the most recent entry_hash for chain continuity on restart.
+func (s *Store) loadLastHash() {
+	var hash sql.NullString
+	err := s.db.QueryRow("SELECT entry_hash FROM audit_log WHERE entry_hash != '' ORDER BY timestamp DESC LIMIT 1").Scan(&hash)
+	if err == nil && hash.Valid {
+		s.lastHash = hash.String
+	}
 }
 
 // Log enqueues an audit entry for async writing.
@@ -203,7 +249,7 @@ func (s *Store) Log(entry Entry) {
 
 // Query returns audit entries matching the given filters.
 func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
-	query := "SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms FROM audit_log WHERE 1=1"
+	query := "SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(entry_hash,'') FROM audit_log WHERE 1=1"
 	var args []any
 
 	if opts.Status != "" {
@@ -258,7 +304,8 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		var e Entry
 		var fp, rules sql.NullString
 		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ContentHash,
-			&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs); err != nil {
+			&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
+			&e.Intent, &e.EntryHash); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		e.PubkeyFingerprint = fp.String
@@ -337,12 +384,13 @@ func (s *Store) QueryHourlyStats() (map[int]int, error) {
 // QueryByID fetches a single audit entry by ID.
 func (s *Store) QueryByID(id string) (*Entry, error) {
 	row := s.db.QueryRow(
-		"SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms FROM audit_log WHERE id = ?", id)
+		"SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(entry_hash,'') FROM audit_log WHERE id = ?", id)
 
 	var e Entry
 	var fp, rules sql.NullString
 	if err := row.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ContentHash,
-		&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs); err != nil {
+		&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
+		&e.Intent, &e.EntryHash); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -449,11 +497,21 @@ func (s *Store) Close() error {
 func (s *Store) writeLoop() {
 	defer close(s.done)
 	for entry := range s.writes {
+		// Compute hash chain
+		s.lastHashMu.Lock()
+		entry.PrevHash = s.lastHash
+		entry.EntryHash = ComputeEntryHash(entry.PrevHash, entry.ID, entry.Timestamp, entry.FromAgent, entry.ToAgent, entry.ContentHash, entry.Status)
+		if s.proxyKey != nil {
+			entry.ProxySignature = SignEntryHash(s.proxyKey, entry.EntryHash)
+		}
+		s.lastHash = entry.EntryHash
+		s.lastHashMu.Unlock()
+
 		_, err := s.db.Exec(
-			`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, prev_hash, entry_hash, proxy_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			entry.ID, entry.Timestamp, entry.FromAgent, entry.ToAgent, entry.ContentHash,
 			entry.SignatureVerified, entry.PubkeyFingerprint, entry.Status, entry.RulesTriggered,
-			entry.PolicyDecision, entry.LatencyMs,
+			entry.PolicyDecision, entry.LatencyMs, entry.Intent, entry.PrevHash, entry.EntryHash, entry.ProxySignature,
 		)
 		if err != nil {
 			s.logger.Error("audit write failed", "id", entry.ID, "error", err)
@@ -1002,6 +1060,32 @@ func (s *Store) QueryAgentTopRules(agent string, limit int, since string) ([]Rul
 		result = result[:limit]
 	}
 	return result, rows.Err()
+}
+
+// QueryChainEntries returns entries with chain fields for verification, ordered oldest-first.
+func (s *Store) QueryChainEntries(limit int) ([]ChainEntry, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := s.db.Query(
+		`SELECT id, timestamp, from_agent, to_agent, content_hash, status,
+		 COALESCE(prev_hash,''), COALESCE(entry_hash,''), COALESCE(proxy_signature,'')
+		 FROM audit_log WHERE entry_hash != '' ORDER BY timestamp ASC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query chain entries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var entries []ChainEntry
+	for rows.Next() {
+		var ce ChainEntry
+		if err := rows.Scan(&ce.ID, &ce.Timestamp, &ce.FromAgent, &ce.ToAgent,
+			&ce.ContentHash, &ce.Status, &ce.PrevHash, &ce.EntryHash, &ce.ProxySignature); err != nil {
+			return nil, fmt.Errorf("scanning chain entry: %w", err)
+		}
+		entries = append(entries, ce)
+	}
+	return entries, rows.Err()
 }
 
 // QueryAvgLatency returns the average message latency in milliseconds for the last 24 hours.
