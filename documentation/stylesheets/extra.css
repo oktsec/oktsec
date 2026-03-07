@@ -1,0 +1,457 @@
+/* ─── Oktsec Brand System ─── */
+:root {
+  --ok-purple: #6d28d9;
+  --ok-purple-light: #8b5cf6;
+  --ok-purple-dark: #4c1d95;
+  --ok-purple-muted: #ede9fe;
+  --ok-amber: #f59e0b;
+  --ok-amber-light: #fbbf24;
+  --ok-green: #10b981;
+  --ok-red: #ef4444;
+  --ok-slate: #64748b;
+  --ok-radius: 0.75rem;
+  --ok-shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --ok-shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --ok-shadow-lg: 0 10px 30px rgba(0,0,0,0.1), 0 4px 8px rgba(0,0,0,0.05);
+  --md-primary-fg-color: #6d28d9;
+  --md-primary-fg-color--light: #8b5cf6;
+  --md-primary-fg-color--dark: #4c1d95;
+  --md-accent-fg-color: #f59e0b;
+}
+
+[data-md-color-scheme="slate"] {
+  --ok-purple-muted: rgba(139,92,246,0.12);
+  --ok-shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
+  --ok-shadow-md: 0 4px 12px rgba(0,0,0,0.25);
+  --ok-shadow-lg: 0 10px 30px rgba(0,0,0,0.3);
+  --md-primary-fg-color: #8b5cf6;
+  --md-primary-fg-color--light: #a78bfa;
+  --md-primary-fg-color--dark: #7c3aed;
+  --md-accent-fg-color: #fbbf24;
+}
+
+/* ─── Typography enhancements ─── */
+.md-typeset h1 {
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.md-typeset h2 {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-top: 2.5em;
+  padding-bottom: 0.4em;
+  border-bottom: 2px solid var(--ok-purple-muted);
+}
+
+.md-typeset h3 {
+  font-weight: 600;
+}
+
+/* ─── Hero Section ─── */
+.md-typeset .hero {
+  text-align: center;
+  padding: 3.5rem 1rem 4rem;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.md-typeset .hero h1,
+.md-typeset .hero h2 {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 0.75rem;
+  border: none;
+  padding-bottom: 0;
+  margin-top: 0;
+  background: linear-gradient(135deg, var(--ok-purple) 0%, var(--ok-purple-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .hero h1,
+[data-md-color-scheme="slate"] .md-typeset .hero h2 {
+  background: linear-gradient(135deg, var(--ok-purple-light) 0%, #c4b5fd 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.md-typeset .hero .tagline {
+  font-size: 1.15rem;
+  line-height: 1.6;
+  color: var(--md-default-fg-color--light);
+  margin-bottom: 2rem;
+  max-width: 560px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.md-typeset .hero .badges {
+  margin-bottom: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.md-typeset .hero .badges img {
+  height: 22px;
+}
+
+.md-typeset .hero-stats {
+  font-size: 0.9rem;
+  color: var(--md-default-fg-color--light);
+  letter-spacing: 0.01em;
+  margin-bottom: 1.5rem;
+}
+
+.md-typeset .hero-stats strong {
+  color: var(--ok-purple);
+  font-weight: 700;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .hero-stats strong {
+  color: var(--ok-purple-light);
+}
+
+.md-typeset .hero .md-button {
+  margin: 0.35rem;
+  font-weight: 600;
+  border-radius: 0.5rem;
+  padding: 0.6em 1.5em;
+  transition: all 0.2s ease;
+}
+
+.md-typeset .hero .md-button--primary {
+  box-shadow: 0 4px 14px rgba(109,40,217,0.35);
+}
+
+.md-typeset .hero .md-button--primary:hover {
+  box-shadow: 0 6px 20px rgba(109,40,217,0.45);
+  transform: translateY(-1px);
+}
+
+.md-typeset .hero .md-button:not(.md-button--primary):hover {
+  border-color: var(--ok-purple-light);
+  color: var(--ok-purple-light);
+}
+
+/* ─── Feature Grid ─── */
+.md-typeset .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin: 2rem 0;
+}
+
+.md-typeset .grid .card {
+  background: var(--md-default-bg-color);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: var(--ok-radius);
+  padding: 1.5rem;
+  transition: all 0.25s ease;
+  position: relative;
+}
+
+.md-typeset .grid .card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: var(--ok-radius) var(--ok-radius) 0 0;
+  background: linear-gradient(90deg, var(--ok-purple) 0%, var(--ok-purple-light) 100%);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.md-typeset .grid .card:hover {
+  border-color: var(--ok-purple-light);
+  box-shadow: var(--ok-shadow-md);
+  transform: translateY(-2px);
+}
+
+.md-typeset .grid .card:hover::before {
+  opacity: 1;
+}
+
+.md-typeset .grid .card h3 {
+  margin-top: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.md-typeset .grid .card p {
+  margin-bottom: 0;
+  font-size: 0.88rem;
+  line-height: 1.65;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-typeset .grid .card a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+
+/* ─── Pipeline / Architecture Diagram ─── */
+.md-typeset .pipeline {
+  background: var(--md-code-bg-color);
+  border-radius: var(--ok-radius);
+  padding: 1.75rem;
+  overflow-x: auto;
+  margin: 2rem 0;
+  font-family: var(--md-code-font-family);
+  font-size: 0.82rem;
+  line-height: 1.7;
+  border: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* ─── Numbered Steps ─── */
+.md-typeset .steps {
+  counter-reset: step;
+  list-style: none;
+  padding-left: 0;
+  margin: 1.5rem 0;
+}
+
+.md-typeset .steps li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 3rem;
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.md-typeset .steps li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--ok-purple);
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Table Styling ─── */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: var(--ok-radius);
+  overflow: hidden;
+  box-shadow: var(--ok-shadow-sm);
+  display: table;
+  width: 100%;
+}
+
+.md-typeset table:not([class]) thead {
+  background: var(--ok-purple-muted);
+}
+
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) thead {
+  background: rgba(139,92,246,0.08);
+}
+
+.md-typeset table:not([class]) thead th {
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ok-purple);
+  padding: 0.75rem 1rem;
+  border-bottom: 2px solid var(--ok-purple-muted);
+}
+
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) thead th {
+  color: var(--ok-purple-light);
+}
+
+.md-typeset table:not([class]) td {
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset table:not([class]) tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.md-typeset table:not([class]) tbody tr:hover {
+  background: var(--ok-purple-muted);
+}
+
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) tbody tr:hover {
+  background: rgba(139,92,246,0.04);
+}
+
+/* ─── Code Block Enhancements ─── */
+.md-typeset pre > code {
+  border-radius: var(--ok-radius);
+}
+
+.md-typeset .highlight > pre {
+  border-radius: var(--ok-radius);
+  box-shadow: var(--ok-shadow-sm);
+}
+
+/* Terminal-style blocks */
+.md-typeset .terminal pre,
+.md-typeset .highlight .language-bash > pre,
+.md-typeset .highlight .language-sh > pre {
+  border-left: 3px solid var(--ok-purple-light);
+}
+
+/* ─── Admonition Refinements ─── */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: var(--ok-radius);
+  box-shadow: var(--ok-shadow-sm);
+  border-width: 0 0 0 4px;
+}
+
+/* ─── Mermaid Diagrams ─── */
+.md-typeset .mermaid {
+  text-align: center;
+  margin: 2rem 0;
+}
+
+/* ─── Tab Improvements ─── */
+.md-typeset .tabbed-labels > label {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+/* ─── Inline Code ─── */
+.md-typeset code:not(pre code) {
+  border-radius: 0.3rem;
+  padding: 0.1em 0.4em;
+  font-size: 0.85em;
+}
+
+/* ─── CTA Buttons ─── */
+.md-typeset .md-button {
+  border-radius: 0.5rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.md-typeset .md-button--primary {
+  background: var(--ok-purple);
+  border-color: var(--ok-purple);
+}
+
+.md-typeset .md-button--primary:hover {
+  background: var(--ok-purple-light);
+  border-color: var(--ok-purple-light);
+}
+
+/* ─── Screenshot Images ─── */
+.md-typeset img[alt*="Dashboard"],
+.md-typeset img[alt*="Agent Detail"] {
+  border-radius: var(--ok-radius);
+  box-shadow: var(--ok-shadow-lg);
+  border: 1px solid var(--md-default-fg-color--lightest);
+  margin: 1.5rem 0;
+}
+
+/* ─── Definition Lists ─── */
+.md-typeset dt {
+  font-weight: 700;
+  color: var(--ok-purple);
+}
+
+[data-md-color-scheme="slate"] .md-typeset dt {
+  color: var(--ok-purple-light);
+}
+
+/* ─── Footer ─── */
+.md-footer {
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* ─── Separator Styling ─── */
+.md-typeset hr {
+  border-top: 2px solid var(--ok-purple-muted);
+  margin: 3rem 0;
+}
+
+/* ─── Responsive: Mobile ─── */
+@media screen and (max-width: 76.25em) {
+  .md-typeset .hero h1,
+  .md-typeset .hero h2 {
+    font-size: 1.6rem;
+  }
+  .md-typeset .hero .tagline {
+    font-size: 1rem;
+  }
+  .md-typeset .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ─── Verdict Badge Colors (for rules page) ─── */
+.md-typeset .verdict-block {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  border-radius: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.md-typeset .verdict-block.critical {
+  background: rgba(239,68,68,0.12);
+  color: var(--ok-red);
+}
+
+.md-typeset .verdict-block.high {
+  background: rgba(245,158,11,0.12);
+  color: var(--ok-amber);
+}
+
+.md-typeset .verdict-block.medium {
+  background: rgba(16,185,129,0.12);
+  color: var(--ok-green);
+}
+
+/* ─── Nav Tabs Accent ─── */
+.md-tabs__link--active,
+.md-tabs__link:hover {
+  opacity: 1;
+}
+
+/* ─── Search Bar ─── */
+.md-search__input {
+  border-radius: 0.5rem;
+}
+
+/* ─── Announcement Bar (optional) ─── */
+.md-typeset .announce {
+  background: linear-gradient(90deg, var(--ok-purple) 0%, var(--ok-purple-light) 100%);
+  color: white;
+  text-align: center;
+  padding: 0.5rem 1rem;
+  border-radius: var(--ok-radius);
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-bottom: 2rem;
+}
+
+.md-typeset .announce a {
+  color: var(--ok-amber-light);
+  text-decoration: underline;
+}
