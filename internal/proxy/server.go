@@ -73,9 +73,13 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	// Dashboard
 	dash := dashboard.NewServer(cfg, cfgPath, auditStore, keys, scanner, logger)
 
+	// Agent CRUD API
+	agentAPI := NewAgentAPI(cfg, cfgPath, keys, auditStore, logger)
+
 	// Routes
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/message", handler)
+	agentAPI.Register(mux)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"status":  "ok",
@@ -121,7 +125,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	// applies to API/dashboard requests that pass through to the mux.
 	if cfg.ForwardProxy.Enabled {
 		fp := NewForwardProxy(&cfg.ForwardProxy, scanner, auditStore,
-			NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS), logger)
+			NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS), cfg.Agents, logger)
 		h = fp.Wrap(h)
 		logger.Info("forward proxy enabled",
 			"blocked_domains", len(cfg.ForwardProxy.BlockedDomains),
