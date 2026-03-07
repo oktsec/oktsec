@@ -45,15 +45,28 @@ type IdentityConfig struct {
 
 // Agent defines per-agent access control and metadata.
 type Agent struct {
-	CanMessage     []string `yaml:"can_message"`
-	BlockedContent []string `yaml:"blocked_content"`
-	AllowedTools   []string `yaml:"allowed_tools,omitempty"` // tool names the agent can call (empty = all)
-	Suspended      bool     `yaml:"suspended,omitempty"`
-	Description    string   `yaml:"description,omitempty"`
-	CreatedBy      string   `yaml:"created_by,omitempty"`
-	CreatedAt      string   `yaml:"created_at,omitempty"`
-	Location       string   `yaml:"location,omitempty"`
-	Tags           []string `yaml:"tags,omitempty"`
+	CanMessage     []string      `yaml:"can_message"`
+	BlockedContent []string      `yaml:"blocked_content"`
+	AllowedTools   []string      `yaml:"allowed_tools,omitempty"` // tool names the agent can call (empty = all)
+	Suspended      bool          `yaml:"suspended,omitempty"`
+	Description    string        `yaml:"description,omitempty"`
+	CreatedBy      string        `yaml:"created_by,omitempty"`
+	CreatedAt      string        `yaml:"created_at,omitempty"`
+	Location       string        `yaml:"location,omitempty"`
+	Tags           []string      `yaml:"tags,omitempty"`
+	Egress         *EgressPolicy `yaml:"egress,omitempty"`
+}
+
+// EgressPolicy defines per-agent outbound traffic controls.
+// Nil means fall back to global forward_proxy settings.
+type EgressPolicy struct {
+	AllowedDomains    []string `yaml:"allowed_domains,omitempty"`
+	BlockedDomains    []string `yaml:"blocked_domains,omitempty"`
+	ScanRequests      *bool    `yaml:"scan_requests,omitempty"`
+	ScanResponses     *bool    `yaml:"scan_responses,omitempty"`
+	BlockedCategories []string `yaml:"blocked_categories,omitempty"`
+	RateLimit         int      `yaml:"rate_limit,omitempty"`
+	RateWindow        int      `yaml:"rate_window,omitempty"` // seconds (default: 60)
 }
 
 // QuarantineConfig configures the quarantine queue behavior.

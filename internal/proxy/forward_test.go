@@ -14,6 +14,10 @@ import (
 )
 
 func newTestForwardProxy(t *testing.T, cfg *config.ForwardProxyConfig) (*ForwardProxy, *audit.Store) {
+	return newTestForwardProxyWithAgents(t, cfg, nil)
+}
+
+func newTestForwardProxyWithAgents(t *testing.T, cfg *config.ForwardProxyConfig, agents map[string]config.Agent) (*ForwardProxy, *audit.Store) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	store, err := audit.NewStore(":memory:", logger)
@@ -24,7 +28,7 @@ func newTestForwardProxy(t *testing.T, cfg *config.ForwardProxyConfig) (*Forward
 	scanner := engine.NewScanner("")
 	t.Cleanup(func() { scanner.Close() })
 	rl := NewRateLimiter(0, 60)
-	fp := NewForwardProxy(cfg, scanner, store, rl, logger)
+	fp := NewForwardProxy(cfg, scanner, store, rl, agents, logger)
 	// Override transport to allow localhost connections in tests
 	// (safeDialContext blocks loopback IPs by design)
 	fp.transport = &http.Transport{}
@@ -154,10 +158,11 @@ func TestForwardProxy_DomainBlocklist(t *testing.T) {
 		{"safe.example.com:8080", true},
 	}
 
+	policy := fp.resolvePolicy("")
 	for _, tt := range tests {
-		got := fp.domainAllowed(tt.host)
+		got := policy.DomainAllowed(tt.host)
 		if got != tt.allowed {
-			t.Errorf("domainAllowed(%q) = %v, want %v", tt.host, got, tt.allowed)
+			t.Errorf("DomainAllowed(%q) = %v, want %v", tt.host, got, tt.allowed)
 		}
 	}
 }
@@ -236,10 +241,135 @@ func TestForwardProxy_DomainAllowedMixed(t *testing.T) {
 		{"other.example.com", false},     // not in allowlist
 	}
 
+	policy := fp.resolvePolicy("")
 	for _, tt := range tests {
-		got := fp.domainAllowed(tt.host)
+		got := policy.DomainAllowed(tt.host)
 		if got != tt.allowed {
-			t.Errorf("domainAllowed(%q) = %v, want %v", tt.host, got, tt.allowed)
+			t.Errorf("DomainAllowed(%q) = %v, want %v", tt.host, got, tt.allowed)
 		}
+	}
+}
+
+func TestForwardProxy_PerAgent_AllowedDomain(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify X-Oktsec-Agent is stripped
+		if r.Header.Get("X-Oktsec-Agent") != "" {
+			t.Error("X-Oktsec-Agent header should be stripped")
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer target.Close()
+
+	fp, _ := newTestForwardProxyWithAgents(t, &config.ForwardProxyConfig{
+		Enabled:        true,
+		AllowedDomains: []string{"global.com"},
+	}, map[string]config.Agent{
+		"researcher": {
+			Egress: &config.EgressPolicy{
+				AllowedDomains: []string{"127.0.0.1"}, // needed for test target
+			},
+		},
+	})
+
+	handler := fp.Wrap(http.NewServeMux())
+
+	// Without agent header: 127.0.0.1 not in global allowlist → blocked
+	req := httptest.NewRequest("GET", target.URL+"/get", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without agent header, got %d", rec.Code)
+	}
+
+	// With agent header: 127.0.0.1 in merged allowlist → allowed
+	req = httptest.NewRequest("GET", target.URL+"/get", nil)
+	req.Header.Set("X-Oktsec-Agent", "researcher")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 with agent header, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestForwardProxy_PerAgent_BlockedDomain(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer target.Close()
+
+	fp, _ := newTestForwardProxyWithAgents(t, &config.ForwardProxyConfig{
+		Enabled: true,
+	}, map[string]config.Agent{
+		"restricted": {
+			Egress: &config.EgressPolicy{
+				BlockedDomains: []string{"127.0.0.1"}, // block target
+			},
+		},
+	})
+
+	handler := fp.Wrap(http.NewServeMux())
+
+	// Without agent header: no blocklist → allowed
+	req := httptest.NewRequest("GET", target.URL+"/get", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 without agent, got %d", rec.Code)
+	}
+
+	// With agent header: 127.0.0.1 in agent blocklist → blocked
+	req = httptest.NewRequest("GET", target.URL+"/get", nil)
+	req.Header.Set("X-Oktsec-Agent", "restricted")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 with restricted agent, got %d", rec.Code)
+	}
+}
+
+func TestForwardProxy_AgentHeaderStripped(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Oktsec-Agent") != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	fp, _ := newTestForwardProxy(t, &config.ForwardProxyConfig{Enabled: true})
+	handler := fp.Wrap(http.NewServeMux())
+
+	req := httptest.NewRequest("GET", target.URL+"/get", nil)
+	req.Header.Set("X-Oktsec-Agent", "test-agent")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("X-Oktsec-Agent header was forwarded upstream (got %d)", rec.Code)
+	}
+}
+
+func TestForwardProxy_PerAgent_CONNECT_Blocked(t *testing.T) {
+	fp, _ := newTestForwardProxyWithAgents(t, &config.ForwardProxyConfig{
+		Enabled: true,
+	}, map[string]config.Agent{
+		"locked": {
+			Egress: &config.EgressPolicy{
+				BlockedDomains: []string{"evil.com"},
+			},
+		},
+	})
+
+	handler := fp.Wrap(http.NewServeMux())
+
+	req := httptest.NewRequest("CONNECT", "evil.com:443", nil)
+	req.Host = "evil.com:443"
+	req.Header.Set("X-Oktsec-Agent", "locked")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for agent with blocked domain, got %d", rec.Code)
 	}
 }
