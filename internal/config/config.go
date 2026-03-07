@@ -46,16 +46,25 @@ type IdentityConfig struct {
 
 // Agent defines per-agent access control and metadata.
 type Agent struct {
-	CanMessage     []string      `yaml:"can_message"`
-	BlockedContent []string      `yaml:"blocked_content"`
-	AllowedTools   []string      `yaml:"allowed_tools,omitempty"` // tool names the agent can call (empty = all)
-	Suspended      bool          `yaml:"suspended,omitempty"`
-	Description    string        `yaml:"description,omitempty"`
-	CreatedBy      string        `yaml:"created_by,omitempty"`
-	CreatedAt      string        `yaml:"created_at,omitempty"`
-	Location       string        `yaml:"location,omitempty"`
-	Tags           []string      `yaml:"tags,omitempty"`
-	Egress         *EgressPolicy `yaml:"egress,omitempty"`
+	CanMessage     []string                `yaml:"can_message"`
+	BlockedContent []string                `yaml:"blocked_content"`
+	AllowedTools   []string                `yaml:"allowed_tools,omitempty"`   // tool names the agent can call (empty = all)
+	ToolPolicies   map[string]ToolPolicy   `yaml:"tool_policies,omitempty"`  // per-tool enforcement policies
+	Suspended      bool                    `yaml:"suspended,omitempty"`
+	Description    string                  `yaml:"description,omitempty"`
+	CreatedBy      string                  `yaml:"created_by,omitempty"`
+	CreatedAt      string                  `yaml:"created_at,omitempty"`
+	Location       string                  `yaml:"location,omitempty"`
+	Tags           []string                `yaml:"tags,omitempty"`
+	Egress         *EgressPolicy           `yaml:"egress,omitempty"`
+}
+
+// ToolPolicy defines per-tool enforcement rules for an agent.
+type ToolPolicy struct {
+	MaxAmount            float64 `yaml:"max_amount,omitempty"`             // max value per call (e.g. spending limit)
+	DailyLimit           float64 `yaml:"daily_limit,omitempty"`            // cumulative daily limit
+	RequireApprovalAbove float64 `yaml:"require_approval_above,omitempty"` // quarantine if value exceeds threshold
+	RateLimit            int     `yaml:"rate_limit,omitempty"`             // max calls per hour
 }
 
 // EgressPolicy defines per-agent outbound traffic controls.
