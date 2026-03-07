@@ -1843,6 +1843,8 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     </td></tr>
     {{if .Entry.PubkeyFingerprint}}<tr><td style="color:var(--text3);padding:6px 0">Key</td><td style="font-family:var(--mono);font-size:0.7rem;color:var(--text2);padding:6px 0;word-break:break-all">{{.Entry.PubkeyFingerprint}}</td></tr>{{end}}
     <tr><td style="color:var(--text3);padding:6px 0">Content hash</td><td style="font-family:var(--mono);font-size:0.7rem;color:var(--text2);padding:6px 0;word-break:break-all">{{.Entry.ContentHash}}</td></tr>
+    {{if .Entry.Intent}}<tr><td style="color:var(--text3);padding:6px 0">Intent</td><td style="padding:6px 0"><span style="background:rgba(99,102,241,0.1);color:var(--accent-light);padding:2px 8px;border-radius:4px;font-size:0.75rem;font-family:var(--mono)">{{.Entry.Intent}}</span></td></tr>{{end}}
+    {{if .Entry.EntryHash}}<tr><td style="color:var(--text3);padding:6px 0">Chain hash</td><td style="font-family:var(--mono);font-size:0.7rem;color:var(--text2);padding:6px 0;word-break:break-all">{{.Entry.EntryHash}}</td></tr>{{end}}
   </table>
 </div>`))
 
@@ -2276,6 +2278,29 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   </form>
 </div>
 
+<div class="card">
+  <h2>Intent Validation</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Agents can declare their intent (e.g. <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">code_review</code>, <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">deploy</code>). The proxy validates that the message content is consistent with the declared intent. Mismatches escalate the verdict to <strong style="color:var(--warn)">flag</strong>.
+  </p>
+  <form method="POST" action="/dashboard/settings/intent">
+    <div style="margin-bottom:20px">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Require intent declaration</span>
+      </label>
+      <p style="color:var(--text3);font-size:0.75rem;margin-top:8px;line-height:1.5">
+        When enabled, messages without an <code style="font-size:0.72rem;font-family:var(--mono)">intent</code> field are flagged. When disabled, intent is validated only if provided.
+      </p>
+    </div>
+    <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
+      <strong>Supported categories:</strong>
+      <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text2)">code_review, deploy, data_query, monitoring, security, communication, file_ops, config</span>
+    </div>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
+</div>
+
 </div>
 
 <!-- Infrastructure -->
@@ -2395,6 +2420,11 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
   <input type="date" id="filter-until" value="{{.FilterUntil}}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem" title="Until date">
   <button class="btn btn-sm" onclick="clearEventFilters()" style="font-size:0.78rem">Clear</button>
   <span style="flex:1"></span>
+  <select id="export-redaction" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.78rem" title="Redaction level" onchange="updateExportLinks()">
+    <option value="">Full (admin)</option>
+    <option value="analyst">Analyst (redacted matches)</option>
+    <option value="external">External (metadata only)</option>
+  </select>
   <a id="export-csv" class="btn btn-sm" style="font-size:0.78rem;text-decoration:none" download>CSV</a>
   <a id="export-json" class="btn btn-sm" style="font-size:0.78rem;text-decoration:none" download>JSON</a>
 </div>
@@ -2403,10 +2433,12 @@ function buildExportURL(format) {
   var agent = document.getElementById('filter-agent').value;
   var since = document.getElementById('filter-since').value;
   var until = document.getElementById('filter-until').value;
+  var redaction = document.getElementById('export-redaction').value;
   var url = '/dashboard/api/export/' + format + '?_=1';
   if (agent) url += '&agent=' + encodeURIComponent(agent);
   if (since) url += '&since=' + encodeURIComponent(since + 'T00:00:00Z');
   if (until) url += '&until=' + encodeURIComponent(until + 'T23:59:59Z');
+  if (redaction) url += '&redaction=' + encodeURIComponent(redaction);
   return url;
 }
 function updateExportLinks() {

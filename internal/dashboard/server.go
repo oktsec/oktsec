@@ -223,6 +223,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /dashboard/settings/default-policy", s.handleSaveDefaultPolicy)
 	s.mux.HandleFunc("POST /dashboard/settings/rate-limit", s.handleSaveRateLimit)
 	s.mux.HandleFunc("POST /dashboard/settings/anomaly", s.handleSaveAnomaly)
+	s.mux.HandleFunc("POST /dashboard/settings/intent", s.handleSaveIntent)
 	s.mux.HandleFunc("POST /dashboard/settings/forward-proxy", s.handleSaveForwardProxy)
 	s.mux.HandleFunc("POST /dashboard/settings/quarantine", s.handleSaveQuarantine)
 

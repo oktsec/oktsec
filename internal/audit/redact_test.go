@@ -94,17 +94,17 @@ func TestRedactEntries(t *testing.T) {
 }
 
 func TestRedactRuleFindings_Empty(t *testing.T) {
-	if got := redactRuleFindings(""); got != "" {
+	if got := RedactRuleFindings(""); got != "" {
 		t.Errorf("empty input should return empty, got %q", got)
 	}
-	if got := redactRuleFindings("[]"); got != "[]" {
+	if got := RedactRuleFindings("[]"); got != "[]" {
 		t.Errorf("empty array should pass through, got %q", got)
 	}
 }
 
 func TestRedactRuleFindings_MultipleMatches(t *testing.T) {
 	input := `[{"rule_id":"A","matched":"secret1"},{"rule_id":"B","matched":"secret2"}]`
-	got := redactRuleFindings(input)
+	got := RedactRuleFindings(input)
 	if strings.Contains(got, "secret1") || strings.Contains(got, "secret2") {
 		t.Errorf("should redact all matched values, got: %s", got)
 	}
