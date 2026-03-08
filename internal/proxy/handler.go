@@ -16,6 +16,7 @@ import (
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
+	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/policy"
 )
 
@@ -51,6 +52,7 @@ type Handler struct {
 	webhooks    *WebhookNotifier
 	rateLimiter *RateLimiter
 	window      *MessageWindow
+	llmQueue    *llm.Queue // nil if LLM disabled
 	logger      *slog.Logger
 }
 
@@ -67,6 +69,11 @@ func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluat
 		window:      NewMessageWindow(10, time.Hour),
 		logger:      logger,
 	}
+}
+
+// SetLLMQueue attaches the async LLM analysis queue to the handler.
+func (h *Handler) SetLLMQueue(q *llm.Queue) {
+	h.llmQueue = q
 }
 
 // ServeHTTP handles POST /v1/message.
@@ -217,6 +224,49 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		VerifiedSender: verified,
 		QuarantineID:   qr.ID,
 		ExpiresAt:      qr.ExpiresAt,
+	})
+
+	// Stage 10: Async LLM analysis (non-blocking, after response sent)
+	if h.llmQueue != nil {
+		h.submitToLLM(msgID, req, outcome)
+	}
+}
+
+// submitToLLM sends a message to the async LLM analysis queue if configured.
+func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine.ScanOutcome) {
+	analyze := h.cfg.LLM.Analyze
+	switch outcome.Verdict {
+	case engine.VerdictClean:
+		if !analyze.Clean {
+			return
+		}
+	case engine.VerdictFlag:
+		if !analyze.Flagged {
+			return
+		}
+	case engine.VerdictQuarantine:
+		if !analyze.Quarantined {
+			return
+		}
+	case engine.VerdictBlock:
+		if !analyze.Blocked {
+			return
+		}
+	}
+
+	if h.cfg.LLM.MinContentLength > 0 && len(req.Content) < h.cfg.LLM.MinContentLength {
+		return
+	}
+
+	h.llmQueue.Submit(llm.AnalysisRequest{
+		MessageID:      msgID,
+		FromAgent:      req.From,
+		ToAgent:        req.To,
+		Content:        req.Content,
+		Intent:         req.Intent,
+		CurrentVerdict: outcome.Verdict,
+		Findings:       outcome.Findings,
+		Timestamp:      time.Now(),
 	})
 }
 

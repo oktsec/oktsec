@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,6 +22,7 @@ import (
 	"github.com/oktsec/oktsec/internal/dashboard"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
+	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/policy"
 )
 
@@ -34,6 +36,7 @@ type Server struct {
 	scanner       *engine.Scanner
 	audit         *audit.Store
 	dashboard     *dashboard.Server
+	llmQueue      *llm.Queue // nil if LLM disabled
 	logger        *slog.Logger
 	anomalyCancel context.CancelFunc
 }
@@ -89,6 +92,98 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 
 	// Handler
 	handler := NewHandler(cfg, keys, pol, scanner, auditStore, webhooks, logger)
+
+	// LLM analysis queue (async, optional)
+	var llmQueue *llm.Queue
+	if cfg.LLM.Enabled {
+		llmCfg := llm.Config{
+			Enabled:          true,
+			Provider:         llm.Provider(cfg.LLM.Provider),
+			Model:            cfg.LLM.Model,
+			BaseURL:          cfg.LLM.BaseURL,
+			APIKeyEnv:        cfg.LLM.APIKeyEnv,
+			APIVersion:       cfg.LLM.APIVersion,
+			MaxTokens:        cfg.LLM.MaxTokens,
+			Temperature:      cfg.LLM.Temperature,
+			MaxConcurrent:    cfg.LLM.MaxConcurrent,
+			QueueSize:        cfg.LLM.QueueSize,
+			MaxDailyReqs:     cfg.LLM.MaxDailyReqs,
+			Timeout:          cfg.LLM.Timeout,
+			Analyze:          llm.AnalyzeConfig(cfg.LLM.Analyze),
+			MinContentLength: cfg.LLM.MinContentLength,
+			RuleGen: llm.RuleGenConfig{
+				Enabled:         cfg.LLM.RuleGen.Enabled,
+				OutputDir:       cfg.LLM.RuleGen.OutputDir,
+				AutoReload:      cfg.LLM.RuleGen.AutoReload,
+				RequireApproval: cfg.LLM.RuleGen.RequireApproval,
+				MinConfidence:   cfg.LLM.RuleGen.MinConfidence,
+			},
+			Webhook: llm.WebhookConfig(cfg.LLM.Webhook),
+		}
+		analyzer, err := llm.New(llmCfg)
+		if err != nil {
+			logger.Error("failed to create LLM analyzer", "error", err)
+		} else {
+			queueCfg := llm.QueueConfig{
+				Workers:      cfg.LLM.MaxConcurrent,
+				BufferSize:   cfg.LLM.QueueSize,
+				MaxDailyReqs: cfg.LLM.MaxDailyReqs,
+			}
+			llmQueue = llm.NewQueue(analyzer, queueCfg, logger)
+
+			// Wire callbacks: store results in audit and generate rules
+			var ruleGen *llm.RuleGenerator
+			if llmCfg.RuleGen.Enabled {
+				outputDir := llmCfg.RuleGen.OutputDir
+				if outputDir == "" {
+					outputDir = "./rules/generated"
+				}
+				ruleGen = llm.NewRuleGenerator(outputDir, llmCfg.RuleGen.RequireApproval, llmCfg.RuleGen.MinConfidence)
+				if llmCfg.RuleGen.AutoReload {
+					ruleGen.OnGenerated(func(_ llm.GeneratedRule) {
+						scanner.InvalidateCache()
+					})
+				}
+			}
+
+			llmQueue.OnResult(func(result llm.AnalysisResult) {
+				// Store in audit database
+				threatsJSON, _ := json.Marshal(result.Threats)
+				intentJSON, _ := json.Marshal(result.IntentAnalysis)
+				_ = auditStore.LogLLMAnalysis(audit.LLMAnalysis{
+					ID:                fmt.Sprintf("llm-%s", result.MessageID),
+					MessageID:         result.MessageID,
+					Timestamp:         time.Now().UTC().Format(time.RFC3339),
+					FromAgent:         result.FromAgent,
+					ToAgent:           result.ToAgent,
+					Provider:          result.ProviderName,
+					Model:             result.Model,
+					RiskScore:         result.RiskScore,
+					RecommendedAction: result.RecommendedAction,
+					Confidence:        result.Confidence,
+					ThreatsJSON:       string(threatsJSON),
+					IntentJSON:        string(intentJSON),
+					LatencyMs:         result.LatencyMs,
+					TokensUsed:        result.TokensUsed,
+				})
+
+				// Generate rules from threats
+				if ruleGen != nil {
+					for _, threat := range result.Threats {
+						if _, err := ruleGen.Generate(threat, result.ProviderName, result.MessageID); err != nil {
+							logger.Warn("rule generation failed", "error", err)
+						}
+					}
+				}
+			})
+
+			handler.SetLLMQueue(llmQueue)
+			logger.Info("llm analysis enabled",
+				"provider", cfg.LLM.Provider,
+				"model", cfg.LLM.Model,
+			)
+		}
+	}
 
 	// Dashboard
 	dash := dashboard.NewServer(cfg, cfgPath, auditStore, keys, scanner, logger)
@@ -222,6 +317,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		scanner:   scanner,
 		audit:     auditStore,
 		dashboard: dash,
+		llmQueue:  llmQueue,
 		logger:    logger,
 	}, nil
 }
@@ -363,6 +459,11 @@ func (s *Server) Start() error {
 		"forward_proxy", s.cfg.ForwardProxy.Enabled,
 	)
 
+	// Start LLM analysis queue if configured
+	if s.llmQueue != nil {
+		s.llmQueue.Start(context.Background())
+	}
+
 	// Start anomaly detection loop if configured
 	if s.cfg.Anomaly.RiskThreshold > 0 {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -392,6 +493,9 @@ func (s *Server) Start() error {
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Info("shutting down")
+	if s.llmQueue != nil {
+		s.llmQueue.Stop()
+	}
 	if s.anomalyCancel != nil {
 		s.anomalyCancel()
 	}

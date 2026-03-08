@@ -1,0 +1,13 @@
+id: LLM-002
+name: Authority_Bypass_Detection
+description: Attempts to bypass security verification by claiming executive authority and instructing agent not to verify requests. Classic social engineering pattern targeting automated systems.
+severity: high
+category: authority_bypass
+source: llm-generated
+generated_by: openai
+generated_from: 5fdcdd56-6af8-42f0-a7ab-2315924e4093
+confidence: 0.9
+status: active
+patterns:
+    - type: regex
+      value: (urgent|emergency).*?(executive|admin|manager).*?(no.*?need.*?verify|skip.*?verification)

@@ -174,6 +174,26 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	data["ChainValid"] = chainResult.Valid
 	data["ChainCount"] = chainResult.Entries
 
+	// LLM stats for overview
+	data["LLMEnabled"] = s.cfg.LLM.Enabled
+	if s.cfg.LLM.Enabled {
+		data["LLMProvider"] = s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
+		llmStats, err := s.audit.QueryLLMStats()
+		if err == nil && llmStats != nil {
+			data["LLMCompleted"] = llmStats.TotalAnalyses
+			data["LLMThreats"] = llmStats.TotalThreats
+			data["LLMAvgRisk"] = llmStats.AvgRiskScore
+			data["LLMTokens"] = llmStats.TotalTokens
+			data["LLMRulesGen"] = llmStats.RulesGenerated
+		} else {
+			data["LLMCompleted"] = 0
+			data["LLMThreats"] = 0
+			data["LLMAvgRisk"] = 0.0
+			data["LLMTokens"] = 0
+			data["LLMRulesGen"] = 0
+		}
+	}
+
 	s.renderTemplate(w, overviewTmpl, data)
 }
 
@@ -2001,7 +2021,118 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, settingsTmpl, data)
 }
 
+// --- LLM page handler ---
+
+func (s *Server) handleLLM(w http.ResponseWriter, r *http.Request) {
+	llmStats, _ := s.audit.QueryLLMStats()
+	if llmStats == nil {
+		llmStats = &audit.LLMStats{}
+	}
+
+	analyses, _ := s.audit.QueryLLMAnalyses(50)
+
+	data := map[string]any{
+		"Active":   "llm",
+		"Enabled":  s.cfg.LLM.Enabled,
+		"Cfg":      s.cfg.LLM,
+		"Stats":    llmStats,
+		"Analyses": analyses,
+	}
+
+	s.renderTemplate(w, llmTmpl, data)
+}
+
+func (s *Server) handleLLMDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	a, err := s.audit.QueryLLMAnalysisByID(id)
+	if err != nil || a == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	s.renderTemplate(w, llmDetailTmpl, a)
+}
+
+func (s *Server) handleLLMCase(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	a, err := s.audit.QueryLLMAnalysisByID(id)
+	if err != nil || a == nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	data := map[string]any{
+		"Active":   "llm",
+		"Analysis": a,
+	}
+	s.renderTemplate(w, llmCaseTmpl, data)
+}
+
 // --- Settings section handlers ---
+
+func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
+	s.cfg.LLM.Enabled = r.FormValue("enabled") == "true"
+
+	provider := r.FormValue("provider")
+	switch provider {
+	case "openai", "claude", "webhook":
+		s.cfg.LLM.Provider = provider
+	default:
+		http.Error(w, "invalid provider", http.StatusBadRequest)
+		return
+	}
+
+	s.cfg.LLM.Model = r.FormValue("model")
+	s.cfg.LLM.BaseURL = r.FormValue("base_url")
+	s.cfg.LLM.APIKeyEnv = r.FormValue("api_key_env")
+
+	if v := r.FormValue("max_tokens"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			s.cfg.LLM.MaxTokens = n
+		}
+	}
+	if v := r.FormValue("temperature"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 2 {
+			s.cfg.LLM.Temperature = f
+		}
+	}
+	if v := r.FormValue("max_concurrent"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			s.cfg.LLM.MaxConcurrent = n
+		}
+	}
+	if v := r.FormValue("queue_size"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			s.cfg.LLM.QueueSize = n
+		}
+	}
+	if v := r.FormValue("max_daily"); v != "" {
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n >= 0 {
+			s.cfg.LLM.MaxDailyReqs = n
+		}
+	}
+
+	s.cfg.LLM.Analyze.Clean = r.FormValue("analyze_clean") == "true"
+	s.cfg.LLM.Analyze.Flagged = r.FormValue("analyze_flagged") == "true"
+	s.cfg.LLM.Analyze.Quarantined = r.FormValue("analyze_quarantined") == "true"
+	s.cfg.LLM.Analyze.Blocked = r.FormValue("analyze_blocked") == "true"
+
+	s.cfg.LLM.RuleGen.Enabled = r.FormValue("rulegen_enabled") == "true"
+	s.cfg.LLM.RuleGen.RequireApproval = r.FormValue("rulegen_approval") == "true"
+	s.cfg.LLM.RuleGen.OutputDir = r.FormValue("rulegen_dir")
+	if v := r.FormValue("rulegen_confidence"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
+			s.cfg.LLM.RuleGen.MinConfidence = f
+		}
+	}
+
+	if s.cfgPath != "" {
+		if err := s.cfg.Save(s.cfgPath); err != nil {
+			s.logger.Error("failed to save config after LLM update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/llm", http.StatusFound)
+}
 
 func (s *Server) handleSaveDefaultPolicy(w http.ResponseWriter, r *http.Request) {
 	policy := r.FormValue("default_policy")

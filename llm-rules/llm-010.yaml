@@ -1,0 +1,13 @@
+id: LLM-010
+name: adversarial_framing_detection
+description: Message claims to be routine update but actual intent is supply chain compromise - adversarial framing '[BEGIN UNTRUSTED CONTENT]' indicates awareness of security monitoring while attempting to exploit it
+severity: high
+category: prompt_injection
+source: llm-generated
+generated_by: openai
+generated_from: e22ac63b-dbd6-4e7b-8591-7d9b85c0ad66
+confidence: 0.9
+status: active
+patterns:
+    - type: regex
+      value: \[BEGIN\s+UNTRUSTED\s+CONTENT.*?\]\s*.*?\[END\s+UNTRUSTED\s+CONTENT\]

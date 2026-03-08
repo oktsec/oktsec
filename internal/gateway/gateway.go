@@ -16,6 +16,7 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/mcputil"
 	"github.com/oktsec/oktsec/internal/proxy"
 )
@@ -33,17 +34,19 @@ type toolMapping struct {
 
 // Gateway is the MCP security gateway server.
 type Gateway struct {
-	cfg         *config.Config
-	mcpServer   *mcp.Server
-	httpServer  *http.Server
-	ln          net.Listener
-	backends    map[string]*Backend
-	toolMap     map[string]toolMapping
-	scanner     *engine.Scanner
-	audit       *audit.Store
-	webhooks    *proxy.WebhookNotifier
-	rateLimiter *proxy.RateLimiter
-	logger      *slog.Logger
+	cfg            *config.Config
+	mcpServer      *mcp.Server
+	httpServer     *http.Server
+	ln             net.Listener
+	backends       map[string]*Backend
+	toolMap        map[string]toolMapping
+	scanner        *engine.Scanner
+	audit          *audit.Store
+	webhooks       *proxy.WebhookNotifier
+	rateLimiter    *proxy.RateLimiter
+	policyEnforcer *ToolPolicyEnforcer
+	llmQueue       *llm.Queue
+	logger         *slog.Logger
 }
 
 // NewGateway creates a gateway from the given configuration.
@@ -60,28 +63,30 @@ func NewGateway(cfg *config.Config, logger *slog.Logger) (*Gateway, error) {
 	rateLimiter := proxy.NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS)
 
 	return &Gateway{
-		cfg:         cfg,
-		backends:    make(map[string]*Backend),
-		toolMap:     make(map[string]toolMapping),
-		scanner:     scanner,
-		audit:       auditStore,
-		webhooks:    webhooks,
-		rateLimiter: rateLimiter,
-		logger:      logger,
+		cfg:            cfg,
+		backends:       make(map[string]*Backend),
+		toolMap:        make(map[string]toolMapping),
+		scanner:        scanner,
+		audit:          auditStore,
+		webhooks:       webhooks,
+		rateLimiter:    rateLimiter,
+		policyEnforcer: NewToolPolicyEnforcer(),
+		logger:         logger,
 	}, nil
 }
 
 // newGatewayForTest creates a gateway with injected dependencies (no real scanner/audit).
 func newGatewayForTest(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.Store, logger *slog.Logger) *Gateway {
 	return &Gateway{
-		cfg:         cfg,
-		backends:    make(map[string]*Backend),
-		toolMap:     make(map[string]toolMapping),
-		scanner:     scanner,
-		audit:       auditStore,
-		webhooks:    proxy.NewWebhookNotifier(nil, logger),
-		rateLimiter: proxy.NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
-		logger:      logger,
+		cfg:            cfg,
+		backends:       make(map[string]*Backend),
+		toolMap:        make(map[string]toolMapping),
+		scanner:        scanner,
+		audit:          auditStore,
+		webhooks:       proxy.NewWebhookNotifier(nil, logger),
+		rateLimiter:    proxy.NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
+		policyEnforcer: NewToolPolicyEnforcer(),
+		logger:         logger,
 	}
 }
 
@@ -320,6 +325,22 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			}
 		}
 
+		// 3b. Tool policy enforcement (spending limits, rate limits, approval thresholds)
+		if agentCfg, ok := g.cfg.Agents[agent]; ok && agentCfg.ToolPolicies != nil {
+			if policy, hasPolicy := agentCfg.ToolPolicies[m.OriginalName]; hasPolicy {
+				amount := ExtractAmount(mcputil.GetArguments(req.Params.Arguments))
+				result := g.policyEnforcer.Check(agent, m.OriginalName, amount, policy)
+				if !result.Allowed {
+					status := "blocked"
+					if result.Decision == "quarantine_approval" {
+						status = "quarantined"
+					}
+					g.logAudit(msgID, agent, m.OriginalName, status, result.Decision, "[]", start)
+					return toolError(fmt.Sprintf("tool policy: %s", result.Reason)), nil
+				}
+			}
+		}
+
 		// 4. Serialize arguments for scanning
 		content := extractToolContent(m.OriginalName, req)
 
@@ -352,6 +373,9 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		// 9. Audit log
 		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, start)
 
+		// 9b. Async LLM analysis (non-blocking)
+		g.submitToLLM(agent, m.OriginalName, content, outcome.Verdict, outcome.Findings)
+
 		// 10. Webhook notification if severe
 		if outcome.Verdict == engine.VerdictBlock || outcome.Verdict == engine.VerdictQuarantine {
 			g.webhooks.Notify(proxy.WebhookEvent{
@@ -377,6 +401,14 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		result, err := m.Backend.CallTool(ctx, callParams)
 		if err != nil {
 			return nil, fmt.Errorf("backend %s: %w", m.BackendName, err)
+		}
+
+		// 12b. Record successful call for tool policy tracking
+		if agentCfg, ok := g.cfg.Agents[agent]; ok && agentCfg.ToolPolicies != nil {
+			if _, hasPolicy := agentCfg.ToolPolicies[m.OriginalName]; hasPolicy {
+				amount := ExtractAmount(mcputil.GetArguments(req.Params.Arguments))
+				g.policyEnforcer.Record(agent, m.OriginalName, amount)
+			}
 		}
 
 		// 13. Optionally scan response
@@ -411,6 +443,49 @@ func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON st
 		RulesTriggered: findingsJSON,
 		PolicyDecision: decision,
 		LatencyMs:      time.Since(start).Milliseconds(),
+	})
+}
+
+// SetLLMQueue sets the async LLM analysis queue for the gateway.
+func (g *Gateway) SetLLMQueue(q *llm.Queue) {
+	g.llmQueue = q
+}
+
+// submitToLLM submits tool call content for async LLM analysis if configured.
+func (g *Gateway) submitToLLM(agent, tool, content string, verdict engine.ScanVerdict, findings []engine.FindingSummary) {
+	if g.llmQueue == nil || g.cfg == nil {
+		return
+	}
+
+	lcfg := g.cfg.LLM
+	shouldAnalyze := false
+	switch verdict {
+	case engine.VerdictClean:
+		shouldAnalyze = lcfg.Analyze.Clean
+	case engine.VerdictFlag:
+		shouldAnalyze = lcfg.Analyze.Flagged
+	case engine.VerdictQuarantine:
+		shouldAnalyze = lcfg.Analyze.Quarantined
+	case engine.VerdictBlock:
+		shouldAnalyze = lcfg.Analyze.Blocked
+	}
+
+	if !shouldAnalyze {
+		return
+	}
+
+	if lcfg.MinContentLength > 0 && len(content) < lcfg.MinContentLength {
+		return
+	}
+
+	g.llmQueue.Submit(llm.AnalysisRequest{
+		MessageID:      fmt.Sprintf("gw-%s-%d", tool, time.Now().UnixNano()),
+		FromAgent:      agent,
+		ToAgent:        "gateway/" + tool,
+		Content:        content,
+		CurrentVerdict: verdict,
+		Findings:       findings,
+		Timestamp:      time.Now(),
 	})
 }
 

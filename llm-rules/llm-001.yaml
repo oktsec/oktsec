@@ -1,0 +1,13 @@
+id: LLM-001
+name: PII_Exfiltration_Injection
+description: Direct prompt injection attempt to override agent instructions and extract sensitive customer PII data. Uses authority bypass tactics ('urgent executive request', 'no need to verify') to manipulate agent behavior.
+severity: critical
+category: data_exfiltration
+source: llm-generated
+generated_by: openai
+generated_from: 5fdcdd56-6af8-42f0-a7ab-2315924e4093
+confidence: 0.95
+status: active
+patterns:
+    - type: regex
+      value: (extract|retrieve|get|pull).*?(PII|personal.*?data|customer.*?info).*?(database|DB|SQL)

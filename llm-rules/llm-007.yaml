@@ -1,0 +1,13 @@
+id: LLM-007
+name: InjectionMarkerRule
+description: Adversarial framing using 'BEGIN UNTRUSTED CONTENT' markers to manipulate analysis system behavior while embedding malicious instructions
+severity: high
+category: prompt_injection
+source: llm-generated
+generated_by: openai
+generated_from: 93dcb16e-9d29-4737-8d17-bbb8291bd2b1
+confidence: 0.8
+status: active
+patterns:
+    - type: regex
+      value: (BEGIN|END)\s+(UNTRUSTED|MALICIOUS|INJECTION)

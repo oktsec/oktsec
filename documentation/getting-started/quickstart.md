@@ -108,6 +108,7 @@ The first message returns `"policy_decision": "allow"`. The second triggers dete
 
 ## What's next?
 
+- [Secure OpenClaw agents](../guides/openclaw.md) — gateway setup, tool policies, multi-agent config
 - [Secure a multi-agent pipeline](../use-cases/multi-agent-pipeline.md) — ACLs, signing, blocked content
 - [Harden your MCP servers](../use-cases/mcp-hardening.md) — tool allowlists, gateway mode
 - [Set up egress DLP](../use-cases/egress-dlp.md) — per-agent outbound controls

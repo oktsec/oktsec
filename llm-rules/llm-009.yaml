@@ -1,0 +1,13 @@
+id: LLM-009
+name: false_justification_pattern
+description: Uses false justification ('performance fixes') to manipulate reviewer into accepting malicious dependency replacement, leveraging trust in legitimate tool name (oktsec)
+severity: high
+category: social_engineering
+source: llm-generated
+generated_by: openai
+generated_from: e22ac63b-dbd6-4e7b-8591-7d9b85c0ad66
+confidence: 0.85
+status: active
+patterns:
+    - type: regex
+      value: (performance\s+fixes|security\s+improvements|bug\s+fix).*?(merge|apply|commit)

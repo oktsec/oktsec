@@ -213,8 +213,8 @@ Agent CRUD, message pipeline, quarantine management, Prometheus metrics, MCP too
 | Amp | :material-check: | :material-check: | :material-check: |
 | Gemini CLI | :material-check: | :material-check: | :material-check: |
 | JetBrains | :material-check: | :material-check: | :material-check: |
-| OpenClaw | :material-check: | — | :material-check: |
-| NanoClaw | :material-check: | — | :material-check: |
+| OpenClaw | :material-check: | [via gateway](guides/openclaw.md) | :material-check: |
+| NanoClaw | :material-check: | via gateway | :material-check: |
 
 ---
 

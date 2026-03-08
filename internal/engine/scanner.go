@@ -196,6 +196,7 @@ func (s *Scanner) ensureCache() *ruleCache {
 }
 
 // InvalidateCache forces the next ListRules/ExplainRule call to reload from disk.
+// Also used by the LLM rule generator to trigger hot-reload after new rules are approved.
 func (s *Scanner) InvalidateCache() {
 	s.mu.Lock()
 	s.cache = nil
