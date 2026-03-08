@@ -2083,6 +2083,9 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 	s.cfg.LLM.Model = r.FormValue("model")
 	s.cfg.LLM.BaseURL = r.FormValue("base_url")
 	s.cfg.LLM.APIKeyEnv = r.FormValue("api_key_env")
+	if v := r.FormValue("timeout"); v != "" {
+		s.cfg.LLM.Timeout = v
+	}
 
 	if v := r.FormValue("max_tokens"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {

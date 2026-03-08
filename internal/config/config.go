@@ -49,7 +49,8 @@ type LLMConfig struct {
 	MaxDailyReqs  int64   `yaml:"max_daily_requests,omitempty"` // 0 = unlimited
 	Timeout       string  `yaml:"timeout,omitempty"`        // duration string (default: "30s")
 
-	Analyze          LLMAnalyzeConfig `yaml:"analyze,omitempty"`
+	Analyze          LLMAnalyzeConfig  `yaml:"analyze,omitempty"`
+	Triage           LLMTriageConfig   `yaml:"triage,omitempty"`
 	MinContentLength int              `yaml:"min_content_length,omitempty"` // skip short messages
 
 	RuleGen LLMRuleGenConfig  `yaml:"rulegen,omitempty"`
@@ -63,6 +64,17 @@ type LLMAnalyzeConfig struct {
 	Flagged     bool `yaml:"flagged"`
 	Quarantined bool `yaml:"quarantined"`
 	Blocked     bool `yaml:"blocked"`
+}
+
+// LLMTriageConfig controls the signal detector pre-filter.
+type LLMTriageConfig struct {
+	Enabled           bool     `yaml:"enabled"`
+	SkipVerdicts      []string `yaml:"skip_verdicts,omitempty"`
+	SensitiveKeywords []string `yaml:"sensitive_keywords,omitempty"`
+	MinContentLength  int      `yaml:"min_content_length,omitempty"`
+	NewAgentPairs     bool     `yaml:"new_agent_pairs,omitempty"`
+	SampleRate        float64  `yaml:"sample_rate,omitempty"`
+	ExternalURLs      bool     `yaml:"external_urls,omitempty"`
 }
 
 // LLMRuleGenConfig controls automatic rule generation from LLM findings.

@@ -2708,30 +2708,111 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 <div class="llm-grid">
   <div class="llm-card">
     <h3 style="display:flex;align-items:center;gap:10px">Connection <span id="cfg-svc-badge" style="font-size:0.7rem;padding:2px 8px;border-radius:4px;font-weight:500;letter-spacing:0.3px"></span></h3>
-    <div class="form-group" style="margin-bottom:12px">
-      <label>Provider</label>
-      <select name="provider" id="cfg-provider" onchange="updateProviderFields()" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:0.85rem">
-        <option value="openai" {{if eq .Cfg.Provider "openai"}}selected{{end}}>OpenAI-Compatible (Ollama, vLLM, LM Studio, Groq)</option>
-        <option value="claude" {{if eq .Cfg.Provider "claude"}}selected{{end}}>Claude (Anthropic)</option>
-        <option value="webhook" {{if eq .Cfg.Provider "webhook"}}selected{{end}}>Webhook (Custom endpoint)</option>
-      </select>
+    <input type="hidden" name="provider" id="cfg-provider" value="{{.Cfg.Provider}}">
+    <div class="form-group" style="margin-bottom:14px">
+      <label>Service</label>
+      <div id="cfg-presets" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px" id="cfg-url-group">
+      <label id="cfg-url-label">Base URL</label>
+      <input type="text" name="base_url" id="cfg-url" value="{{.Cfg.BaseURL}}" oninput="llmDetectAndRefresh()">
     </div>
     <div class="form-group" style="margin-bottom:12px" id="cfg-model-group">
       <label>Model</label>
       <input type="text" name="model" id="cfg-model" value="{{.Cfg.Model}}">
+      <div id="cfg-model-hints" style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"></div>
     </div>
     <div class="form-group" style="margin-bottom:12px" id="cfg-key-group">
       <label id="cfg-key-label">API Key Env Variable</label>
-      <input type="text" name="api_key_env" id="cfg-key" value="{{.Cfg.APIKeyEnv}}">
+      <div style="position:relative">
+        <input type="password" name="api_key_env" id="cfg-key" value="{{.Cfg.APIKeyEnv}}" autocomplete="off" style="padding-right:40px">
+        <button type="button" onclick="var k=document.getElementById('cfg-key');k.type=k.type==='password'?'text':'password'" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer;padding:4px;font-size:0.75rem" title="Show/hide">&#x1f441;</button>
+      </div>
+      <div id="cfg-key-hint" style="font-size:0.7rem;color:var(--text3);margin-top:4px"></div>
     </div>
-    <div class="form-group">
-      <label id="cfg-url-label">Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span></label>
-      <input type="text" name="base_url" id="cfg-url" value="{{.Cfg.BaseURL}}" oninput="detectService()">
+    <div class="form-group" style="margin-bottom:0">
+      <label>Timeout</label>
+      <input type="text" name="timeout" value="{{.Cfg.Timeout}}" placeholder="30s">
     </div>
     <script>
-    function detectService(){var u=(document.getElementById('cfg-url').value||'').toLowerCase(),p=document.getElementById('cfg-provider').value,b=document.getElementById('cfg-svc-badge'),m=document.getElementById('cfg-model').value;b.textContent='';b.style.background='';b.style.color='';if(p==='openai'){if(u.indexOf(':11434')!==-1){b.textContent='Ollama';b.style.background='rgba(34,197,94,0.15)';b.style.color='#22c55e'}else if(u.indexOf('lmstudio')!==-1||u.indexOf(':1234')!==-1){b.textContent='LM Studio';b.style.background='rgba(96,165,250,0.15)';b.style.color='#60a5fa'}else if(u.indexOf('groq')!==-1){b.textContent='Groq';b.style.background='rgba(251,191,36,0.15)';b.style.color='#fbbf24'}else if(u.indexOf('localhost')!==-1||u.indexOf('127.0.0.1')!==-1){b.textContent='Local';b.style.background='rgba(34,197,94,0.15)';b.style.color='#22c55e'}else if(u.indexOf('openai.com')!==-1||u===''){b.textContent='OpenAI';b.style.background='rgba(168,162,158,0.15)';b.style.color='#a8a29e'}else if(u.indexOf('azure')!==-1){b.textContent='Azure';b.style.background='rgba(96,165,250,0.15)';b.style.color='#60a5fa'}else{b.textContent='Custom';b.style.background='rgba(168,162,158,0.1)';b.style.color='#a8a29e'}}else if(p==='claude'){b.textContent='Anthropic';b.style.background='rgba(217,119,87,0.15)';b.style.color='#d97756'}else if(p==='webhook'){b.textContent='Webhook';b.style.background='rgba(168,162,158,0.15)';b.style.color='#a8a29e'}}
-    function updateProviderFields(){var p=document.getElementById('cfg-provider').value,m=document.getElementById('cfg-model'),k=document.getElementById('cfg-key'),u=document.getElementById('cfg-url'),mg=document.getElementById('cfg-model-group'),kg=document.getElementById('cfg-key-group'),kl=document.getElementById('cfg-key-label'),ul=document.getElementById('cfg-url-label');if(p==='openai'){mg.style.display='';kg.style.display='';m.placeholder='gpt-4o, qwen3.5:latest, llama3';k.placeholder='Optional for local models (Ollama, LM Studio)';kl.innerHTML='API Key Env Variable <span style="color:var(--text3);font-size:0.72rem">(optional for local)</span>';u.placeholder='http://localhost:11434/v1';ul.innerHTML='Base URL <span style="color:var(--text3);font-size:0.72rem">(required for non-OpenAI)</span>'}else if(p==='claude'){mg.style.display='';kg.style.display='';m.placeholder='claude-sonnet-4-6';k.placeholder='ANTHROPIC_API_KEY';kl.textContent='API Key Env Variable';u.placeholder='https://api.anthropic.com';ul.innerHTML='Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span>'}else{mg.style.display='none';kg.style.display='none';u.placeholder='https://your-endpoint.example.com/analyze';ul.textContent='Webhook URL'}detectService()}
-    updateProviderFields();
+    var llmSvc={
+      openrouter:{label:'OpenRouter',provider:'openai',url:'https://openrouter.ai/api/v1',bg:'rgba(168,85,247,0.15)',fg:'#a855f7',keyHint:'Set OPENROUTER_API_KEY in your environment',keyPh:'OPENROUTER_API_KEY',models:['deepseek/deepseek-chat-v3-0324','google/gemini-2.5-flash-preview','google/gemini-2.5-flash','anthropic/claude-sonnet-4','x-ai/grok-4-fast']},
+      ollama:{label:'Ollama',provider:'openai',url:'http://localhost:11434/v1',bg:'rgba(34,197,94,0.15)',fg:'#22c55e',keyHint:'No API key needed for local Ollama',keyPh:'',models:['qwen3.5:latest','llama3:latest','mistral:latest','deepseek-r1:latest']},
+      lmstudio:{label:'LM Studio',provider:'openai',url:'http://localhost:1234/v1',bg:'rgba(96,165,250,0.15)',fg:'#60a5fa',keyHint:'No API key needed for local LM Studio',keyPh:'',models:['loaded-model']},
+      openai:{label:'OpenAI',provider:'openai',url:'https://api.openai.com/v1',bg:'rgba(168,162,158,0.15)',fg:'#a8a29e',keyHint:'Set OPENAI_API_KEY in your environment',keyPh:'OPENAI_API_KEY',models:['gpt-4o','gpt-4o-mini','gpt-4-turbo']},
+      groq:{label:'Groq',provider:'openai',url:'https://api.groq.com/openai/v1',bg:'rgba(251,191,36,0.15)',fg:'#fbbf24',keyHint:'Set GROQ_API_KEY in your environment',keyPh:'GROQ_API_KEY',models:['llama-3.3-70b-versatile','mixtral-8x7b-32768']},
+      azure:{label:'Azure',provider:'openai',url:'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT',bg:'rgba(96,165,250,0.15)',fg:'#60a5fa',keyHint:'Set AZURE_OPENAI_API_KEY in your environment',keyPh:'AZURE_OPENAI_API_KEY',models:['gpt-4o']},
+      vllm:{label:'vLLM',provider:'openai',url:'http://localhost:8000/v1',bg:'rgba(34,197,94,0.15)',fg:'#22c55e',keyHint:'No API key needed for local vLLM',keyPh:'',models:[]},
+      claude:{label:'Claude',provider:'claude',url:'https://api.anthropic.com',bg:'rgba(217,119,87,0.15)',fg:'#d97756',keyHint:'Set ANTHROPIC_API_KEY in your environment',keyPh:'ANTHROPIC_API_KEY',models:['claude-sonnet-4-6','claude-haiku-4-5-20251001','claude-opus-4-6']},
+      webhook:{label:'Webhook',provider:'webhook',url:'',bg:'rgba(168,162,158,0.15)',fg:'#a8a29e',keyHint:'',keyPh:'',models:[]}
+    };
+    function llmDetectCurrent(){
+      var u=(document.getElementById('cfg-url').value||'').toLowerCase();
+      var p=document.getElementById('cfg-provider').value;
+      if(p==='claude') return 'claude';
+      if(p==='webhook') return 'webhook';
+      if(u.indexOf('openrouter')!==-1) return 'openrouter';
+      if(u.indexOf(':11434')!==-1) return 'ollama';
+      if(u.indexOf('lmstudio')!==-1||u.indexOf(':1234')!==-1) return 'lmstudio';
+      if(u.indexOf('groq')!==-1) return 'groq';
+      if(u.indexOf('azure')!==-1) return 'azure';
+      if(u.indexOf(':8000')!==-1) return 'vllm';
+      if(u.indexOf('openai.com')!==-1) return 'openai';
+      if(u.indexOf('localhost')!==-1||u.indexOf('127.0.0.1')!==-1) return 'ollama';
+      if(u==='') return 'ollama';
+      return 'openai'
+    }
+    function llmApply(key){
+      var s=llmSvc[key];if(!s) return;
+      document.getElementById('cfg-provider').value=s.provider;
+      document.getElementById('cfg-url').value=s.url;
+      document.getElementById('cfg-key').value=s.keyPh;
+      if(s.models.length>0) document.getElementById('cfg-model').value=s.models[0];
+      else document.getElementById('cfg-model').value='';
+      llmRefresh()
+    }
+    function llmDetectAndRefresh(){
+      var cur=llmDetectCurrent();
+      var s=llmSvc[cur];
+      if(s) document.getElementById('cfg-provider').value=s.provider;
+      llmRefresh()
+    }
+    function llmRefresh(){
+      var cur=llmDetectCurrent(),s=llmSvc[cur],b=document.getElementById('cfg-svc-badge');
+      var mg=document.getElementById('cfg-model-group'),kg=document.getElementById('cfg-key-group'),ug=document.getElementById('cfg-url-group');
+      var hintBox=document.getElementById('cfg-model-hints'),keyHint=document.getElementById('cfg-key-hint'),presetBox=document.getElementById('cfg-presets');
+      b.textContent=s?s.label:'';b.style.background=s?s.bg:'';b.style.color=s?s.fg:'';
+      hintBox.innerHTML='';keyHint.textContent='';presetBox.innerHTML='';
+      if(cur==='webhook'){
+        mg.style.display='none';kg.style.display='none';
+        document.getElementById('cfg-url-label').textContent='Webhook URL';
+        document.getElementById('cfg-url').placeholder='https://your-endpoint.example.com/analyze';
+      }else{
+        mg.style.display='';kg.style.display='';
+        document.getElementById('cfg-url-label').textContent='Base URL';
+        if(s){
+          document.getElementById('cfg-url').placeholder=s.url;
+          document.getElementById('cfg-key').placeholder=s.keyPh||'Not required';
+          keyHint.textContent=s.keyHint||'';
+          document.getElementById('cfg-model').placeholder=s.models.length>0?s.models[0]:'model-name';
+          s.models.forEach(function(m){
+            var c=document.createElement('button');c.type='button';c.textContent=m;
+            c.style.cssText='font-size:0.68rem;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);color:var(--text3);cursor:pointer';
+            c.onclick=function(){document.getElementById('cfg-model').value=m};
+            hintBox.appendChild(c)
+          })
+        }
+      }
+      Object.keys(llmSvc).forEach(function(k){
+        var sv=llmSvc[k];
+        var btn=document.createElement('button');btn.type='button';btn.textContent=sv.label;
+        var active=k===cur;
+        btn.style.cssText='font-size:0.7rem;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:'+(active?'600':'400')+';border:1px solid '+(active?sv.fg:'var(--border)')+';background:'+(active?sv.bg:'transparent')+';color:'+(active?sv.fg:'var(--text3)');
+        btn.onclick=function(){llmApply(k)};
+        presetBox.appendChild(btn)
+      })
+    }
+    llmRefresh();
     </script>
   </div>
   <div class="llm-card">

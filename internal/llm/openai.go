@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -111,6 +112,11 @@ func (p *openaiProvider) Analyze(ctx context.Context, req AnalysisRequest) (*Ana
 	httpReq.Header.Set("Content-Type", "application/json")
 	if p.apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
+	// OpenRouter-specific headers
+	if strings.Contains(p.baseURL, "openrouter") {
+		httpReq.Header.Set("HTTP-Referer", "https://oktsec.com")
+		httpReq.Header.Set("X-Title", "oktsec")
 	}
 	if p.apiVersion != "" {
 		q := httpReq.URL.Query()
