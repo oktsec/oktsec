@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"strings"
@@ -49,6 +50,63 @@ var tmplFuncs = template.FuncMap{
 	"safeJS":   func(s string) template.JS { return template.JS(s) },
 	"contains": strings.Contains,
 	"printf":   fmt.Sprintf,
+	"snakeToTitle": func(s string) string {
+		words := strings.Split(s, "_")
+		for i, w := range words {
+			if len(w) > 0 {
+				words[i] = strings.ToUpper(w[:1]) + w[1:]
+			}
+		}
+		return strings.Join(words, " ")
+	},
+	"toMap": func(v any) map[string]any {
+		if m, ok := v.(map[string]any); ok {
+			return m
+		}
+		return nil
+	},
+	"toString": func(v any) string {
+		if v == nil {
+			return ""
+		}
+		return fmt.Sprintf("%v", v)
+	},
+	"parseJSONMap": func(s string) map[string]any {
+		s = strings.TrimSpace(s)
+		if s == "" || s == "{}" || s == "null" {
+			return nil
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(s), &m); err != nil {
+			return nil
+		}
+		return m
+	},
+	"parseJSONArray": func(s string) []any {
+		s = strings.TrimSpace(s)
+		if s == "" || s == "[]" || s == "null" {
+			return nil
+		}
+		var arr []any
+		if err := json.Unmarshal([]byte(s), &arr); err != nil {
+			return nil
+		}
+		return arr
+	},
+	"countJSONArray": func(s string) int {
+		s = strings.TrimSpace(s)
+		if s == "" || s == "[]" || s == "null" {
+			return 0
+		}
+		var arr []any
+		if err := json.Unmarshal([]byte(s), &arr); err != nil {
+			return 0
+		}
+		return len(arr)
+	},
+	"latencySec": func(ms int64) string {
+		return fmt.Sprintf("%.1f", float64(ms)/1000.0)
+	},
 }
 
 var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
@@ -578,6 +636,10 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
       Audit
     </a>
+    <a href="/dashboard/llm" class="sidebar-item {{if eq .Active "llm"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><circle cx="12" cy="6" r="1"/><path d="M9 22v-2"/><path d="M15 22v-2"/></svg>
+      LLM Analysis
+    </a>
   </div>
   <div class="sidebar-section">
     <div class="sidebar-section-label">Management</div>
@@ -843,6 +905,36 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
   </div>
   {{end}}
 </div>
+
+{{if .LLMEnabled}}
+<div class="ov-card" style="margin-bottom:16px">
+  <h3>LLM Analysis</h3>
+  <div class="ov-metric">
+    <span class="k">Provider</span>
+    <span class="v" style="color:var(--accent-light)">{{.LLMProvider}}</span>
+  </div>
+  <div class="ov-metric">
+    <span class="k">Analyses completed</span>
+    <span class="v success">{{.LLMCompleted}}</span>
+  </div>
+  <div class="ov-metric">
+    <span class="k">Threats detected</span>
+    <span class="v {{if gt .LLMThreats 0}}danger{{else}}success{{end}}">{{.LLMThreats}}</span>
+  </div>
+  <div class="ov-metric">
+    <span class="k">Avg risk score</span>
+    <span class="v {{if gt .LLMAvgRisk 60.0}}danger{{else if gt .LLMAvgRisk 30.0}}warn{{else}}success{{end}}">{{printf "%.1f" .LLMAvgRisk}}</span>
+  </div>
+  <div class="ov-metric">
+    <span class="k">Rules generated</span>
+    <span class="v" style="color:var(--accent-light)">{{.LLMRulesGen}}</span>
+  </div>
+  <div class="ov-metric">
+    <span class="k">Tokens used</span>
+    <span class="v" style="color:var(--text2)">{{.LLMTokens}}</span>
+  </div>
+</div>
+{{end}}
 
 <!-- Live feed -->
 <div class="card">
@@ -2488,6 +2580,508 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 </div>
 
 </div>
+
+</div>
+` + layoutFoot))
+
+// --- LLM Analysis page ---
+
+var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHead + `
+<style>
+.llm-hero{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px}
+.llm-hero .cell{background:var(--surface);padding:22px 20px;text-align:center}
+.llm-hero .num{font-size:1.8rem;font-weight:800;letter-spacing:-0.04em;font-family:var(--mono);line-height:1}
+.llm-hero .lbl{font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:6px;font-weight:500}
+.llm-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.llm-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
+.llm-card h3{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:14px;font-weight:500}
+.llm-row{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--border)}
+.llm-row:last-child{border-bottom:none}
+.llm-row .k{font-size:0.82rem;color:var(--text2)}
+.llm-row .v{font-family:var(--mono);font-weight:600;font-size:0.88rem}
+.prov-opt{position:relative;flex:1;padding:16px;border-radius:8px;border:2px solid var(--border);cursor:pointer;transition:all 0.15s;text-align:center}
+.prov-opt:hover{border-color:var(--text3)}
+.prov-opt.sel{border-color:var(--accent);background:rgba(99,102,241,0.06)}
+.prov-opt .pname{font-weight:600;font-size:0.88rem;margin-bottom:2px}
+.prov-opt .pdesc{font-size:0.7rem;color:var(--text3);line-height:1.4}
+.fw-step{display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text2)}
+.fw-step .num{width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;flex-shrink:0}
+.fw-arrow{color:var(--text3);font-size:0.7rem;flex-shrink:0}
+@media(max-width:768px){.llm-hero{grid-template-columns:repeat(2,1fr)}.llm-grid{grid-template-columns:1fr}}
+</style>
+
+<p class="page-desc">Second detection layer powered by your LLM. Runs async after the deterministic pipeline - never blocks the proxy.</p>
+
+{{if not .Enabled}}
+<!-- Setup state -->
+<div class="llm-grid">
+  <div class="card" style="grid-column:1/-1">
+    <div style="display:flex;gap:32px;align-items:flex-start">
+      <div style="flex:1">
+        <h2 style="font-size:1rem;margin-bottom:8px">Enable LLM-Augmented Detection</h2>
+        <p style="color:var(--text2);font-size:0.82rem;line-height:1.6;margin-bottom:20px">
+          175 deterministic rules catch known threats at sub-millisecond speed. The LLM layer catches what regex cannot - semantic exfiltration, intent drift, social engineering between agents - then generates new deterministic rules from its findings.
+        </p>
+        <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--bg2);border-radius:8px;margin-bottom:24px;flex-wrap:wrap">
+          <div class="fw-step"><span class="num">1</span> LLM analyzes message</div>
+          <span class="fw-arrow">&#9654;</span>
+          <div class="fw-step"><span class="num">2</span> Detects novel threat</div>
+          <span class="fw-arrow">&#9654;</span>
+          <div class="fw-step"><span class="num">3</span> Generates YAML rule</div>
+          <span class="fw-arrow">&#9654;</span>
+          <div class="fw-step"><span class="num">4</span> <span style="color:var(--success);font-weight:600">Caught at &lt;1ms forever</span></div>
+        </div>
+
+        <form method="POST" action="/dashboard/settings/llm">
+          <input type="hidden" name="enabled" value="true">
+
+          <label style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;display:block;margin-bottom:10px">Provider</label>
+          <div style="display:flex;gap:10px;margin-bottom:20px">
+            <label class="prov-opt sel" onclick="selectProvider('openai',this)">
+              <input type="radio" name="provider" value="openai" checked style="position:absolute;opacity:0">
+              <div class="pname">OpenAI-Compatible</div>
+              <div class="pdesc">OpenAI, Ollama, vLLM, Groq, Azure, LM Studio, Mistral</div>
+            </label>
+            <label class="prov-opt" onclick="selectProvider('claude',this)">
+              <input type="radio" name="provider" value="claude" style="position:absolute;opacity:0">
+              <div class="pname">Claude</div>
+              <div class="pdesc">Anthropic Messages API</div>
+            </label>
+            <label class="prov-opt" onclick="selectProvider('webhook',this)">
+              <input type="radio" name="provider" value="webhook" style="position:absolute;opacity:0">
+              <div class="pname">Webhook</div>
+              <div class="pdesc">Custom HTTP endpoint</div>
+            </label>
+          </div>
+
+          <div class="form-row" style="margin-bottom:12px" id="llm-fields-row">
+            <div class="form-group" style="flex:1" id="llm-model-group">
+              <label id="llm-model-label">Model</label>
+              <input type="text" name="model" id="llm-model" placeholder="gpt-4o">
+            </div>
+            <div class="form-group" style="flex:1" id="llm-key-group">
+              <label id="llm-key-label">API Key Environment Variable</label>
+              <input type="text" name="api_key_env" id="llm-key" placeholder="OPENAI_API_KEY">
+            </div>
+          </div>
+          <div class="form-row" style="margin-bottom:20px">
+            <div class="form-group" style="flex:1">
+              <label id="llm-url-label">Base URL <span style="color:var(--text3);font-size:0.72rem">(leave empty for provider defaults)</span></label>
+              <input type="text" name="base_url" id="llm-url" placeholder="http://localhost:11434/v1">
+            </div>
+          </div>
+          <script>
+          var provCfg={openai:{model:'gpt-4o, qwen3.5:latest, llama3',modelLabel:'Model',key:'Optional for local models (Ollama, LM Studio)',keyLabel:'API Key Env Variable <span style="color:var(--text3);font-size:0.72rem">(optional for local)</span>',url:'http://localhost:11434/v1',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(required for non-OpenAI)</span>',showModel:true,showKey:true},claude:{model:'claude-sonnet-4-6',modelLabel:'Model',key:'ANTHROPIC_API_KEY',keyLabel:'API Key Env Variable',url:'https://api.anthropic.com',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span>',showModel:true,showKey:true},webhook:{model:'',modelLabel:'',key:'',keyLabel:'',url:'https://your-endpoint.example.com/analyze',urlLabel:'Webhook URL',showModel:false,showKey:false}};
+          function selectProvider(p,el){el.parentNode.querySelectorAll('.prov-opt').forEach(function(c){c.classList.remove('sel')});el.classList.add('sel');var c=provCfg[p];document.getElementById('llm-model').placeholder=c.model;document.getElementById('llm-key').placeholder=c.key;document.getElementById('llm-key-label').innerHTML=c.keyLabel;document.getElementById('llm-url').placeholder=c.url;document.getElementById('llm-url-label').innerHTML=c.urlLabel;document.getElementById('llm-model-group').style.display=c.showModel?'':'none';document.getElementById('llm-key-group').style.display=c.showKey?'':'none';if(!c.showModel)document.getElementById('llm-model').value='';if(!c.showKey)document.getElementById('llm-key').value=''}
+          </script>
+          <button type="submit" class="btn">Enable LLM Analysis</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{else}}
+<!-- Active state -->
+<div class="llm-hero">
+  <div class="cell">
+    <div class="num success">{{.Stats.TotalAnalyses}}</div>
+    <div class="lbl">Analyses</div>
+  </div>
+  <div class="cell">
+    <div class="num {{if gt .Stats.TotalThreats 0}}danger{{else}}success{{end}}">{{.Stats.TotalThreats}}</div>
+    <div class="lbl">Threats Found</div>
+  </div>
+  <div class="cell">
+    <div class="num" style="color:var(--accent-light)">{{.Stats.RulesGenerated}}</div>
+    <div class="lbl">Rules Generated</div>
+  </div>
+  <div class="cell">
+    <div class="num" style="color:var(--text2)">{{.Stats.TotalTokens}}</div>
+    <div class="lbl">Tokens Used</div>
+  </div>
+</div>
+
+<form method="POST" action="/dashboard/settings/llm" id="llm-config-form">
+<input type="hidden" name="enabled" value="true">
+
+<div class="llm-grid">
+  <div class="llm-card">
+    <h3 style="display:flex;align-items:center;gap:10px">Connection <span id="cfg-svc-badge" style="font-size:0.7rem;padding:2px 8px;border-radius:4px;font-weight:500;letter-spacing:0.3px"></span></h3>
+    <div class="form-group" style="margin-bottom:12px">
+      <label>Provider</label>
+      <select name="provider" id="cfg-provider" onchange="updateProviderFields()" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:0.85rem">
+        <option value="openai" {{if eq .Cfg.Provider "openai"}}selected{{end}}>OpenAI-Compatible (Ollama, vLLM, LM Studio, Groq)</option>
+        <option value="claude" {{if eq .Cfg.Provider "claude"}}selected{{end}}>Claude (Anthropic)</option>
+        <option value="webhook" {{if eq .Cfg.Provider "webhook"}}selected{{end}}>Webhook (Custom endpoint)</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px" id="cfg-model-group">
+      <label>Model</label>
+      <input type="text" name="model" id="cfg-model" value="{{.Cfg.Model}}">
+    </div>
+    <div class="form-group" style="margin-bottom:12px" id="cfg-key-group">
+      <label id="cfg-key-label">API Key Env Variable</label>
+      <input type="text" name="api_key_env" id="cfg-key" value="{{.Cfg.APIKeyEnv}}">
+    </div>
+    <div class="form-group">
+      <label id="cfg-url-label">Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span></label>
+      <input type="text" name="base_url" id="cfg-url" value="{{.Cfg.BaseURL}}" oninput="detectService()">
+    </div>
+    <script>
+    function detectService(){var u=(document.getElementById('cfg-url').value||'').toLowerCase(),p=document.getElementById('cfg-provider').value,b=document.getElementById('cfg-svc-badge'),m=document.getElementById('cfg-model').value;b.textContent='';b.style.background='';b.style.color='';if(p==='openai'){if(u.indexOf(':11434')!==-1){b.textContent='Ollama';b.style.background='rgba(34,197,94,0.15)';b.style.color='#22c55e'}else if(u.indexOf('lmstudio')!==-1||u.indexOf(':1234')!==-1){b.textContent='LM Studio';b.style.background='rgba(96,165,250,0.15)';b.style.color='#60a5fa'}else if(u.indexOf('groq')!==-1){b.textContent='Groq';b.style.background='rgba(251,191,36,0.15)';b.style.color='#fbbf24'}else if(u.indexOf('localhost')!==-1||u.indexOf('127.0.0.1')!==-1){b.textContent='Local';b.style.background='rgba(34,197,94,0.15)';b.style.color='#22c55e'}else if(u.indexOf('openai.com')!==-1||u===''){b.textContent='OpenAI';b.style.background='rgba(168,162,158,0.15)';b.style.color='#a8a29e'}else if(u.indexOf('azure')!==-1){b.textContent='Azure';b.style.background='rgba(96,165,250,0.15)';b.style.color='#60a5fa'}else{b.textContent='Custom';b.style.background='rgba(168,162,158,0.1)';b.style.color='#a8a29e'}}else if(p==='claude'){b.textContent='Anthropic';b.style.background='rgba(217,119,87,0.15)';b.style.color='#d97756'}else if(p==='webhook'){b.textContent='Webhook';b.style.background='rgba(168,162,158,0.15)';b.style.color='#a8a29e'}}
+    function updateProviderFields(){var p=document.getElementById('cfg-provider').value,m=document.getElementById('cfg-model'),k=document.getElementById('cfg-key'),u=document.getElementById('cfg-url'),mg=document.getElementById('cfg-model-group'),kg=document.getElementById('cfg-key-group'),kl=document.getElementById('cfg-key-label'),ul=document.getElementById('cfg-url-label');if(p==='openai'){mg.style.display='';kg.style.display='';m.placeholder='gpt-4o, qwen3.5:latest, llama3';k.placeholder='Optional for local models (Ollama, LM Studio)';kl.innerHTML='API Key Env Variable <span style="color:var(--text3);font-size:0.72rem">(optional for local)</span>';u.placeholder='http://localhost:11434/v1';ul.innerHTML='Base URL <span style="color:var(--text3);font-size:0.72rem">(required for non-OpenAI)</span>'}else if(p==='claude'){mg.style.display='';kg.style.display='';m.placeholder='claude-sonnet-4-6';k.placeholder='ANTHROPIC_API_KEY';kl.textContent='API Key Env Variable';u.placeholder='https://api.anthropic.com';ul.innerHTML='Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span>'}else{mg.style.display='none';kg.style.display='none';u.placeholder='https://your-endpoint.example.com/analyze';ul.textContent='Webhook URL'}detectService()}
+    updateProviderFields();
+    </script>
+  </div>
+  <div class="llm-card">
+    <h3>Performance</h3>
+    <div class="llm-row">
+      <span class="k">Avg latency</span>
+      <span class="v {{if gt .Stats.AvgLatencyMs 5000.0}}danger{{else if gt .Stats.AvgLatencyMs 2000.0}}warn{{else}}success{{end}}">{{printf "%.0f" .Stats.AvgLatencyMs}}ms</span>
+    </div>
+    <div class="llm-row">
+      <span class="k">Avg risk score</span>
+      <span class="v {{if gt .Stats.AvgRiskScore 60.0}}danger{{else if gt .Stats.AvgRiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.1f" .Stats.AvgRiskScore}} / 100</span>
+    </div>
+    <div class="form-row" style="margin-top:14px;margin-bottom:0">
+      <div class="form-group" style="flex:1">
+        <label>Max Concurrent</label>
+        <input type="number" name="max_concurrent" value="{{if .Cfg.MaxConcurrent}}{{.Cfg.MaxConcurrent}}{{else}}3{{end}}" min="1" max="20" style="width:100%">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Daily Limit <span style="color:var(--text3);font-size:0.72rem">(0 = unlimited)</span></label>
+        <input type="number" name="max_daily" value="{{.Cfg.MaxDailyReqs}}" min="0" style="width:100%">
+      </div>
+    </div>
+    <div class="form-row" style="margin-top:8px;margin-bottom:0">
+      <div class="form-group" style="flex:1">
+        <label>Max Tokens</label>
+        <input type="number" name="max_tokens" value="{{if .Cfg.MaxTokens}}{{.Cfg.MaxTokens}}{{else}}1024{{end}}" min="1" style="width:100%">
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Temperature</label>
+        <input type="number" name="temperature" value="{{printf "%.1f" .Cfg.Temperature}}" min="0" max="2" step="0.1" style="width:100%">
+      </div>
+    </div>
+    <input type="hidden" name="queue_size" value="{{if .Cfg.QueueSize}}{{.Cfg.QueueSize}}{{else}}100{{end}}">
+  </div>
+</div>
+
+<div class="llm-grid">
+  <div class="llm-card">
+    <h3>Analysis Triggers</h3>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:14px">Select which pipeline verdicts trigger async LLM analysis.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:0">
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Clean}}var(--success){{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Clean}}background:rgba(34,197,94,0.06){{end}}">
+          <span class="toggle"><input type="checkbox" name="analyze_clean" value="true" {{if .Cfg.Analyze.Clean}}checked{{end}}><span class="toggle-slider"></span></span>
+          <div><div style="font-size:0.85rem;font-weight:500">Clean</div><div style="font-size:0.7rem;color:var(--text3)">No rules triggered</div></div>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Flagged}}var(--warn){{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Flagged}}background:rgba(251,191,36,0.06){{end}}">
+          <span class="toggle"><input type="checkbox" name="analyze_flagged" value="true" {{if .Cfg.Analyze.Flagged}}checked{{end}}><span class="toggle-slider"></span></span>
+          <div><div style="font-size:0.85rem;font-weight:500">Flagged</div><div style="font-size:0.7rem;color:var(--text3)">Medium severity match</div></div>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Quarantined}}#fb923c{{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Quarantined}}background:rgba(251,146,60,0.06){{end}}">
+          <span class="toggle"><input type="checkbox" name="analyze_quarantined" value="true" {{if .Cfg.Analyze.Quarantined}}checked{{end}}><span class="toggle-slider"></span></span>
+          <div><div style="font-size:0.85rem;font-weight:500">Quarantined</div><div style="font-size:0.7rem;color:var(--text3)">Held for review</div></div>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Blocked}}var(--danger){{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Blocked}}background:rgba(239,68,68,0.06){{end}}">
+          <span class="toggle"><input type="checkbox" name="analyze_blocked" value="true" {{if .Cfg.Analyze.Blocked}}checked{{end}}><span class="toggle-slider"></span></span>
+          <div><div style="font-size:0.85rem;font-weight:500">Blocked</div><div style="font-size:0.7rem;color:var(--text3)">Critical threat</div></div>
+        </label>
+      </div>
+  </div>
+
+  <div class="llm-card">
+    <h3>Rule Flywheel</h3>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:14px">Auto-convert LLM findings into deterministic YAML rules.</p>
+      <div style="display:flex;gap:20px;margin-bottom:14px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <span class="toggle"><input type="checkbox" name="rulegen_enabled" value="true" {{if .Cfg.RuleGen.Enabled}}checked{{end}}><span class="toggle-slider"></span></span>
+          <span style="font-size:0.85rem;color:var(--text2)">Auto-generate rules</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+          <span class="toggle"><input type="checkbox" name="rulegen_approval" value="true" {{if .Cfg.RuleGen.RequireApproval}}checked{{end}}><span class="toggle-slider"></span></span>
+          <span style="font-size:0.85rem;color:var(--text2)">Require approval</span>
+        </label>
+      </div>
+      <div class="form-row" style="margin-bottom:0">
+        <div class="form-group" style="flex:2">
+          <label>Output Directory</label>
+          <input type="text" name="rulegen_dir" value="{{.Cfg.RuleGen.OutputDir}}" placeholder="./llm-rules">
+        </div>
+        <div class="form-group" style="flex:1">
+          <label>Min Confidence</label>
+          <input type="number" name="rulegen_confidence" value="{{printf "%.1f" .Cfg.RuleGen.MinConfidence}}" min="0" max="1" step="0.1" placeholder="0.8">
+        </div>
+      </div>
+  </div>
+</div>
+
+<div style="display:flex;justify-content:space-between;align-items:center;padding-top:8px">
+  <button type="submit" class="btn">Save Configuration</button>
+  <button type="button" class="btn btn-sm" style="background:transparent;color:var(--text3);border:1px solid var(--border);font-size:0.75rem" onclick="if(confirm('Disable LLM analysis?')){document.getElementById('llm-disable-form').submit()}">Disable LLM</button>
+</div>
+</form>
+<form method="POST" action="/dashboard/settings/llm" id="llm-disable-form" style="display:none">
+  <input type="hidden" name="enabled" value="false">
+  <input type="hidden" name="provider" value="{{.Cfg.Provider}}">
+  <input type="hidden" name="model" value="{{.Cfg.Model}}">
+</form>
+
+<!-- Analysis Results -->
+{{if .Analyses}}
+<div style="margin-top:20px">
+  <h2 style="font-size:0.82rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:12px;font-weight:500">Analysis Results <span style="font-weight:400;color:var(--text3)">({{len .Analyses}})</span></h2>
+  <div class="card" style="padding:0;overflow:hidden">
+    <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+      <thead>
+        <tr style="background:var(--bg2);text-align:left">
+          <th style="padding:10px 14px;font-weight:500;color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px">Time</th>
+          <th style="padding:10px 14px;font-weight:500;color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px">Flow</th>
+          <th style="padding:10px 14px;font-weight:500;color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;text-align:center">Risk</th>
+          <th style="padding:10px 14px;font-weight:500;color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;text-align:center">Threats</th>
+          <th style="padding:10px 14px;font-weight:500;color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px">Action</th>
+          <th style="padding:10px 14px;font-weight:500;color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;text-align:right">Latency</th>
+          <th style="padding:10px 14px;font-weight:500;color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;text-align:right">Tokens</th>
+        </tr>
+      </thead>
+      <tbody>
+      {{range .Analyses}}
+        <tr style="border-top:1px solid var(--border);cursor:pointer;transition:background 0.1s" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
+          <td style="padding:10px 14px;color:var(--text3);font-family:var(--mono);font-size:0.75rem;white-space:nowrap">{{truncate .Timestamp 16}}</td>
+          <td style="padding:10px 14px">
+            <span style="color:var(--accent-light);font-weight:500">{{.FromAgent}}</span>
+            <span style="color:var(--text3);margin:0 4px">→</span>
+            <span style="color:var(--text2)">{{.ToAgent}}</span>
+          </td>
+          <td style="padding:10px 14px;text-align:center">
+            <span style="display:inline-block;min-width:36px;padding:2px 8px;border-radius:4px;font-family:var(--mono);font-weight:700;font-size:0.8rem;{{if ge .RiskScore 80.0}}background:rgba(239,68,68,0.15);color:var(--danger){{else if ge .RiskScore 50.0}}background:rgba(251,191,36,0.15);color:var(--warn){{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.1);color:var(--success){{else}}background:var(--bg2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
+          </td>
+          <td style="padding:10px 14px;text-align:center;font-family:var(--mono);font-weight:600;{{if gt (countJSONArray .ThreatsJSON) 0}}color:var(--danger){{else}}color:var(--text3){{end}}">{{countJSONArray .ThreatsJSON}}</td>
+          <td style="padding:10px 14px">
+            <span style="padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:500;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(251,191,36,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:rgba(251,146,60,0.15);color:#fb923c{{else}}background:var(--bg2);color:var(--text3){{end}}">{{.RecommendedAction}}</span>
+          </td>
+          <td style="padding:10px 14px;text-align:right;font-family:var(--mono);font-size:0.78rem;color:var(--text2)">{{latencySec .LatencyMs}}s</td>
+          <td style="padding:10px 14px;text-align:right;font-family:var(--mono);font-size:0.78rem;color:var(--text3)">{{.TokensUsed}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}
+
+{{end}}
+` + layoutFoot))
+
+var llmDetailTmpl = template.Must(template.New("llm-detail").Funcs(tmplFuncs).Parse(`
+<div class="panel-header">
+  <h3 style="font-size:0.95rem;font-weight:600">LLM Analysis Detail</h3>
+  <button onclick="closePanel()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:1.2rem">&times;</button>
+</div>
+<div style="padding:20px;font-size:0.85rem">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+    <span style="display:inline-block;min-width:48px;padding:6px 12px;border-radius:6px;font-family:var(--mono);font-weight:800;font-size:1.4rem;text-align:center;{{if ge .RiskScore 80.0}}background:rgba(239,68,68,0.15);color:var(--danger){{else if ge .RiskScore 50.0}}background:rgba(251,191,36,0.15);color:var(--warn){{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.1);color:var(--success){{else}}background:var(--bg2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
+    <div>
+      <div style="font-weight:600;margin-bottom:2px">Risk Score</div>
+      <div style="color:var(--text3);font-size:0.78rem">Confidence: {{printf "%.0f" .Confidence}}%</div>
+    </div>
+    <span style="margin-left:auto;padding:4px 12px;border-radius:4px;font-size:0.78rem;font-weight:500;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(251,191,36,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:rgba(251,146,60,0.15);color:#fb923c{{else}}background:var(--bg2);color:var(--text3){{end}}">{{.RecommendedAction}}</span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
+    <div style="background:var(--bg2);border-radius:8px;padding:12px">
+      <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Flow</div>
+      <div><span style="color:var(--accent-light);font-weight:600">{{.FromAgent}}</span> <span style="color:var(--text3)">→</span> <span style="font-weight:500">{{.ToAgent}}</span></div>
+    </div>
+    <div style="background:var(--bg2);border-radius:8px;padding:12px">
+      <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Model</div>
+      <div style="font-family:var(--mono);font-size:0.82rem">{{.Provider}} / {{.Model}}</div>
+    </div>
+    <div style="background:var(--bg2);border-radius:8px;padding:12px">
+      <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Latency</div>
+      <div style="font-family:var(--mono)">{{latencySec .LatencyMs}}s</div>
+    </div>
+    <div style="background:var(--bg2);border-radius:8px;padding:12px">
+      <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Tokens</div>
+      <div style="font-family:var(--mono)">{{.TokensUsed}}</div>
+    </div>
+  </div>
+
+  <div style="margin-bottom:16px">
+    <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Threats ({{countJSONArray .ThreatsJSON}})</div>
+    {{$threats := parseJSONArray .ThreatsJSON}}
+    {{if $threats}}
+    <div style="padding:4px 0">{{range $threats}}<span style="display:inline-block;padding:3px 10px;border-radius:5px;font-size:0.75rem;font-weight:500;margin:2px 4px 2px 0;background:rgba(239,68,68,0.1);color:var(--danger);border:1px solid rgba(239,68,68,0.2)">{{.}}</span>{{end}}</div>
+    {{else}}
+    <div style="color:var(--text3);font-size:0.82rem">None</div>
+    {{end}}
+  </div>
+
+  <div style="margin-bottom:16px">
+    <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Intent</div>
+    {{$intent := parseJSONMap .IntentJSON}}
+    {{if $intent}}
+    {{range $k, $v := $intent}}
+    <div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:0.82rem">
+      <span style="color:var(--text3);text-transform:capitalize">{{$k}}:</span>
+      <span style="color:var(--text)">{{$v}}</span>
+    </div>
+    {{end}}
+    {{else}}
+    <div style="color:var(--text3);font-size:0.82rem">No intent data</div>
+    {{end}}
+  </div>
+
+  <div style="border-top:1px solid var(--border);padding-top:12px;margin-top:8px">
+    <a href="/dashboard/llm/case/{{.ID}}" style="color:var(--accent);text-decoration:none;font-size:0.82rem;font-weight:500">View Full Case &rarr;</a>
+  </div>
+  </div>
+</div>
+`))
+
+var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(layoutHead + `
+<style>
+.case-back{color:var(--accent);text-decoration:none;font-size:0.82rem;display:inline-flex;align-items:center;gap:4px}
+.case-back:hover{text-decoration:underline}
+.case-hero{display:flex;align-items:stretch;gap:16px;margin-bottom:20px}
+.case-risk{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:110px;border-radius:12px;padding:18px}
+.case-risk .score{font-size:2.6rem;font-weight:800;font-family:var(--mono);line-height:1}
+.case-risk .sublbl{font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;margin-top:6px;opacity:0.8}
+.case-meta{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.case-meta .cell{background:var(--surface);padding:14px 16px}
+.case-meta .cell .k{font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:3px}
+.case-meta .cell .v{font-size:0.88rem;font-weight:600}
+.cs{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:14px}
+.cs h3{font-size:0.7rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:12px;font-weight:500}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.two-col .cs{margin-bottom:0}
+.thr{border-radius:8px;padding:12px 14px;margin-bottom:8px}
+.thr:last-child{margin-bottom:0}
+.thr-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.thr-sev{display:inline-block;padding:1px 7px;border-radius:3px;font-size:0.65rem;font-weight:600;letter-spacing:0.3px}
+.thr-sev.c{background:rgba(239,68,68,0.18);color:#ef4444}.thr-sev.h{background:rgba(251,146,60,0.18);color:#fb923c}.thr-sev.m{background:rgba(251,191,36,0.18);color:#fbbf24}.thr-sev.l{background:rgba(34,197,94,0.15);color:#22c55e}
+.thr-name{font-weight:600;font-size:0.82rem;color:var(--text)}
+.thr-conf{margin-left:auto;font-size:0.7rem;color:var(--text3);font-family:var(--mono)}
+.thr-desc{font-size:0.8rem;line-height:1.55;color:var(--text2);margin-bottom:6px}
+.thr-ev{padding:6px 10px;background:var(--surface);border-radius:5px;font-family:var(--mono);font-size:0.72rem;line-height:1.5;color:var(--text3);word-break:break-word;border-left:2px solid var(--border)}
+.thr-rule{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:4px 10px;background:rgba(99,102,241,0.08);border-radius:5px;font-size:0.72rem;color:var(--accent-light)}
+.thr-rule code{font-family:var(--mono);font-size:0.68rem;color:var(--text3);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}
+@media(max-width:900px){.case-hero{flex-direction:column}.case-meta{grid-template-columns:1fr 1fr}.two-col{grid-template-columns:1fr}}
+</style>
+
+<p style="margin-bottom:14px"><a href="/dashboard/llm" class="case-back">&larr; LLM Analysis</a></p>
+
+{{with .Analysis}}
+<div class="case-hero">
+  <div class="case-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.12);color:var(--danger){{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.12);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(251,191,36,0.1);color:var(--warn){{else if gt .RiskScore 10.0}}background:rgba(34,197,94,0.08);color:var(--success){{else}}background:var(--bg2);color:var(--text3){{end}}">
+    <div class="score">{{printf "%.0f" .RiskScore}}</div>
+    <div class="sublbl">{{if ge .RiskScore 76.0}}Critical{{else if ge .RiskScore 51.0}}High{{else if ge .RiskScore 31.0}}Medium{{else if gt .RiskScore 10.0}}Low{{else}}Benign{{end}}</div>
+  </div>
+  <div class="case-meta">
+    <div class="cell">
+      <div class="k">From</div>
+      <div class="v" style="color:var(--accent-light)">{{if .FromAgent}}{{.FromAgent}}{{else}}<span style="color:var(--text3)">unknown</span>{{end}}</div>
+    </div>
+    <div class="cell">
+      <div class="k">To</div>
+      <div class="v">{{if .ToAgent}}{{.ToAgent}}{{else}}<span style="color:var(--text3)">unknown</span>{{end}}</div>
+    </div>
+    <div class="cell">
+      <div class="k">Action</div>
+      <div class="v"><span style="padding:2px 10px;border-radius:4px;font-size:0.8rem;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(251,191,36,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:rgba(251,146,60,0.15);color:#fb923c{{else}}background:var(--bg2);color:var(--text3){{end}}">{{.RecommendedAction}}</span></div>
+    </div>
+    <div class="cell">
+      <div class="k">Model</div>
+      <div class="v" style="font-family:var(--mono);font-size:0.8rem">{{.Model}}</div>
+    </div>
+    <div class="cell">
+      <div class="k">Latency</div>
+      <div class="v" style="font-family:var(--mono)">{{latencySec .LatencyMs}}s</div>
+    </div>
+    <div class="cell">
+      <div class="k">Confidence</div>
+      <div class="v" style="font-family:var(--mono)">{{printf "%.0f" .Confidence}}%</div>
+    </div>
+  </div>
+</div>
+
+<div class="two-col">
+<!-- Left: Intent Analysis -->
+<div class="cs">
+  <h3>Intent Analysis</h3>
+  {{$intent := parseJSONMap .IntentJSON}}
+  {{if $intent}}
+  {{with index $intent "actual_intent"}}<div style="margin-bottom:10px"><div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:3px">Actual Intent</div><div style="font-size:0.85rem;font-weight:600;color:var(--danger)">{{.}}</div></div>{{end}}
+  {{with index $intent "declared_intent"}}<div style="margin-bottom:10px"><div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:3px">Declared Intent</div><div style="font-size:0.85rem;color:var(--text2)">{{.}}</div></div>{{end}}
+  {{with index $intent "reason"}}<div style="margin-bottom:10px"><div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:3px">Reason</div><div style="font-size:0.82rem;line-height:1.6;color:var(--text)">{{.}}</div></div>{{end}}
+  <div style="display:flex;gap:20px;padding-top:8px;border-top:1px solid var(--border)">
+    {{with index $intent "alignment"}}
+    <div>
+      <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:2px">Alignment</div>
+      <div style="font-family:var(--mono);font-weight:800;font-size:1.3rem;{{if lt (toString .) "0.5"}}color:var(--danger){{else}}color:var(--success){{end}}">{{.}}</div>
+    </div>
+    {{end}}
+    {{with index $intent "drift"}}
+    <div>
+      <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:2px">Drift</div>
+      <div style="font-weight:700;font-size:1rem;{{if .}}color:var(--danger){{else}}color:var(--success){{end}}">{{if .}}Yes{{else}}No{{end}}</div>
+    </div>
+    {{end}}
+  </div>
+  {{else}}<div style="color:var(--text3);font-size:0.82rem">No intent data</div>{{end}}
+</div>
+
+<!-- Right: Metadata -->
+<div class="cs">
+  <h3>Analysis Metadata</h3>
+  <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:0.82rem">
+    <span style="color:var(--text3)">Analysis ID</span><span style="font-family:var(--mono);font-size:0.78rem;word-break:break-all">{{.ID}}</span>
+    <span style="color:var(--text3)">Message ID</span><span style="font-family:var(--mono);font-size:0.78rem;word-break:break-all">{{.MessageID}}</span>
+    <span style="color:var(--text3)">Provider</span><span>{{.Provider}}</span>
+    <span style="color:var(--text3)">Model</span><span style="font-family:var(--mono)">{{.Model}}</span>
+    <span style="color:var(--text3)">Tokens</span><span style="font-family:var(--mono)">{{.TokensUsed}}</span>
+    <span style="color:var(--text3)">Timestamp</span><span style="font-family:var(--mono);font-size:0.78rem">{{.Timestamp}}</span>
+  </div>
+  {{if .RuleGenerated}}
+  <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+    <div style="font-size:0.65rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px">Generated Rule</div>
+    <div style="background:var(--bg2);border:1px solid rgba(99,102,241,0.15);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:0.78rem;line-height:1.6;color:var(--accent-light);white-space:pre-wrap">{{.RuleGenerated}}</div>
+  </div>
+  {{end}}
+</div>
+</div>
+
+<!-- Threats -->
+{{$threats := parseJSONArray .ThreatsJSON}}
+<div class="cs">
+  <h3>Threats Detected ({{countJSONArray .ThreatsJSON}})</h3>
+  {{if $threats}}
+    {{range $i, $t := $threats}}
+      {{$m := toMap $t}}
+      {{if $m}}
+      <div class="thr" style="background:var(--bg2)">
+        <div class="thr-head">
+          {{with index $m "severity"}}<span class="thr-sev {{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}">{{upper (toString .)}}</span>{{end}}
+          <span class="thr-name">{{with index $m "type"}}{{snakeToTitle (toString .)}}{{else}}Threat {{inc $i}}{{end}}</span>
+          {{with index $m "confidence"}}<span class="thr-conf">{{printf "%.0f" .}}%</span>{{end}}
+        </div>
+        {{with index $m "description"}}<div class="thr-desc">{{.}}</div>{{end}}
+        {{with index $m "evidence"}}<div class="thr-ev">{{.}}</div>{{end}}
+        {{with index $m "suggestion"}}{{$s := toMap .}}{{if $s}}
+        <span class="thr-rule" title="{{with index $s "pattern"}}{{.}}{{end}}">Suggested: <strong>{{with index $s "name"}}{{.}}{{end}}</strong> {{with index $s "severity"}}<span class="thr-sev {{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}" style="font-size:0.6rem">{{upper (toString .)}}</span>{{end}} {{with index $s "pattern"}}<code>{{.}}</code>{{end}}</span>
+        {{end}}{{end}}
+      </div>
+      {{else}}
+      <div class="thr" style="background:var(--bg2)"><div class="thr-head"><span class="thr-name">{{$t}}</span></div></div>
+      {{end}}
+    {{end}}
+  {{else}}
+  <div style="background:var(--bg2);border-radius:8px;padding:14px 16px;color:var(--success);font-size:0.85rem">No threats detected - message appears benign.</div>
+  {{end}}
+</div>
+{{end}}
 ` + layoutFoot))
 
 // --- Events page (merged audit log + quarantine) ---

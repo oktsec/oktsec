@@ -38,6 +38,16 @@ Your agents make outbound HTTP requests. You need to ensure they don't exfiltrat
 
 </div>
 
+<div class="card" markdown>
+
+### :material-robot: OpenClaw users
+
+You run OpenClaw agents with MCP tools. You need to control which agents call which tools, enforce spending limits, and scan every tool call for threats.
+
+[OpenClaw Integration :material-arrow-right:](../guides/openclaw.md)
+
+</div>
+
 </div>
 
 ---

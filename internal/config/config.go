@@ -28,6 +28,62 @@ type Config struct {
 	ForwardProxy   ForwardProxyConfig             `yaml:"forward_proxy,omitempty"`
 	Gateway        GatewayConfig                  `yaml:"gateway,omitempty"`
 	MCPServers     map[string]MCPServerConfig     `yaml:"mcp_servers,omitempty"`
+	LLM            LLMConfig                      `yaml:"llm,omitempty"`
+}
+
+// LLMConfig configures the async LLM analysis layer.
+// The user selects their own provider: commercial APIs (OpenAI, Claude)
+// or local open-source models (Ollama, vLLM, llama.cpp, LM Studio).
+type LLMConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	Provider      string `yaml:"provider"`                // openai | claude | webhook
+	Model         string `yaml:"model"`                   // model name/ID
+	BaseURL       string `yaml:"base_url,omitempty"`      // override for Ollama, vLLM, Azure, etc.
+	APIKeyEnv     string `yaml:"api_key_env,omitempty"`   // env var name (never raw key)
+	APIVersion    string `yaml:"api_version,omitempty"`   // for Azure OpenAI
+
+	MaxTokens     int     `yaml:"max_tokens,omitempty"`     // per-analysis (default: 2048)
+	Temperature   float64 `yaml:"temperature,omitempty"`    // low = more deterministic (default: 0.1)
+	MaxConcurrent int     `yaml:"max_concurrent,omitempty"` // analysis workers (default: 3)
+	QueueSize     int     `yaml:"queue_size,omitempty"`     // buffer before drop (default: 100)
+	MaxDailyReqs  int64   `yaml:"max_daily_requests,omitempty"` // 0 = unlimited
+	Timeout       string  `yaml:"timeout,omitempty"`        // duration string (default: "30s")
+
+	Analyze          LLMAnalyzeConfig `yaml:"analyze,omitempty"`
+	MinContentLength int              `yaml:"min_content_length,omitempty"` // skip short messages
+
+	RuleGen LLMRuleGenConfig  `yaml:"rulegen,omitempty"`
+	Intent  LLMIntentConfig   `yaml:"intent,omitempty"`
+	Webhook LLMWebhookConfig  `yaml:"webhook,omitempty"`
+}
+
+// LLMAnalyzeConfig controls which verdict types trigger LLM analysis.
+type LLMAnalyzeConfig struct {
+	Clean       bool `yaml:"clean"`
+	Flagged     bool `yaml:"flagged"`
+	Quarantined bool `yaml:"quarantined"`
+	Blocked     bool `yaml:"blocked"`
+}
+
+// LLMRuleGenConfig controls automatic rule generation from LLM findings.
+type LLMRuleGenConfig struct {
+	Enabled         bool    `yaml:"enabled"`
+	OutputDir       string  `yaml:"output_dir,omitempty"`
+	AutoReload      bool    `yaml:"auto_reload"`
+	RequireApproval bool    `yaml:"require_approval"`
+	MinConfidence   float64 `yaml:"min_confidence,omitempty"`
+}
+
+// LLMIntentConfig controls LLM-enhanced intent analysis.
+type LLMIntentConfig struct {
+	Enhanced      bool `yaml:"enhanced"`
+	HistoryWindow int  `yaml:"history_window,omitempty"`
+}
+
+// LLMWebhookConfig holds settings for the custom webhook LLM provider.
+type LLMWebhookConfig struct {
+	URL     string            `yaml:"url,omitempty"`
+	Headers map[string]string `yaml:"headers,omitempty"`
 }
 
 // ServerConfig holds proxy server settings.
@@ -309,6 +365,42 @@ func (c *Config) Validate() error {
 	}
 	if c.ForwardProxy.MaxBodySize < 0 {
 		return fmt.Errorf("forward_proxy.max_body_size must be non-negative")
+	}
+	// LLM config validation
+	if c.LLM.Enabled {
+		switch c.LLM.Provider {
+		case "openai", "claude", "webhook":
+			// valid
+		default:
+			return fmt.Errorf("llm.provider %q is invalid (must be openai, claude, or webhook)", c.LLM.Provider)
+		}
+		if c.LLM.Provider == "claude" && c.LLM.APIKeyEnv == "" {
+			return fmt.Errorf("llm.api_key_env is required for claude provider")
+		}
+		if c.LLM.Provider == "webhook" && c.LLM.Webhook.URL == "" {
+			return fmt.Errorf("llm.webhook.url is required for webhook provider")
+		}
+		if (c.LLM.Provider == "openai" || c.LLM.Provider == "claude") && c.LLM.Model == "" {
+			return fmt.Errorf("llm.model is required for %s provider", c.LLM.Provider)
+		}
+		if c.LLM.MaxTokens < 0 {
+			return fmt.Errorf("llm.max_tokens must be > 0 when set")
+		}
+		if c.LLM.Temperature < 0 || c.LLM.Temperature > 2.0 {
+			return fmt.Errorf("llm.temperature must be between 0 and 2.0")
+		}
+		if c.LLM.MaxConcurrent < 0 {
+			return fmt.Errorf("llm.max_concurrent must be > 0 when set")
+		}
+		if c.LLM.QueueSize < 0 {
+			return fmt.Errorf("llm.queue_size must be > 0 when set")
+		}
+		if c.LLM.MaxDailyReqs < 0 {
+			return fmt.Errorf("llm.max_daily_requests must be > 0 when set")
+		}
+		if c.LLM.RuleGen.Enabled && c.LLM.RuleGen.OutputDir == "" {
+			return fmt.Errorf("llm.rulegen.output_dir is required when rulegen is enabled")
+		}
 	}
 	return nil
 }

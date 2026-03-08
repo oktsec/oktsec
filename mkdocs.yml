@@ -97,6 +97,7 @@ nav:
   - Guides:
     - Dashboard: guides/dashboard.md
     - MCP Gateway: guides/gateway.md
+    - OpenClaw Integration: guides/openclaw.md
     - Per-Agent Egress Control: guides/egress.md
     - Python SDK: guides/python-sdk.md
     - Go SDK: guides/go-sdk.md

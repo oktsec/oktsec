@@ -3,6 +3,7 @@ package dashboard
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,20 @@ func authedGet(t *testing.T, path string) *httptest.ResponseRecorder {
 	cookie := loginSession(t, srv, handler)
 
 	req := httptest.NewRequest("GET", path, nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	return rr
+}
+
+func authedPost(t *testing.T, path string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(cookie)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -401,5 +416,112 @@ func TestServer_ExportJSONWithLimit(t *testing.T) {
 	rr := authedGet(t, "/dashboard/api/export/json?limit=5")
 	if rr.Code != http.StatusOK {
 		t.Errorf("export JSON with limit status = %d, want 200", rr.Code)
+	}
+}
+
+// --- LLM page tests ---
+
+func TestServer_LLMPageLoads(t *testing.T) {
+	rr := authedGet(t, "/dashboard/llm")
+	if rr.Code != http.StatusOK {
+		t.Errorf("llm page status = %d, want 200", rr.Code)
+	}
+}
+
+func TestServer_LLMPageShowsSetupWhenDisabled(t *testing.T) {
+	// LLM is disabled by default in test config
+	rr := authedGet(t, "/dashboard/llm")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("llm page status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Enable LLM") {
+		t.Error("expected setup state with 'Enable LLM' button")
+	}
+}
+
+func TestServer_LLMPageShowsActiveWhenEnabled(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.LLM.Enabled = true
+	srv.cfg.LLM.Provider = "openai"
+	srv.cfg.LLM.Model = "test-model"
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/llm", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("llm page status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Save Configuration") {
+		t.Error("expected active state with 'Save Configuration' button")
+	}
+	if !strings.Contains(body, "test-model") {
+		t.Error("expected model name in active state")
+	}
+}
+
+func TestServer_LLMSaveConfig(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{
+		"enabled":        {"true"},
+		"provider":       {"openai"},
+		"model":          {"gpt-4o"},
+		"base_url":       {"http://localhost:11434/v1"},
+		"api_key_env":    {""},
+		"max_tokens":     {"1024"},
+		"temperature":    {"0.0"},
+		"max_concurrent": {"3"},
+		"queue_size":     {"100"},
+		"max_daily":      {"0"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/settings/llm", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound && rr.Code != http.StatusSeeOther {
+		t.Errorf("save llm status = %d, want redirect", rr.Code)
+	}
+	if srv.cfg.LLM.Provider != "openai" {
+		t.Errorf("provider = %q, want openai", srv.cfg.LLM.Provider)
+	}
+	if srv.cfg.LLM.Model != "gpt-4o" {
+		t.Errorf("model = %q, want gpt-4o", srv.cfg.LLM.Model)
+	}
+}
+
+func TestServer_LLMSaveRejectsInvalidProvider(t *testing.T) {
+	form := url.Values{
+		"enabled":  {"true"},
+		"provider": {"invalid"},
+		"model":    {"test"},
+	}
+	rr := authedPost(t, "/dashboard/settings/llm", form)
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("invalid provider status = %d, want 400", rr.Code)
+	}
+}
+
+func TestServer_LLMCaseNotFound(t *testing.T) {
+	rr := authedGet(t, "/dashboard/llm/case/nonexistent-id")
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("missing case status = %d, want 404", rr.Code)
+	}
+}
+
+func TestServer_LLMDetailAPINotFound(t *testing.T) {
+	rr := authedGet(t, "/dashboard/api/llm/nonexistent-id")
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("missing detail status = %d, want 404", rr.Code)
 	}
 }

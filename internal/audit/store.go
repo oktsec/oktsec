@@ -221,6 +221,30 @@ func (s *Store) migrateSchema() {
 		"ALTER TABLE audit_log ADD COLUMN entry_hash TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN proxy_signature TEXT DEFAULT ''",
 	}
+
+	// LLM analysis table (separate from audit_log, linked by message_id)
+	llmSchema := `CREATE TABLE IF NOT EXISTS llm_analysis (
+		id TEXT PRIMARY KEY,
+		message_id TEXT NOT NULL,
+		timestamp TEXT NOT NULL,
+		from_agent TEXT,
+		to_agent TEXT,
+		provider TEXT,
+		model TEXT,
+		risk_score REAL DEFAULT 0,
+		recommended_action TEXT DEFAULT 'none',
+		confidence REAL DEFAULT 0,
+		threats_json TEXT DEFAULT '[]',
+		intent_json TEXT DEFAULT '{}',
+		latency_ms INTEGER DEFAULT 0,
+		tokens_used INTEGER DEFAULT 0,
+		rule_generated TEXT DEFAULT ''
+	);
+	CREATE INDEX IF NOT EXISTS idx_llm_message ON llm_analysis(message_id);
+	CREATE INDEX IF NOT EXISTS idx_llm_timestamp ON llm_analysis(timestamp);`
+	if _, err := s.db.Exec(llmSchema); err != nil {
+		s.logger.Warn("llm_analysis table creation skipped", "error", err)
+	}
 	for _, m := range migrations {
 		if _, err := s.db.Exec(m); err != nil {
 			// "duplicate column name" is expected on re-runs; ignore it

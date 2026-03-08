@@ -1,0 +1,13 @@
+id: LLM-006
+name: TokenExposureRule
+description: API token embedded in URL parameter for unauthorized data access
+severity: critical
+category: credential_theft
+source: llm-generated
+generated_by: openai
+generated_from: 93dcb16e-9d29-4737-8d17-bbb8291bd2b1
+confidence: 0.85
+status: active
+patterns:
+    - type: regex
+      value: (token|auth|api)\s*=\s*[^\s]+

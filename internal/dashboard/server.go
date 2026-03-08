@@ -161,6 +161,9 @@ func (s *Server) routes() {
 		http.Redirect(w, r, "/dashboard/settings", http.StatusMovedPermanently)
 	})
 	s.mux.HandleFunc("GET /dashboard/agents/{name...}", s.handleAgentDetail)
+	s.mux.HandleFunc("GET /dashboard/llm", s.handleLLM)
+	s.mux.HandleFunc("GET /dashboard/llm/case/{id}", s.handleLLMCase)
+	s.mux.HandleFunc("GET /dashboard/api/llm/{id}", s.handleLLMDetail)
 	s.mux.HandleFunc("GET /dashboard/audit", s.handleAudit)
 	s.mux.HandleFunc("GET /dashboard/audit/sandbox", s.handleAuditSandbox)
 	s.mux.HandleFunc("GET /dashboard/rules", s.handleRules)
@@ -228,6 +231,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /dashboard/settings/quarantine", s.handleSaveQuarantine)
 
 	// Webhook channels
+	s.mux.HandleFunc("POST /dashboard/settings/llm", s.handleSaveLLM)
 	s.mux.HandleFunc("POST /dashboard/settings/webhooks", s.handleSaveWebhookChannel)
 	s.mux.HandleFunc("DELETE /dashboard/settings/webhooks/{name}", s.handleDeleteWebhookChannel)
 

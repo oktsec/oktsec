@@ -1,0 +1,13 @@
+id: LLM-003
+name: Instruction_Override_Detection
+description: Attempts to invalidate previous agent instructions using 'forget what I said before' pattern. This is a known prompt injection technique that can bypass safety controls.
+severity: high
+category: prompt_injection
+source: llm-generated
+generated_by: openai
+generated_from: 5fdcdd56-6af8-42f0-a7ab-2315924e4093
+confidence: 0.85
+status: active
+patterns:
+    - type: regex
+      value: (forget|ignore|disregard).*?(what.*?I.*?said|previous.*?instructions)
