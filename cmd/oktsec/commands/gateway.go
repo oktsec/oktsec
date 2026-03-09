@@ -112,64 +112,9 @@ func newGatewayCmd() *cobra.Command {
 // setupGatewayLLM creates and wires the LLM analysis queue for the gateway.
 // Returns the queue so the caller can start/stop it.
 func setupGatewayLLM(cfg *config.Config, gw *gateway.Gateway, logger *slog.Logger) *llm.Queue {
-	llmCfg := llm.Config{
-		Enabled:          true,
-		Provider:         llm.Provider(cfg.LLM.Provider),
-		Model:            cfg.LLM.Model,
-		BaseURL:          cfg.LLM.BaseURL,
-		APIKeyEnv:        cfg.LLM.APIKeyEnv,
-		APIVersion:       cfg.LLM.APIVersion,
-		MaxTokens:        cfg.LLM.MaxTokens,
-		Temperature:      cfg.LLM.Temperature,
-		MaxConcurrent:    cfg.LLM.MaxConcurrent,
-		QueueSize:        cfg.LLM.QueueSize,
-		MaxDailyReqs:     cfg.LLM.MaxDailyReqs,
-		Timeout:          cfg.LLM.Timeout,
-		Analyze:          llm.AnalyzeConfig(cfg.LLM.Analyze),
-		MinContentLength: cfg.LLM.MinContentLength,
-		Webhook:          llm.WebhookConfig(cfg.LLM.Webhook),
-	}
-
-	// Build fallback config if configured
-	var fbCfg *llm.FallbackConfig
-	if cfg.LLM.Fallback.Provider != "" {
-		fbCfg = &llm.FallbackConfig{
-			Provider:   llm.Provider(cfg.LLM.Fallback.Provider),
-			Model:      cfg.LLM.Fallback.Model,
-			BaseURL:    cfg.LLM.Fallback.BaseURL,
-			APIKeyEnv:  cfg.LLM.Fallback.APIKeyEnv,
-			APIVersion: cfg.LLM.Fallback.APIVersion,
-			MaxTokens:  cfg.LLM.Fallback.MaxTokens,
-			Timeout:    cfg.LLM.Fallback.Timeout,
-		}
-	}
-
-	analyzer, err := llm.NewWithFallback(llmCfg, fbCfg, logger)
-	if err != nil {
-		logger.Error("failed to create LLM analyzer for gateway", "error", err)
+	queue, sd := llm.SetupQueue(cfg.LLM, logger)
+	if queue == nil {
 		return nil
-	}
-
-	queueCfg := llm.QueueConfig{
-		Workers:      cfg.LLM.MaxConcurrent,
-		BufferSize:   cfg.LLM.QueueSize,
-		MaxDailyReqs: cfg.LLM.MaxDailyReqs,
-	}
-	queue := llm.NewQueue(analyzer, queueCfg, logger)
-
-	// Wire budget tracker
-	if cfg.LLM.Budget.DailyLimitUSD > 0 || cfg.LLM.Budget.MonthlyLimitUSD > 0 {
-		budgetCfg := llm.BudgetConfig{
-			DailyLimitUSD:   cfg.LLM.Budget.DailyLimitUSD,
-			MonthlyLimitUSD: cfg.LLM.Budget.MonthlyLimitUSD,
-			WarnThreshold:   cfg.LLM.Budget.WarnThreshold,
-			OnLimit:         cfg.LLM.Budget.OnLimit,
-		}
-		queue.SetBudget(llm.NewBudgetTracker(budgetCfg, logger))
-		logger.Info("gateway llm budget control enabled",
-			"daily_limit", budgetCfg.DailyLimitUSD,
-			"monthly_limit", budgetCfg.MonthlyLimitUSD,
-		)
 	}
 
 	// Store LLM results in audit database
@@ -196,27 +141,9 @@ func setupGatewayLLM(cfg *config.Config, gw *gateway.Gateway, logger *slog.Logge
 	})
 
 	gw.SetLLMQueue(queue)
-
-	// Wire signal detector (triage pre-filter)
-	triageCfg := cfg.LLM.Triage
-	if triageCfg.Enabled {
-		sd := llm.NewSignalDetector(llm.TriageConfig{
-			Enabled:           true,
-			SkipVerdicts:      triageCfg.SkipVerdicts,
-			SensitiveKeywords: triageCfg.SensitiveKeywords,
-			MinContentLength:  triageCfg.MinContentLength,
-			NewAgentPairs:     triageCfg.NewAgentPairs,
-			SampleRate:        triageCfg.SampleRate,
-			ExternalURLs:      triageCfg.ExternalURLs,
-		})
+	if sd != nil {
 		gw.SetSignalDetector(sd)
-		logger.Info("gateway llm triage enabled", "sample_rate", triageCfg.SampleRate)
 	}
-
-	logger.Info("gateway llm analysis enabled",
-		"provider", cfg.LLM.Provider,
-		"model", cfg.LLM.Model,
-	)
 	return queue
 }
 

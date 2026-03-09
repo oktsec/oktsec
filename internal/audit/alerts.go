@@ -64,47 +64,33 @@ func (s *Store) QueryAlerts(limit, offset int) ([]AlertEntry, error) {
 	return alerts, rows.Err()
 }
 
-// AlertStats returns aggregated alert statistics.
+// AlertStats returns aggregated alert statistics in a single query.
 func (s *Store) AlertStats() (AlertStats, error) {
 	stats := AlertStats{
 		ByEvent:    make(map[string]int),
 		BySeverity: make(map[string]int),
 	}
 
-	// Total count
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM alerts`).Scan(&stats.Total)
-
-	// Last 24h
 	cutoff := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM alerts WHERE timestamp > ?`, cutoff).Scan(&stats.Last24h)
-
-	// By event type
-	rows, err := s.db.Query(`SELECT event, COUNT(*) FROM alerts GROUP BY event`)
+	rows, err := s.db.Query(
+		`SELECT event, severity, COUNT(*) as cnt,
+			COUNT(CASE WHEN timestamp > ? THEN 1 END) as recent
+		 FROM alerts GROUP BY event, severity`, cutoff)
 	if err != nil {
 		return stats, err
 	}
 	defer func() { _ = rows.Close() }()
+
 	for rows.Next() {
-		var event string
-		var count int
-		if err := rows.Scan(&event, &count); err == nil {
-			stats.ByEvent[event] = count
+		var event, sev string
+		var cnt, recent int
+		if err := rows.Scan(&event, &sev, &cnt, &recent); err != nil {
+			return stats, err
 		}
+		stats.Total += cnt
+		stats.Last24h += recent
+		stats.ByEvent[event] += cnt
+		stats.BySeverity[sev] += cnt
 	}
-
-	// By severity
-	rows2, err := s.db.Query(`SELECT severity, COUNT(*) FROM alerts GROUP BY severity`)
-	if err != nil {
-		return stats, err
-	}
-	defer func() { _ = rows2.Close() }()
-	for rows2.Next() {
-		var sev string
-		var count int
-		if err := rows2.Scan(&sev, &count); err == nil {
-			stats.BySeverity[sev] = count
-		}
-	}
-
-	return stats, nil
+	return stats, rows.Err()
 }

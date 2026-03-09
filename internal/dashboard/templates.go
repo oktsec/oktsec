@@ -72,12 +72,6 @@ var tmplFuncs = template.FuncMap{
 		return toFloat64(a) / fb
 	},
 	"mulf": func(a, b any) float64 { return toFloat64(a) * toFloat64(b) },
-	"divFloat": func(a, b float64) float64 {
-		if b == 0 {
-			return 0
-		}
-		return a / b
-	},
 	"toFloat": func(v any) float64 {
 		switch n := v.(type) {
 		case float64:
@@ -3227,7 +3221,7 @@ function llmSwitchTab(name){
         <option value="block" {{if eq .Cfg.Budget.OnLimit "block"}}selected{{end}}>Pause all analysis until reset</option>
       </select>
     </div>
-    <input type="hidden" name="budget_warn" value="{{if gt .Cfg.Budget.WarnThreshold 0.0}}{{printf "%.0f" (divFloat .Cfg.Budget.WarnThreshold 0.01)}}{{else}}80{{end}}">
+    <input type="hidden" name="budget_warn" value="{{if gt .Cfg.Budget.WarnThreshold 0.0}}{{printf "%.0f" (divf .Cfg.Budget.WarnThreshold 0.01)}}{{else}}80{{end}}">
 
     <h3 style="margin-top:20px">Analysis triggers</h3>
     <p style="color:var(--text3);font-size:0.78rem;margin-bottom:10px">Which verdicts get sent to the LLM?</p>

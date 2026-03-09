@@ -121,7 +121,7 @@ func TestNotifyTemplated_SendsSlackJSON(t *testing.T) {
 
 	// Call synchronously for testing (bypass goroutine)
 	rendered := RenderTemplate("Alert: {{RULE}} fired ({{SEVERITY}})", event)
-	notifier.sendRaw(ts.URL, rendered)
+	notifier.sendRaw(ts.URL, ts.URL, rendered, event)
 
 	if receivedContentType != "application/json" {
 		t.Errorf("content-type = %q, want application/json", receivedContentType)
@@ -157,7 +157,7 @@ func TestNotifyTemplated_EmptyFallsBackToJSON(t *testing.T) {
 	}
 
 	// Empty template — should send default JSON struct
-	notifier.send(ts.URL, event)
+	notifier.send(ts.URL, ts.URL, event)
 
 	var payload WebhookEvent
 	if err := json.Unmarshal([]byte(receivedBody), &payload); err != nil {

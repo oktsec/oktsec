@@ -121,7 +121,7 @@ func (n *WebhookNotifier) Notify(event WebhookEvent) {
 			n.logger.Debug("alert cooldown active, skipping", "event", event.Event, "agent", event.From)
 			continue
 		}
-		go n.sendWithLog(wh.URL, channel, event)
+		go n.send(wh.URL, channel, event)
 	}
 }
 
@@ -132,7 +132,7 @@ func (n *WebhookNotifier) NotifyURL(rawURL string, event WebhookEvent) {
 		n.logger.Warn("skipping invalid notify URL", "url", rawURL, "error", err)
 		return
 	}
-	go n.sendWithLog(rawURL, rawURL, event)
+	go n.send(rawURL, rawURL, event)
 }
 
 // NotifyTemplated sends a templated body to a URL. Tags like {{RULE}}, {{ACTION}},
@@ -144,10 +144,10 @@ func (n *WebhookNotifier) NotifyTemplated(rawURL, tmpl string, event WebhookEven
 		return
 	}
 	if tmpl == "" {
-		go n.sendWithLog(rawURL, rawURL, event)
+		go n.send(rawURL, rawURL, event)
 		return
 	}
-	go n.sendRawWithLog(rawURL, rawURL, RenderTemplate(tmpl, event), event)
+	go n.sendRaw(rawURL, rawURL, RenderTemplate(tmpl, event), event)
 }
 
 // RenderTemplate replaces {{TAG}} placeholders in a plain-text template,
@@ -182,6 +182,16 @@ func (n *WebhookNotifier) shouldCooldown(event, agent string) bool {
 	n.cooldownMu.Lock()
 	defer n.cooldownMu.Unlock()
 
+	// Evict stale entries to prevent unbounded growth
+	if len(n.lastSent) > 1000 {
+		cutoff := time.Now().Add(-n.cooldown)
+		for k, v := range n.lastSent {
+			if v.Before(cutoff) {
+				delete(n.lastSent, k)
+			}
+		}
+	}
+
 	if last, ok := n.lastSent[key]; ok && time.Since(last) < n.cooldown {
 		return true
 	}
@@ -189,21 +199,19 @@ func (n *WebhookNotifier) shouldCooldown(event, agent string) bool {
 	return false
 }
 
-func (n *WebhookNotifier) sendWithLog(url, channel string, event WebhookEvent) {
+func (n *WebhookNotifier) send(url, channel string, event WebhookEvent) {
 	status := "sent"
 	body, err := json.Marshal(event)
 	if err != nil {
 		n.logger.Error("webhook marshal failed", "error", err)
-		status = "failed"
-		n.logAlert(event, channel, status)
+		n.logAlert(event, channel, "failed")
 		return
 	}
 
 	resp, err := n.client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
-		status = "failed"
-		n.logAlert(event, channel, status)
+		n.logAlert(event, channel, "failed")
 		return
 	}
 	_ = resp.Body.Close()
@@ -215,13 +223,12 @@ func (n *WebhookNotifier) sendWithLog(url, channel string, event WebhookEvent) {
 	n.logAlert(event, channel, status)
 }
 
-func (n *WebhookNotifier) sendRawWithLog(url, channel, body string, event WebhookEvent) {
+func (n *WebhookNotifier) sendRaw(url, channel, body string, event WebhookEvent) {
 	status := "sent"
 	resp, err := n.client.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
-		status = "failed"
-		n.logAlert(event, channel, status)
+		n.logAlert(event, channel, "failed")
 		return
 	}
 	_ = resp.Body.Close()
@@ -230,38 +237,6 @@ func (n *WebhookNotifier) sendRawWithLog(url, channel, body string, event Webhoo
 		status = "failed"
 	}
 	n.logAlert(event, channel, status)
-}
-
-// Legacy methods kept for backward compatibility with tests.
-func (n *WebhookNotifier) sendRaw(url, body string) {
-	resp, err := n.client.Post(url, "application/json", strings.NewReader(body))
-	if err != nil {
-		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
-		return
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		n.logger.Warn("webhook returned error", "url", url, "status", resp.StatusCode)
-	}
-}
-
-func (n *WebhookNotifier) send(url string, event WebhookEvent) {
-	body, err := json.Marshal(event)
-	if err != nil {
-		n.logger.Error("webhook marshal failed", "error", err)
-		return
-	}
-
-	resp, err := n.client.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
-		return
-	}
-	_ = resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		n.logger.Warn("webhook returned error", "url", url, "status", resp.StatusCode)
-	}
 }
 
 func (n *WebhookNotifier) logAlert(event WebhookEvent, channel, status string) {
