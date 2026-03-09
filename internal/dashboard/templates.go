@@ -19,6 +19,19 @@ func snakeToTitle(s string) string {
 	return strings.Join(words, " ")
 }
 
+func toFloat64(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	default:
+		return 0
+	}
+}
+
 // tmplFuncs is the shared FuncMap for all event-rendering templates.
 var tmplFuncs = template.FuncMap{
 	"humanDecision": humanReadableDecision,
@@ -51,13 +64,14 @@ var tmplFuncs = template.FuncMap{
 	},
 	"lower": strings.ToLower,
 	"inc": func(i int) int { return i + 1 },
-	"divf": func(a, b int) float64 {
-		if b == 0 {
+	"divf": func(a, b any) float64 {
+		fb := toFloat64(b)
+		if fb == 0 {
 			return 0
 		}
-		return float64(a) / float64(b)
+		return toFloat64(a) / fb
 	},
-	"mulf":   func(a, b int) int { return a * b },
+	"mulf": func(a, b any) float64 { return toFloat64(a) * toFloat64(b) },
 	"divFloat": func(a, b float64) float64 {
 		if b == 0 {
 			return 0
@@ -1189,7 +1203,7 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
           <div class="risk-bar" style="flex:1">
             <div class="risk-bar-fill {{if gt .RiskScore 60.0}}risk-high{{else if gt .RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .RiskScore}}%"></div>
           </div>
-          <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text3)">{{printf "%.0f" .RiskScore}}</span>
+          <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text3)">{{printf "%.0f" .RiskScore}}</span>{{if gt .LLMThreatCount 0}}<span title="{{.LLMThreatCount}} LLM threats" style="font-size:0.6rem;color:var(--danger);margin-left:2px">&#x26A0;</span>{{end}}
         </div>
       </td>
       <td style="text-align:center">{{if .HasKey}}<span title="Key registered" style="color:var(--success)">&#x1f512;</span>{{else}}<span title="No key" style="color:var(--text3)">&#x1f513;</span>{{end}}</td>
@@ -1274,7 +1288,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
 
 <div class="grid-3" style="gap:16px;margin-bottom:20px">
   <div class="card" style="margin-bottom:0">
-    <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Risk Score</div>
+    <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Risk Score{{if and .LLMEnabled (gt .AgentRisk.LLMAnalysisCount 0)}} <span style="font-size:0.65rem;color:var(--accent-light)">(audit + LLM)</span>{{end}}</div>
     <div style="display:flex;align-items:center;gap:10px">
       <div style="font-size:1.6rem;font-weight:700" class="{{if gt .RiskScore 60.0}}danger{{else if gt .RiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.0f" .RiskScore}}</div>
       <div style="flex:1">
@@ -1282,6 +1296,13 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       </div>
       <div style="font-size:0.72rem;color:var(--text3)">{{if gt .RiskScore 60.0}}High{{else if gt .RiskScore 30.0}}Medium{{else}}Low{{end}}</div>
     </div>
+    {{if and .LLMEnabled (gt .AgentRisk.LLMAnalysisCount 0)}}
+    <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);display:flex;gap:16px;font-size:0.72rem">
+      <div><span style="color:var(--text3)">LLM avg</span> <span style="font-family:var(--mono);font-weight:600;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</span></div>
+      <div><span style="color:var(--text3)">peak</span> <span style="font-family:var(--mono);font-weight:600">{{printf "%.0f" .AgentRisk.LLMMaxRisk}}</span></div>
+      <div><span style="color:var(--text3)">analyses</span> <span style="font-family:var(--mono)">{{.AgentRisk.LLMAnalysisCount}}</span></div>
+    </div>
+    {{end}}
   </div>
 
   {{if .TopRules}}
@@ -1326,6 +1347,47 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     {{end}}
     </tbody>
   </table>
+</div>
+{{end}}
+
+{{if and .LLMEnabled .LLMHistory}}
+<div class="card">
+  <h2>LLM Threat Intelligence</h2>
+  {{if gt .AgentRisk.LLMThreatCount 0}}
+  <div style="display:flex;gap:16px;margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:8px">
+    <div style="text-align:center">
+      <div style="font-size:1.4rem;font-weight:700;color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else if gt .AgentRisk.LLMThreatCount 1}}var(--warn){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div>
+      <div style="font-size:0.68rem;color:var(--text3)">Threats</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:1.4rem;font-weight:700;color:var(--danger)">{{.AgentRisk.LLMConfirmed}}</div>
+      <div style="font-size:0.68rem;color:var(--text3)">Confirmed</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:1.4rem;font-weight:700;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div>
+      <div style="font-size:0.68rem;color:var(--text3)">Avg Risk</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:1.4rem;font-weight:700">{{printf "%.0f" .AgentRisk.LLMMaxRisk}}</div>
+      <div style="font-size:0.68rem;color:var(--text3)">Peak Risk</div>
+    </div>
+  </div>
+  {{end}}
+  <table>
+    <thead><tr><th>Time</th><th>To</th><th style="text-align:right">Risk</th><th>Action</th><th>Status</th></tr></thead>
+    <tbody>
+    {{range .LLMHistory}}
+    <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
+      <td data-ts="{{.Timestamp}}" style="font-size:0.78rem">{{.Timestamp}}</td>
+      <td>{{agentCell .ToAgent}}</td>
+      <td style="text-align:right;font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
+      <td>{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
+      <td>{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-size:0.75rem;font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3);font-size:0.75rem">dismissed</span>{{else}}<span style="color:var(--warn);font-size:0.75rem">pending</span>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  <div style="margin-top:10px;text-align:right"><a href="/dashboard/llm" style="color:var(--accent);font-size:0.78rem">View all LLM analyses &rarr;</a></div>
 </div>
 {{end}}
 
@@ -1540,6 +1602,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
   <a href="/dashboard/rules?tab=detection" class="rules-tab {{if eq .Tab "detection"}}active{{end}}">Detection Rules{{if .RuleCount}} <span class="count">{{.RuleCount}}</span>{{end}}</a>
   <a href="/dashboard/rules?tab=enforcement" class="rules-tab {{if eq .Tab "enforcement"}}active{{end}}">Enforcement{{if .EnforcementCount}} <span class="count">{{.EnforcementCount}}</span>{{end}}</a>
   <a href="/dashboard/rules?tab=custom" class="rules-tab {{if eq .Tab "custom"}}active{{end}}">Custom Rules{{if .CustomCount}} <span class="count">{{.CustomCount}}</span>{{end}}</a>
+  {{if .LLMTotalCount}}<a href="/dashboard/rules?tab=llm-rules" class="rules-tab {{if eq .Tab "llm-rules"}}active{{end}}">LLM Rules{{if .LLMPendingCount}} <span class="count" style="background:rgba(251,146,60,0.15);color:#fb923c">{{.LLMPendingCount}} pending</span>{{else if .LLMTotalCount}} <span class="count">{{.LLMTotalCount}}</span>{{end}}</a>{{end}}
 </div>
 
 {{if eq .Tab "detection"}}
@@ -1574,6 +1637,88 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 </div>
 {{else}}
 <div class="empty">No rules loaded.</div>
+{{end}}
+
+{{else if eq .Tab "llm-rules"}}
+<!-- LLM-Generated Rules Tab -->
+<style>
+.lr-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:10px;transition:border-color 0.2s}
+.lr-card:hover{border-color:var(--accent)}
+.lr-card.pending{border-left:3px solid var(--warn)}
+.lr-card.active{border-left:3px solid var(--success)}
+.lr-card.rejected{border-left:3px solid var(--text3);opacity:0.6}
+.lr-top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.lr-id{font-family:var(--mono);font-weight:600;font-size:0.85rem}
+.lr-name{color:var(--text2);font-size:0.82rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lr-desc{color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:10px}
+.lr-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:0.72rem}
+.lr-tag{padding:2px 8px;border-radius:4px;background:var(--surface2);font-family:var(--mono)}
+.lr-pattern{margin-top:10px;padding:8px 12px;background:var(--bg);border-radius:6px;font-family:var(--mono);font-size:0.72rem;color:var(--accent-light);word-break:break-all}
+.lr-actions{display:flex;gap:8px;margin-top:12px}
+</style>
+
+{{if .LLMPending}}
+<div style="margin-bottom:24px">
+  <h2 style="font-size:1rem;margin-bottom:12px;color:var(--warn)">Pending Review <span style="font-size:0.75rem;color:var(--text3)">({{len .LLMPending}} rules)</span></h2>
+  {{range .LLMPending}}
+  <div class="lr-card pending">
+    <div class="lr-top">
+      <span class="lr-id">{{.ID}}</span>
+      <span class="lr-name">{{.Name}}</span>
+      <span class="badge-quarantined" style="font-size:0.68rem">pending</span>
+      {{if eq .Severity "critical"}}<span class="badge-blocked" style="font-size:0.65rem">{{.Severity}}</span>
+      {{else if eq .Severity "high"}}<span class="badge-blocked" style="font-size:0.65rem">{{.Severity}}</span>
+      {{else if eq .Severity "medium"}}<span class="badge-quarantined" style="font-size:0.65rem">{{.Severity}}</span>
+      {{else}}<span class="badge-delivered" style="font-size:0.65rem">{{.Severity}}</span>{{end}}
+    </div>
+    <div class="lr-desc">{{.Description}}</div>
+    <div class="lr-meta">
+      <span class="lr-tag" style="color:var(--text2)">{{.Category}}</span>
+      <span style="color:var(--text3)">confidence: <span style="font-family:var(--mono);color:var(--text)">{{printf "%.0f" (mulf .Confidence 100)}}%</span></span>
+      <span style="color:var(--text3)">by: <span style="font-family:var(--mono)">{{.GeneratedBy}}</span></span>
+      {{if .MessageID}}<span style="color:var(--text3)">from: <a href="/dashboard/llm/case/{{.MessageID}}" style="color:var(--accent);font-family:var(--mono);font-size:0.68rem">{{truncate .MessageID 8}}...</a></span>{{end}}
+    </div>
+    {{range .Patterns}}
+    <div class="lr-pattern">{{.Value}}</div>
+    {{end}}
+    <div class="lr-actions" id="lr-act-{{.ID}}">
+      <button class="btn btn-sm" style="background:var(--success)" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Approve &amp; Activate</button>
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text3)" hx-post="/dashboard/api/rules/llm/{{.ID}}/reject" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Reject</button>
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{if .LLMActive}}
+<div>
+  <h2 style="font-size:1rem;margin-bottom:12px;color:var(--success)">Active <span style="font-size:0.75rem;color:var(--text3)">({{len .LLMActive}} rules)</span></h2>
+  {{range .LLMActive}}
+  <div class="lr-card active">
+    <div class="lr-top">
+      <span class="lr-id">{{.ID}}</span>
+      <span class="lr-name">{{.Name}}</span>
+      <span class="badge-delivered" style="font-size:0.68rem">active</span>
+      {{if eq .Severity "critical"}}<span class="badge-blocked" style="font-size:0.65rem">{{.Severity}}</span>
+      {{else if eq .Severity "high"}}<span class="badge-blocked" style="font-size:0.65rem">{{.Severity}}</span>
+      {{else if eq .Severity "medium"}}<span class="badge-quarantined" style="font-size:0.65rem">{{.Severity}}</span>
+      {{else}}<span class="badge-delivered" style="font-size:0.65rem">{{.Severity}}</span>{{end}}
+    </div>
+    <div class="lr-desc">{{.Description}}</div>
+    <div class="lr-meta">
+      <span class="lr-tag" style="color:var(--text2)">{{.Category}}</span>
+      <span style="color:var(--text3)">confidence: <span style="font-family:var(--mono);color:var(--text)">{{printf "%.0f" (mulf .Confidence 100)}}%</span></span>
+      {{range .Patterns}}
+      <span style="font-family:var(--mono);font-size:0.68rem;color:var(--accent-light);background:var(--bg);padding:2px 6px;border-radius:4px">{{.Value}}</span>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+{{if and (not .LLMPending) (not .LLMActive)}}
+<div class="empty">No LLM-generated rules found. Rules are generated when the LLM layer detects threats with high confidence.</div>
 {{end}}
 
 {{else if eq .Tab "enforcement"}}

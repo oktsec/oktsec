@@ -142,6 +142,150 @@ func TestQueryLLMAnalysisByMessage(t *testing.T) {
 	}
 }
 
+func TestQueryAgentLLMRisk(t *testing.T) {
+	store := newTestStore(t)
+
+	// Empty table returns empty map
+	empty, err := store.QueryAgentLLMRisk()
+	if err != nil {
+		t.Fatalf("empty table: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("expected 0 agents, got %d", len(empty))
+	}
+
+	// Insert analyses for two agents
+	records := []LLMAnalysis{
+		{
+			ID: "ar1", MessageID: "arm1", Timestamp: "2025-01-01T00:00:00Z",
+			FromAgent: "risky-bot", ToAgent: "target-a", Provider: "openai", Model: "gpt-4",
+			RiskScore: 80, RecommendedAction: "block", Confidence: 0.9,
+			ThreatsJSON: `["injection"]`, IntentJSON: `{}`, LatencyMs: 100, TokensUsed: 200,
+			RuleGenerated: "RULE-1",
+		},
+		{
+			ID: "ar2", MessageID: "arm2", Timestamp: "2025-01-01T00:01:00Z",
+			FromAgent: "risky-bot", ToAgent: "target-b", Provider: "openai", Model: "gpt-4",
+			RiskScore: 60, RecommendedAction: "investigate", Confidence: 0.8,
+			ThreatsJSON: `["exfil"]`, IntentJSON: `{}`, LatencyMs: 150, TokensUsed: 300,
+		},
+		{
+			ID: "ar3", MessageID: "arm3", Timestamp: "2025-01-01T00:02:00Z",
+			FromAgent: "safe-bot", ToAgent: "target-a", Provider: "openai", Model: "gpt-4",
+			RiskScore: 5, RecommendedAction: "none", Confidence: 0.95,
+			ThreatsJSON: `[]`, IntentJSON: `{}`, LatencyMs: 80, TokensUsed: 100,
+		},
+	}
+	for _, r := range records {
+		if err := store.LogLLMAnalysis(r); err != nil {
+			t.Fatalf("insert %s: %v", r.ID, err)
+		}
+	}
+
+	// Mark one as confirmed
+	if err := store.UpdateLLMReviewStatus("ar1", "confirmed"); err != nil {
+		t.Fatalf("update review status: %v", err)
+	}
+
+	risks, err := store.QueryAgentLLMRisk()
+	if err != nil {
+		t.Fatalf("QueryAgentLLMRisk: %v", err)
+	}
+
+	// risky-bot: 2 analyses, avg 70, max 80, 2 threats, 1 confirmed, 1 rule
+	rb, ok := risks["risky-bot"]
+	if !ok {
+		t.Fatal("expected risky-bot in results")
+	}
+	if rb.AnalysisCount != 2 {
+		t.Errorf("risky-bot AnalysisCount = %d, want 2", rb.AnalysisCount)
+	}
+	if rb.AvgRiskScore != 70 {
+		t.Errorf("risky-bot AvgRiskScore = %f, want 70", rb.AvgRiskScore)
+	}
+	if rb.MaxRiskScore != 80 {
+		t.Errorf("risky-bot MaxRiskScore = %f, want 80", rb.MaxRiskScore)
+	}
+	if rb.ThreatCount != 2 {
+		t.Errorf("risky-bot ThreatCount = %d, want 2", rb.ThreatCount)
+	}
+	if rb.ConfirmedCount != 1 {
+		t.Errorf("risky-bot ConfirmedCount = %d, want 1", rb.ConfirmedCount)
+	}
+
+	// safe-bot: 1 analysis, avg 5, max 5, 0 threats
+	sb, ok := risks["safe-bot"]
+	if !ok {
+		t.Fatal("expected safe-bot in results")
+	}
+	if sb.AnalysisCount != 1 {
+		t.Errorf("safe-bot AnalysisCount = %d, want 1", sb.AnalysisCount)
+	}
+	if sb.ThreatCount != 0 {
+		t.Errorf("safe-bot ThreatCount = %d, want 0", sb.ThreatCount)
+	}
+}
+
+func TestQueryAgentRiskBlendedScoring(t *testing.T) {
+	store := newTestStore(t)
+
+	// Create audit log entries — risky-bot has some blocks
+	ts := "2025-01-01T00:00:00Z"
+	for i := 0; i < 10; i++ {
+		status := "delivered"
+		if i < 3 {
+			status = "blocked"
+		}
+		store.Log(Entry{
+			ID: "blend-" + string(rune('a'+i)), Timestamp: ts,
+			FromAgent: "risky-bot", ToAgent: "target",
+			Status: status, PolicyDecision: "pipeline",
+		})
+	}
+	store.Flush()
+
+	// Insert LLM analysis for risky-bot
+	_ = store.LogLLMAnalysis(LLMAnalysis{
+		ID: "bl1", MessageID: "blm1", Timestamp: ts,
+		FromAgent: "risky-bot", ToAgent: "target", Provider: "openai", Model: "gpt-4",
+		RiskScore: 80, RecommendedAction: "block", Confidence: 0.9,
+		ThreatsJSON: `["injection"]`, IntentJSON: `{}`, LatencyMs: 100, TokensUsed: 200,
+	})
+
+	// Query agent risk — should blend audit + LLM
+	risks, err := store.QueryAgentRisk(ts)
+	if err != nil {
+		t.Fatalf("QueryAgentRisk: %v", err)
+	}
+	if len(risks) == 0 {
+		t.Fatal("expected at least one agent risk result")
+	}
+
+	var rb *AgentRisk
+	for i := range risks {
+		if risks[i].Agent == "risky-bot" {
+			rb = &risks[i]
+			break
+		}
+	}
+	if rb == nil {
+		t.Fatal("risky-bot not found in results")
+	}
+
+	// Audit-only score: (3*3 + 0*2) / 10 * 100 = 90 (clamped to 90, under 100)
+	// LLM avg risk: 80
+	// Blended: 90*0.6 + 80*0.4 = 54 + 32 = 86
+	if rb.RiskScore < 85 || rb.RiskScore > 87 {
+		t.Errorf("blended RiskScore = %f, want ~86", rb.RiskScore)
+	}
+	if rb.LLMAvgRisk != 80 {
+		t.Errorf("LLMAvgRisk = %f, want 80", rb.LLMAvgRisk)
+	}
+	if rb.LLMThreatCount != 1 {
+		t.Errorf("LLMThreatCount = %d, want 1", rb.LLMThreatCount)
+	}
+}
+
 func TestQueryLLMStats(t *testing.T) {
 	store := newTestStore(t)
 
