@@ -179,6 +179,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/api/llm/{id}", s.handleLLMDetail)
 	s.mux.HandleFunc("POST /dashboard/api/llm/{id}/dismiss", s.handleLLMDismiss)
 	s.mux.HandleFunc("POST /dashboard/api/llm/{id}/confirm", s.handleLLMConfirm)
+	s.mux.HandleFunc("GET /dashboard/alerts", s.handleAlerts)
 	s.mux.HandleFunc("GET /dashboard/audit", s.handleAudit)
 	s.mux.HandleFunc("GET /dashboard/audit/sandbox", s.handleAuditSandbox)
 	s.mux.HandleFunc("GET /dashboard/rules", s.handleRules)

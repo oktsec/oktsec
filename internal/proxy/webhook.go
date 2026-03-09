@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
@@ -25,14 +26,26 @@ type WebhookEvent struct {
 	RuleName  string `json:"rule_name,omitempty"`
 	Category  string `json:"category,omitempty"`
 	Match     string `json:"match,omitempty"`
+	Detail    string `json:"detail,omitempty"`
 	Timestamp string `json:"timestamp"`
 }
+
+// AlertLogFunc is called after each webhook delivery attempt for persistence.
+type AlertLogFunc func(event WebhookEvent, channel string, status string)
 
 // WebhookNotifier sends notifications to configured webhooks.
 type WebhookNotifier struct {
 	webhooks []config.Webhook
 	client   *http.Client
 	logger   *slog.Logger
+
+	// Cooldown: per event+agent dedup
+	cooldown   time.Duration
+	cooldownMu sync.Mutex
+	lastSent   map[string]time.Time
+
+	// Alert log callback (optional)
+	onAlert AlertLogFunc
 }
 
 // NewWebhookNotifier creates a notifier from config.
@@ -65,8 +78,19 @@ func NewWebhookNotifier(webhooks []config.Webhook, logger *slog.Logger) *Webhook
 				return nil
 			},
 		},
-		logger: logger,
+		logger:   logger,
+		lastSent: make(map[string]time.Time),
 	}
+}
+
+// SetCooldown sets the minimum interval between duplicate alerts (same event+agent).
+func (n *WebhookNotifier) SetCooldown(d time.Duration) {
+	n.cooldown = d
+}
+
+// OnAlert sets a callback that fires after each delivery attempt.
+func (n *WebhookNotifier) OnAlert(fn AlertLogFunc) {
+	n.onAlert = fn
 }
 
 // validateWebhookURL performs pre-DNS validation on webhook URLs.
@@ -89,7 +113,15 @@ func (n *WebhookNotifier) Notify(event WebhookEvent) {
 		if !matchesEvent(wh.Events, event.Event) {
 			continue
 		}
-		go n.send(wh.URL, event)
+		channel := wh.Name
+		if channel == "" {
+			channel = wh.URL
+		}
+		if n.shouldCooldown(event.Event, event.From) {
+			n.logger.Debug("alert cooldown active, skipping", "event", event.Event, "agent", event.From)
+			continue
+		}
+		go n.sendWithLog(wh.URL, channel, event)
 	}
 }
 
@@ -100,7 +132,7 @@ func (n *WebhookNotifier) NotifyURL(rawURL string, event WebhookEvent) {
 		n.logger.Warn("skipping invalid notify URL", "url", rawURL, "error", err)
 		return
 	}
-	go n.send(rawURL, event)
+	go n.sendWithLog(rawURL, rawURL, event)
 }
 
 // NotifyTemplated sends a templated body to a URL. Tags like {{RULE}}, {{ACTION}},
@@ -112,10 +144,10 @@ func (n *WebhookNotifier) NotifyTemplated(rawURL, tmpl string, event WebhookEven
 		return
 	}
 	if tmpl == "" {
-		go n.send(rawURL, event)
+		go n.sendWithLog(rawURL, rawURL, event)
 		return
 	}
-	go n.sendRaw(rawURL, RenderTemplate(tmpl, event))
+	go n.sendRawWithLog(rawURL, rawURL, RenderTemplate(tmpl, event), event)
 }
 
 // RenderTemplate replaces {{TAG}} placeholders in a plain-text template,
@@ -142,6 +174,65 @@ func RenderTemplate(tmpl string, event WebhookEvent) string {
 // RenderTemplate wraps it in Slack JSON automatically.
 const DefaultWebhookTemplate = "\U0001f6a8 *{{RULE}}* \u2014 {{RULE_NAME}}\n\u2022 *Severity:* {{SEVERITY}} | *Category:* {{CATEGORY}}\n\u2022 *Agents:* {{FROM}} \u2192 {{TO}}\n\u2022 *Match:* `{{MATCH}}`\n\u2022 *Message:* {{MESSAGE_ID}}\n\u2022 *Time:* {{TIMESTAMP}}"
 
+func (n *WebhookNotifier) shouldCooldown(event, agent string) bool {
+	if n.cooldown <= 0 {
+		return false
+	}
+	key := event + ":" + agent
+	n.cooldownMu.Lock()
+	defer n.cooldownMu.Unlock()
+
+	if last, ok := n.lastSent[key]; ok && time.Since(last) < n.cooldown {
+		return true
+	}
+	n.lastSent[key] = time.Now()
+	return false
+}
+
+func (n *WebhookNotifier) sendWithLog(url, channel string, event WebhookEvent) {
+	status := "sent"
+	body, err := json.Marshal(event)
+	if err != nil {
+		n.logger.Error("webhook marshal failed", "error", err)
+		status = "failed"
+		n.logAlert(event, channel, status)
+		return
+	}
+
+	resp, err := n.client.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
+		status = "failed"
+		n.logAlert(event, channel, status)
+		return
+	}
+	_ = resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		n.logger.Warn("webhook returned error", "url", url, "status", resp.StatusCode)
+		status = "failed"
+	}
+	n.logAlert(event, channel, status)
+}
+
+func (n *WebhookNotifier) sendRawWithLog(url, channel, body string, event WebhookEvent) {
+	status := "sent"
+	resp, err := n.client.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
+		status = "failed"
+		n.logAlert(event, channel, status)
+		return
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		n.logger.Warn("webhook returned error", "url", url, "status", resp.StatusCode)
+		status = "failed"
+	}
+	n.logAlert(event, channel, status)
+}
+
+// Legacy methods kept for backward compatibility with tests.
 func (n *WebhookNotifier) sendRaw(url, body string) {
 	resp, err := n.client.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
@@ -170,6 +261,12 @@ func (n *WebhookNotifier) send(url string, event WebhookEvent) {
 
 	if resp.StatusCode >= 400 {
 		n.logger.Warn("webhook returned error", "url", url, "status", resp.StatusCode)
+	}
+}
+
+func (n *WebhookNotifier) logAlert(event WebhookEvent, channel, status string) {
+	if n.onAlert != nil {
+		n.onAlert(event, channel, status)
 	}
 }
 

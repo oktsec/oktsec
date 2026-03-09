@@ -100,6 +100,15 @@ var tmplFuncs = template.FuncMap{
 	"contains": strings.Contains,
 	"printf":   fmt.Sprintf,
 	"snakeToTitle": snakeToTitle,
+	"truncTS": func(ts string) string {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			return t.Format("Jan 02 15:04")
+		}
+		if len(ts) > 16 {
+			return ts[:16]
+		}
+		return ts
+	},
 	"toMap": func(v any) map[string]any {
 		if m, ok := v.(map[string]any); ok {
 			return m
@@ -730,6 +739,10 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
     <a href="/dashboard/llm" class="sidebar-item {{if eq .Active "llm"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><circle cx="12" cy="6" r="1"/><path d="M9 22v-2"/><path d="M15 22v-2"/></svg>
       LLM Analysis
+    </a>
+    <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Alerts
     </a>
   </div>
   <div class="sidebar-section">

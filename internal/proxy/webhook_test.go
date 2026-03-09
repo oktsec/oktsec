@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
 )
@@ -310,6 +311,53 @@ func TestMatchesEvent(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("matchesEvent(%v, %q) = %v, want %v", tc.configured, tc.event, got, tc.want)
 		}
+	}
+}
+
+func TestWebhookNotifier_Cooldown(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	n := NewWebhookNotifier(nil, logger)
+	n.SetCooldown(1 * time.Second)
+
+	// First call should not be cooled down
+	if n.shouldCooldown("blocked", "agent-a") {
+		t.Error("first call should not be cooled down")
+	}
+
+	// Immediate second call should be cooled down
+	if !n.shouldCooldown("blocked", "agent-a") {
+		t.Error("second call within cooldown should be cooled down")
+	}
+
+	// Different event should not be cooled down
+	if n.shouldCooldown("quarantined", "agent-a") {
+		t.Error("different event should not be cooled down")
+	}
+
+	// Different agent should not be cooled down
+	if n.shouldCooldown("blocked", "agent-b") {
+		t.Error("different agent should not be cooled down")
+	}
+}
+
+func TestWebhookNotifier_OnAlert(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	n := NewWebhookNotifier(nil, logger)
+
+	var logged []string
+	n.OnAlert(func(event WebhookEvent, channel, status string) {
+		logged = append(logged, event.Event+":"+channel+":"+status)
+	})
+
+	// Manually call logAlert to verify callback
+	n.logAlert(WebhookEvent{Event: "blocked"}, "slack", "sent")
+	n.logAlert(WebhookEvent{Event: "llm_threat"}, "pager", "failed")
+
+	if len(logged) != 2 {
+		t.Errorf("expected 2 log entries, got %d", len(logged))
+	}
+	if logged[0] != "blocked:slack:sent" {
+		t.Errorf("unexpected log entry: %s", logged[0])
 	}
 }
 

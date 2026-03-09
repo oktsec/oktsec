@@ -526,6 +526,23 @@ func TestServer_LLMDetailAPINotFound(t *testing.T) {
 	}
 }
 
+func TestServer_Alerts(t *testing.T) {
+	rr := authedGet(t, "/dashboard/alerts")
+	if rr.Code != http.StatusOK {
+		t.Errorf("alerts status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Alert History") {
+		t.Error("alerts page missing history section")
+	}
+	if !strings.Contains(body, "Alert Configuration") {
+		t.Error("alerts page missing config section")
+	}
+	if !strings.Contains(body, "Total Alerts") {
+		t.Error("alerts page missing stats")
+	}
+}
+
 func TestServer_Report(t *testing.T) {
 	rr := authedGet(t, "/dashboard/report")
 	if rr.Code != http.StatusOK {

@@ -90,6 +90,27 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	// Webhook notifier
 	webhooks := NewWebhookNotifier(cfg.Webhooks, logger)
 
+	// Alert cooldown
+	if cd := cfg.Alerting.Cooldown; cd != "" {
+		if d, err := time.ParseDuration(cd); err == nil {
+			webhooks.SetCooldown(d)
+		}
+	}
+
+	// Persist alerts to audit store
+	webhooks.OnAlert(func(event WebhookEvent, channel, status string) {
+		_ = auditStore.LogAlert(audit.AlertEntry{
+			ID:        fmt.Sprintf("alert-%s-%d", event.Event, time.Now().UnixNano()),
+			Event:     event.Event,
+			Severity:  event.Severity,
+			Agent:     event.From,
+			MessageID: event.MessageID,
+			Detail:    event.Detail,
+			Channel:   channel,
+			Status:    status,
+		})
+	})
+
 	// Handler
 	handler := NewHandler(cfg, keys, pol, scanner, auditStore, webhooks, logger)
 
@@ -203,6 +224,26 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 							logger.Warn("rule generation failed", "error", err)
 						}
 					}
+				}
+
+				// Alert on LLM-detected threats
+				if cfg.Alerting.LLMThreats && len(result.Threats) > 0 {
+					topSev := "medium"
+					for _, t := range result.Threats {
+						if t.Severity == "critical" || t.Severity == "high" {
+							topSev = t.Severity
+							break
+						}
+					}
+					webhooks.Notify(WebhookEvent{
+						Event:     "llm_threat",
+						MessageID: result.MessageID,
+						From:      result.FromAgent,
+						To:        result.ToAgent,
+						Severity:  topSev,
+						Detail:    fmt.Sprintf("%d threat(s) detected, risk %.0f", len(result.Threats), result.RiskScore),
+						Timestamp: time.Now().UTC().Format(time.RFC3339),
+					})
 				}
 			})
 
@@ -467,6 +508,25 @@ func (s *Server) checkAnomalies() {
 	}
 
 	webhooks := NewWebhookNotifier(s.cfg.Webhooks, s.logger)
+	// Set cooldown for anomaly alerts too
+	if cd := s.cfg.Alerting.Cooldown; cd != "" {
+		if d, err := time.ParseDuration(cd); err == nil {
+			webhooks.SetCooldown(d)
+		}
+	}
+	// Persist anomaly alerts
+	webhooks.OnAlert(func(event WebhookEvent, channel, status string) {
+		_ = s.audit.LogAlert(audit.AlertEntry{
+			ID:        fmt.Sprintf("alert-%s-%d", event.Event, time.Now().UnixNano()),
+			Event:     event.Event,
+			Severity:  event.Severity,
+			Agent:     event.From,
+			MessageID: event.MessageID,
+			Detail:    event.Detail,
+			Channel:   channel,
+			Status:    status,
+		})
+	})
 
 	for _, ar := range risks {
 		if ar.Total < minMsgs || ar.RiskScore <= s.cfg.Anomaly.RiskThreshold {
@@ -484,6 +544,7 @@ func (s *Server) checkAnomalies() {
 			Event:     "agent_risk_elevated",
 			From:      ar.Agent,
 			Severity:  "high",
+			Detail:    fmt.Sprintf("risk score %.1f (threshold %.1f)", ar.RiskScore, s.cfg.Anomaly.RiskThreshold),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 
@@ -492,6 +553,17 @@ func (s *Server) checkAnomalies() {
 				agent.Suspended = true
 				s.cfg.Agents[ar.Agent] = agent
 				s.logger.Warn("agent auto-suspended", "agent", ar.Agent, "risk_score", ar.RiskScore)
+
+				// Alert on agent suspension
+				if s.cfg.Alerting.Suspensions {
+					webhooks.Notify(WebhookEvent{
+						Event:     "agent_suspended",
+						From:      ar.Agent,
+						Severity:  "critical",
+						Detail:    fmt.Sprintf("auto-suspended: risk %.1f exceeded threshold", ar.RiskScore),
+						Timestamp: time.Now().UTC().Format(time.RFC3339),
+					})
+				}
 
 				if s.cfgPath != "" {
 					if err := s.cfg.Save(s.cfgPath); err != nil {

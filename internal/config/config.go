@@ -26,6 +26,7 @@ type Config struct {
 	RateLimit      RateLimitConfig                `yaml:"rate_limit,omitempty"`
 	Anomaly        AnomalyConfig                  `yaml:"anomaly,omitempty"`
 	ForwardProxy   ForwardProxyConfig             `yaml:"forward_proxy,omitempty"`
+	Alerting       AlertingConfig                 `yaml:"alerting,omitempty"`
 	Gateway        GatewayConfig                  `yaml:"gateway,omitempty"`
 	MCPServers     map[string]MCPServerConfig     `yaml:"mcp_servers,omitempty"`
 	LLM            LLMConfig                      `yaml:"llm,omitempty"`
@@ -197,6 +198,14 @@ type AnomalyConfig struct {
 	RiskThreshold  float64 `yaml:"risk_threshold"` // risk score to trigger alert (0-100)
 	MinMessages    int     `yaml:"min_messages"`   // min messages before evaluating risk
 	AutoSuspend    bool    `yaml:"auto_suspend"`   // suspend agent when threshold exceeded
+}
+
+// AlertingConfig controls alert notification behavior.
+type AlertingConfig struct {
+	Cooldown    string `yaml:"cooldown,omitempty"`     // min interval between duplicate alerts (default: "5m")
+	LLMThreats bool   `yaml:"llm_threats,omitempty"`   // alert on LLM-detected threats
+	Anomalies  bool   `yaml:"anomalies,omitempty"`     // alert on anomaly detection (default: true via anomaly config)
+	Suspensions bool  `yaml:"suspensions,omitempty"`   // alert on agent auto-suspension
 }
 
 // ForwardProxyConfig configures the HTTP forward proxy for Docker Sandbox integration.

@@ -1151,6 +1151,30 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, reportTmpl, data)
 }
 
+// --- Alerts handler ---
+
+func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
+	alerts, _ := s.audit.QueryAlerts(100, 0)
+	stats, _ := s.audit.AlertStats()
+
+	cooldown := s.cfg.Alerting.Cooldown
+	eventTypeCount := len(stats.ByEvent)
+
+	data := map[string]any{
+		"Active":         "alerts",
+		"RequireSig":     s.cfg.Identity.RequireSignature,
+		"Alerts":         alerts,
+		"Stats":          stats,
+		"WebhookCount":   len(s.cfg.Webhooks),
+		"EventTypeCount": eventTypeCount,
+		"Cooldown":       cooldown,
+		"LLMThreats":    s.cfg.Alerting.LLMThreats,
+		"Suspensions":   s.cfg.Alerting.Suspensions,
+	}
+
+	s.renderTemplate(w, alertsTmpl, data)
+}
+
 // --- SARIF export handler ---
 
 func (s *Server) handleExportSARIF(w http.ResponseWriter, r *http.Request) {
