@@ -48,4 +48,18 @@ var (
 		Name:      "threats_detected_total",
 		Help:      "Novel threats detected by LLM analysis.",
 	}, []string{"type", "severity"})
+
+	llmBudgetSpent = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "oktsec",
+		Subsystem: "llm",
+		Name:      "budget_spent_usd",
+		Help:      "Current LLM spending in USD.",
+	}, []string{"period"})
+
+	llmBudgetExhausted = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "oktsec",
+		Subsystem: "llm",
+		Name:      "budget_exhausted_total",
+		Help:      "Number of times LLM budget limit was hit.",
+	})
 )

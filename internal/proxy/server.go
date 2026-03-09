@@ -131,6 +131,21 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 			}
 			llmQueue = llm.NewQueue(analyzer, queueCfg, logger)
 
+			// Wire budget tracker
+			if cfg.LLM.Budget.DailyLimitUSD > 0 || cfg.LLM.Budget.MonthlyLimitUSD > 0 {
+				budgetCfg := llm.BudgetConfig{
+					DailyLimitUSD:   cfg.LLM.Budget.DailyLimitUSD,
+					MonthlyLimitUSD: cfg.LLM.Budget.MonthlyLimitUSD,
+					WarnThreshold:   cfg.LLM.Budget.WarnThreshold,
+					OnLimit:         cfg.LLM.Budget.OnLimit,
+				}
+				llmQueue.SetBudget(llm.NewBudgetTracker(budgetCfg, logger))
+				logger.Info("llm budget control enabled",
+					"daily_limit", budgetCfg.DailyLimitUSD,
+					"monthly_limit", budgetCfg.MonthlyLimitUSD,
+				)
+			}
+
 			// Wire callbacks: store results in audit and generate rules
 			var ruleGen *llm.RuleGenerator
 			if llmCfg.RuleGen.Enabled {
@@ -178,6 +193,23 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 			})
 
 			handler.SetLLMQueue(llmQueue)
+
+			// Wire signal detector (triage pre-filter)
+			triageCfg := cfg.LLM.Triage
+			if triageCfg.Enabled {
+				sd := llm.NewSignalDetector(llm.TriageConfig{
+					Enabled:           true,
+					SkipVerdicts:      triageCfg.SkipVerdicts,
+					SensitiveKeywords: triageCfg.SensitiveKeywords,
+					MinContentLength:  triageCfg.MinContentLength,
+					NewAgentPairs:     triageCfg.NewAgentPairs,
+					SampleRate:        triageCfg.SampleRate,
+					ExternalURLs:      triageCfg.ExternalURLs,
+				})
+				handler.SetSignalDetector(sd)
+				logger.Info("llm triage enabled", "sample_rate", triageCfg.SampleRate)
+			}
+
 			logger.Info("llm analysis enabled",
 				"provider", cfg.LLM.Provider,
 				"model", cfg.LLM.Model,
@@ -187,6 +219,9 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 
 	// Dashboard
 	dash := dashboard.NewServer(cfg, cfgPath, auditStore, keys, scanner, logger)
+	if llmQueue != nil {
+		dash.SetLLMQueue(llmQueue)
+	}
 
 	// Agent CRUD API
 	agentAPI := NewAgentAPI(cfg, cfgPath, keys, auditStore, logger)

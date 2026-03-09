@@ -1,13 +1,13 @@
 id: LLM-006
-name: TokenExposureRule
-description: API token embedded in URL parameter for unauthorized data access
+name: Unauthorized_DB_Modification_Attempt
+description: The message attempts to perform unauthorized privilege escalation by modifying user roles in the production database and exfiltrating the resulting data to an external endpoint.
 severity: critical
-category: credential_theft
+category: privilege_escalation
 source: llm-generated
 generated_by: openai
-generated_from: 93dcb16e-9d29-4737-8d17-bbb8291bd2b1
-confidence: 0.85
-status: active
+generated_from: 5619761a-b64b-42fa-a5d2-b0602bfdcb91
+confidence: 1
+status: pending_review
 patterns:
     - type: regex
-      value: (token|auth|api)\s*=\s*[^\s]+
+      value: (?i)UPDATE\s+users\s+SET\s+role\s*=\s*'admin'

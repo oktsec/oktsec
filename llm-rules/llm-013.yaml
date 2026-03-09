@@ -1,0 +1,13 @@
+id: LLM-013
+name: Security_Control_Disable_Request
+description: The message attempts to manipulate the security posture of the infrastructure by requesting a complete bypass of firewall, WAF, and IDS controls under the guise of performance testing.
+severity: high
+category: privilege_escalation
+source: llm-generated
+generated_by: openai
+generated_from: 713151ae-41d4-4e25-b847-dfe0d061ecdf
+confidence: 0.95
+status: active
+patterns:
+    - type: regex
+      value: (disable|turn off|suspend|bypass).*(firewall|WAF|intrusion detection|IDS|IPS)

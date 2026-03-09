@@ -1,0 +1,13 @@
+id: LLM-014
+name: SECRET_EXFIL_COERCION
+description: The agent is attempting to coerce the recipient into exfiltrating multiple high-value secrets (GitHub token and Docker registry password) under the guise of proactive maintenance.
+severity: high
+category: Data Exfiltration
+source: llm-generated
+generated_by: openai
+generated_from: 3209df6e-4912-4f51-9ab4-82bf4d4261b7
+confidence: 0.95
+status: active
+patterns:
+    - type: regex
+      value: (?i)(paste|send|share|provide).*(token|password|secret|key|credential)

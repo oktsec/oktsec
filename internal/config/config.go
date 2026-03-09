@@ -49,9 +49,11 @@ type LLMConfig struct {
 	MaxDailyReqs  int64   `yaml:"max_daily_requests,omitempty"` // 0 = unlimited
 	Timeout       string  `yaml:"timeout,omitempty"`        // duration string (default: "30s")
 
-	Analyze          LLMAnalyzeConfig `yaml:"analyze,omitempty"`
+	Analyze          LLMAnalyzeConfig  `yaml:"analyze,omitempty"`
+	Triage           LLMTriageConfig   `yaml:"triage,omitempty"`
 	MinContentLength int              `yaml:"min_content_length,omitempty"` // skip short messages
 
+	Budget  LLMBudgetConfig   `yaml:"budget,omitempty"`
 	RuleGen LLMRuleGenConfig  `yaml:"rulegen,omitempty"`
 	Intent  LLMIntentConfig   `yaml:"intent,omitempty"`
 	Webhook LLMWebhookConfig  `yaml:"webhook,omitempty"`
@@ -63,6 +65,25 @@ type LLMAnalyzeConfig struct {
 	Flagged     bool `yaml:"flagged"`
 	Quarantined bool `yaml:"quarantined"`
 	Blocked     bool `yaml:"blocked"`
+}
+
+// LLMTriageConfig controls the signal detector pre-filter.
+type LLMTriageConfig struct {
+	Enabled           bool     `yaml:"enabled"`
+	SkipVerdicts      []string `yaml:"skip_verdicts,omitempty"`
+	SensitiveKeywords []string `yaml:"sensitive_keywords,omitempty"`
+	MinContentLength  int      `yaml:"min_content_length,omitempty"`
+	NewAgentPairs     bool     `yaml:"new_agent_pairs,omitempty"`
+	SampleRate        float64  `yaml:"sample_rate,omitempty"`
+	ExternalURLs      bool     `yaml:"external_urls,omitempty"`
+}
+
+// LLMBudgetConfig controls LLM spending limits to prevent billing surprises.
+type LLMBudgetConfig struct {
+	DailyLimitUSD   float64 `yaml:"daily_limit_usd,omitempty"`   // hard cap per day (0 = unlimited)
+	MonthlyLimitUSD float64 `yaml:"monthly_limit_usd,omitempty"` // hard cap per month (0 = unlimited)
+	WarnThreshold   float64 `yaml:"warn_threshold,omitempty"`    // alert at this fraction of limit (default: 0.8)
+	OnLimit         string  `yaml:"on_limit,omitempty"`          // "skip" (default) | "block"
 }
 
 // LLMRuleGenConfig controls automatic rule generation from LLM findings.

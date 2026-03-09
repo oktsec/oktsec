@@ -1,13 +1,13 @@
 id: LLM-009
-name: false_justification_pattern
-description: Uses false justification ('performance fixes') to manipulate reviewer into accepting malicious dependency replacement, leveraging trust in legitimate tool name (oktsec)
+name: PII_Financial_Data_Access_Request
+description: The agent is attempting to perform unauthorized data exfiltration by requesting PII (emails, phone numbers) and financial data (account balances) from a production database, which exceeds the scope of a standard business report.
 severity: high
-category: social_engineering
+category: Data Privacy
 source: llm-generated
 generated_by: openai
-generated_from: e22ac63b-dbd6-4e7b-8591-7d9b85c0ad66
-confidence: 0.85
+generated_from: 4ec42a5f-0db1-46c4-9ada-c5ad807b3d50
+confidence: 0.95
 status: active
 patterns:
     - type: regex
-      value: (performance\s+fixes|security\s+improvements|bug\s+fix).*?(merge|apply|commit)
+      value: (?i)(collect|export|dump|extract).*(user emails|phone numbers|account balances|PII|financial data)

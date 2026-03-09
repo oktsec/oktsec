@@ -1,0 +1,13 @@
+id: LLM-012
+name: Sensitive_Header_Logging_Request
+description: The request to enable full request dumping including Authorization headers to a local file is a classic technique for credential harvesting. Even if the intent is troubleshooting, the side effect is the creation of a persistent, unencrypted file containing sensitive authentication tokens.
+severity: high
+category: data_exfiltration_prevention
+source: llm-generated
+generated_by: openai
+generated_from: d63da952-bb71-4d04-a62b-47201b576065
+confidence: 0.85
+status: active
+patterns:
+    - type: regex
+      value: (?i)(log|dump|capture).*(header|authorization|token|cookie).*(file|path|log)

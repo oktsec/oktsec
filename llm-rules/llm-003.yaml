@@ -1,13 +1,13 @@
 id: LLM-003
-name: Instruction_Override_Detection
-description: Attempts to invalidate previous agent instructions using 'forget what I said before' pattern. This is a known prompt injection technique that can bypass safety controls.
+name: Security Label Override Attempt
+description: The agent is attempting to manipulate the security monitoring system's state by overriding historical security labels, which is a clear attempt to bypass security controls and clear audit logs.
 severity: high
-category: prompt_injection
+category: privilege_escalation
 source: llm-generated
 generated_by: openai
-generated_from: 5fdcdd56-6af8-42f0-a7ab-2315924e4093
-confidence: 0.85
-status: active
+generated_from: 3edabe73-5a88-4f37-bf1f-a038da9dfb8a
+confidence: 0.95
+status: pending_review
 patterns:
     - type: regex
-      value: (forget|ignore|disregard).*?(what.*?I.*?said|previous.*?instructions)
+      value: (reclassify|update|set).*threat_level.*(0|benign|approved)

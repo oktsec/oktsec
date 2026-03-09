@@ -1,13 +1,13 @@
 id: LLM-004
-name: ExternalLogExfilRule
-description: Data exfiltration attempt via audit log redirection to external domain with embedded API token
-severity: critical
-category: data_exfiltration
+name: Auth_Bypass_Urgency_Pattern
+description: The message uses artificial urgency and authority impersonation (CEO) to bypass established security controls and approval workflows.
+severity: high
+category: social_engineering
 source: llm-generated
 generated_by: openai
-generated_from: 93dcb16e-9d29-4737-8d17-bbb8291bd2b1
+generated_from: 895e44e4-4342-4408-9327-694b913b554e
 confidence: 0.95
-status: active
+status: pending_review
 patterns:
     - type: regex
-      value: (send|forward|redirect)\s+(logs|audit|data).*?(https?://[^\s]+)
+      value: (?i)(disable|bypass|override).*(auth|security|middleware).*(urgent|emergency|P0|CEO)
