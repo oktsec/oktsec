@@ -53,10 +53,23 @@ type LLMConfig struct {
 	Triage           LLMTriageConfig   `yaml:"triage,omitempty"`
 	MinContentLength int              `yaml:"min_content_length,omitempty"` // skip short messages
 
-	Budget  LLMBudgetConfig   `yaml:"budget,omitempty"`
-	RuleGen LLMRuleGenConfig  `yaml:"rulegen,omitempty"`
-	Intent  LLMIntentConfig   `yaml:"intent,omitempty"`
-	Webhook LLMWebhookConfig  `yaml:"webhook,omitempty"`
+	Budget   LLMBudgetConfig   `yaml:"budget,omitempty"`
+	Fallback LLMFallbackConfig `yaml:"fallback,omitempty"`
+	RuleGen  LLMRuleGenConfig  `yaml:"rulegen,omitempty"`
+	Intent   LLMIntentConfig   `yaml:"intent,omitempty"`
+	Webhook  LLMWebhookConfig  `yaml:"webhook,omitempty"`
+}
+
+// LLMFallbackConfig configures a secondary LLM provider used when the
+// primary fails. Supports the same provider types as the primary.
+type LLMFallbackConfig struct {
+	Provider   string `yaml:"provider,omitempty"`      // openai | claude | webhook
+	Model      string `yaml:"model,omitempty"`
+	BaseURL    string `yaml:"base_url,omitempty"`
+	APIKeyEnv  string `yaml:"api_key_env,omitempty"`
+	APIVersion string `yaml:"api_version,omitempty"`
+	MaxTokens  int    `yaml:"max_tokens,omitempty"`
+	Timeout    string `yaml:"timeout,omitempty"`
 }
 
 // LLMAnalyzeConfig controls which verdict types trigger LLM analysis.

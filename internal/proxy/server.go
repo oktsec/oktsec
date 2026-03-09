@@ -121,7 +121,21 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 			},
 			Webhook: llm.WebhookConfig(cfg.LLM.Webhook),
 		}
-		analyzer, err := llm.New(llmCfg)
+		// Build fallback config if secondary provider is configured
+		var fbCfg *llm.FallbackConfig
+		if cfg.LLM.Fallback.Provider != "" {
+			fbCfg = &llm.FallbackConfig{
+				Provider:   llm.Provider(cfg.LLM.Fallback.Provider),
+				Model:      cfg.LLM.Fallback.Model,
+				BaseURL:    cfg.LLM.Fallback.BaseURL,
+				APIKeyEnv:  cfg.LLM.Fallback.APIKeyEnv,
+				APIVersion: cfg.LLM.Fallback.APIVersion,
+				MaxTokens:  cfg.LLM.Fallback.MaxTokens,
+				Timeout:    cfg.LLM.Fallback.Timeout,
+			}
+		}
+
+		analyzer, err := llm.NewWithFallback(llmCfg, fbCfg, logger)
 		if err != nil {
 			logger.Error("failed to create LLM analyzer", "error", err)
 		} else {

@@ -62,4 +62,11 @@ var (
 		Name:      "budget_exhausted_total",
 		Help:      "Number of times LLM budget limit was hit.",
 	})
+
+	llmFallbackTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "oktsec",
+		Subsystem: "llm",
+		Name:      "fallback_total",
+		Help:      "Number of times the fallback LLM provider was used.",
+	})
 )
