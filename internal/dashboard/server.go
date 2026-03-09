@@ -31,6 +31,7 @@ type Server struct {
 	gwMu     sync.Mutex
 	gwCmd    *exec.Cmd
 	llmQueue *llm.Queue
+	ruleGen  *llm.RuleGenerator
 }
 
 // NewServer creates a dashboard server with access-code authentication.
@@ -69,6 +70,11 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore *audit.Store, keys
 // SetLLMQueue attaches the LLM queue for budget status display.
 func (s *Server) SetLLMQueue(q *llm.Queue) {
 	s.llmQueue = q
+}
+
+// SetRuleGenerator attaches the LLM rule generator for the rules dashboard.
+func (s *Server) SetRuleGenerator(rg *llm.RuleGenerator) {
+	s.ruleGen = rg
 }
 
 // AccessCode returns the one-time access code displayed in the terminal.
@@ -213,6 +219,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/rules/custom", s.handleCustomRules)
 	s.mux.HandleFunc("POST /dashboard/rules/custom", s.handleCreateCustomRule)
 	s.mux.HandleFunc("DELETE /dashboard/rules/custom/{id}", s.handleDeleteCustomRule)
+
+	// LLM-generated rules
+	s.mux.HandleFunc("POST /dashboard/api/rules/llm/{id}/approve", s.handleApproveLLMRule)
+	s.mux.HandleFunc("POST /dashboard/api/rules/llm/{id}/reject", s.handleRejectLLMRule)
 
 	// Quarantine queue API
 	s.mux.HandleFunc("GET /dashboard/api/quarantine/{id}", s.handleQuarantineDetail)

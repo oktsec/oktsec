@@ -376,17 +376,18 @@ func (s *Server) getHourlyChart() []hourlyBar {
 }
 
 type agentRow struct {
-	Name        string
-	Description string
-	CanMessage  []string
-	Tags        []string
-	Suspended   bool
-	Total       int
-	Blocked     int
-	BlockedPct  int
-	RiskScore   float64
-	HasKey      bool
-	LastSeen    string
+	Name             string
+	Description      string
+	CanMessage       []string
+	Tags             []string
+	Suspended        bool
+	Total            int
+	Blocked          int
+	BlockedPct       int
+	RiskScore        float64
+	LLMThreatCount   int
+	HasKey           bool
+	LastSeen         string
 }
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
@@ -417,9 +418,10 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Risk score
+		// Risk score (blended audit + LLM)
 		if ar, ok := riskMap[name]; ok {
 			row.RiskScore = ar.RiskScore
+			row.LLMThreatCount = ar.LLMThreatCount
 		}
 
 		// Key status
@@ -487,12 +489,22 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Load LLM-generated rules once (reused for counts and tab data)
+	var llmPending, llmActive []llm.GeneratedRule
+	if s.ruleGen != nil {
+		llmPending, _ = s.ruleGen.ListPending()
+		llmActive, _ = s.ruleGen.ListActive()
+	}
+
 	data := map[string]any{
 		"Active":           "rules",
 		"Tab":              tab,
 		"CustomRulesDir":   s.cfg.CustomRulesDir,
 		"CustomCount":      customCount,
 		"EnforcementCount": enforcementCount,
+		"LLMPendingCount":  len(llmPending),
+		"LLMActiveCount":   len(llmActive),
+		"LLMTotalCount":    len(llmPending) + len(llmActive),
 		"RequireSig":       s.cfg.Identity.RequireSignature,
 	}
 
@@ -600,6 +612,12 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		data["CustomFiles"] = customFiles
+	}
+
+	// LLM-generated rules tab (data already loaded above)
+	if tab == "llm-rules" {
+		data["LLMPending"] = llmPending
+		data["LLMActive"] = llmActive
 	}
 
 	// Build enforcement data for enforcement tab
@@ -819,16 +837,22 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	// Top triggered rules for this agent
 	topRules, _ := s.audit.QueryAgentTopRules(name, 5, "")
 
-	// Risk score for this agent
-	var riskScore float64
+	// Risk score for this agent (blended audit + LLM)
+	var agentRiskData *audit.AgentRisk
 	if agentRisks, err := s.audit.QueryAgentRisk(""); err == nil {
-		for _, ar := range agentRisks {
+		for i, ar := range agentRisks {
 			if ar.Agent == name {
-				riskScore = ar.RiskScore
+				agentRiskData = &agentRisks[i]
 				break
 			}
 		}
 	}
+	if agentRiskData == nil {
+		agentRiskData = &audit.AgentRisk{}
+	}
+
+	// LLM threat history for this agent
+	llmHistory, _ := s.audit.QueryLLMAgentHistory(name, "", 5)
 
 	// Communication partners — edges involving this agent
 	var commPartners []audit.EdgeStat
@@ -857,7 +881,10 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"KeyFP":        keyFP,
 		"RequireSig":   s.cfg.Identity.RequireSignature,
 		"TopRules":     topRules,
-		"RiskScore":    riskScore,
+		"RiskScore":    agentRiskData.RiskScore,
+		"AgentRisk":    agentRiskData,
+		"LLMHistory":   llmHistory,
+		"LLMEnabled":   s.cfg.LLM.Enabled,
 		"CommPartners": commPartners,
 	}
 
@@ -2111,6 +2138,48 @@ func (s *Server) handleLLMConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<span class="ci-reviewed" style="background:rgba(239,68,68,0.1);color:#ef4444">&#10003; Confirmed as real threat</span>`)
+}
+
+func (s *Server) handleApproveLLMRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if s.ruleGen == nil {
+		http.Error(w, "rule generator not configured", http.StatusInternalServerError)
+		return
+	}
+	if err := s.ruleGen.ApproveRule(id); err != nil {
+		s.logger.Error("approve llm rule failed", "id", id, "error", err)
+		http.Error(w, "failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Reload detection rules if scanner supports it
+	if s.scanner != nil {
+		s.scanner.InvalidateCache()
+	}
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<span style="color:var(--success);font-weight:600;font-size:0.82rem">&#10003; Approved &mdash; rule is now active</span>`)
+}
+
+func (s *Server) handleRejectLLMRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if s.ruleGen == nil {
+		http.Error(w, "rule generator not configured", http.StatusInternalServerError)
+		return
+	}
+	if err := s.ruleGen.RejectRule(id); err != nil {
+		s.logger.Error("reject llm rule failed", "id", id, "error", err)
+		http.Error(w, "failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<span style="color:var(--text3);font-size:0.82rem">&#10003; Rejected</span>`)
 }
 
 // --- Settings section handlers ---

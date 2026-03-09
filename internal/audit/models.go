@@ -74,11 +74,18 @@ type EdgeStat struct {
 	Total       int    `json:"total"`
 }
 
-// AgentRisk holds risk scoring for an agent based on audit history.
+// AgentRisk holds risk scoring for an agent based on audit history and LLM analysis.
 type AgentRisk struct {
 	Agent       string  `json:"agent"`
 	Total       int     `json:"total"`
 	Blocked     int     `json:"blocked"`
 	Quarantined int     `json:"quarantined"`
 	RiskScore   float64 `json:"risk_score"`
+
+	// LLM-enriched fields (populated when LLM data is available)
+	LLMAvgRisk      float64 `json:"llm_avg_risk,omitempty"`
+	LLMMaxRisk      float64 `json:"llm_max_risk,omitempty"`
+	LLMAnalysisCount int    `json:"llm_analysis_count,omitempty"`
+	LLMThreatCount  int     `json:"llm_threat_count,omitempty"`
+	LLMConfirmed    int     `json:"llm_confirmed,omitempty"`
 }

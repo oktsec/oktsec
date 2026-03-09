@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,12 @@ import (
 
 	"github.com/oktsec/oktsec/internal/safefile"
 	_ "modernc.org/sqlite"
+)
+
+// Risk scoring weights for blending audit-based and LLM-based scores.
+const (
+	riskWeightAudit = 0.6
+	riskWeightLLM   = 0.4
 )
 
 const schema = `
@@ -241,7 +248,8 @@ func (s *Store) migrateSchema() {
 		rule_generated TEXT DEFAULT ''
 	);
 	CREATE INDEX IF NOT EXISTS idx_llm_message ON llm_analysis(message_id);
-	CREATE INDEX IF NOT EXISTS idx_llm_timestamp ON llm_analysis(timestamp);`
+	CREATE INDEX IF NOT EXISTS idx_llm_timestamp ON llm_analysis(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_llm_from_agent ON llm_analysis(from_agent);`
 	if _, err := s.db.Exec(llmSchema); err != nil {
 		s.logger.Warn("llm_analysis table creation skipped", "error", err)
 	}
@@ -915,14 +923,28 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 		result = append(result, *ar)
 	}
 
-	// Sort by risk score descending
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].RiskScore > result[i].RiskScore {
-				result[i], result[j] = result[j], result[i]
-			}
+	// Enrich with LLM risk data when available
+	llmRisks, _ := s.QueryAgentLLMRisk()
+	for i := range result {
+		// Clamp audit score to 0-100
+		if result[i].RiskScore > 100 {
+			result[i].RiskScore = 100
+		}
+		if lr, ok := llmRisks[result[i].Agent]; ok {
+			result[i].LLMAvgRisk = lr.AvgRiskScore
+			result[i].LLMMaxRisk = lr.MaxRiskScore
+			result[i].LLMAnalysisCount = lr.AnalysisCount
+			result[i].LLMThreatCount = lr.ThreatCount
+			result[i].LLMConfirmed = lr.ConfirmedCount
+			// Blend: 60% audit-based + 40% LLM-based
+			result[i].RiskScore = result[i].RiskScore*riskWeightAudit + lr.AvgRiskScore*riskWeightLLM
 		}
 	}
+
+	// Sort by risk score descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[j].RiskScore < result[i].RiskScore
+	})
 
 	return result, rows.Err()
 }

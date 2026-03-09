@@ -95,6 +95,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 
 	// LLM analysis queue (async, optional)
 	var llmQueue *llm.Queue
+	var ruleGen *llm.RuleGenerator
 	if cfg.LLM.Enabled {
 		llmCfg := llm.Config{
 			Enabled:          true,
@@ -147,7 +148,6 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 			}
 
 			// Wire callbacks: store results in audit and generate rules
-			var ruleGen *llm.RuleGenerator
 			if llmCfg.RuleGen.Enabled {
 				outputDir := llmCfg.RuleGen.OutputDir
 				if outputDir == "" {
@@ -221,6 +221,9 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	dash := dashboard.NewServer(cfg, cfgPath, auditStore, keys, scanner, logger)
 	if llmQueue != nil {
 		dash.SetLLMQueue(llmQueue)
+	}
+	if ruleGen != nil {
+		dash.SetRuleGenerator(ruleGen)
 	}
 
 	// Agent CRUD API

@@ -126,8 +126,8 @@ func (s *Store) QueryLLMStats() (*LLMStats, error) {
 		COALESCE(SUM(tokens_used), 0),
 		COALESCE(AVG(latency_ms), 0),
 		COALESCE(AVG(risk_score), 0),
-		COUNT(CASE WHEN threats_json != '[]' AND threats_json != '' AND threats_json != 'null' THEN 1 END),
-		COUNT(CASE WHEN rule_generated != '' THEN 1 END)
+		` + llmThreatCountExpr + `,
+		` + llmRuleGenCountExpr + `
 		FROM llm_analysis`).Scan(
 		&stats.TotalAnalyses, &stats.TotalTokens, &stats.AvgLatencyMs,
 		&stats.AvgRiskScore, &stats.TotalThreats, &stats.RulesGenerated,
@@ -177,6 +177,50 @@ func (s *Store) QueryLLMAgentHistory(agent string, excludeID string, limit int) 
 		results = append(results, a)
 	}
 	return results, nil
+}
+
+// AgentLLMRisk holds LLM-derived risk metrics for an agent.
+type AgentLLMRisk struct {
+	Agent          string  `json:"agent"`
+	AnalysisCount  int     `json:"analysis_count"`
+	AvgRiskScore   float64 `json:"avg_risk_score"`
+	MaxRiskScore   float64 `json:"max_risk_score"`
+	ThreatCount    int     `json:"threat_count"`
+	ConfirmedCount int     `json:"confirmed_count"`
+}
+
+// llmThreatCountExpr is the canonical SQL expression for counting analyses with threats.
+const llmThreatCountExpr = `COUNT(CASE WHEN threats_json != '[]' AND threats_json != '' AND threats_json != 'null' THEN 1 END)`
+
+// llmRuleGenCountExpr is the canonical SQL expression for counting analyses with generated rules.
+const llmRuleGenCountExpr = `COUNT(CASE WHEN COALESCE(rule_generated,'') != '' THEN 1 END)`
+
+// QueryAgentLLMRisk returns LLM-derived risk aggregates per agent.
+func (s *Store) QueryAgentLLMRisk() (map[string]*AgentLLMRisk, error) {
+	rows, err := s.db.Query(`SELECT
+		from_agent,
+		COUNT(*),
+		COALESCE(AVG(risk_score), 0),
+		COALESCE(MAX(risk_score), 0),
+		` + llmThreatCountExpr + `,
+		COUNT(CASE WHEN COALESCE(reviewed_status,'') = 'confirmed' THEN 1 END)
+		FROM llm_analysis
+		GROUP BY from_agent`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck // rows.Close error is non-actionable
+
+	result := make(map[string]*AgentLLMRisk)
+	for rows.Next() {
+		var r AgentLLMRisk
+		if err := rows.Scan(&r.Agent, &r.AnalysisCount, &r.AvgRiskScore,
+			&r.MaxRiskScore, &r.ThreatCount, &r.ConfirmedCount); err != nil {
+			continue
+		}
+		result[r.Agent] = &r
+	}
+	return result, rows.Err()
 }
 
 // UpdateLLMReviewStatus sets the review status for an LLM analysis entry.

@@ -237,9 +237,9 @@ func TestQueryAgentRisk(t *testing.T) {
 	if risks[0].Agent != "bad-agent" {
 		t.Errorf("highest risk agent = %q, want bad-agent", risks[0].Agent)
 	}
-	// RiskScore: (2*3 + 0*2) / 3 * 100 = 200
-	if risks[0].RiskScore != 200 {
-		t.Errorf("risk score = %f, want 200", risks[0].RiskScore)
+	// RiskScore: (2*3 + 0*2) / 3 * 100 = 200, clamped to 100
+	if risks[0].RiskScore != 100 {
+		t.Errorf("risk score = %f, want 100 (clamped)", risks[0].RiskScore)
 	}
 }
 
