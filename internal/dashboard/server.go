@@ -193,9 +193,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/api/stats", s.handleAPIStats)
 	s.mux.HandleFunc("GET /dashboard/api/recent", s.handleAPIRecent)
 
-	// Export
+	// Export & Report
 	s.mux.HandleFunc("GET /dashboard/api/export/csv", s.handleExportCSV)
 	s.mux.HandleFunc("GET /dashboard/api/export/json", s.handleExportJSON)
+	s.mux.HandleFunc("GET /dashboard/api/export/sarif", s.handleExportSARIF)
+	s.mux.HandleFunc("GET /dashboard/report", s.handleReport)
 
 	// SSE
 	s.mux.HandleFunc("GET /dashboard/api/events", s.handleSSE)

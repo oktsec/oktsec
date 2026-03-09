@@ -525,3 +525,41 @@ func TestServer_LLMDetailAPINotFound(t *testing.T) {
 		t.Errorf("missing detail status = %d, want 404", rr.Code)
 	}
 }
+
+func TestServer_Report(t *testing.T) {
+	rr := authedGet(t, "/dashboard/report")
+	if rr.Code != http.StatusOK {
+		t.Errorf("report status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Security Posture Report") {
+		t.Error("report page missing title")
+	}
+	if !strings.Contains(body, "Traffic Summary") {
+		t.Error("report page missing traffic summary section")
+	}
+	if !strings.Contains(body, "Pipeline Configuration") {
+		t.Error("report page missing pipeline config section")
+	}
+}
+
+func TestServer_ExportSARIF(t *testing.T) {
+	rr := authedGet(t, "/dashboard/api/export/sarif")
+	if rr.Code != http.StatusOK {
+		t.Errorf("SARIF export status = %d, want 200", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "sarif-schema-2.1.0") {
+		t.Error("SARIF output missing schema reference")
+	}
+	if !strings.Contains(body, `"version": "2.1.0"`) {
+		t.Error("SARIF output missing version")
+	}
+	if !strings.Contains(body, `"name": "oktsec"`) {
+		t.Error("SARIF output missing tool name")
+	}
+}

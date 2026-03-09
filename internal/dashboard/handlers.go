@@ -125,13 +125,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Health score
-	configDir := filepath.Dir(s.cfgPath)
-	if configDir == "." {
-		if wd, err := os.Getwd(); err == nil {
-			configDir = wd
-		}
-	}
-	findings, _, _ := auditcheck.RunChecks(s.cfg, configDir)
+	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
 	score, grade := auditcheck.ComputeHealthScore(findings)
 
 	topRules, _ := s.audit.QueryTopRules(5, "")
@@ -175,25 +169,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	data["ChainValid"] = chainResult.Valid
 	data["ChainCount"] = chainResult.Entries
 
-	// LLM stats for overview
-	data["LLMEnabled"] = s.cfg.LLM.Enabled
-	if s.cfg.LLM.Enabled {
-		data["LLMProvider"] = s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
-		llmStats, err := s.audit.QueryLLMStats()
-		if err == nil && llmStats != nil {
-			data["LLMCompleted"] = llmStats.TotalAnalyses
-			data["LLMThreats"] = llmStats.TotalThreats
-			data["LLMAvgRisk"] = llmStats.AvgRiskScore
-			data["LLMTokens"] = llmStats.TotalTokens
-			data["LLMRulesGen"] = llmStats.RulesGenerated
-		} else {
-			data["LLMCompleted"] = 0
-			data["LLMThreats"] = 0
-			data["LLMAvgRisk"] = 0.0
-			data["LLMTokens"] = 0
-			data["LLMRulesGen"] = 0
-		}
-	}
+	s.populateLLMStats(data)
 
 	s.renderTemplate(w, overviewTmpl, data)
 }
@@ -205,14 +181,7 @@ type auditProductGroup struct {
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
-	configDir := filepath.Dir(s.cfgPath)
-	if configDir == "." {
-		if wd, err := os.Getwd(); err == nil {
-			configDir = wd
-		}
-	}
-
-	findings, detected, productInfos := auditcheck.RunChecks(s.cfg, configDir)
+	findings, detected, productInfos := auditcheck.RunChecks(s.cfg, s.configDir())
 	score, grade := auditcheck.ComputeHealthScore(findings)
 	summary := auditcheck.Summarize(findings)
 
@@ -1073,6 +1042,127 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewEncoder(w).Encode(entries); err != nil {
 			s.logger.Error("json export failed", "error", err)
 		}
+	}
+}
+
+// --- Report handler ---
+
+type reportFinding struct {
+	SeverityClass string
+	SeverityLabel string
+	CheckID       string
+	Title         string
+	Detail        string
+	Remediation   string
+}
+
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	stats := s.getStats()
+
+	// Health score & findings
+	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
+	score, grade := auditcheck.ComputeHealthScore(findings)
+	summary := auditcheck.Summarize(findings)
+
+	// Convert findings for template
+	var rptFindings []reportFinding
+	for _, f := range findings {
+		sevClass := "low"
+		switch f.Severity {
+		case auditcheck.Critical:
+			sevClass = "critical"
+		case auditcheck.High:
+			sevClass = "high"
+		case auditcheck.Medium:
+			sevClass = "medium"
+		}
+		rptFindings = append(rptFindings, reportFinding{
+			SeverityClass: sevClass,
+			SeverityLabel: f.Severity.String(),
+			CheckID:       f.CheckID,
+			Title:         f.Title,
+			Detail:        f.Detail,
+			Remediation:   f.Remediation,
+		})
+	}
+
+	detectionRate := 0
+	if stats.TotalMessages > 0 {
+		detectionRate = (stats.Blocked + stats.Quarantined) * 100 / stats.TotalMessages
+	}
+	unsigned, totalRecent, _ := s.audit.QueryUnsignedRate()
+	unsignedPct := 0
+	if totalRecent > 0 {
+		unsignedPct = unsigned * 100 / totalRecent
+	}
+	avgLatency, _ := s.audit.QueryAvgLatency()
+	topRules, _ := s.audit.QueryTopRules(10, "")
+	agentRisks, _ := s.audit.QueryAgentRisk("")
+
+	chainEntries, _ := s.audit.QueryChainEntries(10000)
+	chainResult := audit.VerifyChain(chainEntries, nil)
+
+	qStats, _ := s.audit.QuarantineStats()
+
+	var ruleCount int
+	if s.scanner != nil {
+		ruleCount = len(s.scanner.ListRules())
+	}
+
+	data := map[string]any{
+		"GeneratedAt":    time.Now().Format("2006-01-02 15:04 MST"),
+		"AgentCount":     len(s.cfg.Agents),
+		"Score":          score,
+		"Grade":          grade,
+		"FindingSummary": summary,
+		"Stats":          stats,
+		"DetectionRate":  detectionRate,
+		"UnsignedPct":    unsignedPct,
+		"AvgLatency":     avgLatency,
+		"ChainValid":     chainResult.Valid,
+		"ChainCount":     chainResult.Entries,
+		"AgentRisks":     agentRisks,
+		"TopRules":       topRules,
+		"Findings":       rptFindings,
+		"QuarantineStats": qStats,
+		"RequireSig":      s.cfg.Identity.RequireSignature,
+		"DefaultPolicy":   s.cfg.DefaultPolicy,
+		"RuleCount":       ruleCount,
+		"CustomRulesDir":  s.cfg.CustomRulesDir,
+		"GatewayEnabled":  s.cfg.Gateway.Enabled,
+		"MCPServerCount":  len(s.cfg.MCPServers),
+	}
+
+	// Rate limit
+	if s.cfg.RateLimit.PerAgent > 0 {
+		data["RateLimit"] = s.cfg.RateLimit.PerAgent
+	}
+
+	// Anomaly
+	data["AnomalyEnabled"] = s.cfg.Anomaly.RiskThreshold > 0
+	data["AnomalyThreshold"] = s.cfg.Anomaly.RiskThreshold
+
+	// Quarantine
+	data["QuarantineEnabled"] = s.cfg.Quarantine.Enabled
+	data["QuarantineTTL"] = fmt.Sprintf("%dh", s.cfg.Quarantine.ExpiryHours)
+
+	s.populateLLMStats(data)
+
+	s.renderTemplate(w, reportTmpl, data)
+}
+
+// --- SARIF export handler ---
+
+func (s *Server) handleExportSARIF(w http.ResponseWriter, r *http.Request) {
+	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
+	report := auditcheck.BuildSARIF(findings, "0.9.0")
+
+	filename := "oktsec-audit-" + time.Now().Format("2006-01-02") + ".sarif.json"
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+
+	if err := auditcheck.WriteSARIF(w, report); err != nil {
+		s.logger.Error("sarif export failed", "error", err)
 	}
 }
 
@@ -2517,6 +2607,40 @@ func (s *Server) getStats() dashboardStats {
 func (s *Server) getRecentEvents(n int) []audit.Entry {
 	entries, _ := s.audit.Query(audit.QueryOpts{Limit: n})
 	return entries
+}
+
+// configDir returns the directory containing the config file, resolving "." to cwd.
+func (s *Server) configDir() string {
+	dir := filepath.Dir(s.cfgPath)
+	if dir == "." {
+		if wd, err := os.Getwd(); err == nil {
+			return wd
+		}
+	}
+	return dir
+}
+
+// populateLLMStats adds LLM statistics to a template data map.
+func (s *Server) populateLLMStats(data map[string]any) {
+	data["LLMEnabled"] = s.cfg.LLM.Enabled
+	if !s.cfg.LLM.Enabled {
+		return
+	}
+	data["LLMProvider"] = s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
+	llmStats, err := s.audit.QueryLLMStats()
+	if err == nil && llmStats != nil {
+		data["LLMCompleted"] = llmStats.TotalAnalyses
+		data["LLMThreats"] = llmStats.TotalThreats
+		data["LLMAvgRisk"] = llmStats.AvgRiskScore
+		data["LLMTokens"] = llmStats.TotalTokens
+		data["LLMRulesGen"] = llmStats.RulesGenerated
+	} else {
+		data["LLMCompleted"] = 0
+		data["LLMThreats"] = 0
+		data["LLMAvgRisk"] = 0.0
+		data["LLMTokens"] = 0
+		data["LLMRulesGen"] = 0
+	}
 }
 
 // --- Graph handlers ---

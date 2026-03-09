@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/oktsec/oktsec/internal/auditcheck"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func TestPrintAuditSARIF_Structure(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 
-	var log sarifLog
+	var log auditcheck.SARIFLog
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &log))
 
 	// Verify top-level SARIF structure
@@ -77,7 +78,7 @@ func TestAuditSeverityToSARIFLevel(t *testing.T) {
 		{AuditInfo, "note"},
 	}
 	for _, tt := range tests {
-		assert.Equal(t, tt.want, auditSeverityToSARIFLevel(tt.sev), "severity=%s", tt.sev)
+		assert.Equal(t, tt.want, auditcheck.SeverityToSARIFLevel(tt.sev), "severity=%s", tt.sev)
 	}
 }
 
@@ -101,15 +102,16 @@ func TestSARIF_ProductInRuleProperties(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 
-	var log sarifLog
+	var log auditcheck.SARIFLog
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &log))
 
 	rules := log.Runs[0].Tool.Driver.Rules
 	require.Len(t, rules, 2)
 
-	// OC-001 should have product property
+	// Rules are sorted by ID, so OC-001 before SIG-001
+	assert.Equal(t, "OC-001", rules[0].ID)
 	assert.Equal(t, "OpenClaw", rules[0].Properties.Product)
-	// SIG-001 should not
+	assert.Equal(t, "SIG-001", rules[1].ID)
 	assert.Empty(t, rules[1].Properties.Product)
 }
 
@@ -129,7 +131,7 @@ func TestSARIF_EmptyFindings(t *testing.T) {
 	var buf bytes.Buffer
 	_, _ = buf.ReadFrom(r)
 
-	var log sarifLog
+	var log auditcheck.SARIFLog
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &log))
 
 	assert.Empty(t, log.Runs[0].Results)
