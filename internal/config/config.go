@@ -53,6 +53,7 @@ type LLMConfig struct {
 	Triage           LLMTriageConfig   `yaml:"triage,omitempty"`
 	MinContentLength int              `yaml:"min_content_length,omitempty"` // skip short messages
 
+	Budget  LLMBudgetConfig   `yaml:"budget,omitempty"`
 	RuleGen LLMRuleGenConfig  `yaml:"rulegen,omitempty"`
 	Intent  LLMIntentConfig   `yaml:"intent,omitempty"`
 	Webhook LLMWebhookConfig  `yaml:"webhook,omitempty"`
@@ -75,6 +76,14 @@ type LLMTriageConfig struct {
 	NewAgentPairs     bool     `yaml:"new_agent_pairs,omitempty"`
 	SampleRate        float64  `yaml:"sample_rate,omitempty"`
 	ExternalURLs      bool     `yaml:"external_urls,omitempty"`
+}
+
+// LLMBudgetConfig controls LLM spending limits to prevent billing surprises.
+type LLMBudgetConfig struct {
+	DailyLimitUSD   float64 `yaml:"daily_limit_usd,omitempty"`   // hard cap per day (0 = unlimited)
+	MonthlyLimitUSD float64 `yaml:"monthly_limit_usd,omitempty"` // hard cap per month (0 = unlimited)
+	WarnThreshold   float64 `yaml:"warn_threshold,omitempty"`    // alert at this fraction of limit (default: 0.8)
+	OnLimit         string  `yaml:"on_limit,omitempty"`          // "skip" (default) | "block"
 }
 
 // LLMRuleGenConfig controls automatic rule generation from LLM findings.

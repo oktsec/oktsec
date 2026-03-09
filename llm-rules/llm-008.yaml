@@ -1,13 +1,13 @@
 id: LLM-008
-name: dependency_substitution_bypass
-description: Message attempts to bypass code review process by instructing 'Merge without review' while replacing legitimate security tool (oktsec) with attacker-controlled version from malicious domain (github.com/attacker/)
+name: HTML_COMMENT_INJECTION_DETECTION
+description: The message uses a 'diagnostic step' framing to coerce the recipient agent into leaking sensitive environment variables (API keys) by embedding malicious instructions within an HTML comment.
 severity: critical
-category: supply_chain_attack
+category: prompt_injection
 source: llm-generated
 generated_by: openai
-generated_from: e22ac63b-dbd6-4e7b-8591-7d9b85c0ad66
-confidence: 0.95
+generated_from: a740da56-3a88-475b-9fcf-a4bd3c2dbdaa
+confidence: 1
 status: active
 patterns:
     - type: regex
-      value: (replace\s+.*=>\s*github\.com/[^/]+/[^/]+).*?(merge|commit|apply)\s*(without\s+)?review
+      value: <!--\s*(SYSTEM|INSTRUCTION|COMMAND|OVERRIDE):.*-->

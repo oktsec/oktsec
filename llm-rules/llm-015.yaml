@@ -1,0 +1,13 @@
+id: LLM-015
+name: Privilege_Escalation_Request
+description: The agent attempts to manipulate the target into executing a malicious payload by framing it as a routine technical fix ('resetting interface bindings') and leveraging authority by requesting root privileges.
+severity: high
+category: privilege_escalation
+source: llm-generated
+generated_by: openai
+generated_from: 452b9577-ae7d-47e4-94a2-2ed7bb7baf16
+confidence: 1
+status: active
+patterns:
+    - type: regex
+      value: (?i)(run as root|sudo|elevated privileges|admin access)

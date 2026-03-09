@@ -20,6 +20,7 @@ import (
 	"github.com/oktsec/oktsec/internal/discover"
 	"github.com/oktsec/oktsec/internal/graph"
 	"github.com/oktsec/oktsec/internal/identity"
+	"github.com/oktsec/oktsec/internal/llm"
 	"gopkg.in/yaml.v3"
 )
 
@@ -2031,12 +2032,22 @@ func (s *Server) handleLLM(w http.ResponseWriter, r *http.Request) {
 
 	analyses, _ := s.audit.QueryLLMAnalyses(50)
 
+	var budgetStatus *llm.BudgetStatus
+	if s.llmQueue != nil && s.llmQueue.Budget() != nil {
+		bs := s.llmQueue.Budget().Status()
+		budgetStatus = &bs
+	}
+
+	triageCounts := s.audit.QueryLLMTriageCounts()
+
 	data := map[string]any{
-		"Active":   "llm",
-		"Enabled":  s.cfg.LLM.Enabled,
-		"Cfg":      s.cfg.LLM,
-		"Stats":    llmStats,
-		"Analyses": analyses,
+		"Active":       "llm",
+		"Enabled":      s.cfg.LLM.Enabled,
+		"Cfg":          s.cfg.LLM,
+		"Stats":        llmStats,
+		"Analyses":     analyses,
+		"BudgetStatus": budgetStatus,
+		"Triage":       triageCounts,
 	}
 
 	s.renderTemplate(w, llmTmpl, data)
@@ -2059,11 +2070,47 @@ func (s *Server) handleLLMCase(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	agentSuspended := false
+	if agent, ok := s.cfg.Agents[a.FromAgent]; ok {
+		agentSuspended = agent.Suspended
+	}
+	agentHistory, _ := s.audit.QueryLLMAgentHistory(a.FromAgent, a.ID, 5)
 	data := map[string]any{
-		"Active":   "llm",
-		"Analysis": a,
+		"Active":         "llm",
+		"Analysis":       a,
+		"AgentSuspended": agentSuspended,
+		"AgentHistory":   agentHistory,
 	}
 	s.renderTemplate(w, llmCaseTmpl, data)
+}
+
+func (s *Server) handleLLMDismiss(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := s.audit.UpdateLLMReviewStatus(id, "false_positive"); err != nil {
+		s.logger.Error("llm dismiss failed", "id", id, "error", err)
+		http.Error(w, "failed", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<span class="ci-reviewed" style="background:rgba(34,197,94,0.1);color:#22c55e">&#10003; Dismissed as false positive</span>`)
+}
+
+func (s *Server) handleLLMConfirm(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := s.audit.UpdateLLMReviewStatus(id, "confirmed"); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<span class="ci-reviewed" style="background:rgba(239,68,68,0.1);color:#ef4444">&#10003; Confirmed as real threat</span>`)
 }
 
 // --- Settings section handlers ---
@@ -2117,6 +2164,36 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 	s.cfg.LLM.Analyze.Flagged = r.FormValue("analyze_flagged") == "true"
 	s.cfg.LLM.Analyze.Quarantined = r.FormValue("analyze_quarantined") == "true"
 	s.cfg.LLM.Analyze.Blocked = r.FormValue("analyze_blocked") == "true"
+
+	// Budget limits
+	if v := r.FormValue("budget_daily"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			s.cfg.LLM.Budget.DailyLimitUSD = f
+		}
+	}
+	if v := r.FormValue("budget_monthly"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			s.cfg.LLM.Budget.MonthlyLimitUSD = f
+		}
+	}
+	if v := r.FormValue("budget_warn"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 && f <= 100 {
+			s.cfg.LLM.Budget.WarnThreshold = f / 100 // store as fraction
+		}
+	}
+	if ol := r.FormValue("budget_on_limit"); ol == "skip" || ol == "block" {
+		s.cfg.LLM.Budget.OnLimit = ol
+	}
+
+	// Hot-reload budget limits into tracker
+	if s.llmQueue != nil && s.llmQueue.Budget() != nil {
+		s.llmQueue.Budget().UpdateConfig(llm.BudgetConfig{
+			DailyLimitUSD:   s.cfg.LLM.Budget.DailyLimitUSD,
+			MonthlyLimitUSD: s.cfg.LLM.Budget.MonthlyLimitUSD,
+			WarnThreshold:   s.cfg.LLM.Budget.WarnThreshold,
+			OnLimit:         s.cfg.LLM.Budget.OnLimit,
+		})
+	}
 
 	s.cfg.LLM.RuleGen.Enabled = r.FormValue("rulegen_enabled") == "true"
 	s.cfg.LLM.RuleGen.RequireApproval = r.FormValue("rulegen_approval") == "true"

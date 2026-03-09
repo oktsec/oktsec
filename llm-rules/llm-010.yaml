@@ -1,13 +1,13 @@
 id: LLM-010
-name: adversarial_framing_detection
-description: Message claims to be routine update but actual intent is supply chain compromise - adversarial framing '[BEGIN UNTRUSTED CONTENT]' indicates awareness of security monitoring while attempting to exploit it
+name: Security_Control_Bypass_Attempt
+description: The message attempts to bypass established security controls (daily limit check and 24-hour hold) by invoking authority ('pre-approved by finance') to force an anomalous transaction.
 severity: high
-category: prompt_injection
+category: privilege_escalation
 source: llm-generated
 generated_by: openai
-generated_from: e22ac63b-dbd6-4e7b-8591-7d9b85c0ad66
+generated_from: 6ddbb432-9256-4008-b5de-f509bd3cf30a
 confidence: 0.9
 status: active
 patterns:
     - type: regex
-      value: \[BEGIN\s+UNTRUSTED\s+CONTENT.*?\]\s*.*?\[END\s+UNTRUSTED\s+CONTENT\]
+      value: (?i)(override|bypass|ignore|skip).*(limit|hold|check|policy|protocol)

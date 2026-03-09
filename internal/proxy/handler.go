@@ -52,8 +52,9 @@ type Handler struct {
 	webhooks    *WebhookNotifier
 	rateLimiter *RateLimiter
 	window      *MessageWindow
-	llmQueue    *llm.Queue // nil if LLM disabled
-	logger      *slog.Logger
+	llmQueue       *llm.Queue          // nil if LLM disabled
+	signalDetector *llm.SignalDetector // nil if triage disabled
+	logger         *slog.Logger
 }
 
 // NewHandler creates a message handler with all dependencies.
@@ -74,6 +75,11 @@ func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluat
 // SetLLMQueue attaches the async LLM analysis queue to the handler.
 func (h *Handler) SetLLMQueue(q *llm.Queue) {
 	h.llmQueue = q
+}
+
+// SetSignalDetector attaches the pre-LLM triage filter.
+func (h *Handler) SetSignalDetector(d *llm.SignalDetector) {
+	h.signalDetector = d
 }
 
 // ServeHTTP handles POST /v1/message.
@@ -234,28 +240,43 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // submitToLLM sends a message to the async LLM analysis queue if configured.
 func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine.ScanOutcome) {
-	analyze := h.cfg.LLM.Analyze
-	switch outcome.Verdict {
-	case engine.VerdictClean:
-		if !analyze.Clean {
-			return
-		}
-	case engine.VerdictFlag:
-		if !analyze.Flagged {
-			return
-		}
-	case engine.VerdictQuarantine:
-		if !analyze.Quarantined {
-			return
-		}
-	case engine.VerdictBlock:
-		if !analyze.Blocked {
-			return
-		}
-	}
-
 	if h.cfg.LLM.MinContentLength > 0 && len(req.Content) < h.cfg.LLM.MinContentLength {
 		return
+	}
+
+	// When a signal detector is attached, it is the sole gatekeeper for
+	// LLM analysis. It checks keywords, URLs, new agent pairs, random
+	// sampling, and skip-verdicts. This replaces the analyze config
+	// (clean/flagged/quarantined/blocked) and catches semantic threats
+	// that rules miss but have suspicious indicators.
+	//
+	// When no signal detector is attached, the analyze config controls
+	// which verdict types are sent to the LLM (original behavior).
+	if h.signalDetector != nil {
+		sig := h.signalDetector.Detect(req.From, req.To, req.Content, string(outcome.Verdict))
+		if !sig.ShouldAnalyze {
+			return
+		}
+	} else {
+		analyze := h.cfg.LLM.Analyze
+		switch outcome.Verdict {
+		case engine.VerdictClean:
+			if !analyze.Clean {
+				return
+			}
+		case engine.VerdictFlag:
+			if !analyze.Flagged {
+				return
+			}
+		case engine.VerdictQuarantine:
+			if !analyze.Quarantined {
+				return
+			}
+		case engine.VerdictBlock:
+			if !analyze.Blocked {
+				return
+			}
+		}
 	}
 
 	h.llmQueue.Submit(llm.AnalysisRequest{

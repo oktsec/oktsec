@@ -14,6 +14,7 @@ import (
 	"github.com/oktsec/oktsec/internal/dashboard/static"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
+	"github.com/oktsec/oktsec/internal/llm"
 )
 
 // Server serves the oktsec dashboard UI.
@@ -27,8 +28,9 @@ type Server struct {
 	logger  *slog.Logger
 	mux     *http.ServeMux
 
-	gwMu  sync.Mutex
-	gwCmd *exec.Cmd
+	gwMu     sync.Mutex
+	gwCmd    *exec.Cmd
+	llmQueue *llm.Queue
 }
 
 // NewServer creates a dashboard server with access-code authentication.
@@ -62,6 +64,11 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore *audit.Store, keys
 	}()
 
 	return s
+}
+
+// SetLLMQueue attaches the LLM queue for budget status display.
+func (s *Server) SetLLMQueue(q *llm.Queue) {
+	s.llmQueue = q
 }
 
 // AccessCode returns the one-time access code displayed in the terminal.
@@ -164,6 +171,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/llm", s.handleLLM)
 	s.mux.HandleFunc("GET /dashboard/llm/case/{id}", s.handleLLMCase)
 	s.mux.HandleFunc("GET /dashboard/api/llm/{id}", s.handleLLMDetail)
+	s.mux.HandleFunc("POST /dashboard/api/llm/{id}/dismiss", s.handleLLMDismiss)
+	s.mux.HandleFunc("POST /dashboard/api/llm/{id}/confirm", s.handleLLMConfirm)
 	s.mux.HandleFunc("GET /dashboard/audit", s.handleAudit)
 	s.mux.HandleFunc("GET /dashboard/audit/sandbox", s.handleAuditSandbox)
 	s.mux.HandleFunc("GET /dashboard/rules", s.handleRules)

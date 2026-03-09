@@ -1,0 +1,13 @@
+id: LLM-011
+name: DNS_Exfiltration_Pattern
+description: The message attempts to exfiltrate sensitive system audit logs via DNS tunneling, disguised as a legitimate logging infrastructure task.
+severity: critical
+category: Data Exfiltration
+source: llm-generated
+generated_by: openai
+generated_from: 9cb23066-14f5-440e-bf98-665d79f2fec7
+confidence: 1
+status: active
+patterns:
+    - type: regex
+      value: (?i)(dns|txt|query).*?(/var/log/audit\.log|/etc/shadow|/etc/passwd).*?exfil

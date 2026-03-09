@@ -49,8 +49,17 @@ type SignalDetector struct {
 	seenPairs map[string]bool // tracks from->to pairs
 }
 
+// maxSeenPairs limits the agent pair cache to prevent unbounded growth.
+const maxSeenPairs = 10000
+
 // NewSignalDetector creates a signal detector from config.
 func NewSignalDetector(cfg TriageConfig) *SignalDetector {
+	// Pre-lowercase keywords once at init.
+	lower := make([]string, len(cfg.SensitiveKeywords))
+	for i, kw := range cfg.SensitiveKeywords {
+		lower[i] = strings.ToLower(kw)
+	}
+	cfg.SensitiveKeywords = lower
 	return &SignalDetector{
 		cfg:       cfg,
 		seenPairs: make(map[string]bool),
@@ -101,6 +110,11 @@ func (d *SignalDetector) Detect(from, to, content, verdict string) SignalResult 
 			d.mu.Lock()
 			if !d.seenPairs[pair] { // double-check under write lock
 				d.seenPairs[pair] = true
+				// Evict oldest entries when cap is exceeded to prevent unbounded growth.
+				// Simple clear-and-keep-current approach avoids LRU complexity.
+				if len(d.seenPairs) > maxSeenPairs {
+					d.seenPairs = map[string]bool{pair: true}
+				}
 				signals = append(signals, "new_agent_pair:"+pair)
 			}
 			d.mu.Unlock()

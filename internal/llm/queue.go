@@ -23,6 +23,7 @@ type Queue struct {
 	dailyCount atomic.Int64
 	dailyReset time.Time
 	mu         sync.Mutex
+	budget     *BudgetTracker
 
 	// Stats
 	completed atomic.Int64
@@ -72,8 +73,18 @@ func (q *Queue) OnError(fn func(AnalysisRequest, error)) {
 	q.onError = fn
 }
 
+// SetBudget attaches a budget tracker to the queue.
+func (q *Queue) SetBudget(b *BudgetTracker) {
+	q.budget = b
+}
+
+// Budget returns the attached budget tracker (may be nil).
+func (q *Queue) Budget() *BudgetTracker {
+	return q.budget
+}
+
 // Submit enqueues an analysis request.
-// Returns false if queue is full or daily limit reached.
+// Returns false if queue is full, daily limit reached, or budget exhausted.
 func (q *Queue) Submit(req AnalysisRequest) bool {
 	if q.maxDaily > 0 {
 		q.mu.Lock()
@@ -86,6 +97,19 @@ func (q *Queue) Submit(req AnalysisRequest) bool {
 		if q.dailyCount.Load() >= q.maxDaily {
 			q.dropped.Add(1)
 			llmAnalysisTotal.WithLabelValues("dropped_daily_limit", q.analyzer.Name()).Inc()
+			return false
+		}
+	}
+
+	// Budget check
+	if q.budget != nil {
+		if ok, reason := q.budget.CanSpend(); !ok {
+			q.dropped.Add(1)
+			llmAnalysisTotal.WithLabelValues("dropped_"+reason, q.analyzer.Name()).Inc()
+			q.logger.Warn("llm analysis dropped: budget exhausted",
+				"reason", reason,
+				"message_id", req.MessageID,
+			)
 			return false
 		}
 	}

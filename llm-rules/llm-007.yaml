@@ -1,13 +1,13 @@
 id: LLM-007
-name: InjectionMarkerRule
-description: Adversarial framing using 'BEGIN UNTRUSTED CONTENT' markers to manipulate analysis system behavior while embedding malicious instructions
-severity: high
-category: prompt_injection
+name: Deceptive_Maintenance_Labeling
+description: The message attempts to disguise malicious data exfiltration as routine maintenance to bypass security monitoring.
+severity: medium
+category: social_engineering
 source: llm-generated
 generated_by: openai
-generated_from: 93dcb16e-9d29-4737-8d17-bbb8291bd2b1
-confidence: 0.8
-status: active
+generated_from: 5619761a-b64b-42fa-a5d2-b0602bfdcb91
+confidence: 0.9
+status: pending_review
 patterns:
     - type: regex
-      value: (BEGIN|END)\s+(UNTRUSTED|MALICIOUS|INJECTION)
+      value: (?i)label\s+it\s+as\s+(routine|standard)\s+(maintenance|update)

@@ -1,13 +1,13 @@
 id: LLM-002
-name: Authority_Bypass_Detection
-description: Attempts to bypass security verification by claiming executive authority and instructing agent not to verify requests. Classic social engineering pattern targeting automated systems.
-severity: high
-category: authority_bypass
+name: Unauthorized_DB_Modification_Exfil
+description: The message attempts to perform unauthorized privilege escalation by modifying user roles in the production database and exfiltrating the resulting data to an external endpoint.
+severity: critical
+category: Data Exfiltration
 source: llm-generated
 generated_by: openai
-generated_from: 5fdcdd56-6af8-42f0-a7ab-2315924e4093
-confidence: 0.9
-status: active
+generated_from: 2879d1fd-32a0-4f89-bfc6-cab5d7ad4a37
+confidence: 1
+status: pending_review
 patterns:
     - type: regex
-      value: (urgent|emergency).*?(executive|admin|manager).*?(no.*?need.*?verify|skip.*?verification)
+      value: (UPDATE\s+users\s+SET\s+role='admin'|curl|pipe|dump).*https?://

@@ -14,13 +14,14 @@ import (
 // openaiProvider implements Analyzer for any OpenAI Chat Completions-compatible API.
 // Covers: OpenAI, Ollama, vLLM, llama.cpp, LM Studio, Mistral, Groq, Together, Azure.
 type openaiProvider struct {
-	client     *http.Client
-	baseURL    string
-	apiKey     string
-	model      string
-	maxTokens  int
-	temp       float64
-	apiVersion string // for Azure OpenAI
+	client       *http.Client
+	baseURL      string
+	apiKey       string
+	model        string
+	maxTokens    int
+	temp         float64
+	apiVersion   string // for Azure OpenAI
+	isOpenRouter bool
 }
 
 func newOpenAIProvider(cfg Config) (*openaiProvider, error) {
@@ -43,13 +44,14 @@ func newOpenAIProvider(cfg Config) (*openaiProvider, error) {
 	}
 
 	return &openaiProvider{
-		client:     &http.Client{Timeout: cfg.ParseTimeout()},
-		baseURL:    baseURL,
-		apiKey:     apiKey,
-		model:      cfg.Model,
-		maxTokens:  maxTokens,
-		temp:       temp,
-		apiVersion: cfg.APIVersion,
+		client:       &http.Client{Timeout: cfg.ParseTimeout()},
+		baseURL:      baseURL,
+		apiKey:       apiKey,
+		model:        cfg.Model,
+		maxTokens:    maxTokens,
+		temp:         temp,
+		apiVersion:   cfg.APIVersion,
+		isOpenRouter: strings.Contains(baseURL, "openrouter"),
 	}, nil
 }
 
@@ -113,8 +115,8 @@ func (p *openaiProvider) Analyze(ctx context.Context, req AnalysisRequest) (*Ana
 	if p.apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
-	// OpenRouter-specific headers
-	if strings.Contains(p.baseURL, "openrouter") {
+	// OpenRouter-specific headers (cached at init)
+	if p.isOpenRouter {
 		httpReq.Header.Set("HTTP-Referer", "https://oktsec.com")
 		httpReq.Header.Set("X-Title", "oktsec")
 	}

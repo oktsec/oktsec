@@ -245,6 +245,22 @@ func (s *Store) migrateSchema() {
 	if _, err := s.db.Exec(llmSchema); err != nil {
 		s.logger.Warn("llm_analysis table creation skipped", "error", err)
 	}
+	// LLM analysis column migrations (idempotent; duplicate-column errors ignored)
+	llmMigrations := []struct {
+		sql       string
+		ignoreDup bool
+	}{
+		{`ALTER TABLE llm_analysis ADD COLUMN reviewed_status TEXT DEFAULT ''`, true},
+		{`ALTER TABLE llm_analysis ADD COLUMN reviewed_at TEXT DEFAULT ''`, true},
+	}
+	for _, lm := range llmMigrations {
+		if _, err := s.db.Exec(lm.sql); err != nil {
+			if !lm.ignoreDup || !strings.Contains(err.Error(), "duplicate column") {
+				s.logger.Warn("llm migration skipped", "sql", lm.sql, "error", err)
+			}
+		}
+	}
+
 	for _, m := range migrations {
 		if _, err := s.db.Exec(m); err != nil {
 			// "duplicate column name" is expected on re-runs; ignore it

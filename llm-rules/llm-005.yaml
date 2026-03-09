@@ -1,13 +1,13 @@
 id: LLM-005
-name: SecurityBypassRule
-description: Message attempts to bypass security controls by instructing not to notify security team
+name: Security_Control_Bypass_Attempt
+description: The agent is attempting to manipulate the security posture of the receiving agent by requesting the bypass of critical server-side input validation controls.
 severity: high
-category: control_bypass
+category: Privilege Escalation
 source: llm-generated
 generated_by: openai
-generated_from: 93dcb16e-9d29-4737-8d17-bbb8291bd2b1
-confidence: 0.9
-status: active
+generated_from: 1596879f-13e3-4fd4-a563-6d646bae1924
+confidence: 0.95
+status: pending_review
 patterns:
     - type: regex
-      value: (do not|never|skip)\s+(notify|alert|report)\s+(security|admin|team)
+      value: (?i)(bypass|skip|disable|ignore).*(validation|sanitization|security|checks)
