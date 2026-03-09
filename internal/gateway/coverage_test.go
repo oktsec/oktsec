@@ -376,3 +376,61 @@ func TestGateway_EmptyAgentContext(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 }
+
+func TestGateway_SetLLMQueue(t *testing.T) {
+	cfg := defaultGatewayConfig()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	scanner := engine.NewScanner("")
+	dbPath := filepath.Join(t.TempDir(), "test-audit.db")
+	auditStore, err := audit.NewStore(dbPath, logger)
+	require.NoError(t, err)
+	defer func() { _ = auditStore.Close() }()
+	defer scanner.Close()
+
+	gw := newGatewayForTest(cfg, scanner, auditStore, logger)
+
+	// Initially nil
+	assert.Nil(t, gw.llmQueue)
+
+	// SetLLMQueue works
+	gw.SetLLMQueue(nil) // setting nil is fine
+	assert.Nil(t, gw.llmQueue)
+
+	// AuditStore accessor
+	assert.Equal(t, auditStore, gw.AuditStore())
+}
+
+func TestGateway_SetSignalDetector(t *testing.T) {
+	cfg := defaultGatewayConfig()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	scanner := engine.NewScanner("")
+	dbPath := filepath.Join(t.TempDir(), "test-audit.db")
+	auditStore, err := audit.NewStore(dbPath, logger)
+	require.NoError(t, err)
+	defer func() { _ = auditStore.Close() }()
+	defer scanner.Close()
+
+	gw := newGatewayForTest(cfg, scanner, auditStore, logger)
+
+	assert.Nil(t, gw.signalDetector)
+
+	// Set and verify
+	gw.SetSignalDetector(nil)
+	assert.Nil(t, gw.signalDetector)
+}
+
+func TestGateway_SubmitToLLM_NilQueue(t *testing.T) {
+	cfg := defaultGatewayConfig()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	scanner := engine.NewScanner("")
+	dbPath := filepath.Join(t.TempDir(), "test-audit.db")
+	auditStore, err := audit.NewStore(dbPath, logger)
+	require.NoError(t, err)
+	defer func() { _ = auditStore.Close() }()
+	defer scanner.Close()
+
+	gw := newGatewayForTest(cfg, scanner, auditStore, logger)
+
+	// Should not panic with nil queue
+	gw.submitToLLM("agent-a", "echo", "test content", engine.VerdictClean, nil)
+}
