@@ -17,6 +17,9 @@ import (
 	"github.com/oktsec/oktsec/internal/llm"
 )
 
+// Version is set by the CLI command at startup for use in exports (e.g., SARIF).
+var Version = "dev"
+
 // Server serves the oktsec dashboard UI.
 type Server struct {
 	auth    *Auth

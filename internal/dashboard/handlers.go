@@ -1177,7 +1177,7 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExportSARIF(w http.ResponseWriter, r *http.Request) {
 	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
-	report := auditcheck.BuildSARIF(findings, "0.9.0")
+	report := auditcheck.BuildSARIF(findings, Version)
 
 	filename := "oktsec-audit-" + time.Now().Format("2006-01-02") + ".sarif.json"
 	w.Header().Set("Content-Type", "application/json")

@@ -83,12 +83,6 @@ var tmplFuncs = template.FuncMap{
 		return toFloat64(a) / fb
 	},
 	"mulf": func(a, b any) float64 { return toFloat64(a) * toFloat64(b) },
-	"divFloat": func(a, b float64) float64 {
-		if b == 0 {
-			return 0
-		}
-		return a / b
-	},
 	"toFloat": func(v any) float64 {
 		switch n := v.(type) {
 		case float64:
