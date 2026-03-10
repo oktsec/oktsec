@@ -9,6 +9,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -186,4 +187,58 @@ func New(cfg Config) (Analyzer, error) {
 	default:
 		return nil, fmt.Errorf("unknown llm provider: %q (valid: openai, claude, webhook)", cfg.Provider)
 	}
+}
+
+// FallbackConfig describes a secondary LLM provider for fallback.
+type FallbackConfig struct {
+	Provider   Provider
+	Model      string
+	BaseURL    string
+	APIKeyEnv  string
+	APIVersion string
+	MaxTokens  int
+	Timeout    string
+}
+
+// NewWithFallback creates a primary Analyzer and optionally wraps it with
+// a FallbackAnalyzer if fallback config is provided. Returns nil, nil if disabled.
+func NewWithFallback(cfg Config, fb *FallbackConfig, logger *slog.Logger) (Analyzer, error) {
+	primary, err := New(cfg)
+	if err != nil || primary == nil {
+		return primary, err
+	}
+	if fb == nil || fb.Provider == "" {
+		return primary, nil
+	}
+
+	// Build secondary config from fallback + inherit defaults from primary
+	secCfg := Config{
+		Enabled:     true,
+		Provider:    fb.Provider,
+		Model:       fb.Model,
+		BaseURL:     fb.BaseURL,
+		APIKeyEnv:   fb.APIKeyEnv,
+		APIVersion:  fb.APIVersion,
+		MaxTokens:   fb.MaxTokens,
+		Temperature: cfg.Temperature,
+		Timeout:     fb.Timeout,
+		Webhook:     cfg.Webhook,
+	}
+	if secCfg.MaxTokens == 0 {
+		secCfg.MaxTokens = cfg.MaxTokens
+	}
+	if secCfg.Timeout == "" {
+		secCfg.Timeout = cfg.Timeout
+	}
+
+	secondary, err := New(secCfg)
+	if err != nil {
+		return nil, fmt.Errorf("fallback provider: %w", err)
+	}
+
+	logger.Info("llm fallback configured",
+		"primary", primary.Name(),
+		"secondary", secondary.Name(),
+	)
+	return NewFallbackAnalyzer(primary, secondary, logger), nil
 }

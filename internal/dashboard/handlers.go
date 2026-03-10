@@ -115,7 +115,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	stats := s.getStats()
-	recent := s.getRecentEvents(5)
+	recent := s.getRecentEvents(3)
 	chart := s.getHourlyChart()
 
 	qStats, _ := s.audit.QuarantineStats()
@@ -125,13 +125,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Health score
-	configDir := filepath.Dir(s.cfgPath)
-	if configDir == "." {
-		if wd, err := os.Getwd(); err == nil {
-			configDir = wd
-		}
-	}
-	findings, _, _ := auditcheck.RunChecks(s.cfg, configDir)
+	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
 	score, grade := auditcheck.ComputeHealthScore(findings)
 
 	topRules, _ := s.audit.QueryTopRules(5, "")
@@ -175,25 +169,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	data["ChainValid"] = chainResult.Valid
 	data["ChainCount"] = chainResult.Entries
 
-	// LLM stats for overview
-	data["LLMEnabled"] = s.cfg.LLM.Enabled
-	if s.cfg.LLM.Enabled {
-		data["LLMProvider"] = s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
-		llmStats, err := s.audit.QueryLLMStats()
-		if err == nil && llmStats != nil {
-			data["LLMCompleted"] = llmStats.TotalAnalyses
-			data["LLMThreats"] = llmStats.TotalThreats
-			data["LLMAvgRisk"] = llmStats.AvgRiskScore
-			data["LLMTokens"] = llmStats.TotalTokens
-			data["LLMRulesGen"] = llmStats.RulesGenerated
-		} else {
-			data["LLMCompleted"] = 0
-			data["LLMThreats"] = 0
-			data["LLMAvgRisk"] = 0.0
-			data["LLMTokens"] = 0
-			data["LLMRulesGen"] = 0
-		}
-	}
+	s.populateLLMStats(data)
 
 	s.renderTemplate(w, overviewTmpl, data)
 }
@@ -205,14 +181,7 @@ type auditProductGroup struct {
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
-	configDir := filepath.Dir(s.cfgPath)
-	if configDir == "." {
-		if wd, err := os.Getwd(); err == nil {
-			configDir = wd
-		}
-	}
-
-	findings, detected, productInfos := auditcheck.RunChecks(s.cfg, configDir)
+	findings, detected, productInfos := auditcheck.RunChecks(s.cfg, s.configDir())
 	score, grade := auditcheck.ComputeHealthScore(findings)
 	summary := auditcheck.Summarize(findings)
 
@@ -614,11 +583,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		data["CustomFiles"] = customFiles
 	}
 
-	// LLM-generated rules tab (data already loaded above)
-	if tab == "llm-rules" {
-		data["LLMPending"] = llmPending
-		data["LLMActive"] = llmActive
-	}
+	// LLM-generated rules (needed for llm-rules tab + detection tab indicator)
+	data["LLMPending"] = llmPending
+	data["LLMActive"] = llmActive
 
 	// Build enforcement data for enforcement tab
 	if tab == "enforcement" {
@@ -1073,6 +1040,151 @@ func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewEncoder(w).Encode(entries); err != nil {
 			s.logger.Error("json export failed", "error", err)
 		}
+	}
+}
+
+// --- Report handler ---
+
+type reportFinding struct {
+	SeverityClass string
+	SeverityLabel string
+	CheckID       string
+	Title         string
+	Detail        string
+	Remediation   string
+}
+
+func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
+	stats := s.getStats()
+
+	// Health score & findings
+	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
+	score, grade := auditcheck.ComputeHealthScore(findings)
+	summary := auditcheck.Summarize(findings)
+
+	// Convert findings for template
+	var rptFindings []reportFinding
+	for _, f := range findings {
+		sevClass := "low"
+		switch f.Severity {
+		case auditcheck.Critical:
+			sevClass = "critical"
+		case auditcheck.High:
+			sevClass = "high"
+		case auditcheck.Medium:
+			sevClass = "medium"
+		}
+		rptFindings = append(rptFindings, reportFinding{
+			SeverityClass: sevClass,
+			SeverityLabel: f.Severity.String(),
+			CheckID:       f.CheckID,
+			Title:         f.Title,
+			Detail:        f.Detail,
+			Remediation:   f.Remediation,
+		})
+	}
+
+	detectionRate := 0
+	if stats.TotalMessages > 0 {
+		detectionRate = (stats.Blocked + stats.Quarantined) * 100 / stats.TotalMessages
+	}
+	unsigned, totalRecent, _ := s.audit.QueryUnsignedRate()
+	unsignedPct := 0
+	if totalRecent > 0 {
+		unsignedPct = unsigned * 100 / totalRecent
+	}
+	avgLatency, _ := s.audit.QueryAvgLatency()
+	topRules, _ := s.audit.QueryTopRules(10, "")
+	agentRisks, _ := s.audit.QueryAgentRisk("")
+
+	chainEntries, _ := s.audit.QueryChainEntries(10000)
+	chainResult := audit.VerifyChain(chainEntries, nil)
+
+	qStats, _ := s.audit.QuarantineStats()
+
+	var ruleCount int
+	if s.scanner != nil {
+		ruleCount = len(s.scanner.ListRules())
+	}
+
+	data := map[string]any{
+		"GeneratedAt":    time.Now().Format("2006-01-02 15:04 MST"),
+		"AgentCount":     len(s.cfg.Agents),
+		"Score":          score,
+		"Grade":          grade,
+		"FindingSummary": summary,
+		"Stats":          stats,
+		"DetectionRate":  detectionRate,
+		"UnsignedPct":    unsignedPct,
+		"AvgLatency":     avgLatency,
+		"ChainValid":     chainResult.Valid,
+		"ChainCount":     chainResult.Entries,
+		"AgentRisks":     agentRisks,
+		"TopRules":       topRules,
+		"Findings":       rptFindings,
+		"QuarantineStats": qStats,
+		"RequireSig":      s.cfg.Identity.RequireSignature,
+		"DefaultPolicy":   s.cfg.DefaultPolicy,
+		"RuleCount":       ruleCount,
+		"CustomRulesDir":  s.cfg.CustomRulesDir,
+		"GatewayEnabled":  s.cfg.Gateway.Enabled,
+		"MCPServerCount":  len(s.cfg.MCPServers),
+	}
+
+	// Rate limit
+	if s.cfg.RateLimit.PerAgent > 0 {
+		data["RateLimit"] = s.cfg.RateLimit.PerAgent
+	}
+
+	// Anomaly
+	data["AnomalyEnabled"] = s.cfg.Anomaly.RiskThreshold > 0
+	data["AnomalyThreshold"] = s.cfg.Anomaly.RiskThreshold
+
+	// Quarantine
+	data["QuarantineEnabled"] = s.cfg.Quarantine.Enabled
+	data["QuarantineTTL"] = fmt.Sprintf("%dh", s.cfg.Quarantine.ExpiryHours)
+
+	s.populateLLMStats(data)
+
+	s.renderTemplate(w, reportTmpl, data)
+}
+
+// --- Alerts handler ---
+
+func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
+	alerts, _ := s.audit.QueryAlerts(100, 0)
+	stats, _ := s.audit.AlertStats()
+
+	cooldown := s.cfg.Alerting.Cooldown
+	eventTypeCount := len(stats.ByEvent)
+
+	data := map[string]any{
+		"Active":         "alerts",
+		"RequireSig":     s.cfg.Identity.RequireSignature,
+		"Alerts":         alerts,
+		"Stats":          stats,
+		"WebhookCount":   len(s.cfg.Webhooks),
+		"EventTypeCount": eventTypeCount,
+		"Cooldown":       cooldown,
+		"LLMThreats":    s.cfg.Alerting.LLMThreats,
+		"Suspensions":   s.cfg.Alerting.Suspensions,
+	}
+
+	s.renderTemplate(w, alertsTmpl, data)
+}
+
+// --- SARIF export handler ---
+
+func (s *Server) handleExportSARIF(w http.ResponseWriter, r *http.Request) {
+	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
+	report := auditcheck.BuildSARIF(findings, "0.9.0")
+
+	filename := "oktsec-audit-" + time.Now().Format("2006-01-02") + ".sarif.json"
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
+
+	if err := auditcheck.WriteSARIF(w, report); err != nil {
+		s.logger.Error("sarif export failed", "error", err)
 	}
 }
 
@@ -2057,7 +2169,7 @@ func (s *Server) handleLLM(w http.ResponseWriter, r *http.Request) {
 		llmStats = &audit.LLMStats{}
 	}
 
-	analyses, _ := s.audit.QueryLLMAnalyses(50)
+	analyses, _ := s.audit.QueryLLMAnalyses(100)
 
 	var budgetStatus *llm.BudgetStatus
 	if s.llmQueue != nil && s.llmQueue.Budget() != nil {
@@ -2093,9 +2205,17 @@ func (s *Server) handleLLMDetail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLLMCase(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a, err := s.audit.QueryLLMAnalysisByID(id)
-	if err != nil || a == nil {
+	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
+	}
+	if a == nil {
+		// Fallback: try as message_id for backwards compatibility
+		a, err = s.audit.QueryLLMAnalysisByMessage(id)
+		if err != nil || a == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
 	}
 	agentSuspended := false
 	if agent, ok := s.cfg.Agents[a.FromAgent]; ok {
@@ -2281,6 +2401,19 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Redirect(w, r, "/dashboard/llm", http.StatusFound)
+}
+
+func (s *Server) handleToggleLLM(w http.ResponseWriter, r *http.Request) {
+	s.cfg.LLM.Enabled = !s.cfg.LLM.Enabled
+	if s.cfgPath != "" {
+		_ = s.cfg.Save(s.cfgPath)
+	}
+	w.Header().Set("Content-Type", "text/html")
+	if s.cfg.LLM.Enabled {
+		fmt.Fprintf(w, `<button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Disable</button>`)
+	} else {
+		fmt.Fprintf(w, `<button class="btn btn-sm" style="background:var(--success);color:#fff;font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Enable</button>`)
+	}
 }
 
 func (s *Server) handleSaveDefaultPolicy(w http.ResponseWriter, r *http.Request) {
@@ -2519,6 +2652,40 @@ func (s *Server) getRecentEvents(n int) []audit.Entry {
 	return entries
 }
 
+// configDir returns the directory containing the config file, resolving "." to cwd.
+func (s *Server) configDir() string {
+	dir := filepath.Dir(s.cfgPath)
+	if dir == "." {
+		if wd, err := os.Getwd(); err == nil {
+			return wd
+		}
+	}
+	return dir
+}
+
+// populateLLMStats adds LLM statistics to a template data map.
+func (s *Server) populateLLMStats(data map[string]any) {
+	data["LLMEnabled"] = s.cfg.LLM.Enabled
+	if !s.cfg.LLM.Enabled {
+		return
+	}
+	data["LLMProvider"] = s.cfg.LLM.Model
+	llmStats, err := s.audit.QueryLLMStats()
+	if err == nil && llmStats != nil {
+		data["LLMCompleted"] = llmStats.TotalAnalyses
+		data["LLMThreats"] = llmStats.TotalThreats
+		data["LLMAvgRisk"] = llmStats.AvgRiskScore
+		data["LLMTokens"] = llmStats.TotalTokens
+		data["LLMRulesGen"] = llmStats.RulesGenerated
+	} else {
+		data["LLMCompleted"] = 0
+		data["LLMThreats"] = 0
+		data["LLMAvgRisk"] = 0.0
+		data["LLMTokens"] = 0
+		data["LLMRulesGen"] = 0
+	}
+}
+
 // --- Graph handlers ---
 
 func (s *Server) buildGraph(since string) *graph.AgentGraph {
@@ -2633,66 +2800,11 @@ func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, edgeDetailTmpl, data)
 }
 
-// --- Tool Inventory handler ---
-
 type toolInventoryServer struct {
 	Name      string
 	Command   string
 	Transport string
 	Client    string
-}
-
-func (s *Server) handleToolInventory(w http.ResponseWriter, r *http.Request) {
-	// Configured backends from config
-	var configured []toolInventoryServer
-	for name, srv := range s.cfg.MCPServers {
-		cmd := srv.Command
-		if srv.Transport == "streamable-http" || srv.Transport == "sse" {
-			cmd = srv.URL
-		}
-		configured = append(configured, toolInventoryServer{
-			Name:      name,
-			Command:   cmd,
-			Transport: srv.Transport,
-		})
-	}
-	sort.Slice(configured, func(i, j int) bool { return configured[i].Name < configured[j].Name })
-
-	// Discovered servers from AI clients, deduplicated by name
-	var discovered []toolInventoryServer
-	seen := make(map[string]int) // name → index in discovered
-	result, err := discover.Scan()
-	if err == nil && result != nil {
-		for _, cr := range result.Clients {
-			for _, srv := range cr.Servers {
-				cmd := srv.Command
-				if len(srv.Args) > 0 {
-					cmd += " " + strings.Join(srv.Args, " ")
-				}
-				clientName := discover.ClientDisplayName(cr.Client)
-				if idx, dup := seen[srv.Name]; dup {
-					// Merge client names
-					discovered[idx].Client += ", " + clientName
-					continue
-				}
-				seen[srv.Name] = len(discovered)
-				discovered = append(discovered, toolInventoryServer{
-					Name:    srv.Name,
-					Command: cmd,
-					Client:  clientName,
-				})
-			}
-		}
-	}
-	sort.Slice(discovered, func(i, j int) bool { return discovered[i].Name < discovered[j].Name })
-
-	data := map[string]any{
-		"Active":     "discovery",
-		"RequireSig": s.cfg.Identity.RequireSignature,
-		"Configured": configured,
-		"Discovered": discovered,
-	}
-	s.renderTemplate(w, toolInventoryTmpl, data)
 }
 
 // --- Gateway handlers ---
@@ -2716,11 +2828,40 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
 
+	// Discovery data (merged into gateway page)
+	var discovered []toolInventoryServer
+	seen := make(map[string]int)
+	scanResult, err := discover.Scan()
+	if err == nil && scanResult != nil {
+		for _, cr := range scanResult.Clients {
+			for _, srv := range cr.Servers {
+				cmd := srv.Command
+				if len(srv.Args) > 0 {
+					cmd += " " + strings.Join(srv.Args, " ")
+				}
+				clientName := discover.ClientDisplayName(cr.Client)
+				if idx, dup := seen[srv.Name]; dup {
+					discovered[idx].Client += ", " + clientName
+					continue
+				}
+				seen[srv.Name] = len(discovered)
+				discovered = append(discovered, toolInventoryServer{
+					Name:    srv.Name,
+					Command: cmd,
+					Client:  clientName,
+				})
+			}
+		}
+	}
+	sort.Slice(discovered, func(i, j int) bool { return discovered[i].Name < discovered[j].Name })
+
 	gw := s.cfg.Gateway
 	data := map[string]any{
-		"Active":  "gateway",
-		"Gateway": gw,
-		"Servers": servers,
+		"Active":     "gateway",
+		"Gateway":    gw,
+		"Servers":    servers,
+		"Discovered": discovered,
+		"Tab":        r.URL.Query().Get("tab"),
 	}
 	s.renderTemplate(w, gatewayTmpl, data)
 }

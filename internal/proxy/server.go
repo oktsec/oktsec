@@ -35,6 +35,7 @@ type Server struct {
 	keys          *identity.KeyStore
 	scanner       *engine.Scanner
 	audit         *audit.Store
+	webhooks      *WebhookNotifier
 	dashboard     *dashboard.Server
 	llmQueue      *llm.Queue // nil if LLM disabled
 	logger        *slog.Logger
@@ -90,6 +91,27 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	// Webhook notifier
 	webhooks := NewWebhookNotifier(cfg.Webhooks, logger)
 
+	// Alert cooldown
+	if cd := cfg.Alerting.Cooldown; cd != "" {
+		if d, err := time.ParseDuration(cd); err == nil {
+			webhooks.SetCooldown(d)
+		}
+	}
+
+	// Persist alerts to audit store
+	webhooks.OnAlert(func(event WebhookEvent, channel, status string) {
+		_ = auditStore.LogAlert(audit.AlertEntry{
+			ID:        fmt.Sprintf("alert-%s-%d", event.Event, time.Now().UnixNano()),
+			Event:     event.Event,
+			Severity:  event.Severity,
+			Agent:     event.From,
+			MessageID: event.MessageID,
+			Detail:    event.Detail,
+			Channel:   channel,
+			Status:    status,
+		})
+	})
+
 	// Handler
 	handler := NewHandler(cfg, keys, pol, scanner, auditStore, webhooks, logger)
 
@@ -97,64 +119,17 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	var llmQueue *llm.Queue
 	var ruleGen *llm.RuleGenerator
 	if cfg.LLM.Enabled {
-		llmCfg := llm.Config{
-			Enabled:          true,
-			Provider:         llm.Provider(cfg.LLM.Provider),
-			Model:            cfg.LLM.Model,
-			BaseURL:          cfg.LLM.BaseURL,
-			APIKeyEnv:        cfg.LLM.APIKeyEnv,
-			APIVersion:       cfg.LLM.APIVersion,
-			MaxTokens:        cfg.LLM.MaxTokens,
-			Temperature:      cfg.LLM.Temperature,
-			MaxConcurrent:    cfg.LLM.MaxConcurrent,
-			QueueSize:        cfg.LLM.QueueSize,
-			MaxDailyReqs:     cfg.LLM.MaxDailyReqs,
-			Timeout:          cfg.LLM.Timeout,
-			Analyze:          llm.AnalyzeConfig(cfg.LLM.Analyze),
-			MinContentLength: cfg.LLM.MinContentLength,
-			RuleGen: llm.RuleGenConfig{
-				Enabled:         cfg.LLM.RuleGen.Enabled,
-				OutputDir:       cfg.LLM.RuleGen.OutputDir,
-				AutoReload:      cfg.LLM.RuleGen.AutoReload,
-				RequireApproval: cfg.LLM.RuleGen.RequireApproval,
-				MinConfidence:   cfg.LLM.RuleGen.MinConfidence,
-			},
-			Webhook: llm.WebhookConfig(cfg.LLM.Webhook),
-		}
-		analyzer, err := llm.New(llmCfg)
-		if err != nil {
-			logger.Error("failed to create LLM analyzer", "error", err)
-		} else {
-			queueCfg := llm.QueueConfig{
-				Workers:      cfg.LLM.MaxConcurrent,
-				BufferSize:   cfg.LLM.QueueSize,
-				MaxDailyReqs: cfg.LLM.MaxDailyReqs,
-			}
-			llmQueue = llm.NewQueue(analyzer, queueCfg, logger)
-
-			// Wire budget tracker
-			if cfg.LLM.Budget.DailyLimitUSD > 0 || cfg.LLM.Budget.MonthlyLimitUSD > 0 {
-				budgetCfg := llm.BudgetConfig{
-					DailyLimitUSD:   cfg.LLM.Budget.DailyLimitUSD,
-					MonthlyLimitUSD: cfg.LLM.Budget.MonthlyLimitUSD,
-					WarnThreshold:   cfg.LLM.Budget.WarnThreshold,
-					OnLimit:         cfg.LLM.Budget.OnLimit,
-				}
-				llmQueue.SetBudget(llm.NewBudgetTracker(budgetCfg, logger))
-				logger.Info("llm budget control enabled",
-					"daily_limit", budgetCfg.DailyLimitUSD,
-					"monthly_limit", budgetCfg.MonthlyLimitUSD,
-				)
-			}
-
-			// Wire callbacks: store results in audit and generate rules
-			if llmCfg.RuleGen.Enabled {
-				outputDir := llmCfg.RuleGen.OutputDir
+		var sd *llm.SignalDetector
+		llmQueue, sd = llm.SetupQueue(cfg.LLM, logger)
+		if llmQueue != nil {
+			// Wire rule generator
+			if cfg.LLM.RuleGen.Enabled {
+				outputDir := cfg.LLM.RuleGen.OutputDir
 				if outputDir == "" {
 					outputDir = "./rules/generated"
 				}
-				ruleGen = llm.NewRuleGenerator(outputDir, llmCfg.RuleGen.RequireApproval, llmCfg.RuleGen.MinConfidence)
-				if llmCfg.RuleGen.AutoReload {
+				ruleGen = llm.NewRuleGenerator(outputDir, cfg.LLM.RuleGen.RequireApproval, cfg.LLM.RuleGen.MinConfidence)
+				if cfg.LLM.RuleGen.AutoReload {
 					ruleGen.OnGenerated(func(_ llm.GeneratedRule) {
 						scanner.InvalidateCache()
 					})
@@ -185,35 +160,37 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 				// Generate rules from threats
 				if ruleGen != nil {
 					for _, threat := range result.Threats {
-						if _, err := ruleGen.Generate(threat, result.ProviderName, result.MessageID); err != nil {
+						if _, err := ruleGen.Generate(threat, result.Model, result.MessageID); err != nil {
 							logger.Warn("rule generation failed", "error", err)
 						}
 					}
 				}
+
+				// Alert on LLM-detected threats
+				if cfg.Alerting.LLMThreats && len(result.Threats) > 0 {
+					topSev := "medium"
+					for _, t := range result.Threats {
+						if t.Severity == "critical" || t.Severity == "high" {
+							topSev = t.Severity
+							break
+						}
+					}
+					webhooks.Notify(WebhookEvent{
+						Event:     "llm_threat",
+						MessageID: result.MessageID,
+						From:      result.FromAgent,
+						To:        result.ToAgent,
+						Severity:  topSev,
+						Detail:    fmt.Sprintf("%d threat(s) detected, risk %.0f", len(result.Threats), result.RiskScore),
+						Timestamp: time.Now().UTC().Format(time.RFC3339),
+					})
+				}
 			})
 
 			handler.SetLLMQueue(llmQueue)
-
-			// Wire signal detector (triage pre-filter)
-			triageCfg := cfg.LLM.Triage
-			if triageCfg.Enabled {
-				sd := llm.NewSignalDetector(llm.TriageConfig{
-					Enabled:           true,
-					SkipVerdicts:      triageCfg.SkipVerdicts,
-					SensitiveKeywords: triageCfg.SensitiveKeywords,
-					MinContentLength:  triageCfg.MinContentLength,
-					NewAgentPairs:     triageCfg.NewAgentPairs,
-					SampleRate:        triageCfg.SampleRate,
-					ExternalURLs:      triageCfg.ExternalURLs,
-				})
+			if sd != nil {
 				handler.SetSignalDetector(sd)
-				logger.Info("llm triage enabled", "sample_rate", triageCfg.SampleRate)
 			}
-
-			logger.Info("llm analysis enabled",
-				"provider", cfg.LLM.Provider,
-				"model", cfg.LLM.Model,
-			)
 		}
 	}
 
@@ -354,6 +331,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		keys:      keys,
 		scanner:   scanner,
 		audit:     auditStore,
+		webhooks:  webhooks,
 		dashboard: dash,
 		llmQueue:  llmQueue,
 		logger:    logger,
@@ -452,8 +430,6 @@ func (s *Server) checkAnomalies() {
 		minMsgs = 5
 	}
 
-	webhooks := NewWebhookNotifier(s.cfg.Webhooks, s.logger)
-
 	for _, ar := range risks {
 		if ar.Total < minMsgs || ar.RiskScore <= s.cfg.Anomaly.RiskThreshold {
 			continue
@@ -466,10 +442,11 @@ func (s *Server) checkAnomalies() {
 			"blocked", ar.Blocked,
 		)
 
-		webhooks.Notify(WebhookEvent{
+		s.webhooks.Notify(WebhookEvent{
 			Event:     "agent_risk_elevated",
 			From:      ar.Agent,
 			Severity:  "high",
+			Detail:    fmt.Sprintf("risk score %.1f (threshold %.1f)", ar.RiskScore, s.cfg.Anomaly.RiskThreshold),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
 
@@ -478,6 +455,17 @@ func (s *Server) checkAnomalies() {
 				agent.Suspended = true
 				s.cfg.Agents[ar.Agent] = agent
 				s.logger.Warn("agent auto-suspended", "agent", ar.Agent, "risk_score", ar.RiskScore)
+
+				// Alert on agent suspension
+				if s.cfg.Alerting.Suspensions {
+					s.webhooks.Notify(WebhookEvent{
+						Event:     "agent_suspended",
+						From:      ar.Agent,
+						Severity:  "critical",
+						Detail:    fmt.Sprintf("auto-suspended: risk %.1f exceeded threshold", ar.RiskScore),
+						Timestamp: time.Now().UTC().Format(time.RFC3339),
+					})
+				}
 
 				if s.cfgPath != "" {
 					if err := s.cfg.Save(s.cfgPath); err != nil {

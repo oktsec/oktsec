@@ -46,6 +46,7 @@ type Gateway struct {
 	rateLimiter    *proxy.RateLimiter
 	policyEnforcer *ToolPolicyEnforcer
 	llmQueue       *llm.Queue
+	signalDetector *llm.SignalDetector
 	logger         *slog.Logger
 }
 
@@ -446,9 +447,19 @@ func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON st
 	})
 }
 
+// AuditStore returns the gateway's audit store for external wiring (e.g., LLM result callbacks).
+func (g *Gateway) AuditStore() *audit.Store {
+	return g.audit
+}
+
 // SetLLMQueue sets the async LLM analysis queue for the gateway.
 func (g *Gateway) SetLLMQueue(q *llm.Queue) {
 	g.llmQueue = q
+}
+
+// SetSignalDetector sets the triage pre-filter for LLM analysis.
+func (g *Gateway) SetSignalDetector(sd *llm.SignalDetector) {
+	g.signalDetector = sd
 }
 
 // submitToLLM submits tool call content for async LLM analysis if configured.
@@ -458,24 +469,31 @@ func (g *Gateway) submitToLLM(agent, tool, content string, verdict engine.ScanVe
 	}
 
 	lcfg := g.cfg.LLM
-	shouldAnalyze := false
-	switch verdict {
-	case engine.VerdictClean:
-		shouldAnalyze = lcfg.Analyze.Clean
-	case engine.VerdictFlag:
-		shouldAnalyze = lcfg.Analyze.Flagged
-	case engine.VerdictQuarantine:
-		shouldAnalyze = lcfg.Analyze.Quarantined
-	case engine.VerdictBlock:
-		shouldAnalyze = lcfg.Analyze.Blocked
-	}
-
-	if !shouldAnalyze {
-		return
-	}
-
 	if lcfg.MinContentLength > 0 && len(content) < lcfg.MinContentLength {
 		return
+	}
+
+	// Signal detector (triage pre-filter) is sole gatekeeper if attached
+	if g.signalDetector != nil {
+		sig := g.signalDetector.Detect(agent, "gateway/"+tool, content, string(verdict))
+		if !sig.ShouldAnalyze {
+			return
+		}
+	} else {
+		shouldAnalyze := false
+		switch verdict {
+		case engine.VerdictClean:
+			shouldAnalyze = lcfg.Analyze.Clean
+		case engine.VerdictFlag:
+			shouldAnalyze = lcfg.Analyze.Flagged
+		case engine.VerdictQuarantine:
+			shouldAnalyze = lcfg.Analyze.Quarantined
+		case engine.VerdictBlock:
+			shouldAnalyze = lcfg.Analyze.Blocked
+		}
+		if !shouldAnalyze {
+			return
+		}
 	}
 
 	g.llmQueue.Submit(llm.AnalysisRequest{

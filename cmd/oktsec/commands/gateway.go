@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,8 +10,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/gateway"
+	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/spf13/cobra"
 )
 
@@ -62,11 +65,22 @@ func newGatewayCmd() *cobra.Command {
 				return err
 			}
 
+			// Wire LLM analysis queue (async, optional)
+			var llmQueue *llm.Queue
+			if cfg.LLM.Enabled {
+				llmQueue = setupGatewayLLM(cfg, gw, logger)
+			}
+
 			printGatewayBanner(cfg)
 
 			// Graceful shutdown on SIGINT/SIGTERM
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+
+			// Start LLM queue before serving
+			if llmQueue != nil {
+				llmQueue.Start(ctx)
+			}
 
 			errCh := make(chan error, 1)
 			go func() {
@@ -75,8 +89,14 @@ func newGatewayCmd() *cobra.Command {
 
 			select {
 			case err := <-errCh:
+				if llmQueue != nil {
+					llmQueue.Stop()
+				}
 				return err
 			case <-ctx.Done():
+				if llmQueue != nil {
+					llmQueue.Stop()
+				}
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 				return gw.Shutdown(shutdownCtx)
@@ -87,6 +107,44 @@ func newGatewayCmd() *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "override gateway port")
 	cmd.Flags().StringVar(&bind, "bind", "", "address to bind (default: 127.0.0.1)")
 	return cmd
+}
+
+// setupGatewayLLM creates and wires the LLM analysis queue for the gateway.
+// Returns the queue so the caller can start/stop it.
+func setupGatewayLLM(cfg *config.Config, gw *gateway.Gateway, logger *slog.Logger) *llm.Queue {
+	queue, sd := llm.SetupQueue(cfg.LLM, logger)
+	if queue == nil {
+		return nil
+	}
+
+	// Store LLM results in audit database
+	auditStore := gw.AuditStore()
+	queue.OnResult(func(result llm.AnalysisResult) {
+		threatsJSON, _ := json.Marshal(result.Threats)
+		intentJSON, _ := json.Marshal(result.IntentAnalysis)
+		_ = auditStore.LogLLMAnalysis(audit.LLMAnalysis{
+			ID:                fmt.Sprintf("llm-%s", result.MessageID),
+			MessageID:         result.MessageID,
+			Timestamp:         time.Now().UTC().Format(time.RFC3339),
+			FromAgent:         result.FromAgent,
+			ToAgent:           result.ToAgent,
+			Provider:          result.ProviderName,
+			Model:             result.Model,
+			RiskScore:         result.RiskScore,
+			RecommendedAction: result.RecommendedAction,
+			Confidence:        result.Confidence,
+			ThreatsJSON:       string(threatsJSON),
+			IntentJSON:        string(intentJSON),
+			LatencyMs:         result.LatencyMs,
+			TokensUsed:        result.TokensUsed,
+		})
+	})
+
+	gw.SetLLMQueue(queue)
+	if sd != nil {
+		gw.SetSignalDetector(sd)
+	}
+	return queue
 }
 
 func printGatewayBanner(cfg *config.Config) {
@@ -108,6 +166,9 @@ func printGatewayBanner(cfg *config.Config) {
 	fmt.Println()
 	if cfg.Gateway.ScanResponses {
 		fmt.Println("  Response scanning: enabled")
+	}
+	if cfg.LLM.Enabled {
+		fmt.Printf("  LLM analysis: %s/%s\n", cfg.LLM.Provider, cfg.LLM.Model)
 	}
 	fmt.Println()
 	fmt.Println("  Press Ctrl+C to stop.")

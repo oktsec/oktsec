@@ -277,6 +277,24 @@ func (s *Store) migrateSchema() {
 			}
 		}
 	}
+
+	// Alerts table for persisting webhook notifications
+	alertsSchema := `CREATE TABLE IF NOT EXISTS alerts (
+		id TEXT PRIMARY KEY,
+		timestamp TEXT NOT NULL,
+		event TEXT NOT NULL,
+		severity TEXT NOT NULL DEFAULT 'info',
+		agent TEXT NOT NULL DEFAULT '',
+		message_id TEXT DEFAULT '',
+		detail TEXT DEFAULT '',
+		channel TEXT DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'sent'
+	);
+	CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_alerts_event ON alerts(event);`
+	if _, err := s.db.Exec(alertsSchema); err != nil {
+		s.logger.Warn("alerts table creation skipped", "error", err)
+	}
 }
 
 // loadLastHash reads the most recent entry_hash for chain continuity on restart.

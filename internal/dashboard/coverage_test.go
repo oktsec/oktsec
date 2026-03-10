@@ -225,9 +225,15 @@ func TestServer_EventsPageLoads(t *testing.T) {
 }
 
 func TestServer_ToolInventoryPageLoads(t *testing.T) {
+	// Discovery now redirects to gateway tab
 	rr := authedGet(t, "/dashboard/discovery")
-	if rr.Code != http.StatusOK {
-		t.Errorf("tool inventory page status = %d, want 200", rr.Code)
+	if rr.Code != http.StatusFound {
+		t.Errorf("discovery redirect status = %d, want 302", rr.Code)
+	}
+	// Verify discovery content in gateway
+	rr2 := authedGet(t, "/dashboard/gateway?tab=discovery")
+	if rr2.Code != http.StatusOK {
+		t.Errorf("gateway discovery tab status = %d, want 200", rr2.Code)
 	}
 }
 
@@ -523,5 +529,60 @@ func TestServer_LLMDetailAPINotFound(t *testing.T) {
 	rr := authedGet(t, "/dashboard/api/llm/nonexistent-id")
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("missing detail status = %d, want 404", rr.Code)
+	}
+}
+
+func TestServer_Alerts(t *testing.T) {
+	rr := authedGet(t, "/dashboard/alerts")
+	if rr.Code != http.StatusOK {
+		t.Errorf("alerts status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Alert History") {
+		t.Error("alerts page missing history section")
+	}
+	if !strings.Contains(body, "Alert Configuration") {
+		t.Error("alerts page missing config section")
+	}
+	if !strings.Contains(body, "Total Alerts") {
+		t.Error("alerts page missing stats")
+	}
+}
+
+func TestServer_Report(t *testing.T) {
+	rr := authedGet(t, "/dashboard/report")
+	if rr.Code != http.StatusOK {
+		t.Errorf("report status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Security Posture Report") {
+		t.Error("report page missing title")
+	}
+	if !strings.Contains(body, "Traffic Summary") {
+		t.Error("report page missing traffic summary section")
+	}
+	if !strings.Contains(body, "Pipeline Configuration") {
+		t.Error("report page missing pipeline config section")
+	}
+}
+
+func TestServer_ExportSARIF(t *testing.T) {
+	rr := authedGet(t, "/dashboard/api/export/sarif")
+	if rr.Code != http.StatusOK {
+		t.Errorf("SARIF export status = %d, want 200", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "sarif-schema-2.1.0") {
+		t.Error("SARIF output missing schema reference")
+	}
+	if !strings.Contains(body, `"version": "2.1.0"`) {
+		t.Error("SARIF output missing version")
+	}
+	if !strings.Contains(body, `"name": "oktsec"`) {
+		t.Error("SARIF output missing tool name")
 	}
 }
