@@ -13,6 +13,8 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/netutil"
+	"github.com/oktsec/oktsec/internal/verdict"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,7 +38,7 @@ func TestVerdictToGateway(t *testing.T) {
 }
 
 func TestEncodeFindings_Empty(t *testing.T) {
-	got := encodeFindings(nil)
+	got := verdict.EncodeFindings(nil)
 	assert.Equal(t, "[]", got)
 }
 
@@ -44,7 +46,7 @@ func TestEncodeFindings_WithFindings(t *testing.T) {
 	findings := []engine.FindingSummary{
 		{RuleID: "IAP-001", Name: "test", Severity: "high"},
 	}
-	got := encodeFindings(findings)
+	got := verdict.EncodeFindings(findings)
 	assert.NotEqual(t, "[]", got)
 
 	var parsed []engine.FindingSummary
@@ -55,7 +57,7 @@ func TestEncodeFindings_WithFindings(t *testing.T) {
 }
 
 func TestTopSeverity_NoFindings(t *testing.T) {
-	assert.Equal(t, "none", topSeverity(nil))
+	assert.Equal(t, "none", verdict.TopSeverity(nil))
 }
 
 func TestTopSeverity_WithFindings(t *testing.T) {
@@ -63,7 +65,7 @@ func TestTopSeverity_WithFindings(t *testing.T) {
 		{RuleID: "R1", Severity: "critical"},
 		{RuleID: "R2", Severity: "low"},
 	}
-	assert.Equal(t, "critical", topSeverity(findings))
+	assert.Equal(t, "critical", verdict.TopSeverity(findings))
 }
 
 func TestExtractToolContent_NoArgs(t *testing.T) {
@@ -113,7 +115,7 @@ func TestApplyBlockedContent_NoBlockedList(t *testing.T) {
 		Verdict:  engine.VerdictFlag,
 		Findings: []engine.FindingSummary{{Category: "injection"}},
 	}
-	applyBlockedContent(agent, outcome)
+	verdict.ApplyBlockedContent(agent, outcome)
 	assert.Equal(t, engine.VerdictFlag, outcome.Verdict)
 }
 
@@ -123,7 +125,7 @@ func TestApplyBlockedContent_MatchingCategory(t *testing.T) {
 		Verdict:  engine.VerdictFlag,
 		Findings: []engine.FindingSummary{{Category: "injection"}},
 	}
-	applyBlockedContent(agent, outcome)
+	verdict.ApplyBlockedContent(agent, outcome)
 	assert.Equal(t, engine.VerdictBlock, outcome.Verdict)
 }
 
@@ -133,14 +135,14 @@ func TestApplyBlockedContent_NoMatchingCategory(t *testing.T) {
 		Verdict:  engine.VerdictFlag,
 		Findings: []engine.FindingSummary{{Category: "injection"}},
 	}
-	applyBlockedContent(agent, outcome)
+	verdict.ApplyBlockedContent(agent, outcome)
 	assert.Equal(t, engine.VerdictFlag, outcome.Verdict)
 }
 
 func TestApplyBlockedContent_NoFindings(t *testing.T) {
 	agent := config.Agent{BlockedContent: []string{"injection"}}
 	outcome := &engine.ScanOutcome{Verdict: engine.VerdictClean}
-	applyBlockedContent(agent, outcome)
+	verdict.ApplyBlockedContent(agent, outcome)
 	assert.Equal(t, engine.VerdictClean, outcome.Verdict)
 }
 
@@ -303,7 +305,7 @@ func TestBackend_CloseNilSession(t *testing.T) {
 func TestListenAutoPort_FindsPort(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	ln, port, err := listenAutoPort("127.0.0.1", 0, logger)
+	ln, port, err := netutil.ListenAutoPort("127.0.0.1", 0, logger)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 
@@ -319,8 +321,8 @@ func TestListenAutoPort_FallbackOnBusy(t *testing.T) {
 	defer func() { _ = occupied.Close() }()
 	busyPort := occupied.Addr().(*net.TCPAddr).Port
 
-	// listenAutoPort should find an alternative port
-	ln, port, err := listenAutoPort("127.0.0.1", busyPort, logger)
+	// ListenAutoPort should find an alternative port
+	ln, port, err := netutil.ListenAutoPort("127.0.0.1", busyPort, logger)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 
@@ -329,11 +331,11 @@ func TestListenAutoPort_FallbackOnBusy(t *testing.T) {
 }
 
 func TestIsAddrInUse_NilError(t *testing.T) {
-	assert.False(t, isAddrInUse(nil))
+	assert.False(t, netutil.IsAddrInUse(nil))
 }
 
 func TestIsAddrInUse_NonNetError(t *testing.T) {
-	assert.False(t, isAddrInUse(assert.AnError))
+	assert.False(t, netutil.IsAddrInUse(assert.AnError))
 }
 
 func TestToolError(t *testing.T) {

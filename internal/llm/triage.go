@@ -6,17 +6,6 @@ import (
 	"sync"
 )
 
-// TriageConfig controls the pre-LLM signal detector.
-type TriageConfig struct {
-	Enabled           bool     `yaml:"enabled"`
-	SkipVerdicts      []string `yaml:"skip_verdicts"`       // verdicts to skip LLM analysis for (e.g. block, quarantine)
-	SensitiveKeywords []string `yaml:"sensitive_keywords"`  // words that trigger LLM analysis
-	MinContentLength  int      `yaml:"min_content_length"`  // skip messages shorter than this
-	NewAgentPairs     bool     `yaml:"new_agent_pairs"`     // flag unseen from->to pairs
-	SampleRate        float64  `yaml:"sample_rate"`         // random sampling rate for clean messages (0.0-1.0)
-	ExternalURLs      bool     `yaml:"external_urls"`       // flag messages with URLs
-}
-
 // DefaultTriageConfig returns sensible defaults for the signal detector.
 func DefaultTriageConfig() TriageConfig {
 	return TriageConfig{

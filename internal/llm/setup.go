@@ -23,23 +23,15 @@ func SetupQueue(cfg config.LLMConfig, logger *slog.Logger) (*Queue, *SignalDetec
 		QueueSize:        cfg.QueueSize,
 		MaxDailyReqs:     cfg.MaxDailyReqs,
 		Timeout:          cfg.Timeout,
-		Analyze:          AnalyzeConfig(cfg.Analyze),
+		Analyze:          cfg.Analyze,
 		MinContentLength: cfg.MinContentLength,
-		RuleGen:          RuleGenConfig(cfg.RuleGen),
-		Webhook:          WebhookConfig(cfg.Webhook),
+		RuleGen:          cfg.RuleGen,
+		Webhook:          cfg.Webhook,
 	}
 
 	var fbCfg *FallbackConfig
 	if cfg.Fallback.Provider != "" {
-		fbCfg = &FallbackConfig{
-			Provider:   Provider(cfg.Fallback.Provider),
-			Model:      cfg.Fallback.Model,
-			BaseURL:    cfg.Fallback.BaseURL,
-			APIKeyEnv:  cfg.Fallback.APIKeyEnv,
-			APIVersion: cfg.Fallback.APIVersion,
-			MaxTokens:  cfg.Fallback.MaxTokens,
-			Timeout:    cfg.Fallback.Timeout,
-		}
+		fbCfg = &cfg.Fallback
 	}
 
 	analyzer, err := NewWithFallback(llmCfg, fbCfg, logger)
@@ -57,23 +49,17 @@ func SetupQueue(cfg config.LLMConfig, logger *slog.Logger) (*Queue, *SignalDetec
 
 	// Wire budget tracker if limits are set
 	if cfg.Budget.DailyLimitUSD > 0 || cfg.Budget.MonthlyLimitUSD > 0 {
-		budgetCfg := BudgetConfig{
-			DailyLimitUSD:   cfg.Budget.DailyLimitUSD,
-			MonthlyLimitUSD: cfg.Budget.MonthlyLimitUSD,
-			WarnThreshold:   cfg.Budget.WarnThreshold,
-			OnLimit:         cfg.Budget.OnLimit,
-		}
-		queue.SetBudget(NewBudgetTracker(budgetCfg, logger))
+		queue.SetBudget(NewBudgetTracker(cfg.Budget, logger))
 		logger.Info("llm budget control enabled",
-			"daily_limit", budgetCfg.DailyLimitUSD,
-			"monthly_limit", budgetCfg.MonthlyLimitUSD,
+			"daily_limit", cfg.Budget.DailyLimitUSD,
+			"monthly_limit", cfg.Budget.MonthlyLimitUSD,
 		)
 	}
 
 	// Signal detector (triage pre-filter)
 	var sd *SignalDetector
 	if cfg.Triage.Enabled {
-		sd = NewSignalDetector(TriageConfig(cfg.Triage))
+		sd = NewSignalDetector(cfg.Triage)
 		logger.Info("llm triage enabled", "sample_rate", cfg.Triage.SampleRate)
 	}
 

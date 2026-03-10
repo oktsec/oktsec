@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/gateway"
 	"github.com/oktsec/oktsec/internal/llm"
@@ -120,24 +118,7 @@ func setupGatewayLLM(cfg *config.Config, gw *gateway.Gateway, logger *slog.Logge
 	// Store LLM results in audit database
 	auditStore := gw.AuditStore()
 	queue.OnResult(func(result llm.AnalysisResult) {
-		threatsJSON, _ := json.Marshal(result.Threats)
-		intentJSON, _ := json.Marshal(result.IntentAnalysis)
-		_ = auditStore.LogLLMAnalysis(audit.LLMAnalysis{
-			ID:                fmt.Sprintf("llm-%s", result.MessageID),
-			MessageID:         result.MessageID,
-			Timestamp:         time.Now().UTC().Format(time.RFC3339),
-			FromAgent:         result.FromAgent,
-			ToAgent:           result.ToAgent,
-			Provider:          result.ProviderName,
-			Model:             result.Model,
-			RiskScore:         result.RiskScore,
-			RecommendedAction: result.RecommendedAction,
-			Confidence:        result.Confidence,
-			ThreatsJSON:       string(threatsJSON),
-			IntentJSON:        string(intentJSON),
-			LatencyMs:         result.LatencyMs,
-			TokensUsed:        result.TokensUsed,
-		})
+		_ = llm.StoreResult(auditStore, result)
 	})
 
 	gw.SetLLMQueue(queue)

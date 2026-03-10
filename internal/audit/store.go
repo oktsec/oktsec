@@ -505,13 +505,13 @@ func (s *Store) QueryAgentStats(agent string) (*StatusCounts, error) {
 		}
 		sc.Total += count
 		switch status {
-		case "delivered":
+		case StatusDelivered:
 			sc.Delivered = count
-		case "blocked":
+		case StatusBlocked:
 			sc.Blocked = count
-		case "rejected":
+		case StatusRejected:
 			sc.Rejected = count
-		case "quarantined":
+		case StatusQuarantined:
 			sc.Quarantined = count
 		}
 	}
@@ -535,13 +535,13 @@ func (s *Store) QueryStats() (*StatusCounts, error) {
 		}
 		sc.Total += count
 		switch status {
-		case "delivered":
+		case StatusDelivered:
 			sc.Delivered = count
-		case "blocked":
+		case StatusBlocked:
 			sc.Blocked = count
-		case "rejected":
+		case StatusRejected:
 			sc.Rejected = count
-		case "quarantined":
+		case StatusQuarantined:
 			sc.Quarantined = count
 		}
 	}
@@ -644,7 +644,7 @@ func (s *Store) QuarantineByID(id string) (*QuarantineItem, error) {
 
 // QuarantinePending returns pending quarantine items ordered by creation time.
 func (s *Store) QuarantinePending(limit int) ([]QuarantineItem, error) {
-	return s.QuarantineQuery("pending", "", limit)
+	return s.QuarantineQuery(QStatusPending, "", limit)
 }
 
 // QuarantineQuery returns quarantine items matching the given filters.
@@ -764,13 +764,13 @@ func (s *Store) QuarantineStats() (*QuarantineStats, error) {
 		}
 		qs.Total += count
 		switch status {
-		case "pending":
+		case QStatusPending:
 			qs.Pending = count
-		case "approved":
+		case QStatusApproved:
 			qs.Approved = count
-		case "rejected":
+		case QStatusRejected:
 			qs.Rejected = count
-		case "expired":
+		case QStatusExpired:
 			qs.Expired = count
 		}
 	}
@@ -920,9 +920,9 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 		}
 		ar.Total += count
 		switch status {
-		case "blocked":
+		case StatusBlocked:
 			ar.Blocked += count
-		case "quarantined":
+		case StatusQuarantined:
 			ar.Quarantined += count
 		}
 	}
@@ -990,13 +990,13 @@ func (s *Store) QueryEdgeStats(since string) ([]EdgeStat, error) {
 		}
 		es.Total += count
 		switch status {
-		case "delivered":
+		case StatusDelivered:
 			es.Delivered += count
-		case "blocked":
+		case StatusBlocked:
 			es.Blocked += count
-		case "quarantined":
+		case StatusQuarantined:
 			es.Quarantined += count
-		case "rejected":
+		case StatusRejected:
 			es.Rejected += count
 		}
 	}

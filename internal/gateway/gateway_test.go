@@ -12,6 +12,7 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/verdict"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -481,18 +482,18 @@ func TestGateway_CleanDescriptionKept(t *testing.T) {
 
 // Test verdict helpers
 func TestVerdictSeverity(t *testing.T) {
-	assert.Equal(t, 3, verdictSeverity(engine.VerdictBlock))
-	assert.Equal(t, 2, verdictSeverity(engine.VerdictQuarantine))
-	assert.Equal(t, 1, verdictSeverity(engine.VerdictFlag))
-	assert.Equal(t, 0, verdictSeverity(engine.VerdictClean))
+	assert.Equal(t, 3, verdict.Severity(engine.VerdictBlock))
+	assert.Equal(t, 2, verdict.Severity(engine.VerdictQuarantine))
+	assert.Equal(t, 1, verdict.Severity(engine.VerdictFlag))
+	assert.Equal(t, 0, verdict.Severity(engine.VerdictClean))
 }
 
 func TestDefaultSeverityVerdict(t *testing.T) {
-	assert.Equal(t, engine.VerdictBlock, defaultSeverityVerdict("critical"))
-	assert.Equal(t, engine.VerdictQuarantine, defaultSeverityVerdict("high"))
-	assert.Equal(t, engine.VerdictFlag, defaultSeverityVerdict("medium"))
-	assert.Equal(t, engine.VerdictClean, defaultSeverityVerdict("low"))
-	assert.Equal(t, engine.VerdictClean, defaultSeverityVerdict("info"))
+	assert.Equal(t, engine.VerdictBlock, verdict.DefaultSeverityVerdict("critical"))
+	assert.Equal(t, engine.VerdictQuarantine, verdict.DefaultSeverityVerdict("high"))
+	assert.Equal(t, engine.VerdictFlag, verdict.DefaultSeverityVerdict("medium"))
+	assert.Equal(t, engine.VerdictClean, verdict.DefaultSeverityVerdict("low"))
+	assert.Equal(t, engine.VerdictClean, verdict.DefaultSeverityVerdict("info"))
 }
 
 func TestApplyRuleOverrides(t *testing.T) {
@@ -509,7 +510,7 @@ func TestApplyRuleOverrides(t *testing.T) {
 		{ID: "PI-002", Action: "allow-and-flag"},
 	}
 
-	applyRuleOverrides(rules, outcome)
+	verdict.ApplyRuleOverrides(rules, outcome)
 
 	// PI-001 should be removed
 	assert.Len(t, outcome.Findings, 1)

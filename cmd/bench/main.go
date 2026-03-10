@@ -21,7 +21,7 @@ func main() {
 	}
 	defer func() { _ = store.Close() }()
 
-	statuses := []string{"delivered", "delivered", "delivered", "blocked", "quarantined", "rejected"}
+	statuses := []string{audit.StatusDelivered, audit.StatusDelivered, audit.StatusDelivered, audit.StatusBlocked, audit.StatusQuarantined, audit.StatusRejected}
 	rules := `[{"rule_id":"IAP-001","name":"Inter-agent relay injection","severity":"HIGH","match":"test data"}]`
 
 	scales := []int{1000, 10000, 50000, 100000, 500000, 1000000}

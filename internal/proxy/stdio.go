@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/verdict"
 )
 
 // StdioProxy wraps an MCP server process, intercepting stdio JSON-RPC messages.
@@ -235,8 +236,8 @@ func (p *StdioProxy) inspectAndDecide(line []byte, from, to string) (bool, json.
 				FromAgent:      from,
 				ToAgent:        to,
 				ContentHash:    sha256Hash(toolName),
-				Status:         "blocked",
-				PolicyDecision: "tool_not_allowed",
+				Status:         audit.StatusBlocked,
+				PolicyDecision: audit.DecisionToolNotAllowed,
 				RulesTriggered: fmt.Sprintf(`[{"rule":"tool_allowlist","tool":"%s"}]`, toolName),
 				LatencyMs:      time.Since(start).Milliseconds(),
 			}
@@ -260,7 +261,7 @@ func (p *StdioProxy) inspectAndDecide(line []byte, from, to string) (bool, json.
 	}
 
 	status, decision := verdictToStdio(outcome.Verdict)
-	rulesJSON := encodeStdioFindings(outcome.Findings)
+	rulesJSON := verdict.EncodeFindings(outcome.Findings)
 	topRule := ""
 	if len(outcome.Findings) > 0 {
 		topRule = outcome.Findings[0].RuleID
@@ -301,24 +302,14 @@ func (p *StdioProxy) inspectAndLog(line []byte, from, to string) {
 func verdictToStdio(v engine.ScanVerdict) (status, decision string) {
 	switch v {
 	case engine.VerdictBlock:
-		return "blocked", "content_blocked"
+		return audit.StatusBlocked, audit.DecisionContentBlocked
 	case engine.VerdictQuarantine:
-		return "quarantined", "content_quarantined"
+		return audit.StatusQuarantined, audit.DecisionContentQuarantined
 	case engine.VerdictFlag:
-		return "delivered", "content_flagged"
+		return audit.StatusDelivered, audit.DecisionContentFlagged
 	default:
-		return "delivered", "allow"
+		return audit.StatusDelivered, audit.DecisionAllow
 	}
-}
-
-func encodeStdioFindings(findings []engine.FindingSummary) string {
-	if len(findings) == 0 {
-		return "[]"
-	}
-	if b, err := json.Marshal(findings); err == nil {
-		return string(b)
-	}
-	return "[]"
 }
 
 // extractToolName returns the tool name from a tools/call request, or "".

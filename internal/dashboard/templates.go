@@ -3513,12 +3513,22 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 /* ── Two-column row for Intent + Technical ── */
 .ci-context-row{display:grid;grid-template-columns:3fr 2fr;gap:20px;align-items:start;margin-bottom:20px}
 
-/* ── Intent: comparison rows ── */
-.ci-int-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
-.ci-int-row:last-of-type{border-bottom:none}
-.ci-int-lbl{min-width:70px;flex-shrink:0;font-size:0.6875rem;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:var(--text3);padding-top:2px}
-.ci-int-val{flex:1;font-size:0.8125rem;line-height:1.5;color:var(--text)}
-.ci-reason{font-size:0.75rem;line-height:1.5;color:var(--text3);margin-top:4px}
+/* ── Intent: diff-style side by side ── */
+.ci-int-diff{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.ci-int-side{padding:10px 14px}
+.ci-int-side-decl{background:transparent;border-right:1px solid var(--border)}
+.ci-int-side-act{background:transparent}
+.ci-int-side-act.ci-int-hi{background:rgba(239,68,68,0.04)}
+.ci-int-tag{display:inline-flex;align-items:center;gap:5px;font-size:0.6rem;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+.ci-int-tag-act{color:var(--text2)}
+.ci-int-tag-act.ci-int-warn{color:#ef4444}
+.ci-int-txt{font-size:0.8125rem;line-height:1.5;color:var(--text)}
+.ci-int-side-act .ci-int-txt{font-weight:500}
+.ci-int-side-act.ci-int-hi .ci-int-txt{color:#ef4444}
+.ci-int-align{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:0.72rem;font-weight:600;padding:2px 8px;border-radius:100px}
+.ci-int-align-ok{background:rgba(34,197,94,0.1);color:#22c55e}
+.ci-int-align-bad{background:rgba(239,68,68,0.1);color:#ef4444}
+.ci-reason{font-size:0.75rem;line-height:1.5;color:var(--text3);margin-top:8px}
 
 /* ── Severity tags ── */
 .ci-sev{display:inline-block;padding:2px 8px;border-radius:100px;font-size:0.6rem;font-weight:600;letter-spacing:0.3px}
@@ -3527,18 +3537,19 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .ci-sev-m{background:rgba(251,191,36,0.18);color:#fbbf24}
 .ci-sev-l{background:rgba(34,197,94,0.15);color:#22c55e}
 
-/* ── Threat rows (audit-style, matches Security Posture) ── */
+/* ── Threat rows (matches .a-fi from Security Posture) ── */
 .ci-thr{display:flex;align-items:flex-start;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border)}
 .ci-thr:last-child{border-bottom:none}
 .ci-thr-sev{min-width:60px;flex-shrink:0;padding-top:1px}
 .ci-thr-body{flex:1;min-width:0}
 .ci-thr-head{display:flex;align-items:baseline;gap:8px}
-.ci-thr-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
+.ci-thr-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2);text-transform:uppercase}
 .ci-thr-name{font-size:0.8125rem;color:var(--text);font-weight:500}
-.ci-thr-desc{font-size:0.75rem;line-height:1.5;color:var(--text3);margin-top:4px}
-.ci-thr-ev{font-family:var(--mono);font-size:0.72rem;line-height:1.6;color:var(--text3);word-break:break-word;margin-top:4px}
-.ci-thr-rule{display:flex;align-items:center;gap:6px;margin-top:6px}
-.ci-thr-rule code{font-family:var(--mono);font-size:0.75rem;color:var(--text2)}
+.ci-thr-detail{font-size:0.75rem;color:var(--text3);margin-top:4px;line-height:1.5}
+.ci-thr-fix{display:flex;align-items:center;gap:6px;margin-top:6px}
+.ci-thr-fix code{font-family:var(--mono);font-size:0.75rem;color:var(--text2)}
+.ci-thr-cp{background:transparent;border:1px solid var(--border);color:var(--text3);border-radius:4px;padding:2px 8px;font-size:0.6875rem;cursor:pointer;transition:all 0.12s;font-family:var(--mono);white-space:nowrap}
+.ci-thr-cp:hover{border-color:var(--border-hover);color:var(--text2);background:var(--surface2)}
 .ci-benign{display:flex;align-items:center;gap:10px;color:var(--success);font-size:0.88rem;padding:12px 20px}
 
 /* ── Meta rows ── */
@@ -3547,7 +3558,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .ci-meta-row .mk{color:var(--text3);font-weight:500}
 .ci-meta-row .mv{font-family:var(--mono);color:var(--text2);font-size:0.72rem;text-align:right}
 
-@media(max-width:960px){.ci-context-row{grid-template-columns:1fr}.ci-hdr{flex-direction:column;gap:14px}.ci-s{padding:16px 14px}.ci-action-bar{padding:12px 14px}}
+@media(max-width:960px){.ci-context-row{grid-template-columns:1fr}.ci-int-diff{grid-template-columns:1fr}.ci-int-side-decl{border-right:none;border-bottom:1px solid var(--border)}.ci-hdr{flex-direction:column;gap:14px}.ci-s{padding:16px 14px}.ci-action-bar{padding:12px 14px}}
 </style>
 
 <p style="margin-bottom:16px"><a href="/dashboard/llm" class="ci-back">&larr; Threat Intel</a></p>
@@ -3606,19 +3617,17 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 <div class="ci-context-row">
   {{if $intent}}
   <div class="ci-s" style="margin-bottom:0">
-    <h3>Intent analysis{{with index $intent "alignment"}} <span class="cnt" style="{{if lt (toString .) "0.5"}}color:#ef4444{{else}}color:#22c55e{{end}}">alignment {{.}}</span>{{end}}</h3>
-    {{with index $intent "declared_intent"}}
-    <div class="ci-int-row">
-      <span class="ci-int-lbl">Declared</span>
-      <span class="ci-int-val">{{.}}</span>
+    <h3>Intent analysis {{with index $intent "alignment"}}{{$a := toString .}}<span class="ci-int-align {{if lt $a "0.5"}}ci-int-align-bad{{else}}ci-int-align-ok{{end}}">{{if lt $a "0.5"}}&#10007;{{else}}&#10003;{{end}} {{$a}}</span>{{end}}</h3>
+    <div class="ci-int-diff">
+      <div class="ci-int-side ci-int-side-decl">
+        <div class="ci-int-tag">Declared</div>
+        <div class="ci-int-txt">{{with index $intent "declared_intent"}}{{.}}{{else}}-{{end}}</div>
+      </div>
+      <div class="ci-int-side ci-int-side-act{{if ge $.Analysis.RiskScore 50.0}} ci-int-hi{{end}}">
+        <div class="ci-int-tag ci-int-tag-act{{if ge $.Analysis.RiskScore 50.0}} ci-int-warn{{end}}">Actual</div>
+        <div class="ci-int-txt">{{with index $intent "actual_intent"}}{{.}}{{else}}-{{end}}</div>
+      </div>
     </div>
-    {{end}}
-    {{with index $intent "actual_intent"}}
-    <div class="ci-int-row">
-      <span class="ci-int-lbl" style="{{if ge $.Analysis.RiskScore 50.0}}color:#ef4444{{else}}color:#22c55e{{end}}">Actual</span>
-      <span class="ci-int-val" style="font-weight:600;{{if ge $.Analysis.RiskScore 50.0}}color:#ef4444{{else}}color:#22c55e{{end}}">{{.}}</span>
-    </div>
-    {{end}}
     {{with index $intent "reason"}}
     <div class="ci-reason">{{.}}</div>
     {{end}}
@@ -3653,10 +3662,11 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
             <span class="ci-thr-id">{{with index $m "type"}}{{upper (toString .)}}{{else}}THREAT-{{inc $i}}{{end}}</span>
             <span class="ci-thr-name">{{with index $m "description"}}{{.}}{{end}}</span>
           </div>
-          {{with index $m "evidence"}}<div class="ci-thr-desc">{{.}}</div>{{end}}
+          {{with index $m "evidence"}}<div class="ci-thr-detail">{{.}}</div>{{end}}
           {{with index $m "suggestion"}}{{$s := toMap .}}{{if $s}}
-          <div class="ci-thr-rule">
-            <code>{{with index $s "name"}}{{.}}{{end}}{{with index $s "pattern"}} — {{.}}{{end}}</code>
+          <div class="ci-thr-fix">
+            <code>{{with index $s "name"}}{{.}}{{end}}{{with index $s "pattern"}} &#8212; {{.}}{{end}}</code>
+            <button class="ci-thr-cp" onclick="ciCopyText(this.previousElementSibling.textContent,this)">copy</button>
           </div>
           {{end}}{{end}}
         </div>
@@ -3668,7 +3678,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
   {{else}}
   <div class="ci-benign">
     <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-    No threats detected — message assessed as benign.
+    No threats detected &#8212; message assessed as benign.
   </div>
   {{end}}
 </div>
@@ -3681,6 +3691,17 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
   <div style="background:var(--bg2);border:1px solid rgba(99,102,241,0.15);border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap">{{.RuleGenerated}}</div>
 </div>
 {{end}}
+
+<script>
+function ciCopyText(text, btn) {
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = 'copied';
+    btn.style.color = 'var(--success)';
+    setTimeout(function() { btn.textContent = orig; btn.style.color = ''; }, 1200);
+  });
+}
+</script>
 {{end}}
 ` + layoutFoot))
 

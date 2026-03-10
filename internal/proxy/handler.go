@@ -18,6 +18,7 @@ import (
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/policy"
+	"github.com/oktsec/oktsec/internal/verdict"
 )
 
 // MessageRequest is the incoming message from an agent.
@@ -141,19 +142,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Step 2: Agent suspension check
 	if agent, ok := h.cfg.Agents[req.From]; ok && agent.Suspended {
-		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "agent_suspended", VerifiedSender: verified}
+		resp := MessageResponse{Status: audit.StatusRejected, MessageID: msgID, PolicyDecision: audit.DecisionAgentSuspended, VerifiedSender: verified}
 		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
 		return
 	}
 	if agent, ok := h.cfg.Agents[req.To]; ok && agent.Suspended {
-		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "recipient_suspended", VerifiedSender: verified}
+		resp := MessageResponse{Status: audit.StatusRejected, MessageID: msgID, PolicyDecision: audit.DecisionRecipientSuspended, VerifiedSender: verified}
 		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
 		return
 	}
 
 	// Step 3: ACL check
 	if !h.policy.CheckACL(req.From, req.To).Allowed {
-		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "acl_denied", VerifiedSender: verified}
+		resp := MessageResponse{Status: audit.StatusRejected, MessageID: msgID, PolicyDecision: audit.DecisionACLDenied, VerifiedSender: verified}
 		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
 		return
 	}
@@ -171,7 +172,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 4b: Apply per-rule action overrides from config
-	h.applyRuleOverrides(outcome)
+	verdict.ApplyRuleOverrides(h.cfg.Rules, outcome)
 
 	// Step 5: Apply BlockedContent per-agent filter
 	h.applyBlockedContent(req.From, outcome)
@@ -181,13 +182,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		intentResult := ValidateIntent(req.Intent, req.Content)
 		if intentResult.Status == "mismatch" {
 			h.logger.Warn("intent mismatch", "from", req.From, "intent", req.Intent, "reason", intentResult.Reason, "message_id", msgID)
-			if verdictSeverity(outcome.Verdict) < verdictSeverity(engine.VerdictFlag) {
+			if verdict.Severity(outcome.Verdict) < verdict.Severity(engine.VerdictFlag) {
 				outcome.Verdict = engine.VerdictFlag
 			}
 		}
 	} else if h.cfg.Server.RequireIntent {
 		h.logger.Warn("missing required intent", "from", req.From, "message_id", msgID)
-		if verdictSeverity(outcome.Verdict) < verdictSeverity(engine.VerdictFlag) {
+		if verdict.Severity(outcome.Verdict) < verdict.Severity(engine.VerdictFlag) {
 			outcome.Verdict = engine.VerdictFlag
 		}
 	}
@@ -196,14 +197,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.scanConcatenated(r.Context(), req.From, req.Content, outcome)
 
 	// Step 6b: Re-apply rule overrides to any findings introduced by concatenated scan
-	h.applyRuleOverrides(outcome)
+	verdict.ApplyRuleOverrides(h.cfg.Rules, outcome)
 
 	// Step 7: Multi-message verdict escalation
 	h.escalateByHistory(req.From, outcome)
 
 	// Step 8: Apply verdict
 	status, policyDecision, httpStatus := verdictToResponse(outcome.Verdict)
-	rulesJSON := encodeFindings(outcome.Findings)
+	rulesJSON := verdict.EncodeFindings(outcome.Findings)
 
 	entry.Status = status
 	entry.PolicyDecision = policyDecision
@@ -321,11 +322,11 @@ func (h *Handler) parseRequest(r *http.Request) (*MessageRequest, error) {
 
 func (h *Handler) checkIdentity(sigStatus int, msgID string) (int, *MessageResponse) {
 	if sigStatus == -1 {
-		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "identity_rejected"}
+		resp := MessageResponse{Status: audit.StatusRejected, MessageID: msgID, PolicyDecision: audit.DecisionIdentityRejected}
 		return http.StatusForbidden, &resp
 	}
 	if sigStatus == 0 && h.cfg.Identity.RequireSignature {
-		resp := MessageResponse{Status: "rejected", MessageID: msgID, PolicyDecision: "signature_required"}
+		resp := MessageResponse{Status: audit.StatusRejected, MessageID: msgID, PolicyDecision: audit.DecisionSignatureRequired}
 		return http.StatusUnauthorized, &resp
 	}
 	return 0, nil
@@ -340,89 +341,13 @@ func (h *Handler) rejectAndLog(w http.ResponseWriter, httpStatus int, resp Messa
 }
 
 // applyBlockedContent escalates verdict to block if any finding's category
-// matches the agent's blocked_content list.
+// matches the agent's blocked_content list. Thin wrapper over verdict.ApplyBlockedContent.
 func (h *Handler) applyBlockedContent(agentName string, outcome *engine.ScanOutcome) {
 	agent, ok := h.cfg.Agents[agentName]
-	if !ok || len(agent.BlockedContent) == 0 || len(outcome.Findings) == 0 {
+	if !ok {
 		return
 	}
-	blocked := make(map[string]bool, len(agent.BlockedContent))
-	for _, cat := range agent.BlockedContent {
-		blocked[cat] = true
-	}
-	for _, f := range outcome.Findings {
-		if blocked[f.Category] {
-			outcome.Verdict = engine.VerdictBlock
-			return
-		}
-	}
-}
-
-// applyRuleOverrides applies per-rule action overrides from cfg.Rules[].
-// - "ignore" removes findings from the outcome entirely
-// - "block"/"quarantine"/"allow-and-flag" overrides that finding's verdict contribution
-// Findings without a matching rule keep the default severity-based verdict.
-func (h *Handler) applyRuleOverrides(outcome *engine.ScanOutcome) {
-	if len(h.cfg.Rules) == 0 || len(outcome.Findings) == 0 {
-		return
-	}
-
-	// Build lookup: ruleID → action
-	overrides := make(map[string]string, len(h.cfg.Rules))
-	for _, ra := range h.cfg.Rules {
-		overrides[ra.ID] = ra.Action
-	}
-
-	// Filter findings and recalculate verdict
-	var kept []engine.FindingSummary
-	newVerdict := engine.VerdictClean
-
-	for _, f := range outcome.Findings {
-		action, hasOverride := overrides[f.RuleID]
-		if hasOverride && action == "ignore" {
-			continue // drop finding entirely
-		}
-
-		kept = append(kept, f)
-
-		// Determine this finding's verdict
-		var v engine.ScanVerdict
-		if hasOverride {
-			switch action {
-			case "block":
-				v = engine.VerdictBlock
-			case "quarantine":
-				v = engine.VerdictQuarantine
-			case "allow-and-flag":
-				v = engine.VerdictFlag
-			}
-		} else {
-			v = defaultSeverityVerdict(f.Severity)
-		}
-
-		// Keep the most severe verdict
-		if verdictSeverity(v) > verdictSeverity(newVerdict) {
-			newVerdict = v
-		}
-	}
-
-	outcome.Findings = kept
-	outcome.Verdict = newVerdict
-}
-
-// defaultSeverityVerdict maps a severity string to the default verdict.
-// Mirrors the logic in engine.buildOutcome but operates on string severity.
-func defaultSeverityVerdict(severity string) engine.ScanVerdict {
-	switch severity {
-	case "critical":
-		return engine.VerdictBlock
-	case "high":
-		return engine.VerdictQuarantine
-	case "medium":
-		return engine.VerdictFlag
-	default:
-		return engine.VerdictClean
-	}
+	verdict.ApplyBlockedContent(agent, outcome)
 }
 
 // escalateByHistory checks recent audit history for the sender and escalates
@@ -436,7 +361,7 @@ func (h *Handler) escalateByHistory(agent string, outcome *engine.ScanOutcome) {
 	since := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
 	entries, err := h.audit.Query(audit.QueryOpts{
 		Agent:    agent,
-		Statuses: []string{"blocked", "quarantined"},
+		Statuses: []string{audit.StatusBlocked, audit.StatusQuarantined},
 		Since:    since,
 		Limit:    100,
 	})
@@ -466,8 +391,8 @@ func (h *Handler) escalateByHistory(agent string, outcome *engine.ScanOutcome) {
 func (h *Handler) scanConcatenated(ctx context.Context, agent, content string, outcome *engine.ScanOutcome) {
 	h.window.Add(agent, content)
 
-	// Skip if already severe — no point rescanning
-	if verdictSeverity(outcome.Verdict) >= verdictSeverity(engine.VerdictQuarantine) {
+	// Skip if already severe -- no point rescanning
+	if verdict.Severity(outcome.Verdict) >= verdict.Severity(engine.VerdictQuarantine) {
 		return
 	}
 
@@ -482,23 +407,9 @@ func (h *Handler) scanConcatenated(ctx context.Context, agent, content string, o
 		return
 	}
 
-	if verdictSeverity(concatOutcome.Verdict) > verdictSeverity(outcome.Verdict) {
+	if verdict.Severity(concatOutcome.Verdict) > verdict.Severity(outcome.Verdict) {
 		outcome.Verdict = concatOutcome.Verdict
 		outcome.Findings = concatOutcome.Findings
-	}
-}
-
-// verdictSeverity maps a verdict to a numeric severity for comparison.
-func verdictSeverity(v engine.ScanVerdict) int {
-	switch v {
-	case engine.VerdictBlock:
-		return 3
-	case engine.VerdictQuarantine:
-		return 2
-	case engine.VerdictFlag:
-		return 1
-	default:
-		return 0
 	}
 }
 
@@ -511,24 +422,14 @@ func (h *Handler) scanContent(ctx context.Context, content string) (*engine.Scan
 func verdictToResponse(v engine.ScanVerdict) (status, policyDecision string, httpStatus int) {
 	switch v {
 	case engine.VerdictBlock:
-		return "blocked", "content_blocked", http.StatusForbidden
+		return audit.StatusBlocked, audit.DecisionContentBlocked, http.StatusForbidden
 	case engine.VerdictQuarantine:
-		return "quarantined", "content_quarantined", http.StatusAccepted
+		return audit.StatusQuarantined, audit.DecisionContentQuarantined, http.StatusAccepted
 	case engine.VerdictFlag:
-		return "delivered", "content_flagged", http.StatusOK
+		return audit.StatusDelivered, audit.DecisionContentFlagged, http.StatusOK
 	default:
-		return "delivered", "allow", http.StatusOK
+		return audit.StatusDelivered, audit.DecisionAllow, http.StatusOK
 	}
-}
-
-func encodeFindings(findings []engine.FindingSummary) string {
-	if len(findings) == 0 {
-		return "[]"
-	}
-	if b, err := json.Marshal(findings); err == nil {
-		return string(b)
-	}
-	return "[]"
 }
 
 type quarantineResult struct {
@@ -536,8 +437,8 @@ type quarantineResult struct {
 	ExpiresAt string
 }
 
-func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string, req *MessageRequest, rulesJSON string) quarantineResult {
-	if verdict != engine.VerdictQuarantine {
+func (h *Handler) enqueueIfQuarantined(v engine.ScanVerdict, msgID string, req *MessageRequest, rulesJSON string) quarantineResult {
+	if v != engine.VerdictQuarantine {
 		return quarantineResult{}
 	}
 	expiryHours := h.cfg.Quarantine.ExpiryHours
@@ -551,7 +452,7 @@ func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string,
 		Content:        req.Content,
 		FromAgent:      req.From,
 		ToAgent:        req.To,
-		Status:         "pending",
+		Status:         audit.QStatusPending,
 		ExpiresAt:      expiresAt,
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
 		RulesTriggered: rulesJSON,
@@ -566,8 +467,8 @@ func (h *Handler) enqueueIfQuarantined(verdict engine.ScanVerdict, msgID string,
 	return quarantineResult{ID: msgID, ExpiresAt: expiresAt}
 }
 
-func (h *Handler) notifyIfSevere(verdict engine.ScanVerdict, status, msgID string, req *MessageRequest, findings []engine.FindingSummary) {
-	if verdict != engine.VerdictBlock && verdict != engine.VerdictQuarantine {
+func (h *Handler) notifyIfSevere(v engine.ScanVerdict, status, msgID string, req *MessageRequest, findings []engine.FindingSummary) {
+	if v != engine.VerdictBlock && v != engine.VerdictQuarantine {
 		return
 	}
 	h.webhooks.Notify(WebhookEvent{
@@ -575,7 +476,7 @@ func (h *Handler) notifyIfSevere(verdict engine.ScanVerdict, status, msgID strin
 		MessageID: msgID,
 		From:      req.From,
 		To:        req.To,
-		Severity:  topSeverity(findings),
+		Severity:  verdict.TopSeverity(findings),
 		Timestamp: req.Timestamp,
 	})
 }
@@ -600,7 +501,7 @@ func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findi
 		return
 	}
 
-	// Build lookups: ruleID → notify refs, ruleID → template
+	// Build lookups: ruleID -> notify refs, ruleID -> template
 	type ruleNotify struct {
 		Refs     []string
 		Template string
@@ -612,7 +513,7 @@ func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findi
 		}
 	}
 
-	// Build category → notify refs lookup
+	// Build category -> notify refs lookup
 	catNotifyMap := make(map[string][]string)
 	for _, cw := range h.cfg.CategoryWebhooks {
 		if len(cw.Notify) > 0 {
@@ -683,13 +584,6 @@ func (h *Handler) verifyIdentity(req *MessageRequest) (sigStatus int, verified b
 func sha256Hash(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:])
-}
-
-func topSeverity(findings []engine.FindingSummary) string {
-	if len(findings) == 0 {
-		return "none"
-	}
-	return findings[0].Severity
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
