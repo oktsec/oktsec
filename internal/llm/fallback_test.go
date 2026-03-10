@@ -110,7 +110,7 @@ func TestNewWithFallback_WithFallback(t *testing.T) {
 		Webhook:  WebhookConfig{URL: "http://localhost:9999"},
 	}
 	fb := &FallbackConfig{
-		Provider: ProviderWebhook,
+		Provider: string(ProviderWebhook),
 	}
 	analyzer, err := NewWithFallback(cfg, fb, slog.Default())
 	if err != nil {

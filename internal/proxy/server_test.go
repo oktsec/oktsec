@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/netutil"
 )
 
 func TestNewServer_Minimal(t *testing.T) {
@@ -26,7 +27,7 @@ func TestNewServer_Minimal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Port 0 means OS-assigned — actual port is now set
+	// Port 0 means OS-assigned -- actual port is now set
 	_ = srv.Port()
 	if srv.DashboardCode() == "" {
 		t.Error("dashboard code should not be empty")
@@ -68,7 +69,7 @@ func TestListenAutoPort_FindsPort(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	// Port 0 = let OS assign
-	ln, port, err := listenAutoPort("127.0.0.1", 0, logger)
+	ln, port, err := netutil.ListenAutoPort("127.0.0.1", 0, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestListenAutoPort_FindsPort(t *testing.T) {
 }
 
 func TestIsAddrInUse_NilError(t *testing.T) {
-	if isAddrInUse(nil) {
+	if netutil.IsAddrInUse(nil) {
 		t.Error("nil error should not be addr in use")
 	}
 }

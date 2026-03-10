@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/dashboard"
 	"github.com/oktsec/oktsec/internal/proxy"
 	"github.com/spf13/cobra"
 )
@@ -55,6 +56,7 @@ func newServeCmd() *cobra.Command {
 
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
+			dashboard.Version = version
 			srv, err := proxy.NewServer(cfg, cfgFile, logger)
 			if err != nil {
 				return err

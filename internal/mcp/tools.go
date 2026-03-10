@@ -338,7 +338,7 @@ func (h *handlers) quarantineList(args json.RawMessage) (*mcp.CallToolResult, er
 	if limit <= 0 {
 		limit = 20
 	}
-	status := mcputil.GetString(args, "status", "pending")
+	status := mcputil.GetString(args, "status", audit.QStatusPending)
 
 	items, err := h.audit.QuarantineQuery(status, "", limit)
 	if err != nil {

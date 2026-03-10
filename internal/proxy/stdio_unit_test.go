@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/verdict"
 )
 
 func TestVerdictToStdio(t *testing.T) {
@@ -29,9 +30,9 @@ func TestVerdictToStdio(t *testing.T) {
 }
 
 func TestEncodeStdioFindings_Empty(t *testing.T) {
-	got := encodeStdioFindings(nil)
+	got := verdict.EncodeFindings(nil)
 	if got != "[]" {
-		t.Errorf("encodeStdioFindings(nil) = %q, want %q", got, "[]")
+		t.Errorf("EncodeFindings(nil) = %q, want %q", got, "[]")
 	}
 }
 
@@ -39,8 +40,8 @@ func TestEncodeStdioFindings_WithData(t *testing.T) {
 	findings := []engine.FindingSummary{
 		{RuleID: "IAP-001", Name: "test", Severity: "high"},
 	}
-	got := encodeStdioFindings(findings)
+	got := verdict.EncodeFindings(findings)
 	if got == "[]" {
-		t.Error("encodeStdioFindings should return non-empty JSON")
+		t.Error("EncodeFindings should return non-empty JSON")
 	}
 }

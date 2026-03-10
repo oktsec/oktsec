@@ -3,8 +3,6 @@ package proxy
 import (
 	"context"
 	"crypto/ed25519"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -23,6 +21,7 @@ import (
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
+	"github.com/oktsec/oktsec/internal/netutil"
 	"github.com/oktsec/oktsec/internal/policy"
 )
 
@@ -138,24 +137,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 
 			llmQueue.OnResult(func(result llm.AnalysisResult) {
 				// Store in audit database
-				threatsJSON, _ := json.Marshal(result.Threats)
-				intentJSON, _ := json.Marshal(result.IntentAnalysis)
-				_ = auditStore.LogLLMAnalysis(audit.LLMAnalysis{
-					ID:                fmt.Sprintf("llm-%s", result.MessageID),
-					MessageID:         result.MessageID,
-					Timestamp:         time.Now().UTC().Format(time.RFC3339),
-					FromAgent:         result.FromAgent,
-					ToAgent:           result.ToAgent,
-					Provider:          result.ProviderName,
-					Model:             result.Model,
-					RiskScore:         result.RiskScore,
-					RecommendedAction: result.RecommendedAction,
-					Confidence:        result.Confidence,
-					ThreatsJSON:       string(threatsJSON),
-					IntentJSON:        string(intentJSON),
-					LatencyMs:         result.LatencyMs,
-					TokensUsed:        result.TokensUsed,
-				})
+				_ = llm.StoreResult(auditStore, result)
 
 				// Generate rules from threats
 				if ruleGen != nil {
@@ -168,15 +150,15 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 
 				// Alert on LLM-detected threats
 				if cfg.Alerting.LLMThreats && len(result.Threats) > 0 {
-					topSev := "medium"
+					topSev := audit.SeverityMedium
 					for _, t := range result.Threats {
-						if t.Severity == "critical" || t.Severity == "high" {
+						if t.Severity == audit.SeverityCritical || t.Severity == audit.SeverityHigh {
 							topSev = t.Severity
 							break
 						}
 					}
 					webhooks.Notify(WebhookEvent{
-						Event:     "llm_threat",
+						Event:     audit.AlertEventLLMThreat,
 						MessageID: result.MessageID,
 						From:      result.FromAgent,
 						To:        result.ToAgent,
@@ -304,7 +286,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	}
 
 	// Try configured port, auto-find next available if busy.
-	ln, actualPort, err := listenAutoPort(bind, cfg.Server.Port, logger)
+	ln, actualPort, err := netutil.ListenAutoPort(bind, cfg.Server.Port, logger)
 	if err != nil {
 		return nil, fmt.Errorf("binding port: %w", err)
 	}
@@ -336,48 +318,6 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		llmQueue:  llmQueue,
 		logger:    logger,
 	}, nil
-}
-
-// listenAutoPort tries the configured port; if busy, scans up to 10 higher ports.
-func listenAutoPort(bind string, port int, logger *slog.Logger) (net.Listener, int, error) {
-	addr := fmt.Sprintf("%s:%d", bind, port)
-	ln, err := net.Listen("tcp", addr)
-	if err == nil {
-		// When port is 0, the OS assigns a random port — return the actual port.
-		actual := ln.Addr().(*net.TCPAddr).Port
-		return ln, actual, nil
-	}
-
-	// Check if the error is "address already in use"
-	if !errors.Is(err, syscall.EADDRINUSE) && !isAddrInUse(err) {
-		return nil, 0, err
-	}
-
-	logger.Warn("port in use, searching for available port", "port", port)
-	for offset := 1; offset <= 10; offset++ {
-		tryPort := port + offset
-		addr = fmt.Sprintf("%s:%d", bind, tryPort)
-		ln, err = net.Listen("tcp", addr)
-		if err == nil {
-			logger.Info("using alternative port", "original", port, "actual", tryPort)
-			return ln, tryPort, nil
-		}
-	}
-	return nil, 0, fmt.Errorf("port %d and next 10 ports are all in use — try 'oktsec serve --port <port>' or stop existing instances", port)
-}
-
-func isAddrInUse(err error) bool {
-	// Portable check: look for "address already in use" in error string
-	return err != nil && (errors.Is(err, syscall.EADDRINUSE) ||
-		fmt.Sprintf("%v", err) == "address already in use" ||
-		// net.OpError wraps the syscall error
-		func() bool {
-			var opErr *net.OpError
-			if errors.As(err, &opErr) {
-				return errors.Is(opErr.Err, syscall.EADDRINUSE)
-			}
-			return false
-		}())
 }
 
 // AuditStore returns the audit store for CLI queries.
@@ -443,9 +383,9 @@ func (s *Server) checkAnomalies() {
 		)
 
 		s.webhooks.Notify(WebhookEvent{
-			Event:     "agent_risk_elevated",
+			Event:     audit.AlertEventAgentRisk,
 			From:      ar.Agent,
-			Severity:  "high",
+			Severity:  audit.SeverityHigh,
 			Detail:    fmt.Sprintf("risk score %.1f (threshold %.1f)", ar.RiskScore, s.cfg.Anomaly.RiskThreshold),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 		})
@@ -459,9 +399,9 @@ func (s *Server) checkAnomalies() {
 				// Alert on agent suspension
 				if s.cfg.Alerting.Suspensions {
 					s.webhooks.Notify(WebhookEvent{
-						Event:     "agent_suspended",
+						Event:     audit.AlertEventAgentSuspended,
 						From:      ar.Agent,
-						Severity:  "critical",
+						Severity:  audit.SeverityCritical,
 						Detail:    fmt.Sprintf("auto-suspended: risk %.1f exceeded threshold", ar.RiskScore),
 						Timestamp: time.Now().UTC().Format(time.RFC3339),
 					})

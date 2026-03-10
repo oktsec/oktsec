@@ -19,6 +19,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// ruleCountFinding is used to unmarshal rule findings from JSON for aggregation queries.
+type ruleCountFinding struct {
+	RuleID   string `json:"rule_id"`
+	Name     string `json:"name"`
+	Severity string `json:"severity"`
+}
+
 // Risk scoring weights for blending audit-based and LLM-based scores.
 const (
 	riskWeightAudit = 0.6
@@ -498,13 +505,13 @@ func (s *Store) QueryAgentStats(agent string) (*StatusCounts, error) {
 		}
 		sc.Total += count
 		switch status {
-		case "delivered":
+		case StatusDelivered:
 			sc.Delivered = count
-		case "blocked":
+		case StatusBlocked:
 			sc.Blocked = count
-		case "rejected":
+		case StatusRejected:
 			sc.Rejected = count
-		case "quarantined":
+		case StatusQuarantined:
 			sc.Quarantined = count
 		}
 	}
@@ -528,13 +535,13 @@ func (s *Store) QueryStats() (*StatusCounts, error) {
 		}
 		sc.Total += count
 		switch status {
-		case "delivered":
+		case StatusDelivered:
 			sc.Delivered = count
-		case "blocked":
+		case StatusBlocked:
 			sc.Blocked = count
-		case "rejected":
+		case StatusRejected:
 			sc.Rejected = count
-		case "quarantined":
+		case StatusQuarantined:
 			sc.Quarantined = count
 		}
 	}
@@ -637,7 +644,7 @@ func (s *Store) QuarantineByID(id string) (*QuarantineItem, error) {
 
 // QuarantinePending returns pending quarantine items ordered by creation time.
 func (s *Store) QuarantinePending(limit int) ([]QuarantineItem, error) {
-	return s.QuarantineQuery("pending", "", limit)
+	return s.QuarantineQuery(QStatusPending, "", limit)
 }
 
 // QuarantineQuery returns quarantine items matching the given filters.
@@ -757,13 +764,13 @@ func (s *Store) QuarantineStats() (*QuarantineStats, error) {
 		}
 		qs.Total += count
 		switch status {
-		case "pending":
+		case QStatusPending:
 			qs.Pending = count
-		case "approved":
+		case QStatusApproved:
 			qs.Approved = count
-		case "rejected":
+		case QStatusRejected:
 			qs.Rejected = count
-		case "expired":
+		case QStatusExpired:
 			qs.Expired = count
 		}
 	}
@@ -854,19 +861,13 @@ func (s *Store) QueryTopRules(limit int, since string) ([]RuleStat, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	type findingJSON struct {
-		RuleID   string `json:"rule_id"`
-		Name     string `json:"name"`
-		Severity string `json:"severity"`
-	}
-
 	counts := make(map[string]*RuleStat)
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
 			continue
 		}
-		var findings []findingJSON
+		var findings []ruleCountFinding
 		if err := json.Unmarshal([]byte(raw), &findings); err != nil {
 			continue
 		}
@@ -884,14 +885,7 @@ func (s *Store) QueryTopRules(limit int, since string) ([]RuleStat, error) {
 		result = append(result, *rs)
 	}
 
-	// Sort by count descending
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].Count > result[i].Count {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Count > result[j].Count })
 
 	if limit > 0 && len(result) > limit {
 		result = result[:limit]
@@ -926,9 +920,9 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 		}
 		ar.Total += count
 		switch status {
-		case "blocked":
+		case StatusBlocked:
 			ar.Blocked += count
-		case "quarantined":
+		case StatusQuarantined:
 			ar.Quarantined += count
 		}
 	}
@@ -996,13 +990,13 @@ func (s *Store) QueryEdgeStats(since string) ([]EdgeStat, error) {
 		}
 		es.Total += count
 		switch status {
-		case "delivered":
+		case StatusDelivered:
 			es.Delivered += count
-		case "blocked":
+		case StatusBlocked:
 			es.Blocked += count
-		case "quarantined":
+		case StatusQuarantined:
 			es.Quarantined += count
-		case "rejected":
+		case StatusRejected:
 			es.Rejected += count
 		}
 	}
@@ -1012,14 +1006,7 @@ func (s *Store) QueryEdgeStats(since string) ([]EdgeStat, error) {
 		result = append(result, *es)
 	}
 
-	// Sort by total descending for deterministic output
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].Total > result[i].Total {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Total > result[j].Total })
 
 	return result, rows.Err()
 }
@@ -1040,19 +1027,13 @@ func (s *Store) QueryEdgeRules(from, to string, limit int, since string) ([]Rule
 	}
 	defer func() { _ = rows.Close() }()
 
-	type findingJSON struct {
-		RuleID   string `json:"rule_id"`
-		Name     string `json:"name"`
-		Severity string `json:"severity"`
-	}
-
 	counts := make(map[string]*RuleStat)
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
 			continue
 		}
-		var findings []findingJSON
+		var findings []ruleCountFinding
 		if err := json.Unmarshal([]byte(raw), &findings); err != nil {
 			continue
 		}
@@ -1070,14 +1051,7 @@ func (s *Store) QueryEdgeRules(from, to string, limit int, since string) ([]Rule
 		result = append(result, *rs)
 	}
 
-	// Sort by count descending
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].Count > result[i].Count {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Count > result[j].Count })
 
 	if limit > 0 && len(result) > limit {
 		result = result[:limit]
@@ -1101,19 +1075,13 @@ func (s *Store) QueryAgentTopRules(agent string, limit int, since string) ([]Rul
 	}
 	defer func() { _ = rows.Close() }()
 
-	type findingJSON struct {
-		RuleID   string `json:"rule_id"`
-		Name     string `json:"name"`
-		Severity string `json:"severity"`
-	}
-
 	counts := make(map[string]*RuleStat)
 	for rows.Next() {
 		var raw string
 		if err := rows.Scan(&raw); err != nil {
 			continue
 		}
-		var findings []findingJSON
+		var findings []ruleCountFinding
 		if err := json.Unmarshal([]byte(raw), &findings); err != nil {
 			continue
 		}
@@ -1131,14 +1099,7 @@ func (s *Store) QueryAgentTopRules(agent string, limit int, since string) ([]Rul
 		result = append(result, *rs)
 	}
 
-	// Sort by count descending
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[j].Count > result[i].Count {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Count > result[j].Count })
 
 	if limit > 0 && len(result) > limit {
 		result = result[:limit]

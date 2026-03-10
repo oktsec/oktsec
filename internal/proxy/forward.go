@@ -14,6 +14,7 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/verdict"
 )
 
 // ForwardProxy implements an HTTP forward proxy that scans traffic with Aguara.
@@ -94,7 +95,7 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	policy := fp.resolvePolicy(agent)
 	if !policy.DomainAllowed(host) {
 		fp.logger.Warn("forward proxy: blocked CONNECT domain", "host", host, "agent", agent, "remote", r.RemoteAddr)
-		fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, "blocked", "proxy_blocked_domain", "", 0, start)
+		fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, audit.StatusBlocked, "proxy_blocked_domain", "", 0, start)
 		http.Error(w, "Forbidden: domain blocked by proxy policy", http.StatusForbidden)
 		return
 	}
@@ -111,7 +112,7 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := ValidateHost(connectHost); err != nil {
 		fp.logger.Warn("forward proxy: SSRF blocked CONNECT", "host", host, "error", err)
-		fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, "blocked", "proxy_ssrf_blocked", "", 0, start)
+		fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, audit.StatusBlocked, "proxy_ssrf_blocked", "", 0, start)
 		http.Error(w, "Forbidden: SSRF protection", http.StatusForbidden)
 		return
 	}
@@ -178,7 +179,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	policy := fp.resolvePolicy(agent)
 	if !policy.DomainAllowed(host) {
 		fp.logger.Warn("forward proxy: blocked HTTP domain", "host", host, "agent", agent, "remote", r.RemoteAddr)
-		fp.logProxyEntry(logAgent, r.Method, host, "blocked", "proxy_blocked_domain", "", 0, start)
+		fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_domain", "", 0, start)
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "domain blocked by proxy policy"})
 		return
 	}
@@ -212,10 +213,10 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fp.logger.Error("forward proxy: request scan failed", "error", err)
 		} else if outcome.Verdict == engine.VerdictBlock || fp.hasCategoryBlock(outcome, policy) {
-			rulesJSON := encodeFindings(outcome.Findings)
+			rulesJSON := verdict.EncodeFindings(outcome.Findings)
 			fp.logger.Warn("forward proxy: blocked request content",
 				"host", host, "agent", agent, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
-			fp.logProxyEntry(logAgent, r.Method, host, "blocked", "proxy_blocked_content", rulesJSON, 0, start)
+			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_content", rulesJSON, 0, start)
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "request blocked by content scan",
 				"detail": fmt.Sprintf("%d security finding(s) detected", len(outcome.Findings)),
@@ -257,10 +258,10 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fp.logger.Error("forward proxy: response scan failed", "error", err)
 		} else if outcome.Verdict == engine.VerdictBlock || fp.hasCategoryBlock(outcome, policy) {
-			rulesJSON := encodeFindings(outcome.Findings)
+			rulesJSON := verdict.EncodeFindings(outcome.Findings)
 			fp.logger.Warn("forward proxy: blocked response content",
 				"host", host, "agent", agent, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
-			fp.logProxyEntry(logAgent, r.Method, host, "blocked", "proxy_blocked_response", rulesJSON, 0, start)
+			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_response", rulesJSON, 0, start)
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "response blocked by content scan",
 				"detail": fmt.Sprintf("%d security finding(s) detected", len(outcome.Findings)),

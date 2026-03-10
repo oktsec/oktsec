@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 )
 
@@ -120,34 +121,18 @@ type Config struct {
 	Webhook WebhookConfig  `yaml:"webhook,omitempty"`
 }
 
-// AnalyzeConfig controls which verdict types trigger LLM analysis.
-type AnalyzeConfig struct {
-	Clean       bool `yaml:"clean"`
-	Flagged     bool `yaml:"flagged"`
-	Quarantined bool `yaml:"quarantined"`
-	Blocked     bool `yaml:"blocked"`
-}
-
-// RuleGenConfig controls automatic rule generation from LLM findings.
-type RuleGenConfig struct {
-	Enabled         bool    `yaml:"enabled"`
-	OutputDir       string  `yaml:"output_dir,omitempty"`
-	AutoReload      bool    `yaml:"auto_reload"`
-	RequireApproval bool    `yaml:"require_approval"`
-	MinConfidence   float64 `yaml:"min_confidence,omitempty"`
-}
-
-// IntentConfig controls LLM-enhanced intent analysis.
-type IntentConfig struct {
-	Enhanced      bool `yaml:"enhanced"`
-	HistoryWindow int  `yaml:"history_window,omitempty"`
-}
-
-// WebhookConfig holds settings for the webhook provider.
-type WebhookConfig struct {
-	URL     string            `yaml:"url,omitempty"`
-	Headers map[string]string `yaml:"headers,omitempty"`
-}
+// Type aliases for LLM sub-configs. The canonical definitions live in
+// internal/config to keep YAML tags in one place. Using aliases (not
+// type definitions) makes the types fully interchangeable.
+type (
+	AnalyzeConfig  = config.LLMAnalyzeConfig
+	RuleGenConfig  = config.LLMRuleGenConfig
+	IntentConfig   = config.LLMIntentConfig
+	WebhookConfig  = config.LLMWebhookConfig
+	FallbackConfig = config.LLMFallbackConfig
+	TriageConfig   = config.LLMTriageConfig
+	BudgetConfig   = config.LLMBudgetConfig
+)
 
 // ParseTimeout returns the configured timeout as a time.Duration.
 func (c *Config) ParseTimeout() time.Duration {
@@ -189,17 +174,6 @@ func New(cfg Config) (Analyzer, error) {
 	}
 }
 
-// FallbackConfig describes a secondary LLM provider for fallback.
-type FallbackConfig struct {
-	Provider   Provider
-	Model      string
-	BaseURL    string
-	APIKeyEnv  string
-	APIVersion string
-	MaxTokens  int
-	Timeout    string
-}
-
 // NewWithFallback creates a primary Analyzer and optionally wraps it with
 // a FallbackAnalyzer if fallback config is provided. Returns nil, nil if disabled.
 func NewWithFallback(cfg Config, fb *FallbackConfig, logger *slog.Logger) (Analyzer, error) {
@@ -214,7 +188,7 @@ func NewWithFallback(cfg Config, fb *FallbackConfig, logger *slog.Logger) (Analy
 	// Build secondary config from fallback + inherit defaults from primary
 	secCfg := Config{
 		Enabled:     true,
-		Provider:    fb.Provider,
+		Provider:    Provider(fb.Provider),
 		Model:       fb.Model,
 		BaseURL:     fb.BaseURL,
 		APIKeyEnv:   fb.APIKeyEnv,

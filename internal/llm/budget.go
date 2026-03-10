@@ -6,14 +6,6 @@ import (
 	"time"
 )
 
-// BudgetConfig controls LLM spending limits.
-type BudgetConfig struct {
-	DailyLimitUSD   float64 // 0 = unlimited
-	MonthlyLimitUSD float64 // 0 = unlimited
-	WarnThreshold   float64 // fraction (0.0-1.0), default 0.8
-	OnLimit         string  // "skip" | "fallback" | "block"
-}
-
 // BudgetStatus describes the current budget state.
 type BudgetStatus struct {
 	DailySpent      float64 `json:"daily_spent_usd"`

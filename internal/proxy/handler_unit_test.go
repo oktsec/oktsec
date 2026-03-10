@@ -6,6 +6,7 @@ import (
 
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/verdict"
 )
 
 func TestDefaultSeverityVerdict(t *testing.T) {
@@ -18,9 +19,9 @@ func TestDefaultSeverityVerdict(t *testing.T) {
 		"":         engine.VerdictClean,
 	}
 	for sev, want := range tests {
-		got := defaultSeverityVerdict(sev)
+		got := verdict.DefaultSeverityVerdict(sev)
 		if got != want {
-			t.Errorf("defaultSeverityVerdict(%q) = %s, want %s", sev, got, want)
+			t.Errorf("DefaultSeverityVerdict(%q) = %s, want %s", sev, got, want)
 		}
 	}
 }
@@ -33,9 +34,9 @@ func TestVerdictSeverity(t *testing.T) {
 		engine.VerdictClean:      0,
 	}
 	for v, want := range tests {
-		got := verdictSeverity(v)
+		got := verdict.Severity(v)
 		if got != want {
-			t.Errorf("verdictSeverity(%s) = %d, want %d", v, got, want)
+			t.Errorf("Severity(%s) = %d, want %d", v, got, want)
 		}
 	}
 }
@@ -63,9 +64,9 @@ func TestVerdictToResponse(t *testing.T) {
 }
 
 func TestEncodeFindings_Empty(t *testing.T) {
-	got := encodeFindings(nil)
+	got := verdict.EncodeFindings(nil)
 	if got != "[]" {
-		t.Errorf("encodeFindings(nil) = %q, want %q", got, "[]")
+		t.Errorf("EncodeFindings(nil) = %q, want %q", got, "[]")
 	}
 }
 
@@ -73,9 +74,9 @@ func TestEncodeFindings_WithData(t *testing.T) {
 	findings := []engine.FindingSummary{
 		{RuleID: "IAP-001", Name: "test", Severity: "high"},
 	}
-	got := encodeFindings(findings)
+	got := verdict.EncodeFindings(findings)
 	if got == "[]" {
-		t.Error("encodeFindings should return non-empty JSON for findings")
+		t.Error("EncodeFindings should return non-empty JSON for findings")
 	}
 }
 
@@ -198,7 +199,7 @@ func TestHandler_ApplyRuleOverrides_NoRules(t *testing.T) {
 		Verdict:  engine.VerdictFlag,
 		Findings: []engine.FindingSummary{{RuleID: "R1", Severity: "medium"}},
 	}
-	ts.handler.applyRuleOverrides(outcome)
+	verdict.ApplyRuleOverrides(ts.handler.cfg.Rules, outcome)
 	if outcome.Verdict != engine.VerdictFlag {
 		t.Errorf("verdict = %s, want flag (no rules to override)", outcome.Verdict)
 	}
@@ -213,7 +214,7 @@ func TestHandler_ApplyRuleOverrides_IgnoreDropsFinding(t *testing.T) {
 		Verdict:  engine.VerdictQuarantine,
 		Findings: []engine.FindingSummary{{RuleID: "IAP-001", Severity: "high"}},
 	}
-	ts.handler.applyRuleOverrides(outcome)
+	verdict.ApplyRuleOverrides(ts.handler.cfg.Rules, outcome)
 	if len(outcome.Findings) != 0 {
 		t.Errorf("findings = %d, want 0 (ignored)", len(outcome.Findings))
 	}
@@ -231,7 +232,7 @@ func TestHandler_ApplyRuleOverrides_Block(t *testing.T) {
 		Verdict:  engine.VerdictFlag,
 		Findings: []engine.FindingSummary{{RuleID: "IAP-001", Severity: "medium"}},
 	}
-	ts.handler.applyRuleOverrides(outcome)
+	verdict.ApplyRuleOverrides(ts.handler.cfg.Rules, outcome)
 	if outcome.Verdict != engine.VerdictBlock {
 		t.Errorf("verdict = %s, want block", outcome.Verdict)
 	}
@@ -292,7 +293,7 @@ func TestHandler_ApplyRuleOverrides_AllowAndFlag(t *testing.T) {
 		Verdict:  engine.VerdictBlock,
 		Findings: []engine.FindingSummary{{RuleID: "IAP-001", Severity: "critical"}},
 	}
-	ts.handler.applyRuleOverrides(outcome)
+	verdict.ApplyRuleOverrides(ts.handler.cfg.Rules, outcome)
 	if outcome.Verdict != engine.VerdictFlag {
 		t.Errorf("verdict = %s, want flag (allow-and-flag override)", outcome.Verdict)
 	}
@@ -332,7 +333,7 @@ func TestHandler_ApplyRuleOverrides_QuarantineOverride(t *testing.T) {
 		Verdict:  engine.VerdictFlag,
 		Findings: []engine.FindingSummary{{RuleID: "IAP-001", Severity: "medium"}},
 	}
-	ts.handler.applyRuleOverrides(outcome)
+	verdict.ApplyRuleOverrides(ts.handler.cfg.Rules, outcome)
 	if outcome.Verdict != engine.VerdictQuarantine {
 		t.Errorf("verdict = %s, want quarantine", outcome.Verdict)
 	}

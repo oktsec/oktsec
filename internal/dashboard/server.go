@@ -10,12 +10,16 @@ import (
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/auditcheck"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/dashboard/static"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
 )
+
+// Version is set by the CLI command at startup for use in exports (e.g., SARIF).
+var Version = "dev"
 
 // Server serves the oktsec dashboard UI.
 type Server struct {
@@ -32,6 +36,13 @@ type Server struct {
 	gwCmd    *exec.Cmd
 	llmQueue *llm.Queue
 	ruleGen  *llm.RuleGenerator
+
+	// Cached auditcheck.RunChecks results (expires after 30s)
+	checkMu        sync.Mutex
+	checkCache     []auditcheck.Finding
+	checkDetected  []string
+	checkProducts  map[string]auditcheck.ProductInfo
+	checkCacheTime time.Time
 }
 
 // NewServer creates a dashboard server with access-code authentication.
@@ -142,6 +153,39 @@ func (s *Server) GatewayRunning() bool {
 	s.gwMu.Lock()
 	defer s.gwMu.Unlock()
 	return s.gwCmd != nil && s.gwCmd.Process != nil
+}
+
+// cachedRunChecks returns cached auditcheck.RunChecks results, refreshing if older than 30s.
+func (s *Server) cachedRunChecks() ([]auditcheck.Finding, []string, map[string]auditcheck.ProductInfo) {
+	s.checkMu.Lock()
+	defer s.checkMu.Unlock()
+
+	if s.checkCache != nil && time.Since(s.checkCacheTime) < 30*time.Second {
+		return s.checkCache, s.checkDetected, s.checkProducts
+	}
+
+	findings, detected, products := auditcheck.RunChecks(s.cfg, s.configDir())
+	s.checkCache = findings
+	s.checkDetected = detected
+	s.checkProducts = products
+	s.checkCacheTime = time.Now()
+	return findings, detected, products
+}
+
+// invalidateCheckCache clears the RunChecks cache so the next call recomputes.
+func (s *Server) invalidateCheckCache() {
+	s.checkMu.Lock()
+	s.checkCache = nil
+	s.checkMu.Unlock()
+}
+
+// saveConfig persists configuration and invalidates the RunChecks cache.
+func (s *Server) saveConfig() error {
+	err := s.cfg.Save(s.cfgPath)
+	if err == nil {
+		s.invalidateCheckCache()
+	}
+	return err
 }
 
 func (s *Server) routes() {

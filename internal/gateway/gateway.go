@@ -3,12 +3,10 @@ package gateway
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,7 +16,9 @@ import (
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/mcputil"
+	"github.com/oktsec/oktsec/internal/netutil"
 	"github.com/oktsec/oktsec/internal/proxy"
+	"github.com/oktsec/oktsec/internal/verdict"
 )
 
 type contextKey string
@@ -155,7 +155,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 		bind = "127.0.0.1"
 	}
 
-	ln, actualPort, err := listenAutoPort(bind, g.cfg.Gateway.Port, g.logger)
+	ln, actualPort, err := netutil.ListenAutoPort(bind, g.cfg.Gateway.Port, g.logger)
 	if err != nil {
 		return fmt.Errorf("binding gateway port: %w", err)
 	}
@@ -301,14 +301,14 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 
 		// 2. Rate limit check
 		if !g.rateLimiter.Allow(agent) {
-			g.logAudit(msgID, agent, m.OriginalName, "rejected", "rate_limited", "[]", start)
+			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionRateLimited, "[]", start)
 			return toolError("rate limit exceeded"), nil
 		}
 
 		// 3. Tool allowlist check
 		if agentCfg, ok := g.cfg.Agents[agent]; ok {
 			if agentCfg.Suspended {
-				g.logAudit(msgID, agent, m.OriginalName, "rejected", "agent_suspended", "[]", start)
+				g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionAgentSuspended, "[]", start)
 				return toolError("agent suspended"), nil
 			}
 			if len(agentCfg.AllowedTools) > 0 {
@@ -320,7 +320,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 					}
 				}
 				if !allowed {
-					g.logAudit(msgID, agent, m.OriginalName, "blocked", "tool_not_allowed", "[]", start)
+					g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionToolNotAllowed, "[]", start)
 					return toolError(fmt.Sprintf("tool %q not allowed for agent %q", m.OriginalName, agent)), nil
 				}
 			}
@@ -332,9 +332,9 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 				amount := ExtractAmount(mcputil.GetArguments(req.Params.Arguments))
 				result := g.policyEnforcer.Check(agent, m.OriginalName, amount, policy)
 				if !result.Allowed {
-					status := "blocked"
+					status := audit.StatusBlocked
 					if result.Decision == "quarantine_approval" {
-						status = "quarantined"
+						status = audit.StatusQuarantined
 					}
 					g.logAudit(msgID, agent, m.OriginalName, status, result.Decision, "[]", start)
 					return toolError(fmt.Sprintf("tool policy: %s", result.Reason)), nil
@@ -351,7 +351,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		outcome, err := g.scanner.ScanContent(scanCtx, content)
 		if err != nil {
 			g.logger.Error("scan failed", "error", err, "tool", m.OriginalName)
-			g.logAudit(msgID, agent, m.OriginalName, "delivered", "scan_error", "[]", start)
+			g.logAudit(msgID, agent, m.OriginalName, audit.StatusDelivered, audit.DecisionScanError, "[]", start)
 			// Forward on scan error — fail open
 		}
 
@@ -360,15 +360,15 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		}
 
 		// 6. Apply rule overrides
-		applyRuleOverrides(g.cfg.Rules, outcome)
+		verdict.ApplyRuleOverrides(g.cfg.Rules, outcome)
 
 		// 7. Apply blocked content
 		if agentCfg, ok := g.cfg.Agents[agent]; ok {
-			applyBlockedContent(agentCfg, outcome)
+			verdict.ApplyBlockedContent(agentCfg, outcome)
 		}
 
 		// 8. Determine verdict
-		findingsJSON := encodeFindings(outcome.Findings)
+		findingsJSON := verdict.EncodeFindings(outcome.Findings)
 		status, decision := verdictToGateway(outcome.Verdict)
 
 		// 9. Audit log
@@ -384,7 +384,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 				MessageID: msgID,
 				From:      agent,
 				To:        m.BackendName + "/" + m.OriginalName,
-				Severity:  topSeverity(outcome.Findings),
+				Severity:  verdict.TopSeverity(outcome.Findings),
 				Timestamp: time.Now().UTC().Format(time.RFC3339),
 			})
 		}
@@ -418,7 +418,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			if respContent != "" {
 				respOutcome, err := g.scanner.ScanContent(scanCtx, respContent)
 				if err == nil && respOutcome != nil {
-					applyRuleOverrides(g.cfg.Rules, respOutcome)
+					verdict.ApplyRuleOverrides(g.cfg.Rules, respOutcome)
 					if respOutcome.Verdict == engine.VerdictBlock || respOutcome.Verdict == engine.VerdictQuarantine {
 						g.logger.Warn("backend response blocked",
 							"tool", m.OriginalName, "backend", m.BackendName, "verdict", respOutcome.Verdict)
@@ -463,7 +463,7 @@ func (g *Gateway) SetSignalDetector(sd *llm.SignalDetector) {
 }
 
 // submitToLLM submits tool call content for async LLM analysis if configured.
-func (g *Gateway) submitToLLM(agent, tool, content string, verdict engine.ScanVerdict, findings []engine.FindingSummary) {
+func (g *Gateway) submitToLLM(agent, tool, content string, v engine.ScanVerdict, findings []engine.FindingSummary) {
 	if g.llmQueue == nil || g.cfg == nil {
 		return
 	}
@@ -475,13 +475,13 @@ func (g *Gateway) submitToLLM(agent, tool, content string, verdict engine.ScanVe
 
 	// Signal detector (triage pre-filter) is sole gatekeeper if attached
 	if g.signalDetector != nil {
-		sig := g.signalDetector.Detect(agent, "gateway/"+tool, content, string(verdict))
+		sig := g.signalDetector.Detect(agent, "gateway/"+tool, content, string(v))
 		if !sig.ShouldAnalyze {
 			return
 		}
 	} else {
 		shouldAnalyze := false
-		switch verdict {
+		switch v {
 		case engine.VerdictClean:
 			shouldAnalyze = lcfg.Analyze.Clean
 		case engine.VerdictFlag:
@@ -501,7 +501,7 @@ func (g *Gateway) submitToLLM(agent, tool, content string, verdict engine.ScanVe
 		FromAgent:      agent,
 		ToAgent:        "gateway/" + tool,
 		Content:        content,
-		CurrentVerdict: verdict,
+		CurrentVerdict: v,
 		Findings:       findings,
 		Timestamp:      time.Now(),
 	})
@@ -543,91 +543,17 @@ func extractResultContent(result *mcp.CallToolResult) string {
 	return content
 }
 
-// applyBlockedContent escalates verdict to block if any finding's category
-// matches the agent's blocked_content list.
-func applyBlockedContent(agent config.Agent, outcome *engine.ScanOutcome) {
-	if len(agent.BlockedContent) == 0 || len(outcome.Findings) == 0 {
-		return
-	}
-	blocked := make(map[string]bool, len(agent.BlockedContent))
-	for _, cat := range agent.BlockedContent {
-		blocked[cat] = true
-	}
-	for _, f := range outcome.Findings {
-		if blocked[f.Category] {
-			outcome.Verdict = engine.VerdictBlock
-			return
-		}
-	}
-}
-
 // verdictToGateway maps a verdict to (status, policyDecision).
 func verdictToGateway(v engine.ScanVerdict) (status, decision string) {
 	switch v {
 	case engine.VerdictBlock:
-		return "blocked", "content_blocked"
+		return audit.StatusBlocked, audit.DecisionContentBlocked
 	case engine.VerdictQuarantine:
-		return "quarantined", "content_quarantined"
+		return audit.StatusQuarantined, audit.DecisionContentQuarantined
 	case engine.VerdictFlag:
-		return "delivered", "content_flagged"
+		return audit.StatusDelivered, audit.DecisionContentFlagged
 	default:
-		return "delivered", "allow"
+		return audit.StatusDelivered, audit.DecisionAllow
 	}
 }
 
-// encodeFindings marshals findings to JSON or returns "[]".
-func encodeFindings(findings []engine.FindingSummary) string {
-	if len(findings) == 0 {
-		return "[]"
-	}
-	data, err := json.Marshal(findings)
-	if err != nil {
-		return "[]"
-	}
-	return string(data)
-}
-
-// topSeverity returns the first finding's severity, or "none".
-func topSeverity(findings []engine.FindingSummary) string {
-	if len(findings) > 0 {
-		return findings[0].Severity
-	}
-	return "none"
-}
-
-// listenAutoPort tries the configured port; if busy, scans up to 10 higher ports.
-func listenAutoPort(bind string, port int, logger *slog.Logger) (net.Listener, int, error) {
-	addr := fmt.Sprintf("%s:%d", bind, port)
-	ln, err := net.Listen("tcp", addr)
-	if err == nil {
-		actual := ln.Addr().(*net.TCPAddr).Port
-		return ln, actual, nil
-	}
-
-	if !errors.Is(err, syscall.EADDRINUSE) && !isAddrInUse(err) {
-		return nil, 0, err
-	}
-
-	logger.Warn("gateway port in use, searching for available port", "port", port)
-	for offset := 1; offset <= 10; offset++ {
-		tryPort := port + offset
-		addr = fmt.Sprintf("%s:%d", bind, tryPort)
-		ln, err = net.Listen("tcp", addr)
-		if err == nil {
-			logger.Info("using alternative gateway port", "original", port, "actual", tryPort)
-			return ln, tryPort, nil
-		}
-	}
-	return nil, 0, fmt.Errorf("port %d and next 10 ports are all in use", port)
-}
-
-func isAddrInUse(err error) bool {
-	return err != nil && (errors.Is(err, syscall.EADDRINUSE) ||
-		func() bool {
-			var opErr *net.OpError
-			if errors.As(err, &opErr) {
-				return errors.Is(opErr.Err, syscall.EADDRINUSE)
-			}
-			return false
-		}())
-}

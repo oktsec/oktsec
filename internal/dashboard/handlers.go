@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -114,24 +115,57 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
-	stats := s.getStats()
-	recent := s.getRecentEvents(3)
-	chart := s.getHourlyChart()
+	var wg sync.WaitGroup
 
-	qStats, _ := s.audit.QuarantineStats()
+	// Group 1: independent fast queries
+	var stats dashboardStats
+	var recent []audit.Entry
+	var chart []hourlyBar
+	var qStats *audit.QuarantineStats
+
+	wg.Add(4)
+	go func() { defer wg.Done(); stats = s.getStats() }()
+	go func() { defer wg.Done(); recent = s.getRecentEvents(3) }()
+	go func() { defer wg.Done(); chart = s.getHourlyChart() }()
+	go func() { defer wg.Done(); qStats, _ = s.audit.QuarantineStats() }()
+
+	// Group 2: independent DB queries
+	var topRules []audit.RuleStat
+	var agentRisks []audit.AgentRisk
+	var unsigned, totalRecent int
+	var unsignedByAgent []audit.UnsignedByAgent
+	var avgLatency int
+
+	wg.Add(5)
+	go func() { defer wg.Done(); topRules, _ = s.audit.QueryTopRules(5, "") }()
+	go func() { defer wg.Done(); agentRisks, _ = s.audit.QueryAgentRisk("") }()
+	go func() { defer wg.Done(); unsigned, totalRecent, _ = s.audit.QueryUnsignedRate() }()
+	go func() { defer wg.Done(); unsignedByAgent, _ = s.audit.QueryUnsignedByAgent() }()
+	go func() { defer wg.Done(); avgLatency, _ = s.audit.QueryAvgLatency() }()
+
+	// Group 3: chain verification (lightweight — last 100 entries only) + health score + LLM stats
+	var chainResult audit.ChainVerifyResult
+	var score int
+	var grade string
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		chainEntries, _ := s.audit.QueryChainEntries(100)
+		chainResult = audit.VerifyChain(chainEntries, nil)
+	}()
+	go func() {
+		defer wg.Done()
+		findings, _, _ := s.cachedRunChecks()
+		score, grade = auditcheck.ComputeHealthScore(findings)
+	}()
+
+	wg.Wait()
+
 	var pendingReview int
 	if qStats != nil {
 		pendingReview = qStats.Pending
 	}
-
-	// Health score
-	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
-	score, grade := auditcheck.ComputeHealthScore(findings)
-
-	topRules, _ := s.audit.QueryTopRules(5, "")
-	agentRisks, _ := s.audit.QueryAgentRisk("")
-	unsigned, totalRecent, _ := s.audit.QueryUnsignedRate()
-	unsignedByAgent, _ := s.audit.QueryUnsignedByAgent()
 
 	detectionRate := 0
 	if stats.TotalMessages > 0 {
@@ -141,8 +175,6 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	if totalRecent > 0 {
 		unsignedPct = unsigned * 100 / totalRecent
 	}
-
-	avgLatency, _ := s.audit.QueryAvgLatency()
 
 	data := map[string]any{
 		"Active":        "overview",
@@ -161,13 +193,9 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"UnsignedPct":     unsignedPct,
 		"UnsignedByAgent": unsignedByAgent,
 		"AvgLatency":      avgLatency,
+		"ChainValid":      chainResult.Valid,
+		"ChainCount":      chainResult.Entries,
 	}
-
-	// Verify audit chain integrity (lightweight — skip sig verification)
-	chainEntries, _ := s.audit.QueryChainEntries(10000)
-	chainResult := audit.VerifyChain(chainEntries, nil)
-	data["ChainValid"] = chainResult.Valid
-	data["ChainCount"] = chainResult.Entries
 
 	s.populateLLMStats(data)
 
@@ -181,7 +209,7 @@ type auditProductGroup struct {
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
-	findings, detected, productInfos := auditcheck.RunChecks(s.cfg, s.configDir())
+	findings, detected, productInfos := s.cachedRunChecks()
 	score, grade := auditcheck.ComputeHealthScore(findings)
 	summary := auditcheck.Summarize(findings)
 
@@ -223,9 +251,9 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Verify audit chain integrity
-	chainEntries, _ := s.audit.QueryChainEntries(10000)
-	chainResult := audit.VerifyChain(chainEntries, nil) // skip sig verification for dashboard speed
+	// Verify audit chain integrity (lightweight — last 100 entries)
+	chainEntries, _ := s.audit.QueryChainEntries(100)
+	chainResult := audit.VerifyChain(chainEntries, nil)
 
 	data := map[string]any{
 		"Active":      "audit",
@@ -522,13 +550,13 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 					cat.Disabled++
 				}
 				switch ri.Severity {
-				case "critical":
+				case audit.SeverityCritical:
 					cat.Critical++
-				case "high":
+				case audit.SeverityHigh:
 					cat.High++
-				case "medium":
+				case audit.SeverityMedium:
 					cat.Medium++
-				case "low":
+				case audit.SeverityLow:
 					cat.Low++
 				}
 			}
@@ -735,13 +763,13 @@ func (s *Server) handleCategoryRules(w http.ResponseWriter, r *http.Request) {
 				cat.Disabled++
 			}
 			switch ri.Severity {
-			case "critical":
+			case audit.SeverityCritical:
 				cat.Critical++
-			case "high":
+			case audit.SeverityHigh:
 				cat.High++
-			case "medium":
+			case audit.SeverityMedium:
 				cat.Medium++
-			case "low":
+			case audit.SeverityLow:
 				cat.Low++
 			}
 		}
@@ -902,7 +930,7 @@ func (s *Server) handleModeToggle(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Identity.RequireSignature = !s.cfg.Identity.RequireSignature
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after mode toggle", "error", err)
 		}
 	}
@@ -1058,7 +1086,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	stats := s.getStats()
 
 	// Health score & findings
-	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
+	findings, _, _ := s.cachedRunChecks()
 	score, grade := auditcheck.ComputeHealthScore(findings)
 	summary := auditcheck.Summarize(findings)
 
@@ -1097,7 +1125,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	topRules, _ := s.audit.QueryTopRules(10, "")
 	agentRisks, _ := s.audit.QueryAgentRisk("")
 
-	chainEntries, _ := s.audit.QueryChainEntries(10000)
+	chainEntries, _ := s.audit.QueryChainEntries(100)
 	chainResult := audit.VerifyChain(chainEntries, nil)
 
 	qStats, _ := s.audit.QuarantineStats()
@@ -1176,8 +1204,8 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 // --- SARIF export handler ---
 
 func (s *Server) handleExportSARIF(w http.ResponseWriter, r *http.Request) {
-	findings, _, _ := auditcheck.RunChecks(s.cfg, s.configDir())
-	report := auditcheck.BuildSARIF(findings, "0.9.0")
+	findings, _, _ := s.cachedRunChecks()
+	report := auditcheck.BuildSARIF(findings, Version)
 
 	filename := "oktsec-audit-" + time.Now().Format("2006-01-02") + ".sarif.json"
 	w.Header().Set("Content-Type", "application/json")
@@ -1221,7 +1249,7 @@ func (s *Server) handleBulkToggleRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after bulk toggle", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -1398,7 +1426,7 @@ func (s *Server) handleSaveEnforcement(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after enforcement update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -1420,7 +1448,7 @@ func (s *Server) handleDeleteEnforcement(w http.ResponseWriter, r *http.Request)
 	s.cfg.Rules = filtered
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after enforcement delete", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -1483,7 +1511,7 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 		}
 		s.cfg.CustomRulesDir = dir
 		if s.cfgPath != "" {
-			if err := s.cfg.Save(s.cfgPath); err != nil {
+			if err := s.saveConfig(); err != nil {
 				s.logger.Error("failed to save config after auto-provisioning custom_rules_dir", "error", err)
 			}
 		}
@@ -1723,7 +1751,7 @@ func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after agent create", "error", err)
 		}
 	}
@@ -1786,7 +1814,7 @@ func (s *Server) handleEditAgent(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Agents[name] = agent
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after agent edit", "error", err)
 		}
 	}
@@ -1804,7 +1832,7 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	delete(s.cfg.Agents, name)
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after agent delete", "error", err)
 		}
 	}
@@ -1885,7 +1913,7 @@ func (s *Server) handleToggleRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after rule toggle", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -1918,7 +1946,7 @@ func (s *Server) handleToggleCategory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after category toggle", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2004,7 +2032,7 @@ func (s *Server) handleSuspendToggle(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Agents[name] = agent
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after suspend toggle", "error", err)
 		}
 	}
@@ -2044,11 +2072,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	switch tab {
 	case "quarantine":
 		if qStatusFilter == "" {
-			qStatusFilter = "pending"
+			qStatusFilter = audit.QStatusPending
 		}
 		qItems, _ = s.audit.QuarantineQuery(qStatusFilter, filterAgent, 50)
 	case "blocked":
-		blockedEntries, _ = s.audit.Query(audit.QueryOpts{Statuses: []string{"blocked", "rejected"}, Agent: filterAgent, Since: filterSince, Until: filterUntil, Limit: 50})
+		blockedEntries, _ = s.audit.Query(audit.QueryOpts{Statuses: []string{audit.StatusBlocked, audit.StatusRejected}, Agent: filterAgent, Since: filterSince, Until: filterUntil, Limit: 50})
 	default: // "all"
 		entries, _ = s.audit.Query(audit.QueryOpts{Agent: filterAgent, Since: filterSince, Until: filterUntil, Limit: 50})
 	}
@@ -2394,7 +2422,7 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after LLM update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2406,7 +2434,7 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleToggleLLM(w http.ResponseWriter, r *http.Request) {
 	s.cfg.LLM.Enabled = !s.cfg.LLM.Enabled
 	if s.cfgPath != "" {
-		_ = s.cfg.Save(s.cfgPath)
+		_ = s.saveConfig()
 	}
 	w.Header().Set("Content-Type", "text/html")
 	if s.cfg.LLM.Enabled {
@@ -2424,7 +2452,7 @@ func (s *Server) handleSaveDefaultPolicy(w http.ResponseWriter, r *http.Request)
 	}
 	s.cfg.DefaultPolicy = policy
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after default policy update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2447,7 +2475,7 @@ func (s *Server) handleSaveRateLimit(w http.ResponseWriter, r *http.Request) {
 	s.cfg.RateLimit.PerAgent = perAgent
 	s.cfg.RateLimit.WindowS = window
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after rate limit update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2477,7 +2505,7 @@ func (s *Server) handleSaveAnomaly(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Anomaly.MinMessages = minMessages
 	s.cfg.Anomaly.AutoSuspend = r.FormValue("auto_suspend") == "true"
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after anomaly update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2489,7 +2517,7 @@ func (s *Server) handleSaveAnomaly(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSaveIntent(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Server.RequireIntent = r.FormValue("require_intent") == "true"
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after intent update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2511,7 +2539,7 @@ func (s *Server) handleSaveForwardProxy(w http.ResponseWriter, r *http.Request) 
 	}
 	s.cfg.ForwardProxy.MaxBodySize = maxBody
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after forward proxy update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2535,7 +2563,7 @@ func (s *Server) handleSaveQuarantine(w http.ResponseWriter, r *http.Request) {
 	s.cfg.Quarantine.ExpiryHours = expiryHours
 	s.cfg.Quarantine.RetentionDays = retentionDays
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after quarantine update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2586,12 +2614,12 @@ func (s *Server) handleSaveWebhookChannel(w http.ResponseWriter, r *http.Request
 		s.cfg.Webhooks = append(s.cfg.Webhooks, config.Webhook{
 			Name:   name,
 			URL:    url,
-			Events: []string{"blocked", "quarantined"},
+			Events: []string{audit.AlertEventBlocked, audit.AlertEventQuarantined},
 		})
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after webhook channel update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2613,7 +2641,7 @@ func (s *Server) handleDeleteWebhookChannel(w http.ResponseWriter, r *http.Reque
 	s.cfg.Webhooks = filtered
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after webhook channel delete", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2886,7 +2914,7 @@ func (s *Server) handleSaveGatewaySettings(w http.ResponseWriter, r *http.Reques
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after gateway settings update", "error", err)
 		}
 	}
@@ -2939,7 +2967,7 @@ func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 	s.cfg.MCPServers[name] = srv
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after MCP server create", "error", err)
 		}
 	}
@@ -3012,7 +3040,7 @@ func (s *Server) handleEditMCPServer(w http.ResponseWriter, r *http.Request) {
 	s.cfg.MCPServers[name] = srv
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after MCP server edit", "error", err)
 		}
 	}
@@ -3025,7 +3053,7 @@ func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 	delete(s.cfg.MCPServers, name)
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after MCP server delete", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -3207,7 +3235,7 @@ func (s *Server) handleSaveRuleEnforcement(w http.ResponseWriter, r *http.Reques
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after rule enforcement update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -3254,7 +3282,7 @@ func (s *Server) handleSaveCategoryWebhooks(w http.ResponseWriter, r *http.Reque
 	}
 
 	if s.cfgPath != "" {
-		if err := s.cfg.Save(s.cfgPath); err != nil {
+		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after category webhook update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
