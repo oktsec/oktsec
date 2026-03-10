@@ -2800,66 +2800,11 @@ func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, edgeDetailTmpl, data)
 }
 
-// --- Tool Inventory handler ---
-
 type toolInventoryServer struct {
 	Name      string
 	Command   string
 	Transport string
 	Client    string
-}
-
-func (s *Server) handleToolInventory(w http.ResponseWriter, r *http.Request) {
-	// Configured backends from config
-	var configured []toolInventoryServer
-	for name, srv := range s.cfg.MCPServers {
-		cmd := srv.Command
-		if srv.Transport == "streamable-http" || srv.Transport == "sse" {
-			cmd = srv.URL
-		}
-		configured = append(configured, toolInventoryServer{
-			Name:      name,
-			Command:   cmd,
-			Transport: srv.Transport,
-		})
-	}
-	sort.Slice(configured, func(i, j int) bool { return configured[i].Name < configured[j].Name })
-
-	// Discovered servers from AI clients, deduplicated by name
-	var discovered []toolInventoryServer
-	seen := make(map[string]int) // name → index in discovered
-	result, err := discover.Scan()
-	if err == nil && result != nil {
-		for _, cr := range result.Clients {
-			for _, srv := range cr.Servers {
-				cmd := srv.Command
-				if len(srv.Args) > 0 {
-					cmd += " " + strings.Join(srv.Args, " ")
-				}
-				clientName := discover.ClientDisplayName(cr.Client)
-				if idx, dup := seen[srv.Name]; dup {
-					// Merge client names
-					discovered[idx].Client += ", " + clientName
-					continue
-				}
-				seen[srv.Name] = len(discovered)
-				discovered = append(discovered, toolInventoryServer{
-					Name:    srv.Name,
-					Command: cmd,
-					Client:  clientName,
-				})
-			}
-		}
-	}
-	sort.Slice(discovered, func(i, j int) bool { return discovered[i].Name < discovered[j].Name })
-
-	data := map[string]any{
-		"Active":     "discovery",
-		"RequireSig": s.cfg.Identity.RequireSignature,
-		"Configured": configured,
-		"Discovered": discovered,
-	}
-	s.renderTemplate(w, toolInventoryTmpl, data)
 }
 
 // --- Gateway handlers ---

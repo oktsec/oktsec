@@ -4655,59 +4655,6 @@ function gwTab(name){
 </div><!-- /gw-discovery -->
 ` + layoutFoot))
 
-var toolInventoryTmpl = template.Must(template.New("toolInventory").Funcs(tmplFuncs).Parse(layoutHead + `
-<p style="color:var(--text2);font-size:0.85rem;margin-bottom:24px;line-height:1.6">
-  MCP servers configured in the oktsec gateway and discovered across AI clients on this machine.
-</p>
-
-<div class="card" style="margin-bottom:24px">
-  <h2>Gateway Backends</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    MCP servers configured in <code>oktsec.yaml</code> and proxied through the gateway.
-  </p>
-  {{if .Configured}}
-  <table>
-    <thead><tr><th>Name</th><th>Transport</th><th>Command / URL</th></tr></thead>
-    <tbody>
-    {{range .Configured}}
-    <tr>
-      <td><strong>{{.Name}}</strong></td>
-      <td><span class="badge-{{if eq .Transport "stdio"}}delivered{{else}}quarantined{{end}}" style="font-size:0.7rem">{{.Transport}}</span></td>
-      <td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{.Command}}</code></td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <p style="color:var(--text3);font-size:0.82rem">No MCP servers configured in the gateway. Add backends via the <a href="/dashboard/gateway" style="color:var(--accent)">Gateway</a> page.</p>
-  {{end}}
-</div>
-
-<div class="card">
-  <h2>Discovered MCP Servers</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Servers found in local AI client configurations (Claude Desktop, Cursor, VS Code, Cline, Windsurf, etc.).
-  </p>
-  {{if .Discovered}}
-  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Found {{len .Discovered}} unique server(s).</p>
-  <table>
-    <thead><tr><th>Name</th><th>Client(s)</th><th>Command</th></tr></thead>
-    <tbody>
-    {{range .Discovered}}
-    <tr>
-      <td><strong>{{.Name}}</strong></td>
-      <td>{{.Client}}</td>
-      <td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{truncate .Command 80}}</code></td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <p style="color:var(--text3);font-size:0.82rem">No MCP servers discovered. Checked paths for Claude Desktop, Cursor, VS Code, Cline, Windsurf, and more.</p>
-  {{end}}
-</div>
-` + layoutFoot))
-
 var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tmplFuncs).Parse(layoutHead + `
 <p style="margin-bottom:16px"><a href="/dashboard/gateway" style="color:var(--accent)">&larr; Back to Gateway</a></p>
 <h1>MCP Server: <span>{{.Name}}</span></h1>
