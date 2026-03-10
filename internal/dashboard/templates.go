@@ -54,6 +54,17 @@ var tmplFuncs = template.FuncMap{
 		}
 	},
 	"upper": strings.ToUpper,
+	"pageTitle": func(active string) string {
+		titles := map[string]string{
+			"events": "Event Log",
+			"audit":  "Security Posture",
+			"llm":    "Threat Intel",
+		}
+		if t, ok := titles[active]; ok {
+			return strings.ToUpper(t)
+		}
+		return strings.ToUpper(active)
+	},
 	"inSlice": func(item string, list []string) bool {
 		for _, s := range list {
 			if s == item {
@@ -709,7 +720,7 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
     </a>
     <a href="/dashboard/events" class="sidebar-item {{if eq .Active "events"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-      Events
+      Event Log
     </a>
     <a href="/dashboard/graph" class="sidebar-item {{if eq .Active "graph"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -728,11 +739,11 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
     </a>
     <a href="/dashboard/audit" class="sidebar-item {{if eq .Active "audit"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
-      Audit
+      Security Posture
     </a>
     <a href="/dashboard/llm" class="sidebar-item {{if eq .Active "llm"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><circle cx="12" cy="6" r="1"/><path d="M9 22v-2"/><path d="M15 22v-2"/></svg>
-      LLM Analysis
+      Threat Intel
     </a>
     <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
@@ -745,10 +756,6 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
       Gateway
     </a>
-    <a href="/dashboard/discovery" class="sidebar-item {{if eq .Active "discovery"}}active{{end}}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      Discovery
-    </a>
     <a href="/dashboard/settings" class="sidebar-item {{if eq .Active "settings"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       Settings
@@ -760,7 +767,7 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
   <button class="hamburger" onclick="toggleSidebar()" aria-label="Toggle menu">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
   </button>
-  <span class="page-title">{{.Active | upper}}</span>
+  <span class="page-title">{{pageTitle .Active}}</span>
   <div class="spacer"></div>
   <span class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
   <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" style="background:transparent;border:1px solid var(--border);color:var(--text3);padding:5px 12px;border-radius:6px;font-size:0.72rem;cursor:pointer;font-family:var(--sans);transition:all 0.15s" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--border-hover)';this.style.background='var(--surface2)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)';this.style.background='transparent'">Logout</button></form>
@@ -872,18 +879,26 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 
 var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
-.hero-stat{background:var(--surface);padding:28px 24px;text-align:center}
-.hero-stat .num{font-size:2.4rem;font-weight:800;letter-spacing:-0.04em;font-family:var(--mono);line-height:1}
-.hero-stat .lbl{font-size:0.72rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-top:8px;font-weight:500}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
+.hero-stat{background:var(--surface);padding:24px 20px;text-align:center;transition:background 0.15s}
+.hero-stat:hover{background:var(--surface2)}
+.hero-stat .num{font-size:2rem;font-weight:800;letter-spacing:-0.04em;font-family:var(--mono);line-height:1}
+.hero-stat .lbl{font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-top:6px;font-weight:500}
 .ov-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 .ov-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
 .ov-card h3{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:14px;font-weight:500}
-.ov-metric{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--border)}
+.ov-metric{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--border)}
 .ov-metric:last-child{border-bottom:none}
 .ov-metric .k{font-size:0.82rem;color:var(--text2)}
 .ov-metric .v{font-family:var(--mono);font-weight:600;font-size:0.88rem}
-@media(max-width:768px){.hero-stats{grid-template-columns:1fr}.ov-grid{grid-template-columns:1fr}}
+a.ov-metric{display:flex;border-radius:4px;margin:0 -6px;padding:7px 6px;transition:background 0.15s}
+a.ov-metric:hover{background:var(--surface2)}
+a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
+.ov-feed-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.ov-feed-hdr h2{font-size:0.82rem;margin:0}
+.ov-feed-hdr a{font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500}
+.ov-feed-hdr a:hover{text-decoration:underline}
+@media(max-width:768px){.hero-stats{grid-template-columns:repeat(2,1fr)}.ov-grid{grid-template-columns:1fr}}
 </style>
 
 <p class="page-desc"><span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
@@ -897,18 +912,22 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
 
 <!-- Hero: the 3 numbers that tell the story -->
 <div class="hero-stats" hx-get="/dashboard/api/stats" hx-trigger="every 5s" hx-swap="none">
-  <div class="hero-stat">
+  <a href="/dashboard/events" class="hero-stat" style="text-decoration:none;color:inherit">
     <div class="num success" id="stat-total">{{.Stats.TotalMessages}}</div>
     <div class="lbl">Messages Protected</div>
-  </div>
-  <div class="hero-stat">
+  </a>
+  <a href="/dashboard/events?tab=blocked" class="hero-stat" style="text-decoration:none;color:inherit">
     <div class="num danger" id="stat-blocked">{{add .Stats.Blocked .Stats.Rejected}}</div>
     <div class="lbl">Threats Blocked</div>
-  </div>
-  <div class="hero-stat">
+  </a>
+  <a href="/dashboard/agents" class="hero-stat" style="text-decoration:none;color:inherit">
     <div class="num" style="color:var(--accent-light)" id="stat-agents">{{.AgentCount}}</div>
     <div class="lbl">Agents Secured</div>
-  </div>
+  </a>
+  <a href="/dashboard/audit" class="hero-stat" style="text-decoration:none;color:inherit">
+    <div class="num {{gradeColor .Grade}}" id="stat-score">{{.Score}}</div>
+    <div class="lbl">Posture Score</div>
+  </a>
 </div>
 
 {{if .PendingReview}}
@@ -919,9 +938,66 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
 </div>
 {{end}}
 
-<!-- Live feed (primary operational view) -->
+<!-- Security Status + Active Threats — above the fold -->
+<div class="ov-grid">
+  <div class="ov-card">
+    <h3>Security Status</h3>
+    <a href="/dashboard/rules" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">Detection rules</span>
+      <span class="v">175 active</span>
+    </a>
+    <a href="/dashboard/settings" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">Identity mode</span>
+      <span class="v">{{if .RequireSig}}<span style="color:var(--success)">enforce</span>{{else}}<span style="color:var(--warn)">observe</span>{{end}}</span>
+    </a>
+    <a href="/dashboard/audit" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">Audit chain</span>
+      <span class="v">{{if .ChainValid}}<span style="color:var(--success)">verified</span>{{else}}<span style="color:var(--danger)">broken</span>{{end}} <span style="color:var(--text3);font-size:0.78rem">({{.ChainCount}})</span></span>
+    </a>
+    <div class="ov-metric">
+      <span class="k">Avg latency</span>
+      <span class="v {{if ge .AvgLatency 200}}danger{{else if ge .AvgLatency 50}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
+    </div>
+    {{if .LLMEnabled}}
+    <a href="/dashboard/llm?tab=config" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">LLM model</span>
+      <span class="v" style="color:var(--accent-light)">{{.LLMProvider}}</span>
+    </a>
+    {{end}}
+  </div>
+  <div class="ov-card">
+    <h3>Active Threats</h3>
+    <a href="/dashboard/events" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">Detection rate</span>
+      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</span>
+    </a>
+    {{if .LLMEnabled}}
+    <a href="/dashboard/llm" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">LLM threats</span>
+      <span class="v {{if gt .LLMThreats 0}}danger{{else}}success{{end}}">{{.LLMThreats}}</span>
+    </a>
+    {{end}}
+    <a href="/dashboard/graph" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">Risk agents</span>
+      <span class="v">{{len .AgentRisks}}</span>
+    </a>
+    <a href="/dashboard/settings?tab=identity" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">Unsigned messages</span>
+      <span class="v {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}} <span style="color:var(--text3);font-size:0.78rem">({{.UnsignedPct}}%)</span></span>
+    </a>
+    <a href="/dashboard/events?tab=quarantine" class="ov-metric" style="text-decoration:none;color:inherit">
+      <span class="k">Quarantine queue</span>
+      <span class="v">{{if .PendingReview}}<span style="color:var(--warn)">{{.PendingReview}} pending</span>{{else}}<span style="color:var(--success)">clear</span>{{end}}</span>
+    </a>
+  </div>
+</div>
+
+<!-- Live Feed (compact) -->
 <div class="card" style="margin-bottom:16px">
-  <h2 style="font-size:0.82rem;margin-bottom:12px"><span class="dot"></span> Live Feed</h2>
+  <div class="ov-feed-hdr">
+    <h2><span class="dot"></span> Live Feed</h2>
+    <a href="/dashboard/events">View all &rarr;</a>
+  </div>
   <div id="recent-events">
     {{if .Recent}}
     <table>
@@ -948,11 +1024,21 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
     {{end}}
   </div>
 </div>
-<!-- Threats and agents side by side -->
+
+{{if .Chart}}
+<div class="card" style="margin-bottom:16px">
+  <h2 style="font-size:0.82rem;margin-bottom:8px">Activity (24h)</h2>
+  <div class="chart" style="height:40px">
+    {{range .Chart}}<div class="chart-bar" style="height:{{.Percent}}%" title="{{.Label}}: {{.Count}} msgs"></div>{{end}}
+  </div>
+</div>
+{{end}}
+
+<!-- Top Threats + Agent Risk -->
 <div class="ov-grid">
   {{if .TopRules}}
   <div class="ov-card">
-    <h3>Top Threats (24h)</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Top Threats (24h)</h3><a href="/dashboard/rules" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
     {{range .TopRules}}
     <div class="ov-metric clickable" style="cursor:pointer" hx-get="/dashboard/api/rule/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
       <span class="k">{{.Name}}<br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.RuleID}}</span></span>
@@ -964,7 +1050,7 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
 
   {{if .AgentRisks}}
   <div class="ov-card">
-    <h3>Agent Risk (24h)</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
     {{range .AgentRisks}}
     <div class="ov-metric clickable" style="cursor:pointer" onclick="window.location='/dashboard/agents/{{.Agent}}'">
       <span class="k">{{.Agent}}<br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.Total}} msgs</span></span>
@@ -977,91 +1063,6 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
   </div>
   {{end}}
 </div>
-
-<!-- Pipeline health + Identity -->
-<div class="ov-grid">
-  <div class="ov-card">
-    <h3>Security Pipeline</h3>
-    <div class="ov-metric">
-      <span class="k">Detection rate</span>
-      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</span>
-    </div>
-    <div class="ov-metric">
-      <span class="k">Avg latency</span>
-      <span class="v {{if ge .AvgLatency 200}}danger{{else if ge .AvgLatency 50}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
-    </div>
-    <div class="ov-metric">
-      <span class="k">Posture score</span>
-      <span class="v {{gradeColor .Grade}}">{{.Score}}/100 ({{.Grade}})</span>
-    </div>
-    <div class="ov-metric">
-      <span class="k">Detection rules</span>
-      <span class="v" style="color:var(--text)">175 active</span>
-    </div>
-  </div>
-
-  <div class="ov-card">
-    <h3>Identity &amp; Trust</h3>
-    <div class="ov-metric">
-      <span class="k">Signature mode</span>
-      <span class="v">{{if .RequireSig}}<span style="color:var(--success)">enforce</span>{{else}}<span style="color:var(--warn)">observe</span>{{end}}</span>
-    </div>
-    <div class="ov-metric">
-      <span class="k">Unsigned messages</span>
-      <span class="v {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}} ({{.UnsignedPct}}%)</span>
-    </div>
-    <div class="ov-metric">
-      <span class="k">Audit chain</span>
-      <span class="v" style="color:var(--success)">{{if .ChainValid}}verified{{else}}<span style="color:var(--danger)">broken</span>{{end}} ({{.ChainCount}})</span>
-    </div>
-    <div class="ov-metric">
-      <span class="k">Quarantine queue</span>
-      <span class="v">{{if .PendingReview}}<span style="color:var(--warn)">{{.PendingReview}} pending</span>{{else}}<span style="color:var(--success)">clear</span>{{end}}</span>
-    </div>
-  </div>
-</div>
-
-{{if .Chart}}
-<div class="card" style="margin-bottom:16px">
-  <h2 style="font-size:0.82rem;margin-bottom:12px">Activity (24h)</h2>
-  <div class="chart">
-    {{range .Chart}}<div class="chart-bar" style="height:{{.Percent}}%" title="{{.Label}}: {{.Count}} msgs"></div>{{end}}
-  </div>
-  <div class="chart-labels">
-    <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
-  </div>
-</div>
-{{end}}
-
-{{if .LLMEnabled}}
-<div class="ov-card" style="margin-bottom:16px">
-  <h3>LLM Analysis</h3>
-  <div class="ov-metric">
-    <span class="k">Provider</span>
-    <span class="v" style="color:var(--accent-light)">{{.LLMProvider}}</span>
-  </div>
-  <div class="ov-metric">
-    <span class="k">Analyses completed</span>
-    <span class="v success">{{.LLMCompleted}}</span>
-  </div>
-  <div class="ov-metric">
-    <span class="k">Threats detected</span>
-    <span class="v {{if gt .LLMThreats 0}}danger{{else}}success{{end}}">{{.LLMThreats}}</span>
-  </div>
-  <div class="ov-metric">
-    <span class="k">Avg risk score</span>
-    <span class="v {{if gt .LLMAvgRisk 60.0}}danger{{else if gt .LLMAvgRisk 30.0}}warn{{else}}success{{end}}">{{printf "%.1f" .LLMAvgRisk}}</span>
-  </div>
-  <div class="ov-metric">
-    <span class="k">Rules generated</span>
-    <span class="v" style="color:var(--accent-light)">{{.LLMRulesGen}}</span>
-  </div>
-  <div class="ov-metric">
-    <span class="k">Tokens used</span>
-    <span class="v" style="color:var(--text2)">{{.LLMTokens}}</span>
-  </div>
-</div>
-{{end}}
 
 {{end}}
 
@@ -1542,13 +1543,16 @@ function stagePolicy() {
 </script>
 
 <div class="card">
-  <h2>Recent Messages</h2>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <h2 style="margin:0">Recent Messages</h2>
+    {{if .Entries}}<a href="/dashboard/events?agent={{.Agent.Name}}" style="font-size:0.78rem;color:var(--accent-light)">View all in Event Log &rarr;</a>{{end}}
+  </div>
   {{if .Entries}}
   <table>
     <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th></tr></thead>
     <tbody>
     {{range .Entries}}
-    <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+    <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{agentCell .ToAgent}}</td>
@@ -1564,6 +1568,27 @@ function stagePolicy() {
     {{end}}
     </tbody>
   </table>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
+    <span id="ad-pager-info"></span>
+    <div style="display:flex;gap:4px">
+      <button id="ad-prev" onclick="adPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
+      <button id="ad-next" onclick="adPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+    </div>
+  </div>
+  <script>
+  var adCur=1,adSize=15;
+  function adRender(){
+    var rows=document.querySelectorAll('.ad-msg');
+    var total=rows.length;
+    var start=(adCur-1)*adSize,end=Math.min(start+adSize,total);
+    rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
+    document.getElementById('ad-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
+    document.getElementById('ad-prev').disabled=adCur<=1;
+    document.getElementById('ad-next').disabled=end>=total;
+  }
+  function adPage(d){adCur+=d;adRender();}
+  adRender();
+  </script>
   {{else}}
   <div class="empty">No messages for this agent yet.</div>
   {{end}}
@@ -1608,8 +1633,8 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 <div class="rules-tabs">
   <a href="/dashboard/rules?tab=detection" class="rules-tab {{if eq .Tab "detection"}}active{{end}}">Detection Rules{{if .RuleCount}} <span class="count">{{.RuleCount}}</span>{{end}}</a>
   <a href="/dashboard/rules?tab=enforcement" class="rules-tab {{if eq .Tab "enforcement"}}active{{end}}">Enforcement{{if .EnforcementCount}} <span class="count">{{.EnforcementCount}}</span>{{end}}</a>
-  <a href="/dashboard/rules?tab=custom" class="rules-tab {{if eq .Tab "custom"}}active{{end}}">Custom Rules{{if .CustomCount}} <span class="count">{{.CustomCount}}</span>{{end}}</a>
   {{if .LLMTotalCount}}<a href="/dashboard/rules?tab=llm-rules" class="rules-tab {{if eq .Tab "llm-rules"}}active{{end}}">LLM Rules{{if .LLMPendingCount}} <span class="count" style="background:rgba(251,146,60,0.15);color:#fb923c">{{.LLMPendingCount}} pending</span>{{else if .LLMTotalCount}} <span class="count">{{.LLMTotalCount}}</span>{{end}}</a>{{end}}
+  <a href="/dashboard/rules?tab=custom" class="rules-tab {{if eq .Tab "custom"}}active{{end}}">Custom Rules{{if .CustomCount}} <span class="count">{{.CustomCount}}</span>{{end}}</a>
 </div>
 
 {{if eq .Tab "detection"}}
@@ -1642,55 +1667,74 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
   </a>
   {{end}}
 </div>
+
+{{if .LLMActiveCount}}
+<div style="margin-top:20px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <span style="color:var(--text3);font-size:0.82rem">{{.LLMActiveCount}} LLM-generated rules active</span>
+    <a href="/dashboard/rules?tab=llm-rules" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">Manage &rarr;</a>
+  </div>
+  <div class="cat-grid">
+    <a href="/dashboard/rules?tab=llm-rules" class="cat-card" style="border-color:rgba(99,102,241,0.25);background:rgba(99,102,241,0.02)">
+      <div class="cat-card-head">
+        <span class="cat-card-name" style="color:var(--accent-light)">llm-generated</span>
+        <span class="cat-card-count">{{.LLMActiveCount}} rules</span>
+      </div>
+      <div class="cat-card-desc">Rules automatically generated by the LLM threat analysis layer and approved for production use.</div>
+      <div class="cat-card-footer">
+        <span class="cat-card-status all-on">All enabled</span>
+        {{if .LLMPendingCount}}<span class="cat-card-sev high" style="background:rgba(251,146,60,0.12);color:#fb923c">{{.LLMPendingCount}} pending review</span>{{end}}
+      </div>
+    </a>
+  </div>
+</div>
+{{end}}
+
 {{else}}
 <div class="empty">No rules loaded.</div>
 {{end}}
 
 {{else if eq .Tab "llm-rules"}}
-<!-- LLM-Generated Rules Tab -->
+<!-- LLM-Generated Rules Tab (Security Posture style) -->
 <style>
-.lr-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:10px;transition:border-color 0.2s}
-.lr-card:hover{border-color:var(--accent)}
-.lr-card.pending{border-left:3px solid var(--warn)}
-.lr-card.active{border-left:3px solid var(--success)}
-.lr-card.rejected{border-left:3px solid var(--text3);opacity:0.6}
-.lr-top{display:flex;align-items:center;gap:12px;margin-bottom:8px}
-.lr-id{font-family:var(--mono);font-weight:600;font-size:0.85rem}
-.lr-name{color:var(--text2);font-size:0.82rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lr-desc{color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:10px}
-.lr-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:0.72rem}
-.lr-tag{padding:2px 8px;border-radius:4px;background:var(--surface2);font-family:var(--mono)}
-.lr-pattern{margin-top:10px;padding:8px 12px;background:var(--bg);border-radius:6px;font-family:var(--mono);font-size:0.72rem;color:var(--accent-light);word-break:break-all}
-.lr-actions{display:flex;gap:8px;margin-top:12px}
+.lr-fi{display:flex;align-items:flex-start;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border)}
+.lr-fi:last-child{border-bottom:none}
+.lr-fi-sev{min-width:60px;flex-shrink:0;padding-top:1px}
+.lr-fi-body{flex:1;min-width:0}
+.lr-fi-head{display:flex;align-items:baseline;gap:8px}
+.lr-fi-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
+.lr-fi-title{font-size:0.8125rem;color:var(--text);font-weight:500}
+.lr-fi-detail{font-size:0.75rem;color:var(--text3);margin-top:4px;line-height:1.5}
+.lr-fi-meta{display:flex;align-items:center;gap:10px;margin-top:6px;font-size:0.72rem;color:var(--text3);flex-wrap:wrap}
+.lr-fi-meta code{font-family:var(--mono);font-size:0.72rem;color:var(--accent-light);background:var(--bg);padding:2px 6px;border-radius:4px}
+.lr-fi-actions{display:flex;gap:8px;margin-top:8px}
+.lr-sec{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px}
+.lr-sec-title{font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;padding:14px 20px;border-bottom:1px solid var(--border)}
 </style>
 
 {{if .LLMPending}}
-<div style="margin-bottom:24px">
-  <h2 style="font-size:1rem;margin-bottom:12px;color:var(--warn)">Pending Review <span style="font-size:0.75rem;color:var(--text3)">({{len .LLMPending}} rules)</span></h2>
+<div class="lr-sec">
+  <div class="lr-sec-title" style="color:var(--warn)">Pending Review ({{len .LLMPending}})</div>
   {{range .LLMPending}}
-  <div class="lr-card pending">
-    <div class="lr-top">
-      <span class="lr-id">{{.ID}}</span>
-      <span class="lr-name">{{.Name}}</span>
-      <span class="badge-quarantined" style="font-size:0.68rem">pending</span>
-      {{if eq .Severity "critical"}}<span class="badge-blocked" style="font-size:0.65rem">{{.Severity}}</span>
-      {{else if eq .Severity "high"}}<span class="badge-blocked" style="font-size:0.65rem">{{.Severity}}</span>
-      {{else if eq .Severity "medium"}}<span class="badge-quarantined" style="font-size:0.65rem">{{.Severity}}</span>
-      {{else}}<span class="badge-delivered" style="font-size:0.65rem">{{.Severity}}</span>{{end}}
-    </div>
-    <div class="lr-desc">{{.Description}}</div>
-    <div class="lr-meta">
-      <span class="lr-tag" style="color:var(--text2)">{{.Category}}</span>
-      <span style="color:var(--text3)">confidence: <span style="font-family:var(--mono);color:var(--text)">{{printf "%.0f" (mulf .Confidence 100)}}%</span></span>
-      <span style="color:var(--text3)">by: <span style="font-family:var(--mono)">{{.GeneratedBy}}</span></span>
-      {{if .MessageID}}<span style="color:var(--text3)">from: <a href="/dashboard/llm/case/{{.MessageID}}" style="color:var(--accent);font-family:var(--mono);font-size:0.68rem">{{truncate .MessageID 8}}...</a></span>{{end}}
-    </div>
-    {{range .Patterns}}
-    <div class="lr-pattern">{{.Value}}</div>
-    {{end}}
-    <div class="lr-actions" id="lr-act-{{.ID}}">
-      <button class="btn btn-sm" style="background:var(--success)" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Approve &amp; Activate</button>
-      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text3)" hx-post="/dashboard/api/rules/llm/{{.ID}}/reject" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Reject</button>
+  <div class="lr-fi">
+    <span class="lr-fi-sev"><span class="ci-sev ci-sev-{{if eq .Severity "critical"}}c{{else if eq .Severity "high"}}h{{else if eq .Severity "medium"}}m{{else}}l{{end}}">{{upper .Severity}}</span></span>
+    <div class="lr-fi-body">
+      <div class="lr-fi-head">
+        <span class="lr-fi-id">{{.ID}}</span>
+        <span class="lr-fi-title">{{.Name}}</span>
+      </div>
+      <div class="lr-fi-detail">{{.Description}}</div>
+      <div class="lr-fi-meta">
+        <span>{{.Category}}</span>
+        <span>confidence: <strong style="color:var(--text)">{{printf "%.0f" (mulf .Confidence 100)}}%</strong></span>
+        <span>model: <span style="font-family:var(--mono)">{{.GeneratedBy}}</span></span>
+        {{if .MessageID}}<span>from: <a href="/dashboard/llm/case/llm-{{.MessageID}}" style="color:var(--accent);font-family:var(--mono)">{{truncate .MessageID 12}}...</a></span>{{end}}
+        {{range .Patterns}}<code>{{.Value}}</code>{{end}}
+      </div>
+      <div class="lr-fi-actions" id="lr-act-{{.ID}}">
+        <button class="btn btn-sm" style="background:var(--success)" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Approve &amp; Activate</button>
+        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text3)" hx-post="/dashboard/api/rules/llm/{{.ID}}/reject" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Reject</button>
+      </div>
     </div>
   </div>
   {{end}}
@@ -1698,26 +1742,22 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 {{end}}
 
 {{if .LLMActive}}
-<div>
-  <h2 style="font-size:1rem;margin-bottom:12px;color:var(--success)">Active <span style="font-size:0.75rem;color:var(--text3)">({{len .LLMActive}} rules)</span></h2>
+<div class="lr-sec">
+  <div class="lr-sec-title" style="color:var(--success)">Active ({{len .LLMActive}})</div>
   {{range .LLMActive}}
-  <div class="lr-card active">
-    <div class="lr-top">
-      <span class="lr-id">{{.ID}}</span>
-      <span class="lr-name">{{.Name}}</span>
-      <span class="badge-delivered" style="font-size:0.68rem">active</span>
-      {{if eq .Severity "critical"}}<span class="badge-blocked" style="font-size:0.65rem">{{.Severity}}</span>
-      {{else if eq .Severity "high"}}<span class="badge-blocked" style="font-size:0.65rem">{{.Severity}}</span>
-      {{else if eq .Severity "medium"}}<span class="badge-quarantined" style="font-size:0.65rem">{{.Severity}}</span>
-      {{else}}<span class="badge-delivered" style="font-size:0.65rem">{{.Severity}}</span>{{end}}
-    </div>
-    <div class="lr-desc">{{.Description}}</div>
-    <div class="lr-meta">
-      <span class="lr-tag" style="color:var(--text2)">{{.Category}}</span>
-      <span style="color:var(--text3)">confidence: <span style="font-family:var(--mono);color:var(--text)">{{printf "%.0f" (mulf .Confidence 100)}}%</span></span>
-      {{range .Patterns}}
-      <span style="font-family:var(--mono);font-size:0.68rem;color:var(--accent-light);background:var(--bg);padding:2px 6px;border-radius:4px">{{.Value}}</span>
-      {{end}}
+  <div class="lr-fi">
+    <span class="lr-fi-sev"><span class="ci-sev ci-sev-{{if eq .Severity "critical"}}c{{else if eq .Severity "high"}}h{{else if eq .Severity "medium"}}m{{else}}l{{end}}">{{upper .Severity}}</span></span>
+    <div class="lr-fi-body">
+      <div class="lr-fi-head">
+        <span class="lr-fi-id">{{.ID}}</span>
+        <span class="lr-fi-title">{{.Name}}</span>
+      </div>
+      <div class="lr-fi-detail">{{.Description}}</div>
+      <div class="lr-fi-meta">
+        <span>{{.Category}}</span>
+        <span>confidence: <strong style="color:var(--text)">{{printf "%.0f" (mulf .Confidence 100)}}%</strong></span>
+        {{range .Patterns}}<code>{{.Value}}</code>{{end}}
+      </div>
     </div>
   </div>
   {{end}}
@@ -2827,26 +2867,21 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 .tq-pill-m{background:rgba(251,191,36,0.08);color:#fbbf24}
 .tq-div{width:1px;height:36px;background:var(--border);margin:0 20px;flex-shrink:0}
 
-/* ── Feed cards ── */
-.tq-feed{display:flex;flex-direction:column;gap:6px}
-.tq-card{display:flex;gap:16px;padding:16px 20px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:background 0.15s,border-color 0.15s;align-items:flex-start;text-decoration:none;color:inherit;touch-action:manipulation}
-.tq-card:hover{background:var(--bg2);border-color:rgba(255,255,255,0.08)}
-.tq-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:10px}
-.tq-card.sev-c{border-left:3px solid #ef4444}
-.tq-card.sev-h{border-left:3px solid #fb923c}
-.tq-card.sev-m{border-left:3px solid #fbbf24}
-.tq-card.sev-l{border-left:3px solid transparent}
-.tq-card.tq-dismissed{opacity:0.5}
-.tq-card.tq-dismissed:hover{opacity:0.8}
-.tq-score{min-width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:10px;font-family:var(--mono);font-weight:700;font-size:0.95rem;flex-shrink:0;letter-spacing:-0.02em}
-.tq-body{flex:1;min-width:0}
-.tq-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-.tq-flow{font-size:0.8rem;font-weight:500;color:var(--text2)}
-.tq-flow span{color:var(--text3);margin:0 4px}
-.tq-time{font-size:0.7rem;color:var(--text3);font-family:var(--mono)}
-.tq-summary{font-size:0.84rem;font-weight:500;color:var(--text);line-height:1.5;margin-bottom:8px;text-wrap:pretty;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.tq-summary.tq-benign{color:var(--text3);font-weight:400}
-.tq-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* ── Triage table ── */
+.tq-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+.tq-filters select,.tq-filters input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:0.78rem;font-family:inherit}
+.tq-table{width:100%;border-collapse:collapse}
+.tq-table th{font-size:0.68rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;text-align:left;padding:8px 12px;border-bottom:2px solid var(--border)}
+.tq-table td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:0.82rem}
+.tq-table tr.tq-row{cursor:pointer;transition:background 0.1s}
+.tq-table tr.tq-row:hover{background:var(--bg2)}
+.tq-table tr.tq-dismissed{opacity:0.5}
+.tq-table tr.tq-dismissed:hover{opacity:0.8}
+.tq-risk{display:inline-flex;align-items:center;justify-content:center;width:36px;height:28px;border-radius:6px;font-family:var(--mono);font-weight:700;font-size:0.82rem}
+.tq-pager{display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)}
+.tq-pager button{background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem}
+.tq-pager button:hover:not(:disabled){background:var(--bg2)}
+.tq-pager button:disabled{opacity:0.3;cursor:default}
 .tq-action{padding:2px 10px;border-radius:100px;font-size:0.68rem;font-weight:500;text-transform:uppercase;letter-spacing:0.3px}
 .tq-action.block{background:rgba(239,68,68,0.12);color:#ef4444}
 .tq-action.investigate{background:rgba(251,191,36,0.12);color:#fbbf24}
@@ -2892,7 +2927,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 @media(max-width:768px){.llm-hero{grid-template-columns:repeat(2,1fr)}.llm-grid{grid-template-columns:1fr}}
 </style>
 
-<p class="page-desc">Async semantic analysis - never blocks the proxy.</p>
+<p class="page-desc">Async semantic analysis of agent communications. Never blocks the proxy pipeline.</p>
 
 {{if not .Enabled}}
 <!-- Setup state -->
@@ -2989,11 +3024,14 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
     {{if gt .BudgetStatus.DroppedBudget 0}}<span style="color:var(--danger);font-weight:500">{{.BudgetStatus.DroppedBudget}} dropped</span>{{end}}
   </div>
   {{end}}
+  <div id="llm-toggle-wrap" style="margin-left:{{if not .BudgetStatus}}auto{{else}}0{{end}}">
+    <button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Disable</button>
+  </div>
 </div>
 
 <!-- Tabs -->
 <div class="llm-tabs" role="tablist">
-  <button class="llm-tab active" role="tab" aria-selected="true" aria-controls="llm-panel-monitor" onclick="llmSwitchTab('monitor')">Monitoring</button>
+  <button class="llm-tab active" role="tab" aria-selected="true" aria-controls="llm-panel-monitor" onclick="llmSwitchTab('monitor')">Queue{{if .Triage}}{{if gt .Triage.NeedsReview 0}} <span style="font-size:0.68rem;color:var(--accent-light)">({{.Triage.NeedsReview}})</span>{{end}}{{end}}</button>
   <button class="llm-tab" role="tab" aria-selected="false" aria-controls="llm-panel-config" onclick="llmSwitchTab('config')">Configuration</button>
 </div>
 <script>
@@ -3036,25 +3074,98 @@ function llmSwitchTab(name){
 </div>
 
 {{if .Analyses}}
-<!-- Feed -->
-<div class="tq-feed">
-{{range .Analyses}}
-  <a href="/dashboard/llm/case/{{.ID}}" class="tq-card {{if ge .RiskScore 76.0}}sev-c{{else if ge .RiskScore 51.0}}sev-h{{else if ge .RiskScore 31.0}}sev-m{{else}}sev-l{{end}}{{if eq .ReviewedStatus "false_positive"}} tq-dismissed{{end}}">
-    <div class="tq-score" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#ef4444{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(251,191,36,0.07);color:#fbbf24{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#22c55e{{else}}background:var(--bg2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</div>
-    <div class="tq-body">
-      <div class="tq-top">
-        <span class="tq-flow">{{.FromAgent}} <span>&rarr;</span> {{.ToAgent}}</span>
-        <span class="tq-time">{{relativeTime .Timestamp}}</span>
-      </div>
-      <div class="tq-summary{{if le .RiskScore 10.0}} tq-benign{{end}}">{{firstThreatSummary .ThreatsJSON .RiskScore}}</div>
-      <div class="tq-meta">
-        <span class="tq-action {{.RecommendedAction}}">{{.RecommendedAction}}</span>
-        {{if eq .ReviewedStatus "false_positive"}}<span class="tq-status dismissed">dismissed</span>{{else if eq .ReviewedStatus "confirmed"}}<span class="tq-status confirmed">confirmed</span>{{else if and (ge .RiskScore 30.0) (eq .ReviewedStatus "")}}<span class="tq-status new">new</span>{{end}}
-      </div>
-    </div>
-  </a>
-{{end}}
+<!-- Filters -->
+<div class="tq-filters">
+  <select id="tq-risk-filter" onchange="tqApply()">
+    <option value="">All risk levels</option>
+    <option value="76">Critical (76+)</option>
+    <option value="51">High (51+)</option>
+    <option value="31">Medium (31+)</option>
+  </select>
+  <select id="tq-status-filter" onchange="tqApply()">
+    <option value="">All statuses</option>
+    <option value="new">New</option>
+    <option value="false_positive">Dismissed</option>
+    <option value="confirmed">Confirmed</option>
+  </select>
+  <input type="text" id="tq-agent-filter" placeholder="Filter by agent..." oninput="tqApply()" style="width:160px">
+  <span id="tq-count" style="margin-left:auto;font-size:0.78rem;color:var(--text3)"></span>
 </div>
+
+<!-- Table -->
+<div style="overflow-x:auto">
+<table class="tq-table">
+  <thead>
+    <tr>
+      <th style="width:50px">Risk</th>
+      <th>Flow</th>
+      <th>Threat</th>
+      <th style="width:100px">Action</th>
+      <th style="width:90px">Status</th>
+      <th style="width:80px">Time</th>
+    </tr>
+  </thead>
+  <tbody id="tq-tbody">
+  {{range .Analyses}}
+    <tr class="tq-row{{if eq .ReviewedStatus "false_positive"}} tq-dismissed{{end}}" data-risk="{{printf "%.0f" .RiskScore}}" data-status="{{.ReviewedStatus}}" data-agent="{{.FromAgent}} {{.ToAgent}}" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
+      <td><span class="tq-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#ef4444{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(251,191,36,0.07);color:#fbbf24{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#22c55e{{else}}background:var(--bg2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span></td>
+      <td style="font-size:0.8rem">{{.FromAgent}} <span style="color:var(--text3)">&rarr;</span> {{.ToAgent}}</td>
+      <td style="font-size:0.8rem;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{firstThreatSummary .ThreatsJSON .RiskScore}}</td>
+      <td><span class="tq-action {{.RecommendedAction}}">{{.RecommendedAction}}</span></td>
+      <td>{{if eq .ReviewedStatus "false_positive"}}<span class="tq-status dismissed">dismissed</span>{{else if eq .ReviewedStatus "confirmed"}}<span class="tq-status confirmed">confirmed</span>{{else if ge .RiskScore 30.0}}<span class="tq-status new">new</span>{{else}}<span style="color:var(--text3);font-size:0.72rem">&#8212;</span>{{end}}</td>
+      <td style="font-size:0.72rem;color:var(--text3);font-family:var(--mono)">{{relativeTime .Timestamp}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<!-- Pagination -->
+<div class="tq-pager" id="tq-pager">
+  <span id="tq-pager-info"></span>
+  <div style="display:flex;gap:4px">
+    <button id="tq-prev" onclick="tqNav(-1)" disabled>&larr; Prev</button>
+    <button id="tq-next" onclick="tqNav(1)">Next &rarr;</button>
+  </div>
+</div>
+
+<script>
+var tqCurPage=1,tqSize=20;
+function tqApply(){
+  var rMin=parseInt(document.getElementById('tq-risk-filter').value)||0;
+  var st=document.getElementById('tq-status-filter').value;
+  var ag=document.getElementById('tq-agent-filter').value.toLowerCase();
+  document.querySelectorAll('.tq-row').forEach(function(r){
+    var risk=parseInt(r.dataset.risk)||0;
+    var rs=r.dataset.status;
+    var a=r.dataset.agent.toLowerCase();
+    var ok=true;
+    if(rMin&&risk<rMin)ok=false;
+    if(st==='new'&&rs!=='')ok=false;
+    if(st&&st!=='new'&&rs!==st)ok=false;
+    if(ag&&a.indexOf(ag)===-1)ok=false;
+    r.dataset.vis=ok?'1':'0';
+  });
+  tqCurPage=1;tqRender();
+}
+function tqRender(){
+  var rows=document.querySelectorAll('.tq-row');
+  var vis=[];
+  rows.forEach(function(r){if(r.dataset.vis!=='0')vis.push(r);});
+  var total=vis.length;
+  var start=(tqCurPage-1)*tqSize;
+  var end=Math.min(start+tqSize,total);
+  rows.forEach(function(r){r.style.display='none';});
+  for(var i=start;i<end;i++)vis[i].style.display='';
+  document.getElementById('tq-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'No results';
+  document.getElementById('tq-prev').disabled=tqCurPage<=1;
+  document.getElementById('tq-next').disabled=end>=total;
+  document.getElementById('tq-count').textContent=total+' analyses';
+}
+function tqNav(d){tqCurPage+=d;tqRender();}
+tqApply();
+</script>
+
 {{else}}
 <div class="card" style="text-align:center;padding:48px;color:var(--text3)">
   <div style="font-size:0.88rem;font-weight:500;color:var(--text2);margin-bottom:4px">LLM analysis active, waiting for messages</div>
@@ -3307,7 +3418,7 @@ var llmDetailTmpl = template.Must(template.New("llm-detail").Funcs(tmplFuncs).Pa
     </div>
     <div style="background:var(--bg2);border-radius:8px;padding:12px">
       <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Model</div>
-      <div style="font-family:var(--mono);font-size:0.82rem">{{.Provider}} / {{.Model}}</div>
+      <div style="font-family:var(--mono);font-size:0.82rem">{{.Model}}</div>
     </div>
     <div style="background:var(--bg2);border-radius:8px;padding:12px">
       <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Latency</div>
@@ -3355,10 +3466,9 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 <style>
 .ci-back{color:var(--text3);text-decoration:none;font-size:0.78rem;display:inline-flex;align-items:center;gap:6px;transition:color 0.15s;touch-action:manipulation}
 .ci-back:hover{color:var(--accent)}
-.ci-back:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 
 /* ── Verdict header ── */
-.ci-hdr{display:flex;align-items:flex-start;gap:20px;margin-bottom:20px}
+.ci-hdr{display:flex;align-items:flex-start;gap:20px;margin-bottom:16px}
 .ci-score{display:flex;flex-direction:column;align-items:center;justify-content:center;width:72px;height:72px;border-radius:14px;flex-shrink:0}
 .ci-score .n{font-size:1.6rem;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:-0.02em}
 .ci-score .l{font-size:0.52rem;letter-spacing:0.6px;margin-top:4px;opacity:0.7;font-weight:500}
@@ -3374,36 +3484,40 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .ci-conf{display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;color:var(--warn);font-weight:500;margin-left:6px}
 
 /* ── Decision bar ── */
-.ci-decision{padding:20px 24px;margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
-.ci-decision-prompt{font-size:0.82rem;color:var(--text2);margin-bottom:14px;font-weight:500}
-.ci-decision-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.ci-dbtn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:0.78rem;font-weight:500;cursor:pointer;border:1px solid;transition:background 0.15s,border-color 0.15s,color 0.15s;touch-action:manipulation}
-.ci-dbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+.ci-action-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.ci-dbtn{display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;font-size:0.78rem;font-weight:500;cursor:pointer;border:1px solid;transition:background 0.15s,border-color 0.15s,color 0.15s}
 .ci-dbtn-confirm{background:rgba(239,68,68,0.08);color:#ef4444;border-color:rgba(239,68,68,0.2)}
 .ci-dbtn-confirm:hover{background:rgba(239,68,68,0.15);border-color:#ef4444}
 .ci-dbtn-dismiss{background:transparent;color:var(--text2);border-color:var(--border)}
 .ci-dbtn-dismiss:hover{background:var(--bg2);border-color:var(--text3)}
-.ci-decision-div{width:1px;height:28px;background:var(--border);margin:0 6px;flex-shrink:0}
-.ci-nav{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px;font-size:0.72rem;font-weight:500;text-decoration:none;color:var(--text3);transition:color 0.15s;touch-action:manipulation}
+.ci-action-div{width:1px;height:24px;background:var(--border);margin:0 4px;flex-shrink:0}
+.ci-nav{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:6px;font-size:0.72rem;font-weight:500;text-decoration:none;color:var(--text3);transition:color 0.15s}
 .ci-nav:hover{color:var(--accent)}
-.ci-nav:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
 .ci-nav svg{width:14px;height:14px}
 .ci-reviewed{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:6px;font-size:0.75rem;font-weight:600}
 
+/* ── Agent history (inline, aligned with content) ── */
+.ci-hist{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.ci-hist-lbl{font-size:0.68rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}
+.ci-ctx-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:7px;border:1px solid var(--border);font-size:0.72rem;text-decoration:none;color:var(--text2);transition:border-color 0.15s,background 0.15s}
+.ci-ctx-pill:hover{border-color:var(--accent);background:rgba(99,102,241,0.04)}
+.ci-ctx-score{font-family:var(--mono);font-weight:700;font-size:0.68rem}
+
 /* ── Section cards ── */
-.ci-s{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 28px;margin-bottom:20px}
-.ci-s h3{font-size:0.72rem;font-weight:600;color:var(--text3);margin:0 0 18px;text-transform:uppercase;letter-spacing:0.8px;display:flex;align-items:center;gap:8px}
+.ci-s{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin-bottom:20px}
+.ci-s h3{font-size:0.72rem;font-weight:600;color:var(--text3);margin:0 0 14px;text-transform:uppercase;letter-spacing:0.8px;display:flex;align-items:center;gap:8px}
 .ci-s h3 .cnt{font-weight:500;font-family:var(--mono);text-transform:none}
 .ci-lbl{font-size:0.66rem;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px;font-weight:600;text-transform:uppercase}
 
-/* ── Intent comparison ── */
-.ci-intents{display:grid;grid-template-columns:1fr 40px 1fr;gap:0;margin-bottom:16px;align-items:stretch}
-.ci-int-box{padding:18px 20px;background:var(--bg2);border-radius:8px}
-.ci-int-box.left{border-radius:10px 0 0 10px}
-.ci-int-box.right{border-radius:0 10px 10px 0}
-.ci-int-arrow{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg2);color:var(--text3);gap:4px;padding:0 4px}
-.ci-int-arrow .align-val{font-family:var(--mono);font-weight:700;font-size:0.78rem}
-.ci-reason{font-size:0.84rem;line-height:1.7;color:var(--text2);padding:16px 20px;border-left:3px solid var(--border);border-radius:0 8px 8px 0;background:rgba(255,255,255,0.015)}
+/* ── Two-column row for Intent + Technical ── */
+.ci-context-row{display:grid;grid-template-columns:3fr 2fr;gap:20px;align-items:start;margin-bottom:20px}
+
+/* ── Intent: comparison rows ── */
+.ci-int-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+.ci-int-row:last-of-type{border-bottom:none}
+.ci-int-lbl{min-width:70px;flex-shrink:0;font-size:0.6875rem;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:var(--text3);padding-top:2px}
+.ci-int-val{flex:1;font-size:0.8125rem;line-height:1.5;color:var(--text)}
+.ci-reason{font-size:0.75rem;line-height:1.5;color:var(--text3);margin-top:4px}
 
 /* ── Severity tags ── */
 .ci-sev{display:inline-block;padding:2px 8px;border-radius:100px;font-size:0.6rem;font-weight:600;letter-spacing:0.3px}
@@ -3412,44 +3526,33 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .ci-sev-m{background:rgba(251,191,36,0.18);color:#fbbf24}
 .ci-sev-l{background:rgba(34,197,94,0.15);color:#22c55e}
 
-/* ── Threat cards ── */
-.ci-thr{padding:20px 22px;margin-bottom:12px;border-radius:10px;border:1px solid var(--border)}
-.ci-thr:last-child{margin-bottom:0}
-.ci-thr.sev-c{border-left:3px solid #ef4444;background:rgba(239,68,68,0.03)}
-.ci-thr.sev-h{border-left:3px solid #fb923c;background:rgba(251,146,60,0.02)}
-.ci-thr.sev-m{border-left:3px solid #fbbf24}
-.ci-thr.sev-l{border-left:3px solid #22c55e}
-.ci-thr-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.ci-thr-name{font-weight:600;font-size:0.88rem}
-.ci-thr-desc{font-size:0.84rem;line-height:1.7;color:var(--text);margin-bottom:12px}
-.ci-thr-ev{padding:14px 16px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--text3);word-break:break-word;background:var(--bg2);border-radius:8px;margin-bottom:12px}
-.ci-thr-rule{display:flex;align-items:center;gap:8px;padding-top:12px;border-top:1px solid var(--border);font-size:0.72rem;color:var(--text3)}
-.ci-thr-rule strong{color:var(--accent-light);font-family:var(--mono);font-weight:600}
-.ci-benign{display:flex;align-items:center;gap:10px;color:var(--success);font-size:0.88rem;padding:8px 0}
+/* ── Threat rows (audit-style, matches Security Posture) ── */
+.ci-thr{display:flex;align-items:flex-start;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border)}
+.ci-thr:last-child{border-bottom:none}
+.ci-thr-sev{min-width:60px;flex-shrink:0;padding-top:1px}
+.ci-thr-body{flex:1;min-width:0}
+.ci-thr-head{display:flex;align-items:baseline;gap:8px}
+.ci-thr-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
+.ci-thr-name{font-size:0.8125rem;color:var(--text);font-weight:500}
+.ci-thr-desc{font-size:0.75rem;line-height:1.5;color:var(--text3);margin-top:4px}
+.ci-thr-ev{font-family:var(--mono);font-size:0.72rem;line-height:1.6;color:var(--text3);word-break:break-word;margin-top:4px}
+.ci-thr-rule{display:flex;align-items:center;gap:6px;margin-top:6px}
+.ci-thr-rule code{font-family:var(--mono);font-size:0.75rem;color:var(--text2)}
+.ci-benign{display:flex;align-items:center;gap:10px;color:var(--success);font-size:0.88rem;padding:12px 20px}
 
-/* ── Context panel ── */
-.ci-ctx{display:flex;gap:8px;flex-wrap:wrap}
-.ci-ctx-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);font-size:0.75rem;text-decoration:none;color:var(--text2);transition:border-color 0.15s,background 0.15s;touch-action:manipulation}
-.ci-ctx-pill:hover{border-color:var(--accent);background:rgba(99,102,241,0.04)}
-.ci-ctx-pill:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
-.ci-ctx-score{font-family:var(--mono);font-weight:700;font-size:0.72rem}
+/* ── Meta rows ── */
+.ci-meta-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--border);font-size:0.75rem}
+.ci-meta-row:last-child{border-bottom:none}
+.ci-meta-row .mk{color:var(--text3);font-weight:500}
+.ci-meta-row .mv{font-family:var(--mono);color:var(--text2);font-size:0.72rem;text-align:right}
 
-/* ── Technical details (collapsible) ── */
-.ci-details{margin-top:8px}
-.ci-details summary{font-size:0.72rem;color:var(--text3);cursor:pointer;font-weight:500;padding:8px 0;touch-action:manipulation}
-.ci-details summary:hover{color:var(--text2)}
-.ci-details summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-.ci-details-grid{display:flex;flex-wrap:wrap;gap:4px 20px;padding:10px 0;font-size:0.72rem;color:var(--text3)}
-.ci-details-grid .mk{font-weight:500}
-.ci-details-grid .mv{font-family:var(--mono);font-size:0.68rem;color:var(--text2)}
-
-@media(max-width:960px){.ci-intents{grid-template-columns:1fr;gap:8px}.ci-int-box.left,.ci-int-box.right{border-radius:10px}.ci-int-arrow{display:none}.ci-hdr{flex-direction:column;gap:14px}.ci-s{padding:20px 18px}.ci-decision{padding:16px 18px}}
+@media(max-width:960px){.ci-context-row{grid-template-columns:1fr}.ci-hdr{flex-direction:column;gap:14px}.ci-s{padding:16px 14px}.ci-action-bar{padding:12px 14px}}
 </style>
 
-<p style="margin-bottom:20px"><a href="/dashboard/llm" class="ci-back">&larr; LLM Analysis</a></p>
+<p style="margin-bottom:16px"><a href="/dashboard/llm" class="ci-back">&larr; Threat Intel</a></p>
 
 {{with .Analysis}}
-<!-- 1. Verdict header — threat-specific title -->
+<!-- 1. Verdict header -->
 <div class="ci-hdr">
   <div class="ci-score" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.12);color:#ef4444{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.12);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(251,191,36,0.1);color:#fbbf24{{else if gt .RiskScore 10.0}}background:rgba(34,197,94,0.08);color:#22c55e{{else}}background:var(--bg2);color:var(--text3){{end}}">
     <div class="n">{{printf "%.0f" .RiskScore}}</div>
@@ -3468,25 +3571,73 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 </div>
 
 <!-- 2. Decision bar -->
-<div class="ci-decision">
+<div class="ci-action-bar">
   {{if or (eq .ReviewedStatus "false_positive") (eq .ReviewedStatus "confirmed")}}
     {{if eq .ReviewedStatus "false_positive"}}<span class="ci-reviewed" style="background:rgba(34,197,94,0.1);color:#22c55e">&#10003; Dismissed as false positive</span>
     {{else}}<span class="ci-reviewed" style="background:rgba(239,68,68,0.1);color:#ef4444">&#10003; Confirmed as real threat</span>{{end}}
   {{else}}
-    <div class="ci-decision-prompt">Was this analysis correct?</div>
-    <div class="ci-decision-row">
-      <button class="ci-dbtn ci-dbtn-confirm" hx-post="/dashboard/api/llm/{{.ID}}/confirm" hx-target="closest .ci-decision" hx-swap="innerHTML" hx-confirm="Confirm this as a real threat?">Confirm threat</button>
-      <button class="ci-dbtn ci-dbtn-dismiss" hx-post="/dashboard/api/llm/{{.ID}}/dismiss" hx-target="closest .ci-decision" hx-swap="innerHTML" hx-confirm="Dismiss as false positive?">False positive</button>
-      <div class="ci-decision-div"></div>
-      {{if .FromAgent}}<a class="ci-nav" href="/dashboard/agents/{{.FromAgent}}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> {{.FromAgent}}</a>{{end}}
-      <a class="ci-nav" href="/dashboard/events?q={{.MessageID}}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Event log</a>
-      {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="ci-nav" style="color:#ef4444" onclick="return confirm('Suspend agent {{.FromAgent}}?')"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend</button></form>{{end}}
-      {{if $.AgentSuspended}}<span class="ci-nav" style="color:#ef4444;cursor:default">Agent suspended</span>{{end}}
-    </div>
+    <button class="ci-dbtn ci-dbtn-confirm" hx-post="/dashboard/api/llm/{{.ID}}/confirm" hx-target="closest .ci-action-bar" hx-swap="innerHTML" hx-confirm="Confirm this as a real threat?">Confirm threat</button>
+    <button class="ci-dbtn ci-dbtn-dismiss" hx-post="/dashboard/api/llm/{{.ID}}/dismiss" hx-target="closest .ci-action-bar" hx-swap="innerHTML" hx-confirm="Dismiss as false positive?">False positive</button>
+    <div class="ci-action-div"></div>
+    {{if .FromAgent}}<a class="ci-nav" href="/dashboard/agents/{{.FromAgent}}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> {{.FromAgent}}</a>{{end}}
+    <a class="ci-nav" href="/dashboard/events?q={{.MessageID}}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Event log</a>
+    {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="ci-nav" style="color:#ef4444" onclick="return confirm('Suspend agent {{.FromAgent}}?')"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend</button></form>{{end}}
+    {{if $.AgentSuspended}}<span class="ci-nav" style="color:#ef4444;cursor:default">Agent suspended</span>{{end}}
   {{end}}
 </div>
 
-<!-- 3. Threats — the primary evidence -->
+<!-- 3. Agent history — inline pills -->
+{{if $.AgentHistory}}
+<div class="ci-hist">
+  <span class="ci-hist-lbl">History ({{.FromAgent}})</span>
+  {{range $.AgentHistory}}
+  <a href="/dashboard/llm/case/{{.ID}}" class="ci-ctx-pill">
+    <span class="ci-ctx-score" style="{{if ge .RiskScore 76.0}}color:#ef4444{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#fbbf24{{else}}color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
+    <span style="color:var(--text3)">&rarr; {{.ToAgent}}</span>
+    <span style="color:var(--text3);font-size:0.66rem">{{relativeTime .Timestamp}}</span>
+  </a>
+  {{end}}
+</div>
+{{end}}
+
+<!-- 4. Intent Analysis + Technical Details (side by side) -->
+{{$intent := parseJSONMap .IntentJSON}}
+<div class="ci-context-row">
+  {{if $intent}}
+  <div class="ci-s" style="margin-bottom:0">
+    <h3>Intent analysis{{with index $intent "alignment"}} <span class="cnt" style="{{if lt (toString .) "0.5"}}color:#ef4444{{else}}color:#22c55e{{end}}">alignment {{.}}</span>{{end}}</h3>
+    {{with index $intent "declared_intent"}}
+    <div class="ci-int-row">
+      <span class="ci-int-lbl">Declared</span>
+      <span class="ci-int-val">{{.}}</span>
+    </div>
+    {{end}}
+    {{with index $intent "actual_intent"}}
+    <div class="ci-int-row">
+      <span class="ci-int-lbl" style="{{if ge $.Analysis.RiskScore 50.0}}color:#ef4444{{else}}color:#22c55e{{end}}">Actual</span>
+      <span class="ci-int-val" style="font-weight:600;{{if ge $.Analysis.RiskScore 50.0}}color:#ef4444{{else}}color:#22c55e{{end}}">{{.}}</span>
+    </div>
+    {{end}}
+    {{with index $intent "reason"}}
+    <div class="ci-reason">{{.}}</div>
+    {{end}}
+  </div>
+  {{else}}
+  <div></div>
+  {{end}}
+
+  <div class="ci-s" style="margin-bottom:0">
+    <h3>Technical details</h3>
+    <div class="ci-meta-row"><span class="mk">Model</span><span class="mv">{{.Model}}</span></div>
+    <div class="ci-meta-row"><span class="mk">Latency</span><span class="mv">{{latencySec .LatencyMs}}s</span></div>
+    <div class="ci-meta-row"><span class="mk">Tokens</span><span class="mv">{{.TokensUsed}}</span></div>
+    <div class="ci-meta-row"><span class="mk">Message</span><span class="mv"><a href="/dashboard/events?q={{.MessageID}}" style="color:var(--accent);text-decoration:none;word-break:break-all">{{.MessageID}}</a></span></div>
+    <div class="ci-meta-row"><span class="mk">Confidence</span><span class="mv">{{printf "%.0f" .Confidence}}%</span></div>
+    <div class="ci-meta-row"><span class="mk">Risk score</span><span class="mv">{{printf "%.0f" .RiskScore}} / 100</span></div>
+  </div>
+</div>
+
+<!-- 5. Threats — full width, can grow -->
 {{$threats := parseJSONArray .ThreatsJSON}}
 <div class="ci-s">
   <h3>Threats <span class="cnt">({{countJSONArray .ThreatsJSON}})</span></h3>
@@ -3494,23 +3645,23 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
     {{range $i, $t := $threats}}
       {{$m := toMap $t}}
       {{if $m}}
-      <div class="ci-thr {{with index $m "severity"}}sev-{{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}{{end}}">
-        <div class="ci-thr-top">
-          {{with index $m "severity"}}<span class="ci-sev ci-sev-{{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}">{{upper (toString .)}}</span>{{end}}
-          <span class="ci-thr-name">{{with index $m "type"}}{{snakeToTitle (toString .)}}{{else}}Threat {{inc $i}}{{end}}</span>
+      <div class="ci-thr">
+        <span class="ci-thr-sev">{{with index $m "severity"}}<span class="ci-sev ci-sev-{{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}">{{upper (toString .)}}</span>{{end}}</span>
+        <div class="ci-thr-body">
+          <div class="ci-thr-head">
+            <span class="ci-thr-id">{{with index $m "type"}}{{upper (toString .)}}{{else}}THREAT-{{inc $i}}{{end}}</span>
+            <span class="ci-thr-name">{{with index $m "description"}}{{.}}{{end}}</span>
+          </div>
+          {{with index $m "evidence"}}<div class="ci-thr-desc">{{.}}</div>{{end}}
+          {{with index $m "suggestion"}}{{$s := toMap .}}{{if $s}}
+          <div class="ci-thr-rule">
+            <code>{{with index $s "name"}}{{.}}{{end}}{{with index $s "pattern"}} — {{.}}{{end}}</code>
+          </div>
+          {{end}}{{end}}
         </div>
-        {{with index $m "description"}}<div class="ci-thr-desc">{{.}}</div>{{end}}
-        {{with index $m "evidence"}}<div class="ci-thr-ev">{{.}}</div>{{end}}
-        {{with index $m "suggestion"}}{{$s := toMap .}}{{if $s}}
-        <div class="ci-thr-rule" title="{{with index $s "pattern"}}{{.}}{{end}}">
-          <span>Suggested rule:</span>
-          <strong>{{with index $s "name"}}{{.}}{{end}}</strong>
-          {{with index $s "severity"}}<span class="ci-sev ci-sev-{{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}" style="font-size:0.6rem">{{upper (toString .)}}</span>{{end}}
-        </div>
-        {{end}}{{end}}
       </div>
       {{else}}
-      <div class="ci-thr"><div class="ci-thr-top"><span class="ci-thr-name">{{$t}}</span></div></div>
+      <div class="ci-thr"><span class="ci-thr-sev"></span><div class="ci-thr-body"><div class="ci-thr-head"><span class="ci-thr-name">{{$t}}</span></div></div></div>
       {{end}}
     {{end}}
   {{else}}
@@ -3521,73 +3672,14 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
   {{end}}
 </div>
 
-<!-- 4. Intent Analysis — supporting context -->
-{{$intent := parseJSONMap .IntentJSON}}
-{{if $intent}}
-<div class="ci-s">
-  <h3>Intent analysis</h3>
-  <div class="ci-intents">
-    {{with index $intent "declared_intent"}}
-    <div class="ci-int-box left">
-      <div class="ci-lbl">Declared</div>
-      <div style="font-size:0.88rem;line-height:1.5;color:var(--text)">{{.}}</div>
-    </div>
-    {{end}}
-    <div class="ci-int-arrow">
-      {{with index $intent "alignment"}}<span class="align-val" style="{{if lt (toString .) "0.5"}}color:#ef4444{{else}}color:#22c55e{{end}}">{{.}}</span>{{end}}
-      <span>&rarr;</span>
-    </div>
-    {{with index $intent "actual_intent"}}
-    <div class="ci-int-box right" style="{{if ge $.Analysis.RiskScore 50.0}}background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.12){{else}}background:rgba(34,197,94,0.03);border:1px solid rgba(34,197,94,0.12){{end}}">
-      <div class="ci-lbl" style="{{if ge $.Analysis.RiskScore 50.0}}color:#ef4444{{else}}color:#22c55e{{end}}">Actual</div>
-      <div style="font-size:0.88rem;line-height:1.5;font-weight:600;{{if ge $.Analysis.RiskScore 50.0}}color:#ef4444{{else}}color:#22c55e{{end}}">{{.}}</div>
-    </div>
-    {{end}}
-  </div>
-  {{with index $intent "reason"}}
-  <div class="ci-reason">{{.}}</div>
-  {{end}}
-</div>
-{{end}}
-
-<!-- 5. Generated Rule — value created -->
+<!-- 6. Generated Rule -->
 {{if .RuleGenerated}}
 <div class="ci-s" style="border-color:rgba(99,102,241,0.2);background:rgba(99,102,241,0.02)">
   <h3 style="color:var(--accent-light)">Generated rule</h3>
-  <p style="font-size:0.82rem;color:var(--text2);margin-bottom:12px">A new deterministic rule was created from this analysis. Future messages matching this pattern will be caught in &lt;1ms.</p>
-  <div style="background:var(--bg2);border:1px solid rgba(99,102,241,0.15);border-radius:8px;padding:14px 16px;font-family:var(--mono);font-size:0.75rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap">{{.RuleGenerated}}</div>
+  <p style="font-size:0.78rem;color:var(--text2);margin-bottom:10px">Deterministic rule created from this analysis. Catches future matches in &lt;1ms.</p>
+  <div style="background:var(--bg2);border:1px solid rgba(99,102,241,0.15);border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap">{{.RuleGenerated}}</div>
 </div>
 {{end}}
-
-<!-- 6. Agent Context -->
-{{if $.AgentHistory}}
-<div class="ci-s">
-  <h3>Agent history <span class="cnt">({{.FromAgent}})</span></h3>
-  <div class="ci-ctx">
-    {{range $.AgentHistory}}
-    <a href="/dashboard/llm/case/{{.ID}}" class="ci-ctx-pill">
-      <span class="ci-ctx-score" style="{{if ge .RiskScore 76.0}}color:#ef4444{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#fbbf24{{else}}color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
-      <span style="color:var(--text3)">&rarr; {{.ToAgent}}</span>
-      <span style="color:var(--text3);font-size:0.68rem">{{relativeTime .Timestamp}}</span>
-    </a>
-    {{end}}
-  </div>
-</div>
-{{end}}
-
-<!-- 7. Technical details (collapsed) -->
-<details class="ci-details">
-  <summary>Technical details</summary>
-  <div class="ci-details-grid">
-    <span><span class="mk">Analysis ID</span> <span class="mv" title="{{.ID}}">{{.ID}}</span></span>
-    <span><span class="mk">Message ID</span> <span class="mv" title="{{.MessageID}}">{{.MessageID}}</span></span>
-    <span><span class="mk">Provider</span> <span class="mv">{{.Provider}}</span></span>
-    <span><span class="mk">Model</span> <span class="mv">{{.Model}}</span></span>
-    <span><span class="mk">Tokens</span> <span class="mv">{{.TokensUsed}}</span></span>
-    <span><span class="mk">Latency</span> <span class="mv">{{latencySec .LatencyMs}}s</span></span>
-    <span><span class="mk">Timestamp</span> <span class="mv">{{.Timestamp}}</span></span>
-  </div>
-</details>
 {{end}}
 ` + layoutFoot))
 
@@ -3674,7 +3766,7 @@ updateExportLinks();
     <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Signature</th></tr></thead>
     <tbody id="events-body">
     {{range .Entries}}
-    <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+    <tr class="ev-row clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{agentCell .ToAgent}}</td>
@@ -3688,6 +3780,27 @@ updateExportLinks();
     {{end}}
     </tbody>
   </table>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
+    <span id="ev-pager-info"></span>
+    <div style="display:flex;gap:4px">
+      <button id="ev-prev" onclick="evPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
+      <button id="ev-next" onclick="evPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+    </div>
+  </div>
+  <script>
+  var evCur=1,evSize=30;
+  function evRender(){
+    var rows=document.querySelectorAll('.ev-row');
+    var total=rows.length;
+    var start=(evCur-1)*evSize,end=Math.min(start+evSize,total);
+    rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
+    document.getElementById('ev-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
+    document.getElementById('ev-prev').disabled=evCur<=1;
+    document.getElementById('ev-next').disabled=end>=total;
+  }
+  function evPage(d){evCur+=d;evRender();}
+  evRender();
+  </script>
   {{else}}
   <div class="empty">No events yet. Send a message through the proxy to see activity here.</div>
   {{end}}
@@ -3779,7 +3892,7 @@ updateExportLinks();
     <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Rules</th></tr></thead>
     <tbody>
     {{range .BlockedEntries}}
-    <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+    <tr class="blk-row clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{agentCell .ToAgent}}</td>
@@ -3789,6 +3902,27 @@ updateExportLinks();
     {{end}}
     </tbody>
   </table>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
+    <span id="blk-pager-info"></span>
+    <div style="display:flex;gap:4px">
+      <button id="blk-prev" onclick="blkPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
+      <button id="blk-next" onclick="blkPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+    </div>
+  </div>
+  <script>
+  var blkCur=1,blkSize=30;
+  function blkRender(){
+    var rows=document.querySelectorAll('.blk-row');
+    var total=rows.length;
+    var start=(blkCur-1)*blkSize,end=Math.min(start+blkSize,total);
+    rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
+    document.getElementById('blk-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
+    document.getElementById('blk-prev').disabled=blkCur<=1;
+    document.getElementById('blk-next').disabled=end>=total;
+  }
+  function blkPage(d){blkCur+=d;blkRender();}
+  blkRender();
+  </script>
   {{else}}
   <div class="empty">No blocked or rejected messages.</div>
   {{end}}
@@ -3937,12 +4071,16 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">ACL entries with no observed traffic. Consider tightening permissions.</p>
   <table>
     <thead><tr><th>From</th><th>To</th><th>Status</th></tr></thead>
-    <tbody>
+    <tbody id="acl-tbody">
     {{range .Graph.UnusedACL}}
-    <tr><td>{{.From}}</td><td>{{.To}}</td><td><span style="color:var(--text3)">no traffic</span></td></tr>
+    <tr class="acl-row"><td>{{.From}}</td><td>{{.To}}</td><td><span style="color:var(--text3)">no traffic</span></td></tr>
     {{end}}
     </tbody>
   </table>
+  {{if gt (len .Graph.UnusedACL) 10}}
+  <button id="acl-toggle" onclick="(function(){var rows=document.querySelectorAll('.acl-row');var btn=document.getElementById('acl-toggle');if(btn.dataset.open==='1'){rows.forEach(function(r,i){r.style.display=i>=10?'none':''});btn.textContent='Show all ('+rows.length+')';btn.dataset.open='0'}else{rows.forEach(function(r){r.style.display=''});btn.textContent='Show less';btn.dataset.open='1'}})()" data-open="0" style="margin-top:8px;background:none;border:1px solid var(--border);color:var(--accent-light);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.78rem">Show all ({{len .Graph.UnusedACL}})</button>
+  <script>document.querySelectorAll('.acl-row').forEach(function(r,i){if(i>=10)r.style.display='none'});</script>
+  {{end}}
 </div>
 {{end}}
 
@@ -4347,8 +4485,32 @@ var edgeDetailTmpl = template.Must(template.New("edge-detail").Funcs(tmplFuncs).
 `))
 
 var gatewayTmpl = template.Must(template.New("gateway").Funcs(tmplFuncs).Parse(layoutHead + `
+<style>
+.gw-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
+.gw-tab{padding:10px 20px;font-size:0.82rem;font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color 0.15s,border-color 0.15s}
+.gw-tab:hover{color:var(--text2)}
+.gw-tab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.gw-panel{display:none}
+.gw-panel.active{display:block}
+</style>
 <p class="page-desc">The MCP gateway fronts backend MCP servers, applying security scanning and per-agent tool allowlists to every tool call.</p>
 
+<div class="gw-tabs" role="tablist">
+  <button class="gw-tab {{if ne .Tab "discovery"}}active{{end}}" onclick="gwTab('config')">Configuration</button>
+  <button class="gw-tab {{if eq .Tab "discovery"}}active{{end}}" onclick="gwTab('discovery')">Discovery{{if .Discovered}} <span style="font-size:0.68rem;color:var(--text3)">({{len .Discovered}})</span>{{end}}</button>
+</div>
+<script>
+function gwTab(name){
+  document.querySelectorAll('.gw-tab').forEach(function(t){t.classList.remove('active')});
+  document.querySelectorAll('.gw-panel').forEach(function(p){p.classList.remove('active')});
+  var idx=name==='discovery'?1:0;
+  document.querySelectorAll('.gw-tab')[idx].classList.add('active');
+  document.getElementById('gw-'+name).classList.add('active');
+  history.replaceState(null,'',name==='discovery'?'?tab=discovery':'/dashboard/gateway');
+}
+</script>
+
+<div id="gw-config" class="gw-panel {{if ne .Tab "discovery"}}active{{end}}">
 <div class="card">
   <h2>Gateway Status</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
@@ -4457,6 +4619,33 @@ var gatewayTmpl = template.Must(template.New("gateway").Funcs(tmplFuncs).Parse(l
   </form>
   <p style="color:var(--text3);font-size:0.72rem;margin-top:8px">Configure args, env vars, and headers from the server detail page.</p>
 </div>
+</div><!-- /gw-config -->
+
+<div id="gw-discovery" class="gw-panel {{if eq .Tab "discovery"}}active{{end}}">
+<div class="card">
+  <h2>Discovered MCP Servers</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Servers found in local AI client configurations (Claude Desktop, Cursor, VS Code, Cline, Windsurf, etc.).
+  </p>
+  {{if .Discovered}}
+  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Found {{len .Discovered}} unique server(s).</p>
+  <table>
+    <thead><tr><th>Name</th><th>Client(s)</th><th>Command</th></tr></thead>
+    <tbody>
+    {{range .Discovered}}
+    <tr>
+      <td><strong>{{.Name}}</strong></td>
+      <td>{{.Client}}</td>
+      <td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{truncate .Command 80}}</code></td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p style="color:var(--text3);font-size:0.82rem">No MCP servers discovered. Checked paths for Claude Desktop, Cursor, VS Code, Cline, Windsurf, and more.</p>
+  {{end}}
+</div>
+</div><!-- /gw-discovery -->
 ` + layoutFoot))
 
 var toolInventoryTmpl = template.Must(template.New("toolInventory").Funcs(tmplFuncs).Parse(layoutHead + `

@@ -163,12 +163,12 @@ func TestServer_DashboardPages(t *testing.T) {
 		contains string
 	}{
 		{"/dashboard", "Overview"},
-		{"/dashboard/events", "Events"},
+		{"/dashboard/events", "EVENT LOG"},
 		{"/dashboard/agents", "Agents"},
 		{"/dashboard/graph", "Graph"},
 		{"/dashboard/rules", "Rules"},
-		{"/dashboard/audit", "Audit"},
-		{"/dashboard/discovery", "Discovery"},
+		{"/dashboard/audit", "SECURITY POSTURE"},
+		{"/dashboard/gateway?tab=discovery", "Discovery"},
 		{"/dashboard/settings", "Settings"},
 	}
 
@@ -215,20 +215,28 @@ func TestServer_DiscoveryPage(t *testing.T) {
 	handler := srv.Handler()
 	cookie := loginSession(t, srv, handler)
 
+	// /dashboard/discovery now redirects to gateway
 	req := httptest.NewRequest("GET", "/dashboard/discovery", nil)
 	req.AddCookie(cookie)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("discovery page: status = %d, want 200", w.Code)
+	if w.Code != http.StatusFound {
+		t.Errorf("discovery redirect: status = %d, want 302", w.Code)
 	}
-	body := w.Body.String()
+
+	// Discovery content lives in gateway?tab=discovery
+	req2 := httptest.NewRequest("GET", "/dashboard/gateway?tab=discovery", nil)
+	req2.AddCookie(cookie)
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Errorf("gateway discovery tab: status = %d, want 200", w2.Code)
+	}
+	body := w2.Body.String()
 	if !strings.Contains(body, "Discovery") {
-		t.Error("discovery page should contain 'Discovery'")
-	}
-	if !strings.Contains(body, "test-backend") {
-		t.Error("discovery page should show configured backend 'test-backend'")
+		t.Error("gateway page should contain 'Discovery' tab")
 	}
 }
 

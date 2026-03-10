@@ -115,7 +115,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	stats := s.getStats()
-	recent := s.getRecentEvents(5)
+	recent := s.getRecentEvents(3)
 	chart := s.getHourlyChart()
 
 	qStats, _ := s.audit.QuarantineStats()
@@ -583,11 +583,9 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		data["CustomFiles"] = customFiles
 	}
 
-	// LLM-generated rules tab (data already loaded above)
-	if tab == "llm-rules" {
-		data["LLMPending"] = llmPending
-		data["LLMActive"] = llmActive
-	}
+	// LLM-generated rules (needed for llm-rules tab + detection tab indicator)
+	data["LLMPending"] = llmPending
+	data["LLMActive"] = llmActive
 
 	// Build enforcement data for enforcement tab
 	if tab == "enforcement" {
@@ -2171,7 +2169,7 @@ func (s *Server) handleLLM(w http.ResponseWriter, r *http.Request) {
 		llmStats = &audit.LLMStats{}
 	}
 
-	analyses, _ := s.audit.QueryLLMAnalyses(50)
+	analyses, _ := s.audit.QueryLLMAnalyses(100)
 
 	var budgetStatus *llm.BudgetStatus
 	if s.llmQueue != nil && s.llmQueue.Budget() != nil {
@@ -2207,9 +2205,17 @@ func (s *Server) handleLLMDetail(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLLMCase(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	a, err := s.audit.QueryLLMAnalysisByID(id)
-	if err != nil || a == nil {
+	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
+	}
+	if a == nil {
+		// Fallback: try as message_id for backwards compatibility
+		a, err = s.audit.QueryLLMAnalysisByMessage(id)
+		if err != nil || a == nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
 	}
 	agentSuspended := false
 	if agent, ok := s.cfg.Agents[a.FromAgent]; ok {
@@ -2395,6 +2401,19 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Redirect(w, r, "/dashboard/llm", http.StatusFound)
+}
+
+func (s *Server) handleToggleLLM(w http.ResponseWriter, r *http.Request) {
+	s.cfg.LLM.Enabled = !s.cfg.LLM.Enabled
+	if s.cfgPath != "" {
+		_ = s.cfg.Save(s.cfgPath)
+	}
+	w.Header().Set("Content-Type", "text/html")
+	if s.cfg.LLM.Enabled {
+		fmt.Fprintf(w, `<button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Disable</button>`)
+	} else {
+		fmt.Fprintf(w, `<button class="btn btn-sm" style="background:var(--success);color:#fff;font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Enable</button>`)
+	}
 }
 
 func (s *Server) handleSaveDefaultPolicy(w http.ResponseWriter, r *http.Request) {
@@ -2650,7 +2669,7 @@ func (s *Server) populateLLMStats(data map[string]any) {
 	if !s.cfg.LLM.Enabled {
 		return
 	}
-	data["LLMProvider"] = s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
+	data["LLMProvider"] = s.cfg.LLM.Model
 	llmStats, err := s.audit.QueryLLMStats()
 	if err == nil && llmStats != nil {
 		data["LLMCompleted"] = llmStats.TotalAnalyses
@@ -2864,11 +2883,40 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
 
+	// Discovery data (merged into gateway page)
+	var discovered []toolInventoryServer
+	seen := make(map[string]int)
+	scanResult, err := discover.Scan()
+	if err == nil && scanResult != nil {
+		for _, cr := range scanResult.Clients {
+			for _, srv := range cr.Servers {
+				cmd := srv.Command
+				if len(srv.Args) > 0 {
+					cmd += " " + strings.Join(srv.Args, " ")
+				}
+				clientName := discover.ClientDisplayName(cr.Client)
+				if idx, dup := seen[srv.Name]; dup {
+					discovered[idx].Client += ", " + clientName
+					continue
+				}
+				seen[srv.Name] = len(discovered)
+				discovered = append(discovered, toolInventoryServer{
+					Name:    srv.Name,
+					Command: cmd,
+					Client:  clientName,
+				})
+			}
+		}
+	}
+	sort.Slice(discovered, func(i, j int) bool { return discovered[i].Name < discovered[j].Name })
+
 	gw := s.cfg.Gateway
 	data := map[string]any{
-		"Active":  "gateway",
-		"Gateway": gw,
-		"Servers": servers,
+		"Active":     "gateway",
+		"Gateway":    gw,
+		"Servers":    servers,
+		"Discovered": discovered,
+		"Tab":        r.URL.Query().Get("tab"),
 	}
 	s.renderTemplate(w, gatewayTmpl, data)
 }

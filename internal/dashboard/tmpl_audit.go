@@ -89,7 +89,6 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 }
 </style>
 
-<h1>Security <span>Audit</span></h1>
 <p class="page-desc">Configuration posture across oktsec and detected products.</p>
 
 {{if .Sandbox}}

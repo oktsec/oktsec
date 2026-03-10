@@ -225,9 +225,15 @@ func TestServer_EventsPageLoads(t *testing.T) {
 }
 
 func TestServer_ToolInventoryPageLoads(t *testing.T) {
+	// Discovery now redirects to gateway tab
 	rr := authedGet(t, "/dashboard/discovery")
-	if rr.Code != http.StatusOK {
-		t.Errorf("tool inventory page status = %d, want 200", rr.Code)
+	if rr.Code != http.StatusFound {
+		t.Errorf("discovery redirect status = %d, want 302", rr.Code)
+	}
+	// Verify discovery content in gateway
+	rr2 := authedGet(t, "/dashboard/gateway?tab=discovery")
+	if rr2.Code != http.StatusOK {
+		t.Errorf("gateway discovery tab status = %d, want 200", rr2.Code)
 	}
 }
 

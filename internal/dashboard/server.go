@@ -179,6 +179,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/api/llm/{id}", s.handleLLMDetail)
 	s.mux.HandleFunc("POST /dashboard/api/llm/{id}/dismiss", s.handleLLMDismiss)
 	s.mux.HandleFunc("POST /dashboard/api/llm/{id}/confirm", s.handleLLMConfirm)
+	s.mux.HandleFunc("POST /dashboard/api/llm/toggle", s.handleToggleLLM)
 	s.mux.HandleFunc("GET /dashboard/alerts", s.handleAlerts)
 	s.mux.HandleFunc("GET /dashboard/audit", s.handleAudit)
 	s.mux.HandleFunc("GET /dashboard/audit/sandbox", s.handleAuditSandbox)
@@ -257,8 +258,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /dashboard/settings/webhooks", s.handleSaveWebhookChannel)
 	s.mux.HandleFunc("DELETE /dashboard/settings/webhooks/{name}", s.handleDeleteWebhookChannel)
 
-	// Discovery
-	s.mux.HandleFunc("GET /dashboard/discovery", s.handleToolInventory)
+	// Discovery (redirects to Gateway tab)
+	s.mux.HandleFunc("GET /dashboard/discovery", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/gateway?tab=discovery", http.StatusFound)
+	})
 
 	// Gateway management
 	s.mux.HandleFunc("GET /dashboard/gateway", s.handleGateway)

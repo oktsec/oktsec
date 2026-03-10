@@ -160,7 +160,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 				// Generate rules from threats
 				if ruleGen != nil {
 					for _, threat := range result.Threats {
-						if _, err := ruleGen.Generate(threat, result.ProviderName, result.MessageID); err != nil {
+						if _, err := ruleGen.Generate(threat, result.Model, result.MessageID); err != nil {
 							logger.Warn("rule generation failed", "error", err)
 						}
 					}
