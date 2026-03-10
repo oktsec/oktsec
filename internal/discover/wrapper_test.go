@@ -239,9 +239,6 @@ func TestWrappableClients(t *testing.T) {
 		if c == "opencode" {
 			t.Error("opencode should not be wrappable (different format)")
 		}
-		if c == "claude-code" {
-			t.Error("claude-code should not be wrappable (nested format)")
-		}
 		if c == "zed" {
 			t.Error("zed should not be wrappable (context_servers format)")
 		}
@@ -277,14 +274,14 @@ func TestIsWrappable(t *testing.T) {
 		{"jetbrains", true},
 		{"openclaw", false},
 		{"opencode", false},
-		{"claude-code", false},
+		{"claude-code", true},
 		{"zed", false},
 		{"unknown", false},
 	}
 
 	for _, tt := range tests {
-		if got := isWrappable(tt.client); got != tt.want {
-			t.Errorf("isWrappable(%q) = %v, want %v", tt.client, got, tt.want)
+		if got := IsWrappable(tt.client); got != tt.want {
+			t.Errorf("IsWrappable(%q) = %v, want %v", tt.client, got, tt.want)
 		}
 	}
 }
@@ -308,5 +305,76 @@ func TestParseMCPConfig_BackupCreation(t *testing.T) {
 	}
 	if string(bakData) != string(origData) {
 		t.Error("backup content should match original")
+	}
+}
+
+func TestWrapClaudeCode(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "claude.json")
+
+	// Simulate Claude Code nested config with project-scoped servers
+	config := map[string]any{
+		"mcpServers": map[string]any{},
+		"projects": map[string]any{
+			"/my/project": map[string]any{
+				"allowedTools": []any{},
+				"mcpServers": map[string]mcpServerJSON{
+					"filesystem": {Command: "npx", Args: []string{"@mcp/fs", "/data"}},
+					"github":     {Command: "npx", Args: []string{"@mcp/github"}},
+				},
+			},
+			"/other/project": map[string]any{
+				"mcpServers": map[string]mcpServerJSON{
+					"filesystem": {Command: "npx", Args: []string{"@mcp/fs", "/other"}},
+				},
+			},
+			"/empty/project": map[string]any{
+				"mcpServers": map[string]mcpServerJSON{},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(config, "", "  ")
+	_ = os.WriteFile(configPath, data, 0o644)
+
+	opts := WrapOpts{ConfigPath: "/abs/oktsec.yaml"}
+	wrapped, err := wrapClaudeCode(configPath, data, opts)
+	if err != nil {
+		t.Fatalf("wrapClaudeCode: %v", err)
+	}
+	// 2 unique in /my/project + 1 in /other/project = 3
+	if wrapped != 3 {
+		t.Errorf("wrapped = %d, want 3", wrapped)
+	}
+
+	// Verify the config was rewritten with oktsec proxy commands
+	out, _ := os.ReadFile(configPath)
+	var result map[string]json.RawMessage
+	_ = json.Unmarshal(out, &result)
+
+	var projects map[string]json.RawMessage
+	_ = json.Unmarshal(result["projects"], &projects)
+
+	var proj map[string]json.RawMessage
+	_ = json.Unmarshal(projects["/my/project"], &proj)
+
+	var servers map[string]mcpServerJSON
+	_ = json.Unmarshal(proj["mcpServers"], &servers)
+
+	fs := servers["filesystem"]
+	if fs.Command != "oktsec" {
+		t.Errorf("filesystem command = %q, want oktsec", fs.Command)
+	}
+	if len(fs.Args) < 5 || fs.Args[0] != "proxy" {
+		t.Errorf("filesystem args should start with proxy, got %v", fs.Args)
+	}
+
+	// Verify already-wrapped servers are skipped on re-wrap
+	out2, _ := os.ReadFile(configPath)
+	wrapped2, err := wrapClaudeCode(configPath, out2, opts)
+	if err != nil {
+		t.Fatalf("re-wrap: %v", err)
+	}
+	if wrapped2 != 0 {
+		t.Errorf("re-wrap should wrap 0, got %d", wrapped2)
 	}
 }

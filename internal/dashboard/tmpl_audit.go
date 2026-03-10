@@ -122,10 +122,19 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 </div>
 
 {{if .ChainCount}}
-<div style="display:flex;align-items:center;gap:10px;padding:12px 16px;border-left:3px solid {{if .ChainValid}}var(--success){{else}}var(--danger){{end}};background:{{if .ChainValid}}rgba(74,222,128,0.04){{else}}rgba(248,113,113,0.04){{end}};margin-bottom:24px;font-size:0.8125rem;color:var(--text2);border-radius:0 10px 10px 0">
-  {{if .ChainValid}}&#x2713;{{else}}&#x2717;{{end}}
-  <span>Audit chain: <strong style="color:{{if .ChainValid}}var(--success){{else}}var(--danger){{end}}">{{if .ChainValid}}verified{{else}}broken{{end}}</strong> &middot; {{.ChainCount}} entries</span>
-  <span style="margin-left:auto;color:var(--text3);font-size:0.75rem;font-family:var(--mono)">{{.ChainCount}} entries cryptographically chained</span>
+<div style="padding:14px 18px;border-left:3px solid {{if .ChainValid}}var(--success){{else}}var(--danger){{end}};background:{{if .ChainValid}}rgba(74,222,128,0.04){{else}}rgba(248,113,113,0.04){{end}};margin-bottom:24px;border-radius:0 10px 10px 0">
+  <div style="display:flex;align-items:center;gap:10px;font-size:0.8125rem;color:var(--text2)">
+    {{if .ChainValid}}&#x2713;{{else}}&#x2717;{{end}}
+    <span>Audit chain: <strong style="color:{{if .ChainValid}}var(--success){{else}}var(--danger){{end}}">{{if .ChainValid}}verified{{else}}broken{{end}}</strong> &middot; {{.ChainCount}} entries verified</span>
+  </div>
+  {{if and (not .ChainValid) .ChainReason}}
+  <div style="margin-top:10px;padding:10px 14px;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.12);border-radius:8px;font-size:0.78rem;line-height:1.6">
+    <div style="color:var(--danger);font-weight:600;margin-bottom:4px">Chain integrity failure</div>
+    <div style="color:var(--text2)"><strong>Reason:</strong> {{.ChainReason}}</div>
+    {{if .ChainBrokenID}}<div style="color:var(--text2)"><strong>Broken at entry:</strong> <code style="font-size:0.72rem;background:var(--bg3);padding:1px 6px;border-radius:3px">{{.ChainBrokenID}}</code> (position {{.ChainBrokenAt}} of {{.ChainCount}})</div>{{end}}
+    <div style="color:var(--text3);font-size:0.72rem;margin-top:6px">This typically occurs when the database is modified externally, entries are deleted, or the proxy restarts with a different signing key. Re-index the chain from the Settings page to resolve.</div>
+  </div>
+  {{end}}
 </div>
 {{end}}
 

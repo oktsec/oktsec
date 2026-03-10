@@ -15,6 +15,7 @@ func SetupQueue(cfg config.LLMConfig, logger *slog.Logger) (*Queue, *SignalDetec
 		Provider:         Provider(cfg.Provider),
 		Model:            cfg.Model,
 		BaseURL:          cfg.BaseURL,
+		APIKey:           cfg.APIKey,
 		APIKeyEnv:        cfg.APIKeyEnv,
 		APIVersion:       cfg.APIVersion,
 		MaxTokens:        cfg.MaxTokens,

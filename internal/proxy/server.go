@@ -39,6 +39,8 @@ type Server struct {
 	llmQueue      *llm.Queue // nil if LLM disabled
 	logger        *slog.Logger
 	anomalyCancel context.CancelFunc
+	fwdSrv        *http.Server   // forward proxy (nil if disabled)
+	fwdLn         net.Listener   // forward proxy listener
 }
 
 // NewServer creates and wires the proxy server.
@@ -264,20 +266,6 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	h = recovery(logger)(h)
 	h = requestID(h)
 
-	// Apply forward proxy wrapper OUTSIDE middleware so CONNECT requests
-	// get the raw ResponseWriter (needed for Hijack). Middleware only
-	// applies to API/dashboard requests that pass through to the mux.
-	if cfg.ForwardProxy.Enabled {
-		fp := NewForwardProxy(&cfg.ForwardProxy, scanner, auditStore,
-			NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS), cfg.Agents, logger)
-		h = fp.Wrap(h)
-		logger.Info("forward proxy enabled",
-			"blocked_domains", len(cfg.ForwardProxy.BlockedDomains),
-			"allowed_domains", len(cfg.ForwardProxy.AllowedDomains),
-			"scan_requests", cfg.ForwardProxy.ScanRequests,
-		)
-	}
-
 	// Bind to 127.0.0.1 by default (localhost only).
 	// Use server.bind config or --bind flag to change.
 	bind := cfg.Server.Bind
@@ -294,18 +282,13 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 
 	srv := &http.Server{
 		Handler:        h,
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   30 * time.Second,
 		IdleTimeout:    60 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1 MB
 	}
-	// Set read/write timeouts only when the forward proxy is disabled.
-	// CONNECT tunnels are long-lived; global timeouts would kill them.
-	// The forward proxy manages its own idle timeout via copyWithDeadline.
-	if !cfg.ForwardProxy.Enabled {
-		srv.ReadTimeout = 15 * time.Second
-		srv.WriteTimeout = 30 * time.Second
-	}
 
-	return &Server{
+	s := &Server{
 		cfg:       cfg,
 		cfgPath:   cfgPath,
 		srv:       srv,
@@ -317,7 +300,39 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		dashboard: dash,
 		llmQueue:  llmQueue,
 		logger:    logger,
-	}, nil
+	}
+
+	// Forward proxy on dedicated port (separate from dashboard/API)
+	if cfg.ForwardProxy.Enabled {
+		fp := NewForwardProxy(&cfg.ForwardProxy, scanner, auditStore,
+			NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS), cfg.Agents, logger)
+
+		fwdBind := cfg.ForwardProxy.Bind
+		if fwdBind == "" {
+			fwdBind = "127.0.0.1"
+		}
+		fwdLn, fwdPort, err := netutil.ListenAutoPort(fwdBind, cfg.ForwardProxy.Port, logger)
+		if err != nil {
+			_ = ln.Close()
+			return nil, fmt.Errorf("binding forward proxy port: %w", err)
+		}
+		cfg.ForwardProxy.Port = fwdPort
+
+		s.fwdLn = fwdLn
+		s.fwdSrv = &http.Server{
+			Handler:        fp.Wrap(http.NotFoundHandler()),
+			IdleTimeout:    60 * time.Second,
+			MaxHeaderBytes: 1 << 20,
+			// No read/write timeouts: CONNECT tunnels are long-lived
+		}
+		logger.Info("forward proxy enabled",
+			"addr", fwdLn.Addr().String(),
+			"scan_requests", cfg.ForwardProxy.ScanRequests,
+			"scan_responses", cfg.ForwardProxy.ScanResponses,
+		)
+	}
+
+	return s, nil
 }
 
 // AuditStore returns the audit store for CLI queries.
@@ -437,6 +452,15 @@ func (s *Server) Start() error {
 		go s.anomalyLoop(ctx)
 	}
 
+	// Start forward proxy on dedicated port
+	if s.fwdSrv != nil {
+		go func() {
+			if err := s.fwdSrv.Serve(s.fwdLn); err != nil && err != http.ErrServerClosed {
+				s.logger.Error("forward proxy error", "error", err)
+			}
+		}()
+	}
+
 	// SIGHUP handler for hot-reloading keys (Unix only)
 	if runtime.GOOS != "windows" && s.cfg.Identity.KeysDir != "" {
 		sighup := make(chan os.Signal, 1)
@@ -464,6 +488,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.anomalyCancel != nil {
 		s.anomalyCancel()
+	}
+	if s.fwdSrv != nil {
+		_ = s.fwdSrv.Shutdown(ctx)
 	}
 	err := s.srv.Shutdown(ctx)
 	s.scanner.Close()

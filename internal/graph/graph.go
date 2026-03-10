@@ -2,7 +2,10 @@
 // Pure computation — no imports from other internal packages.
 package graph
 
-import "math"
+import (
+	"math"
+	"sort"
+)
 
 // AgentMeta describes an agent from config (decoupled from config.Agent).
 type AgentMeta struct {
@@ -90,6 +93,7 @@ func Build(agents []AgentMeta, edges []EdgeInput) *AgentGraph {
 	for _, n := range nodeMap {
 		nodes = append(nodes, *n)
 	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
 
 	return &AgentGraph{
 		Nodes:       nodes,
@@ -331,10 +335,21 @@ func compareACL(agents []AgentMeta, edges []EdgeInput) ([]ACLEdge, []ShadowEdge,
 		}
 	}
 
-	// Shadow edges: traffic not in ACL
+	// Build wildcard set for agents with can_message: ["*"]
+	wildcardAgents := make(map[string]bool)
+	for _, a := range agents {
+		for _, target := range a.CanMessage {
+			if target == "*" {
+				wildcardAgents[a.Name] = true
+				break
+			}
+		}
+	}
+
+	// Shadow edges: traffic not in ACL (wildcard agents are always authorized)
 	var shadowEdges []ShadowEdge
 	for p, total := range actualSet {
-		if !aclSet[p] {
+		if !aclSet[p] && !wildcardAgents[p.from] {
 			shadowEdges = append(shadowEdges, ShadowEdge{From: p.from, To: p.to, Total: total})
 		}
 	}

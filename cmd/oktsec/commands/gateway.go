@@ -62,6 +62,7 @@ func newGatewayCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			gw.SetCfgPath(cfgFile)
 
 			// Wire LLM analysis queue (async, optional)
 			var llmQueue *llm.Queue
@@ -79,6 +80,35 @@ func newGatewayCmd() *cobra.Command {
 			if llmQueue != nil {
 				llmQueue.Start(ctx)
 			}
+
+			// SIGHUP handler for hot-reloading config
+			sighup := make(chan os.Signal, 1)
+			signal.Notify(sighup, syscall.SIGHUP)
+			go func() {
+				for range sighup {
+					logger.Info("SIGHUP received, reloading config")
+					newCfg := gw.ReloadConfig()
+					if newCfg == nil {
+						continue
+					}
+
+					// Rebuild LLM queue if config changed
+					if llmQueue != nil {
+						llmQueue.Stop()
+					}
+					llmQueue = nil
+					gw.SetLLMQueue(nil)
+					gw.SetSignalDetector(nil)
+
+					if newCfg.LLM.Enabled {
+						llmQueue = setupGatewayLLM(newCfg, gw, logger)
+						if llmQueue != nil {
+							llmQueue.Start(ctx)
+						}
+					}
+					logger.Info("config reload complete")
+				}
+			}()
 
 			errCh := make(chan error, 1)
 			go func() {

@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/discover"
 	"github.com/spf13/cobra"
 )
@@ -31,6 +32,15 @@ func newWrapCmd() *cobra.Command {
 			opts := discover.WrapOpts{
 				Enforce:    enforce,
 				ConfigPath: cfgFile,
+			}
+
+			// Auto-inject forward proxy URL when enabled in config
+			if cfg, err := config.Load(cfgFile); err == nil && cfg.ForwardProxy.Enabled {
+				fpBind := cfg.ForwardProxy.Bind
+				if fpBind == "" {
+					fpBind = "127.0.0.1"
+				}
+				opts.ForwardProxy = fmt.Sprintf("http://%s:%d", fpBind, cfg.ForwardProxy.Port)
 			}
 
 			if all {

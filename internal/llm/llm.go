@@ -103,6 +103,7 @@ type Config struct {
 	Provider    Provider `yaml:"provider"`
 	Model       string   `yaml:"model"`
 	BaseURL     string   `yaml:"base_url,omitempty"`
+	APIKey      string   `yaml:"api_key,omitempty"`
 	APIKeyEnv   string   `yaml:"api_key_env,omitempty"`
 	APIVersion  string   `yaml:"api_version,omitempty"` // for Azure OpenAI
 
@@ -146,9 +147,13 @@ func (c *Config) ParseTimeout() time.Duration {
 	return d
 }
 
-// ResolveAPIKey reads the API key from the environment variable.
-// Returns empty string if env var is not set (valid for local providers).
+// ResolveAPIKey returns the API key. Direct api_key takes precedence over
+// api_key_env (env var lookup). Returns empty string if neither is set
+// (valid for local providers like Ollama).
 func (c *Config) ResolveAPIKey() string {
+	if c.APIKey != "" {
+		return c.APIKey
+	}
 	if c.APIKeyEnv == "" {
 		return ""
 	}
@@ -191,6 +196,7 @@ func NewWithFallback(cfg Config, fb *FallbackConfig, logger *slog.Logger) (Analy
 		Provider:    Provider(fb.Provider),
 		Model:       fb.Model,
 		BaseURL:     fb.BaseURL,
+		APIKey:      fb.APIKey,
 		APIKeyEnv:   fb.APIKeyEnv,
 		APIVersion:  fb.APIVersion,
 		MaxTokens:   fb.MaxTokens,
