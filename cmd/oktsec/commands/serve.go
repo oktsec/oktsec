@@ -107,6 +107,13 @@ func printBanner(cfg *config.Config, dashCode string) {
 	fmt.Printf("  API:        http://%s:%d/v1/message\n", bindAddr, cfg.Server.Port)
 	fmt.Printf("  Dashboard:  http://%s:%d/dashboard\n", bindAddr, cfg.Server.Port)
 	fmt.Printf("  Health:     http://%s:%d/health\n", bindAddr, cfg.Server.Port)
+	if cfg.ForwardProxy.Enabled {
+		fpBind := cfg.ForwardProxy.Bind
+		if fpBind == "" {
+			fpBind = bindAddr
+		}
+		fmt.Printf("  Egress:     http://%s:%d (HTTP_PROXY)\n", fpBind, cfg.ForwardProxy.Port)
+	}
 	fmt.Println("  ────────────────────────────────────────")
 	fmt.Printf("  Access code:  %s\n", dashCode)
 	fmt.Println("  ────────────────────────────────────────")

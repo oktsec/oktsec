@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 	policy_decision TEXT NOT NULL,
 	latency_ms INTEGER,
 	intent TEXT DEFAULT '',
+	session_id TEXT DEFAULT '',
 	prev_hash TEXT DEFAULT '',
 	entry_hash TEXT DEFAULT '',
 	proxy_signature TEXT DEFAULT ''
@@ -234,6 +235,8 @@ func (s *Store) migrateSchema() {
 		"ALTER TABLE audit_log ADD COLUMN prev_hash TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN entry_hash TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN proxy_signature TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN session_id TEXT DEFAULT ''",
+		"CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id)",
 	}
 
 	// LLM analysis table (separate from audit_log, linked by message_id)
@@ -324,7 +327,7 @@ func (s *Store) Log(entry Entry) {
 
 // Query returns audit entries matching the given filters.
 func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
-	query := "SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(entry_hash,'') FROM audit_log WHERE 1=1"
+	query := "SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,'') FROM audit_log WHERE 1=1"
 	var args []any
 
 	if opts.Status != "" {
@@ -380,7 +383,7 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		var fp, rules sql.NullString
 		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ContentHash,
 			&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-			&e.Intent, &e.EntryHash); err != nil {
+			&e.Intent, &e.SessionID, &e.EntryHash); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		e.PubkeyFingerprint = fp.String
@@ -459,13 +462,13 @@ func (s *Store) QueryHourlyStats() (map[int]int, error) {
 // QueryByID fetches a single audit entry by ID.
 func (s *Store) QueryByID(id string) (*Entry, error) {
 	row := s.db.QueryRow(
-		"SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(entry_hash,'') FROM audit_log WHERE id = ?", id)
+		"SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,'') FROM audit_log WHERE id = ?", id)
 
 	var e Entry
 	var fp, rules sql.NullString
 	if err := row.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ContentHash,
 		&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-		&e.Intent, &e.EntryHash); err != nil {
+		&e.Intent, &e.SessionID, &e.EntryHash); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -584,10 +587,10 @@ func (s *Store) writeLoop() {
 		s.lastHashMu.Unlock()
 
 		_, err := s.db.Exec(
-			`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, prev_hash, entry_hash, proxy_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			entry.ID, entry.Timestamp, entry.FromAgent, entry.ToAgent, entry.ContentHash,
 			entry.SignatureVerified, entry.PubkeyFingerprint, entry.Status, entry.RulesTriggered,
-			entry.PolicyDecision, entry.LatencyMs, entry.Intent, entry.PrevHash, entry.EntryHash, entry.ProxySignature,
+			entry.PolicyDecision, entry.LatencyMs, entry.Intent, entry.SessionID, entry.PrevHash, entry.EntryHash, entry.ProxySignature,
 		)
 		if err != nil {
 			s.logger.Error("audit write failed", "id", entry.ID, "error", err)
@@ -823,6 +826,7 @@ func (s *Store) QueryUnsignedByAgent() ([]UnsignedByAgent, error) {
 }
 
 // QueryTrafficAgents returns distinct agent names seen in traffic in the last 24h.
+// Filters out gateway paths, forward proxy entries (IPs, hostnames with dots), and bare "gateway".
 func (s *Store) QueryTrafficAgents() ([]string, error) {
 	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	rows, err := s.db.Query(
@@ -830,7 +834,10 @@ func (s *Store) QueryTrafficAgents() ([]string, error) {
 			SELECT from_agent AS agent FROM audit_log WHERE timestamp >= ?
 			UNION
 			SELECT to_agent AS agent FROM audit_log WHERE timestamp >= ?
-		)`, cutoff, cutoff,
+		) WHERE agent NOT LIKE 'gateway/%'
+		  AND agent != 'gateway'
+		  AND agent NOT LIKE '%:%'
+		  AND agent NOT LIKE '%.%.%'`, cutoff, cutoff,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query traffic agents: %w", err)
@@ -900,8 +907,21 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 	if cutoff == "" {
 		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	}
+
+	// Run audit-log and LLM-risk queries concurrently
+	var (
+		wg       sync.WaitGroup
+		llmRisks map[string]*AgentLLMRisk
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		llmRisks, _ = s.QueryAgentLLMRisk()
+	}()
+
 	rows, err := s.db.Query(`SELECT from_agent, status, COUNT(*) FROM audit_log WHERE timestamp >= ? GROUP BY from_agent, status`, cutoff)
 	if err != nil {
+		wg.Wait()
 		return nil, fmt.Errorf("query agent risk: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
@@ -935,8 +955,8 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 		result = append(result, *ar)
 	}
 
-	// Enrich with LLM risk data when available
-	llmRisks, _ := s.QueryAgentLLMRisk()
+	// Wait for LLM risk query and enrich results
+	wg.Wait()
 	for i := range result {
 		// Clamp audit score to 0-100
 		if result[i].RiskScore > 100 {

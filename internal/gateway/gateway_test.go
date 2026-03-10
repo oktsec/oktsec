@@ -357,7 +357,7 @@ func TestGateway_AuditLogged(t *testing.T) {
 	// The entry was enqueued; in-memory DB may process it before we query
 	if len(entries) > 0 {
 		assert.Equal(t, "audit-agent", entries[0].FromAgent)
-		assert.Equal(t, "gateway/echo", entries[0].ToAgent)
+		assert.Equal(t, "gateway", entries[0].ToAgent)
 	}
 }
 

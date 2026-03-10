@@ -26,6 +26,8 @@ func NewRoot() *cobra.Command {
 		newRulesCmd(),
 		newDiscoverCmd(),
 		newInitCmd(),
+		newConnectCmd(),
+		newDisconnectCmd(),
 		newWrapCmd(),
 		newUnwrapCmd(),
 		newProxyCmd(),

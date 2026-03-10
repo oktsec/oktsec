@@ -15,7 +15,8 @@ type Entry struct {
 	RulesTriggered    string `json:"rules_triggered,omitempty"` // JSON array
 	PolicyDecision    string `json:"policy_decision"`
 	LatencyMs         int64  `json:"latency_ms"`
-	Intent            string `json:"intent,omitempty"`           // declared intent from sender
+	Intent            string `json:"intent,omitempty"`           // declared intent from sender (tool args for gateway)
+	SessionID         string `json:"session_id,omitempty"`       // MCP session ID for sub-agent tracking
 	PrevHash          string `json:"prev_hash,omitempty"`        // hash chain: previous entry hash
 	EntryHash         string `json:"entry_hash,omitempty"`       // hash chain: this entry's hash
 	ProxySignature    string `json:"proxy_signature,omitempty"`  // Ed25519 signature by proxy

@@ -56,6 +56,7 @@ const (
 	DecisionIdentityRejected   = "identity_rejected"
 	DecisionSignatureRequired  = "signature_required"
 	DecisionRateLimited        = "rate_limited"
-	DecisionToolNotAllowed     = "tool_not_allowed"
-	DecisionScanError          = "scan_error"
+	DecisionToolNotAllowed       = "tool_not_allowed"
+	DecisionConstraintViolated   = "constraint_violated"
+	DecisionScanError            = "scan_error"
 )

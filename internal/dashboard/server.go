@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -36,6 +37,10 @@ type Server struct {
 	gwCmd    *exec.Cmd
 	llmQueue *llm.Queue
 	ruleGen  *llm.RuleGenerator
+
+	// Cached rule category map (built once on first use)
+	ruleCatMu  sync.Mutex
+	ruleCatMap map[string]string
 
 	// Cached auditcheck.RunChecks results (expires after 30s)
 	checkMu        sync.Mutex
@@ -179,13 +184,31 @@ func (s *Server) invalidateCheckCache() {
 	s.checkMu.Unlock()
 }
 
-// saveConfig persists configuration and invalidates the RunChecks cache.
+// saveConfig persists configuration, invalidates caches, and signals the
+// gateway subprocess to reload (SIGHUP) so config changes take effect
+// without a full restart.
 func (s *Server) saveConfig() error {
 	err := s.cfg.Save(s.cfgPath)
 	if err == nil {
 		s.invalidateCheckCache()
+		s.signalGatewayReload()
 	}
 	return err
+}
+
+// signalGatewayReload sends SIGHUP to the gateway subprocess so it reloads
+// the config file from disk. No-op if gateway is not running.
+func (s *Server) signalGatewayReload() {
+	s.gwMu.Lock()
+	defer s.gwMu.Unlock()
+	if s.gwCmd == nil || s.gwCmd.Process == nil {
+		return
+	}
+	if err := s.gwCmd.Process.Signal(syscall.SIGHUP); err != nil {
+		s.logger.Warn("failed to signal gateway reload", "error", err)
+	} else {
+		s.logger.Info("sent SIGHUP to gateway", "pid", s.gwCmd.Process.Pid)
+	}
 }
 
 func (s *Server) routes() {
@@ -251,8 +274,9 @@ func (s *Server) routes() {
 	// Search
 	s.mux.HandleFunc("GET /dashboard/api/search", s.handleSearch)
 
-	// Event detail panel
+	// Event detail panel + full page
 	s.mux.HandleFunc("GET /dashboard/api/event/{id}", s.handleEventDetail)
+	s.mux.HandleFunc("GET /dashboard/events/{id...}", s.handleEventPage)
 
 	// Rule detail panel
 	s.mux.HandleFunc("GET /dashboard/api/rule/{id}", s.handleRuleDetail)

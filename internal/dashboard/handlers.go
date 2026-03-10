@@ -195,6 +195,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"AvgLatency":      avgLatency,
 		"ChainValid":      chainResult.Valid,
 		"ChainCount":      chainResult.Entries,
+		"ChainReason":     chainResult.Reason,
 	}
 
 	s.populateLLMStats(data)
@@ -206,6 +207,22 @@ type auditProductGroup struct {
 	Info     auditcheck.ProductInfo
 	Findings []auditcheck.Finding
 	Summary  auditcheck.Summary
+}
+
+// topRemediations returns up to n critical/high findings that have remediation text.
+func topRemediations(findings []auditcheck.Finding, n int) []auditcheck.Finding {
+	var out []auditcheck.Finding
+	for _, sev := range []auditcheck.Severity{auditcheck.Critical, auditcheck.High} {
+		for _, f := range findings {
+			if f.Severity == sev && f.Remediation != "" {
+				out = append(out, f)
+				if len(out) == n {
+					return out
+				}
+			}
+		}
+	}
+	return out
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
@@ -235,21 +252,7 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build top fixes — up to 3 critical/high findings with remediation
-	var topFixes []auditcheck.Finding
-	for _, sev := range []auditcheck.Severity{auditcheck.Critical, auditcheck.High} {
-		for _, f := range findings {
-			if f.Severity == sev && f.Remediation != "" {
-				topFixes = append(topFixes, f)
-				if len(topFixes) == 3 {
-					break
-				}
-			}
-		}
-		if len(topFixes) == 3 {
-			break
-		}
-	}
+	topFixes := topRemediations(findings, 3)
 
 	// Verify audit chain integrity (lightweight — last 100 entries)
 	chainEntries, _ := s.audit.QueryChainEntries(100)
@@ -265,8 +268,11 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		"TopFixes":    topFixes,
 		"TotalChecks": len(findings),
 		"HasCritical": summary.Critical > 0,
-		"ChainValid":  chainResult.Valid,
-		"ChainCount":  chainResult.Entries,
+		"ChainValid":    chainResult.Valid,
+		"ChainCount":    chainResult.Entries,
+		"ChainReason":   chainResult.Reason,
+		"ChainBrokenAt": chainResult.BrokenAt,
+		"ChainBrokenID": chainResult.BrokenID,
 	}
 
 	s.renderTemplate(w, auditTmpl, data)
@@ -301,21 +307,6 @@ func (s *Server) handleAuditSandbox(w http.ResponseWriter, r *http.Request) {
 		Summary:  summary,
 	}}
 
-	var topFixes []auditcheck.Finding
-	for _, sev := range []auditcheck.Severity{auditcheck.Critical, auditcheck.High} {
-		for _, f := range findings {
-			if f.Severity == sev && f.Remediation != "" {
-				topFixes = append(topFixes, f)
-				if len(topFixes) == 3 {
-					break
-				}
-			}
-		}
-		if len(topFixes) == 3 {
-			break
-		}
-	}
-
 	data := map[string]any{
 		"Active":      "audit",
 		"RequireSig":  s.cfg.Identity.RequireSignature,
@@ -323,7 +314,7 @@ func (s *Server) handleAuditSandbox(w http.ResponseWriter, r *http.Request) {
 		"Grade":       grade,
 		"Groups":      groups,
 		"Summary":     summary,
-		"TopFixes":    topFixes,
+		"TopFixes":    topRemediations(findings, 3),
 		"TotalChecks": len(findings),
 		"HasCritical": summary.Critical > 0,
 		"Sandbox":     true,
@@ -439,7 +430,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	// Sort by name for stable ordering
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
 
-	// Discover agents in traffic but not in config
+	// Show agents discovered in traffic but not yet in config
 	var discovered []string
 	if trafficAgents, err := s.audit.QueryTrafficAgents(); err == nil {
 		for _, ta := range trafficAgents {
@@ -1269,24 +1260,68 @@ type triggeredRule struct {
 	Category string `json:"category"`
 }
 
-func (s *Server) handleEventDetail(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	entry, err := s.audit.QueryByID(id)
-	if err != nil || entry == nil {
-		s.handleNotFound(w, r)
-		return
-	}
-
+// buildEventData builds the shared template data map for an audit entry.
+// Used by both the sidebar panel and the full event page.
+func (s *Server) buildEventData(entry *audit.Entry) map[string]any {
 	rules := parseTriggeredRules(entry.RulesTriggered)
 	s.resolveRuleCategories(rules)
 
 	data := map[string]any{
-		"Entry":    entry,
-		"Rules":    rules,
-		"Decision": humanReadableDecision(entry.PolicyDecision),
+		"Entry":      entry,
+		"Rules":      rules,
+		"Decision":   humanReadableDecision(entry.PolicyDecision),
+		"RequireSig": s.cfg.Identity.RequireSignature,
 	}
 
-	s.renderTemplate(w, eventDetailTmpl, data)
+	// Agent metadata
+	if agent, ok := s.cfg.Agents[entry.FromAgent]; ok {
+		data["AgentDesc"] = agent.Description
+		data["AgentCreatedBy"] = agent.CreatedBy
+		data["AgentCreatedAt"] = agent.CreatedAt
+		data["AgentLocation"] = agent.Location
+		data["AgentSuspended"] = agent.Suspended
+		data["ToolConstraintCount"] = len(agent.ToolConstraints)
+	}
+
+	// LLM analysis
+	var llmRiskScore float64 = -1
+	var llmAction string
+	if s.audit != nil {
+		if la, _ := s.audit.QueryLLMAnalysisByMessage(entry.ID); la != nil {
+			llmRiskScore = la.RiskScore
+			llmAction = la.RecommendedAction
+			data["LLMAnalysis"] = la
+		}
+	}
+	data["LLMRiskScore"] = llmRiskScore
+	data["LLMAction"] = llmAction
+
+	// Rule count
+	if s.scanner != nil {
+		data["RuleCount"] = len(s.scanner.ListRules())
+	}
+
+	return data
+}
+
+func (s *Server) handleEventDetail(w http.ResponseWriter, r *http.Request) {
+	entry, err := s.audit.QueryByID(r.PathValue("id"))
+	if err != nil || entry == nil {
+		s.handleNotFound(w, r)
+		return
+	}
+	s.renderTemplate(w, eventDetailTmpl, s.buildEventData(entry))
+}
+
+func (s *Server) handleEventPage(w http.ResponseWriter, r *http.Request) {
+	entry, err := s.audit.QueryByID(r.PathValue("id"))
+	if err != nil || entry == nil {
+		s.handleNotFound(w, r)
+		return
+	}
+	data := s.buildEventData(entry)
+	data["Active"] = "events"
+	s.renderTemplate(w, eventPageTmpl, data)
 }
 
 func parseTriggeredRules(raw string) []triggeredRule {
@@ -1314,12 +1349,18 @@ func (s *Server) resolveRuleCategories(rules []triggeredRule) {
 	if s.scanner == nil {
 		return
 	}
-	ruleMap := make(map[string]string)
-	for _, ri := range s.scanner.ListRules() {
-		ruleMap[ri.ID] = ri.Category
+	s.ruleCatMu.Lock()
+	if s.ruleCatMap == nil {
+		s.ruleCatMap = make(map[string]string)
+		for _, ri := range s.scanner.ListRules() {
+			s.ruleCatMap[ri.ID] = ri.Category
+		}
 	}
+	catMap := s.ruleCatMap
+	s.ruleCatMu.Unlock()
+
 	for i := range rules {
-		if cat, ok := ruleMap[rules[i].RuleID]; ok {
+		if cat, ok := catMap[rules[i].RuleID]; ok {
 			rules[i].Category = cat
 		}
 	}
@@ -1558,6 +1599,9 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 	// Invalidate rule cache so the new rule appears immediately
 	if s.scanner != nil {
 		s.scanner.InvalidateCache()
+		s.ruleCatMu.Lock()
+		s.ruleCatMap = nil
+		s.ruleCatMu.Unlock()
 	}
 
 	http.Redirect(w, r, "/dashboard/rules?tab=custom", http.StatusFound)
@@ -1640,6 +1684,9 @@ func (s *Server) handleDeleteCustomRule(w http.ResponseWriter, r *http.Request) 
 			}
 			if s.scanner != nil {
 				s.scanner.InvalidateCache()
+				s.ruleCatMu.Lock()
+				s.ruleCatMap = nil
+				s.ruleCatMu.Unlock()
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(http.StatusOK)
@@ -2166,7 +2213,6 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"ServerBind":     serverBind,
 		"LogLevel":       s.cfg.Server.LogLevel,
 		"CustomRulesDir": s.cfg.CustomRulesDir,
-		"WebhookCount":    len(s.cfg.Webhooks),
 		"WebhookChannels": s.cfg.Webhooks,
 
 		"DefaultPolicy":        s.cfg.DefaultPolicy,
@@ -2250,11 +2296,21 @@ func (s *Server) handleLLMCase(w http.ResponseWriter, r *http.Request) {
 		agentSuspended = agent.Suspended
 	}
 	agentHistory, _ := s.audit.QueryLLMAgentHistory(a.FromAgent, a.ID, 5)
+
+	// Fetch original audit entry to show the content that triggered the analysis
+	var toolArgs string
+	if a.MessageID != "" {
+		if entry, err := s.audit.QueryByID(a.MessageID); err == nil && entry != nil {
+			toolArgs = entry.Intent
+		}
+	}
+
 	data := map[string]any{
 		"Active":         "llm",
 		"Analysis":       a,
 		"AgentSuspended": agentSuspended,
 		"AgentHistory":   agentHistory,
+		"ToolArgs":       toolArgs,
 	}
 	s.renderTemplate(w, llmCaseTmpl, data)
 }
@@ -2306,6 +2362,9 @@ func (s *Server) handleApproveLLMRule(w http.ResponseWriter, r *http.Request) {
 	// Reload detection rules if scanner supports it
 	if s.scanner != nil {
 		s.scanner.InvalidateCache()
+		s.ruleCatMu.Lock()
+		s.ruleCatMap = nil
+		s.ruleCatMu.Unlock()
 	}
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<span style="color:var(--success);font-weight:600;font-size:0.82rem">&#10003; Approved &mdash; rule is now active</span>`)
@@ -2346,6 +2405,7 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 
 	s.cfg.LLM.Model = r.FormValue("model")
 	s.cfg.LLM.BaseURL = r.FormValue("base_url")
+	s.cfg.LLM.APIKey = r.FormValue("api_key")
 	s.cfg.LLM.APIKeyEnv = r.FormValue("api_key_env")
 	if v := r.FormValue("timeout"); v != "" {
 		s.cfg.LLM.Timeout = v
@@ -2717,8 +2777,16 @@ func (s *Server) populateLLMStats(data map[string]any) {
 // --- Graph handlers ---
 
 func (s *Server) buildGraph(since string) *graph.AgentGraph {
-	var agents []graph.AgentMeta
-	for name, a := range s.cfg.Agents {
+	// Collect and sort agents for deterministic node ordering.
+	names := make([]string, 0, len(s.cfg.Agents))
+	for name := range s.cfg.Agents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	agents := make([]graph.AgentMeta, 0, len(names))
+	for _, name := range names {
+		a := s.cfg.Agents[name]
 		agents = append(agents, graph.AgentMeta{
 			Name:        name,
 			Description: a.Description,
@@ -2729,17 +2797,45 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 	}
 
 	edgeStats, _ := s.audit.QueryEdgeStats(since)
-	edges := make([]graph.EdgeInput, len(edgeStats))
-	for i, es := range edgeStats {
-		edges[i] = graph.EdgeInput{
-			From:        es.From,
-			To:          es.To,
-			Delivered:   es.Delivered,
-			Blocked:     es.Blocked,
-			Quarantined: es.Quarantined,
-			Rejected:    es.Rejected,
-			Total:       es.Total,
+
+	// Collapse gateway/tool edges: "agent → gateway/X" becomes "agent → gateway".
+	// Skip forward proxy entries (IPs with ports, hostnames with dots).
+	// Multiple tool calls from the same agent are merged into one edge.
+	type edgeKey struct{ from, to string }
+	merged := make(map[edgeKey]*graph.EdgeInput)
+	for _, es := range edgeStats {
+		// Skip forward proxy traffic (IP:port sources and domain destinations)
+		if strings.Contains(es.From, ":") || strings.Count(es.From, ".") >= 2 ||
+			strings.Contains(es.To, ":") || strings.Count(es.To, ".") >= 2 {
+			continue
 		}
+		to := es.To
+		if strings.HasPrefix(to, "gateway/") {
+			to = "gateway"
+		}
+		k := edgeKey{es.From, to}
+		if m, ok := merged[k]; ok {
+			m.Delivered += es.Delivered
+			m.Blocked += es.Blocked
+			m.Quarantined += es.Quarantined
+			m.Rejected += es.Rejected
+			m.Total += es.Total
+		} else {
+			merged[k] = &graph.EdgeInput{
+				From:        es.From,
+				To:          to,
+				Delivered:   es.Delivered,
+				Blocked:     es.Blocked,
+				Quarantined: es.Quarantined,
+				Rejected:    es.Rejected,
+				Total:       es.Total,
+			}
+		}
+	}
+
+	edges := make([]graph.EdgeInput, 0, len(merged))
+	for _, e := range merged {
+		edges = append(edges, *e)
 	}
 
 	return graph.Build(agents, edges)

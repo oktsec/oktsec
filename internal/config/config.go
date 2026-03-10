@@ -40,7 +40,8 @@ type LLMConfig struct {
 	Provider      string `yaml:"provider"`                // openai | claude | webhook
 	Model         string `yaml:"model"`                   // model name/ID
 	BaseURL       string `yaml:"base_url,omitempty"`      // override for Ollama, vLLM, Azure, etc.
-	APIKeyEnv     string `yaml:"api_key_env,omitempty"`   // env var name (never raw key)
+	APIKey        string `yaml:"api_key,omitempty"`       // direct API key (takes precedence)
+	APIKeyEnv     string `yaml:"api_key_env,omitempty"`   // env var name
 	APIVersion    string `yaml:"api_version,omitempty"`   // for Azure OpenAI
 
 	MaxTokens     int     `yaml:"max_tokens,omitempty"`     // per-analysis (default: 2048)
@@ -67,6 +68,7 @@ type LLMFallbackConfig struct {
 	Provider   string `yaml:"provider,omitempty"`      // openai | claude | webhook
 	Model      string `yaml:"model,omitempty"`
 	BaseURL    string `yaml:"base_url,omitempty"`
+	APIKey     string `yaml:"api_key,omitempty"`
 	APIKeyEnv  string `yaml:"api_key_env,omitempty"`
 	APIVersion string `yaml:"api_version,omitempty"`
 	MaxTokens  int    `yaml:"max_tokens,omitempty"`
@@ -137,17 +139,41 @@ type IdentityConfig struct {
 
 // Agent defines per-agent access control and metadata.
 type Agent struct {
-	CanMessage     []string                `yaml:"can_message"`
-	BlockedContent []string                `yaml:"blocked_content"`
-	AllowedTools   []string                `yaml:"allowed_tools,omitempty"`   // tool names the agent can call (empty = all)
-	ToolPolicies   map[string]ToolPolicy   `yaml:"tool_policies,omitempty"`  // per-tool enforcement policies
-	Suspended      bool                    `yaml:"suspended,omitempty"`
-	Description    string                  `yaml:"description,omitempty"`
-	CreatedBy      string                  `yaml:"created_by,omitempty"`
-	CreatedAt      string                  `yaml:"created_at,omitempty"`
-	Location       string                  `yaml:"location,omitempty"`
-	Tags           []string                `yaml:"tags,omitempty"`
-	Egress         *EgressPolicy           `yaml:"egress,omitempty"`
+	CanMessage      []string                `yaml:"can_message"`
+	BlockedContent  []string                `yaml:"blocked_content"`
+	AllowedTools    []string                `yaml:"allowed_tools,omitempty"`    // tool names the agent can call (empty = all)
+	ToolPolicies    map[string]ToolPolicy   `yaml:"tool_policies,omitempty"`   // per-tool enforcement policies
+	ToolConstraints []ToolConstraintConfig  `yaml:"tool_constraints,omitempty"` // per-tool parameter constraints
+	ToolChainRules  []ToolChainRuleConfig   `yaml:"tool_chain_rules,omitempty"` // sequential tool blocking rules
+	Suspended       bool                    `yaml:"suspended,omitempty"`
+	Description     string                  `yaml:"description,omitempty"`
+	CreatedBy       string                  `yaml:"created_by,omitempty"`
+	CreatedAt       string                  `yaml:"created_at,omitempty"`
+	Location        string                  `yaml:"location,omitempty"`
+	Tags            []string                `yaml:"tags,omitempty"`
+	Egress          *EgressPolicy           `yaml:"egress,omitempty"`
+}
+
+// ToolConstraintConfig defines per-tool parameter and usage limits.
+type ToolConstraintConfig struct {
+	Tool             string                          `yaml:"tool" json:"tool"`
+	Parameters       map[string]ParamConstraintConfig `yaml:"parameters,omitempty" json:"parameters,omitempty"`
+	MaxResponseBytes int                             `yaml:"max_response_bytes,omitempty" json:"max_response_bytes,omitempty"`
+	CooldownSecs     int                             `yaml:"cooldown_secs,omitempty" json:"cooldown_secs,omitempty"`
+}
+
+// ParamConstraintConfig defines validation rules for a single tool parameter.
+type ParamConstraintConfig struct {
+	AllowedPatterns []string `yaml:"allowed_patterns,omitempty" json:"allowed_patterns,omitempty"` // glob patterns
+	BlockedPatterns []string `yaml:"blocked_patterns,omitempty" json:"blocked_patterns,omitempty"` // glob patterns
+	MaxLength       int      `yaml:"max_length,omitempty" json:"max_length,omitempty"`
+}
+
+// ToolChainRuleConfig blocks certain tools after a triggering tool is called.
+type ToolChainRuleConfig struct {
+	If           string   `yaml:"if" json:"if"`                       // tool that triggers
+	Then         []string `yaml:"then" json:"then"`                   // tools that become blocked
+	CooldownSecs int      `yaml:"cooldown_secs" json:"cooldown_secs"` // how long the block lasts
 }
 
 // ToolPolicy defines per-tool enforcement rules for an agent.
@@ -211,6 +237,8 @@ type AlertingConfig struct {
 // ForwardProxyConfig configures the HTTP forward proxy for Docker Sandbox integration.
 type ForwardProxyConfig struct {
 	Enabled        bool     `yaml:"enabled"`                    // Default: false
+	Port           int      `yaml:"port,omitempty"`             // Default: 8083
+	Bind           string   `yaml:"bind,omitempty"`             // Default: 127.0.0.1
 	AllowedDomains []string `yaml:"allowed_domains,omitempty"`  // Empty = allow all
 	BlockedDomains []string `yaml:"blocked_domains,omitempty"`  // Takes precedence over allowed
 	ScanRequests   bool     `yaml:"scan_requests"`              // Scan outbound HTTP bodies (default: true)
@@ -302,6 +330,11 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("resolving db_path: %w", err)
 		}
 		cfg.DBPath = abs
+	}
+
+	// Forward proxy defaults
+	if cfg.ForwardProxy.Port == 0 {
+		cfg.ForwardProxy.Port = 8083
 	}
 
 	// Gateway defaults
@@ -403,8 +436,11 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
-	if c.ForwardProxy.Enabled && len(c.ForwardProxy.BlockedDomains) == 0 && len(c.ForwardProxy.AllowedDomains) == 0 {
-		return fmt.Errorf("forward_proxy is enabled without allowed_domains or blocked_domains (open proxy); configure at least one")
+	// Forward proxy without domain lists is valid when scan_requests or scan_responses is enabled
+	// (dual-layer mode: scanning without domain restriction)
+	if c.ForwardProxy.Enabled && len(c.ForwardProxy.BlockedDomains) == 0 && len(c.ForwardProxy.AllowedDomains) == 0 &&
+		!c.ForwardProxy.ScanRequests && !c.ForwardProxy.ScanResponses {
+		return fmt.Errorf("forward_proxy is enabled without allowed_domains, blocked_domains, or scanning; configure at least one")
 	}
 	if c.ForwardProxy.MaxBodySize < 0 {
 		return fmt.Errorf("forward_proxy.max_body_size must be non-negative")
@@ -417,8 +453,8 @@ func (c *Config) Validate() error {
 		default:
 			return fmt.Errorf("llm.provider %q is invalid (must be openai, claude, or webhook)", c.LLM.Provider)
 		}
-		if c.LLM.Provider == "claude" && c.LLM.APIKeyEnv == "" {
-			return fmt.Errorf("llm.api_key_env is required for claude provider")
+		if c.LLM.Provider == "claude" && c.LLM.APIKey == "" && c.LLM.APIKeyEnv == "" {
+			return fmt.Errorf("llm.api_key or llm.api_key_env is required for claude provider")
 		}
 		if c.LLM.Provider == "webhook" && c.LLM.Webhook.URL == "" {
 			return fmt.Errorf("llm.webhook.url is required for webhook provider")

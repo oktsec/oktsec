@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,7 @@ import (
 type contextKey string
 
 const agentContextKey contextKey = "oktsec-agent"
+const sessionContextKey contextKey = "oktsec-session"
 
 // toolMapping maps a frontend tool name to its backend.
 type toolMapping struct {
@@ -34,20 +36,24 @@ type toolMapping struct {
 
 // Gateway is the MCP security gateway server.
 type Gateway struct {
-	cfg            *config.Config
-	mcpServer      *mcp.Server
-	httpServer     *http.Server
-	ln             net.Listener
-	backends       map[string]*Backend
-	toolMap        map[string]toolMapping
-	scanner        *engine.Scanner
-	audit          *audit.Store
-	webhooks       *proxy.WebhookNotifier
-	rateLimiter    *proxy.RateLimiter
-	policyEnforcer *ToolPolicyEnforcer
-	llmQueue       *llm.Queue
-	signalDetector *llm.SignalDetector
-	logger         *slog.Logger
+	cfg               *config.Config
+	mcpServer         *mcp.Server
+	httpServer        *http.Server
+	ln                net.Listener
+	backends          map[string]*Backend
+	toolMap           map[string]toolMapping
+	scanner           *engine.Scanner
+	audit             *audit.Store
+	webhooks          *proxy.WebhookNotifier
+	rateLimiter       *proxy.RateLimiter
+	policyEnforcer    *ToolPolicyEnforcer
+	constraintChecker *ConstraintChecker
+	llmQueue          *llm.Queue
+	signalDetector    *llm.SignalDetector
+	logger            *slog.Logger
+	registeredAgents  map[string]bool
+	registeredMu      sync.Mutex
+	cfgPath           string
 }
 
 // NewGateway creates a gateway from the given configuration.
@@ -63,31 +69,37 @@ func NewGateway(cfg *config.Config, logger *slog.Logger) (*Gateway, error) {
 	webhooks := proxy.NewWebhookNotifier(cfg.Webhooks, logger)
 	rateLimiter := proxy.NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS)
 
+	agentConstraints, agentChainRules := buildConstraintMaps(cfg)
+
 	return &Gateway{
-		cfg:            cfg,
-		backends:       make(map[string]*Backend),
-		toolMap:        make(map[string]toolMapping),
-		scanner:        scanner,
-		audit:          auditStore,
-		webhooks:       webhooks,
-		rateLimiter:    rateLimiter,
-		policyEnforcer: NewToolPolicyEnforcer(),
-		logger:         logger,
+		cfg:               cfg,
+		backends:          make(map[string]*Backend),
+		toolMap:           make(map[string]toolMapping),
+		scanner:           scanner,
+		audit:             auditStore,
+		webhooks:          webhooks,
+		rateLimiter:       rateLimiter,
+		policyEnforcer:    NewToolPolicyEnforcer(),
+		constraintChecker: NewConstraintChecker(agentConstraints, agentChainRules),
+		logger:           logger,
+		registeredAgents: make(map[string]bool),
 	}, nil
 }
 
 // newGatewayForTest creates a gateway with injected dependencies (no real scanner/audit).
 func newGatewayForTest(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.Store, logger *slog.Logger) *Gateway {
+	agentConstraints, agentChainRules := buildConstraintMaps(cfg)
 	return &Gateway{
-		cfg:            cfg,
-		backends:       make(map[string]*Backend),
-		toolMap:        make(map[string]toolMapping),
-		scanner:        scanner,
-		audit:          auditStore,
-		webhooks:       proxy.NewWebhookNotifier(nil, logger),
-		rateLimiter:    proxy.NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
-		policyEnforcer: NewToolPolicyEnforcer(),
-		logger:         logger,
+		cfg:               cfg,
+		backends:          make(map[string]*Backend),
+		toolMap:           make(map[string]toolMapping),
+		scanner:           scanner,
+		audit:             auditStore,
+		webhooks:          proxy.NewWebhookNotifier(nil, logger),
+		rateLimiter:       proxy.NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
+		policyEnforcer:    NewToolPolicyEnforcer(),
+		constraintChecker: NewConstraintChecker(agentConstraints, agentChainRules),
+		logger:            logger,
 	}
 }
 
@@ -130,6 +142,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 		// Clone and expose with the (possibly namespaced) frontend name
 		toolCopy := *tool
 		toolCopy.Name = frontendName
+		toolCopy.InputSchema = buildSchemaWithAgent(tool.InputSchema)
 		g.mcpServer.AddTool(&toolCopy, g.makeHandler(mapping))
 	}
 
@@ -139,13 +152,16 @@ func (g *Gateway) Start(ctx context.Context) error {
 		nil,
 	)
 
-	// Wrap with middleware for agent header injection
+	// Wrap with middleware for agent header and session ID injection
 	agentMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		agent := r.Header.Get("X-Oktsec-Agent")
 		if agent == "" {
 			agent = "unknown"
 		}
 		ctx := context.WithValue(r.Context(), agentContextKey, agent)
+		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
+			ctx = context.WithValue(ctx, sessionContextKey, sid)
+		}
 		streamable.ServeHTTP(w, r.WithContext(ctx))
 	})
 
@@ -293,22 +309,40 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		start := time.Now()
 		msgID := uuid.New().String()
 
-		// 1. Extract agent name from context
+		// 1. Extract agent name from context (parent identity from HTTP header)
 		agent, _ := ctx.Value(agentContextKey).(string)
 		if agent == "" {
 			agent = "unknown"
 		}
 
+		// 1a. Extract sub-agent identity from tool arguments
+		// Sub-agents include _oktsec_agent param to identify themselves.
+		subAgent := extractAndStripAgentParam(req)
+		if subAgent != "" {
+			agent = subAgent
+			// Auto-register unknown agents with permissive defaults
+			g.autoRegisterAgent(agent)
+		}
+
+		// 1b. Extract tool arguments summary for audit (after stripping _oktsec_agent)
+		toolArgs := summarizeToolArgs(req)
+
+		// 1c. Extract MCP session ID for sub-agent tracking
+		var sessionID string
+		if req.Session != nil {
+			sessionID = req.Session.ID()
+		}
+
 		// 2. Rate limit check
 		if !g.rateLimiter.Allow(agent) {
-			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionRateLimited, "[]", start)
+			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionRateLimited, "[]", toolArgs, sessionID, start)
 			return toolError("rate limit exceeded"), nil
 		}
 
 		// 3. Tool allowlist check
 		if agentCfg, ok := g.cfg.Agents[agent]; ok {
 			if agentCfg.Suspended {
-				g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionAgentSuspended, "[]", start)
+				g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionAgentSuspended, "[]", toolArgs, sessionID, start)
 				return toolError("agent suspended"), nil
 			}
 			if len(agentCfg.AllowedTools) > 0 {
@@ -320,7 +354,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 					}
 				}
 				if !allowed {
-					g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionToolNotAllowed, "[]", start)
+					g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionToolNotAllowed, "[]", toolArgs, sessionID, start)
 					return toolError(fmt.Sprintf("tool %q not allowed for agent %q", m.OriginalName, agent)), nil
 				}
 			}
@@ -336,9 +370,24 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 					if result.Decision == "quarantine_approval" {
 						status = audit.StatusQuarantined
 					}
-					g.logAudit(msgID, agent, m.OriginalName, status, result.Decision, "[]", start)
+					g.logAudit(msgID, agent, m.OriginalName, status, result.Decision, "[]", toolArgs, sessionID, start)
 					return toolError(fmt.Sprintf("tool policy: %s", result.Reason)), nil
 				}
+			}
+		}
+
+		// 3c. Tool constraint validation (parameter patterns, chain rules)
+		if g.constraintChecker != nil {
+			params := make(map[string]string)
+			for k, v := range mcputil.GetArguments(req.Params.Arguments) {
+				if s, ok := v.(string); ok {
+					params[k] = s
+				}
+			}
+			result := g.constraintChecker.CheckToolCall(agent, m.OriginalName, params)
+			if !result.Allowed {
+				g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionConstraintViolated, "[]", toolArgs, sessionID, start)
+				return toolError(fmt.Sprintf("constraint: %s", result.Reason)), nil
 			}
 		}
 
@@ -351,7 +400,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		outcome, err := g.scanner.ScanContent(scanCtx, content)
 		if err != nil {
 			g.logger.Error("scan failed", "error", err, "tool", m.OriginalName)
-			g.logAudit(msgID, agent, m.OriginalName, audit.StatusDelivered, audit.DecisionScanError, "[]", start)
+			g.logAudit(msgID, agent, m.OriginalName, audit.StatusDelivered, audit.DecisionScanError, "[]", toolArgs, sessionID, start)
 			// Forward on scan error — fail open
 		}
 
@@ -372,7 +421,12 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		status, decision := verdictToGateway(outcome.Verdict)
 
 		// 9. Audit log
-		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, start)
+		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start)
+
+		// 9a. Record tool call for constraint chain rule tracking
+		if g.constraintChecker != nil {
+			g.constraintChecker.RecordToolCall(agent, m.OriginalName)
+		}
 
 		// 9b. Async LLM analysis (non-blocking)
 		g.submitToLLM(agent, m.OriginalName, content, outcome.Verdict, outcome.Findings)
@@ -432,18 +486,114 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 	}
 }
 
+// SetCfgPath sets the config file path for auto-registration persistence.
+func (g *Gateway) SetCfgPath(path string) {
+	g.cfgPath = path
+}
+
+// ReloadConfig re-reads config from disk and hot-swaps runtime components
+// (agents, constraints, rate limiter, webhooks). LLM queue is rebuilt externally
+// via the returned config so the caller can wire OnResult callbacks.
+// Returns the new config (nil if reload failed).
+func (g *Gateway) ReloadConfig() *config.Config {
+	if g.cfgPath == "" {
+		g.logger.Warn("config reload skipped: no config path set")
+		return nil
+	}
+	newCfg, err := config.Load(g.cfgPath)
+	if err != nil {
+		g.logger.Error("config reload failed", "error", err)
+		return nil
+	}
+
+	// Swap config pointer
+	g.cfg = newCfg
+
+	// Rebuild constraint maps
+	agentConstraints, agentChainRules := buildConstraintMaps(newCfg)
+	g.constraintChecker = NewConstraintChecker(agentConstraints, agentChainRules)
+
+	// Rebuild rate limiter with new settings
+	g.rateLimiter = proxy.NewRateLimiter(newCfg.RateLimit.PerAgent, newCfg.RateLimit.WindowS)
+
+	// Rebuild webhooks
+	g.webhooks = proxy.NewWebhookNotifier(newCfg.Webhooks, g.logger)
+
+	// Clear auto-registered agents cache so new config agents take effect
+	g.registeredMu.Lock()
+	g.registeredAgents = make(map[string]bool)
+	g.registeredMu.Unlock()
+
+	g.logger.Info("config reloaded",
+		"agents", len(newCfg.Agents),
+		"llm_enabled", newCfg.LLM.Enabled,
+	)
+	return newCfg
+}
+
+// autoRegisterAgent adds a new agent to the config if it doesn't exist.
+// Called when an unknown _oktsec_agent name is seen in traffic.
+func (g *Gateway) autoRegisterAgent(name string) {
+	var needSave bool
+
+	g.registeredMu.Lock()
+	if g.registeredAgents[name] {
+		g.registeredMu.Unlock()
+		return
+	}
+	if _, exists := g.cfg.Agents[name]; exists {
+		g.registeredAgents[name] = true
+		g.registeredMu.Unlock()
+		return
+	}
+
+	// Cap to prevent unbounded growth from malicious agent names
+	if len(g.registeredAgents) >= 500 {
+		g.registeredMu.Unlock()
+		g.logger.Warn("auto-register cap reached, ignoring new agent", "name", name)
+		return
+	}
+
+	// Auto-register with permissive defaults
+	if g.cfg.Agents == nil {
+		g.cfg.Agents = make(map[string]config.Agent)
+	}
+	g.cfg.Agents[name] = config.Agent{
+		CanMessage:     []string{"*"},
+		BlockedContent: []string{},
+		Description:    "Auto-registered from gateway traffic",
+		CreatedBy:      "gateway",
+		CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+		Location:       "gateway/mcp",
+	}
+	g.registeredAgents[name] = true
+	needSave = g.cfgPath != ""
+	g.registeredMu.Unlock()
+
+	g.logger.Info("auto-registered agent", "name", name)
+
+	// Persist outside lock to avoid blocking the hot path
+	if needSave {
+		if err := g.cfg.Save(g.cfgPath); err != nil {
+			g.logger.Warn("failed to save auto-registered agent", "name", name, "error", err)
+		}
+	}
+}
+
 // logAudit writes an audit entry for a gateway tool call.
-func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON string, start time.Time) {
+func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, toolArgs, sessionID string, start time.Time) {
 	g.audit.Log(audit.Entry{
 		ID:             msgID,
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
 		FromAgent:      agent,
-		ToAgent:        "gateway/" + tool,
+		ToAgent:        "gateway",
 		ContentHash:    "",
 		Status:         status,
 		RulesTriggered: findingsJSON,
 		PolicyDecision: decision,
 		LatencyMs:      time.Since(start).Milliseconds(),
+		Intent:         toolArgs,
+		SessionID:      sessionID,
 	})
 }
 
@@ -465,6 +615,7 @@ func (g *Gateway) SetSignalDetector(sd *llm.SignalDetector) {
 // submitToLLM submits tool call content for async LLM analysis if configured.
 func (g *Gateway) submitToLLM(agent, tool, content string, v engine.ScanVerdict, findings []engine.FindingSummary) {
 	if g.llmQueue == nil || g.cfg == nil {
+		g.logger.Debug("llm skip: queue or cfg nil", "queue_nil", g.llmQueue == nil, "cfg_nil", g.cfg == nil)
 		return
 	}
 
@@ -499,7 +650,7 @@ func (g *Gateway) submitToLLM(agent, tool, content string, v engine.ScanVerdict,
 	g.llmQueue.Submit(llm.AnalysisRequest{
 		MessageID:      fmt.Sprintf("gw-%s-%d", tool, time.Now().UnixNano()),
 		FromAgent:      agent,
-		ToAgent:        "gateway/" + tool,
+		ToAgent:        "gateway",
 		Content:        content,
 		CurrentVerdict: v,
 		Findings:       findings,
@@ -510,6 +661,20 @@ func (g *Gateway) submitToLLM(agent, tool, content string, v engine.ScanVerdict,
 // toolError creates a CallToolResult with IsError=true.
 func toolError(msg string) *mcp.CallToolResult {
 	return mcputil.NewToolResultError(msg)
+}
+
+// summarizeToolArgs returns a compact JSON string of tool arguments for audit.
+// Truncates to 512 chars to keep the audit log manageable.
+func summarizeToolArgs(req *mcp.CallToolRequest) string {
+	raw := req.Params.Arguments
+	if len(raw) == 0 || string(raw) == "{}" || string(raw) == "null" {
+		return ""
+	}
+	s := string(raw)
+	if len(s) > 512 {
+		return s[:512]
+	}
+	return s
 }
 
 // extractToolContent serializes tool name + arguments for scanning.
@@ -541,6 +706,130 @@ func extractResultContent(result *mcp.CallToolResult) string {
 		content += "\n" + p
 	}
 	return content
+}
+
+// injectAgentParam adds an optional _oktsec_agent property to a tool's InputSchema.
+// This allows sub-agents (e.g. Claude Code custom agents) to self-identify
+// so the gateway can track each agent separately in the audit log.
+// buildSchemaWithAgent takes an existing InputSchema and returns a new schema
+// (as map[string]any) with the _oktsec_agent property injected.
+func buildSchemaWithAgent(original any) map[string]any {
+	// Default empty schema
+	schema := map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+		"required":   []any{},
+	}
+
+	// Merge original schema if available
+	if original != nil {
+		raw, err := json.Marshal(original)
+		if err == nil {
+			var orig map[string]any
+			if json.Unmarshal(raw, &orig) == nil {
+				schema = orig
+			}
+		}
+	}
+
+	props, _ := schema["properties"].(map[string]any)
+	if props == nil {
+		props = make(map[string]any)
+	}
+
+	props["_oktsec_agent"] = map[string]any{
+		"type":        "string",
+		"description": "REQUIRED: Your agent/role name for security audit logging. Use your specific agent name (e.g. 'cyber-news-hunter', 'vuln-researcher', 'content-writer'). If you are a sub-agent, use the name you were given when spawned.",
+	}
+	schema["properties"] = props
+
+	required, _ := schema["required"].([]any)
+	required = append(required, "_oktsec_agent")
+	schema["required"] = required
+
+	return schema
+}
+
+// extractAndStripAgentParam extracts _oktsec_agent from the tool call arguments,
+// removes it so backends don't see it, and returns the agent name.
+func extractAndStripAgentParam(req *mcp.CallToolRequest) string {
+	args := mcputil.GetArguments(req.Params.Arguments)
+	if args == nil {
+		return ""
+	}
+	v, ok := args["_oktsec_agent"]
+	if !ok {
+		return ""
+	}
+	name, _ := v.(string)
+	if name == "" {
+		return ""
+	}
+
+	// Remove from arguments before forwarding to backend
+	delete(args, "_oktsec_agent")
+	raw, err := json.Marshal(args)
+	if err == nil {
+		req.Params.Arguments = raw
+	}
+
+	return name
+}
+
+
+// buildConstraintMaps extracts per-agent tool constraints and chain rules
+// from the config, converting config types to gateway types.
+func buildConstraintMaps(cfg *config.Config) (map[string][]ToolConstraint, map[string][]ToolChainRule) {
+	if len(cfg.Agents) == 0 {
+		return nil, nil
+	}
+
+	var agentConstraints map[string][]ToolConstraint
+	var agentChainRules map[string][]ToolChainRule
+
+	for name, agent := range cfg.Agents {
+		if len(agent.ToolConstraints) > 0 {
+			if agentConstraints == nil {
+				agentConstraints = make(map[string][]ToolConstraint)
+			}
+			constraints := make([]ToolConstraint, len(agent.ToolConstraints))
+			for i, tc := range agent.ToolConstraints {
+				constraints[i] = ToolConstraint{
+					Tool:             tc.Tool,
+					MaxResponseBytes: tc.MaxResponseBytes,
+					CooldownSecs:     tc.CooldownSecs,
+				}
+				if len(tc.Parameters) > 0 {
+					constraints[i].Parameters = make(map[string]ParamConstraint)
+					for pName, pc := range tc.Parameters {
+						constraints[i].Parameters[pName] = ParamConstraint{
+							AllowedPatterns: pc.AllowedPatterns,
+							BlockedPatterns: pc.BlockedPatterns,
+							MaxLength:       pc.MaxLength,
+						}
+					}
+				}
+			}
+			agentConstraints[name] = constraints
+		}
+
+		if len(agent.ToolChainRules) > 0 {
+			if agentChainRules == nil {
+				agentChainRules = make(map[string][]ToolChainRule)
+			}
+			rules := make([]ToolChainRule, len(agent.ToolChainRules))
+			for i, cr := range agent.ToolChainRules {
+				rules[i] = ToolChainRule{
+					If:           cr.If,
+					Then:         cr.Then,
+					CooldownSecs: cr.CooldownSecs,
+				}
+			}
+			agentChainRules[name] = rules
+		}
+	}
+
+	return agentConstraints, agentChainRules
 }
 
 // verdictToGateway maps a verdict to (status, policyDecision).

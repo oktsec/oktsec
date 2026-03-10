@@ -23,8 +23,9 @@ func findClientConfig(clientName string) string {
 
 // WrapOpts controls how servers are wrapped.
 type WrapOpts struct {
-	Enforce    bool   // Include --enforce flag in proxy commands
-	ConfigPath string // Absolute path to oktsec.yaml (passed as --config to proxy)
+	Enforce      bool   // Include --enforce flag in proxy commands
+	ConfigPath   string // Absolute path to oktsec.yaml (passed as --config to proxy)
+	ForwardProxy string // Forward proxy URL for HTTP_PROXY injection (e.g. "http://127.0.0.1:8083")
 }
 
 // WrapClient modifies a client's MCP config to route servers through oktsec proxy.
@@ -42,6 +43,11 @@ func WrapClient(clientName string, opts WrapOpts) (wrapped int, err error) {
 
 	if err := os.WriteFile(configPath+".bak", data, 0o644); err != nil {
 		return 0, fmt.Errorf("writing backup: %w", err)
+	}
+
+	// Claude Code stores MCP servers nested under projects
+	if clientName == "claude-code" {
+		return wrapClaudeCode(configPath, data, opts)
 	}
 
 	raw, servers, err := parseMCPConfig(data)
@@ -64,7 +70,7 @@ func WrapAllClients(opts WrapOpts) []WrapResult {
 	}
 
 	for _, cr := range result.Clients {
-		if !isWrappable(cr.Client) {
+		if !IsWrappable(cr.Client) {
 			continue
 		}
 		if len(cr.Servers) == 0 {
@@ -98,19 +104,84 @@ type WrapResult struct {
 // WrappableClients returns client names that support stdio wrapping.
 func WrappableClients() []string {
 	return []string{
-		"claude-desktop", "cursor", "vscode", "cline", "windsurf",
+		"claude-code", "claude-desktop", "cursor", "vscode", "cline", "windsurf",
 		"amp", "gemini-cli", "copilot-cli", "amazon-q",
 		"roo-code", "kilo-code", "boltai", "jetbrains",
 	}
 }
 
-func isWrappable(client string) bool {
+// IsWrappable returns true if the given client name supports wrapping.
+func IsWrappable(client string) bool {
 	for _, c := range WrappableClients() {
 		if c == client {
 			return true
 		}
 	}
 	return false
+}
+
+// wrapClaudeCode handles Claude Code's nested config: projects → {path} → mcpServers.
+func wrapClaudeCode(configPath string, data []byte, opts WrapOpts) (int, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return 0, fmt.Errorf("parsing config: %w", err)
+	}
+
+	total := 0
+
+	// Wrap top-level mcpServers if present
+	if topRaw, ok := raw["mcpServers"]; ok {
+		var servers map[string]mcpServerJSON
+		if json.Unmarshal(topRaw, &servers) == nil && len(servers) > 0 {
+			total += wrapServers(servers, opts)
+			updated, _ := json.Marshal(servers)
+			raw["mcpServers"] = updated
+		}
+	}
+
+	// Wrap servers nested under each project scope
+	if projectsRaw, ok := raw["projects"]; ok {
+		var projects map[string]json.RawMessage
+		if json.Unmarshal(projectsRaw, &projects) == nil {
+			for projPath, projRaw := range projects {
+				var proj map[string]json.RawMessage
+				if json.Unmarshal(projRaw, &proj) != nil {
+					continue
+				}
+				mcpRaw, ok := proj["mcpServers"]
+				if !ok {
+					continue
+				}
+				var servers map[string]mcpServerJSON
+				if json.Unmarshal(mcpRaw, &servers) != nil || len(servers) == 0 {
+					continue
+				}
+				n := wrapServers(servers, opts)
+				if n > 0 {
+					total += n
+					updated, _ := json.Marshal(servers)
+					proj["mcpServers"] = updated
+					projUpdated, _ := json.Marshal(proj)
+					projects[projPath] = projUpdated
+				}
+			}
+			projsUpdated, _ := json.Marshal(projects)
+			raw["projects"] = projsUpdated
+		}
+	}
+
+	if total == 0 {
+		return 0, nil
+	}
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return 0, fmt.Errorf("marshaling config: %w", err)
+	}
+	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+		return 0, fmt.Errorf("writing config: %w", err)
+	}
+	return total, nil
 }
 
 func parseMCPConfig(data []byte) (map[string]json.RawMessage, map[string]mcpServerJSON, error) {
@@ -133,6 +204,11 @@ func wrapServers(servers map[string]mcpServerJSON, opts WrapOpts) int {
 	wrapped := 0
 	for name, srv := range servers {
 		if srv.Command == "oktsec" {
+			// Already wrapped — still inject forward proxy env if missing
+			if opts.ForwardProxy != "" {
+				injectProxyEnv(&srv, opts.ForwardProxy)
+				servers[name] = srv
+			}
 			continue
 		}
 		newArgs := []string{"proxy"}
@@ -152,10 +228,27 @@ func wrapServers(servers map[string]mcpServerJSON, opts WrapOpts) int {
 		newArgs = append(newArgs, srv.Args...)
 		srv.Command = "oktsec"
 		srv.Args = newArgs
+
+		// Inject HTTP_PROXY so child process egress goes through oktsec
+		if opts.ForwardProxy != "" {
+			injectProxyEnv(&srv, opts.ForwardProxy)
+		}
+
 		servers[name] = srv
 		wrapped++
 	}
 	return wrapped
+}
+
+// injectProxyEnv sets HTTP_PROXY, HTTPS_PROXY, and NO_PROXY on a server config
+// so all outbound HTTP from the child process flows through the oktsec forward proxy.
+func injectProxyEnv(srv *mcpServerJSON, proxyURL string) {
+	if srv.Env == nil {
+		srv.Env = make(map[string]string)
+	}
+	srv.Env["HTTP_PROXY"] = proxyURL
+	srv.Env["HTTPS_PROXY"] = proxyURL
+	srv.Env["NO_PROXY"] = "127.0.0.1,localhost"
 }
 
 func writeMCPConfig(path string, raw map[string]json.RawMessage, servers map[string]mcpServerJSON) error {
