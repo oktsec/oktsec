@@ -330,8 +330,22 @@ func startServer(configPath string, opts runOpts) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stop() // Reset signal handling so a second Ctrl+C forces exit.
+		fmt.Fprintln(os.Stderr, "\nShutting down...")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+
+		// Force exit on second signal while shutting down.
+		go func() {
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+			<-sigCh
+			fmt.Fprintln(os.Stderr, "Force exit.")
+			os.Exit(1)
+		}()
+
+		_ = srv.Shutdown(shutdownCtx)
+		return nil
 	}
 }

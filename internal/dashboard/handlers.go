@@ -28,6 +28,12 @@ import (
 func (s *Server) renderTemplate(w http.ResponseWriter, tmpl *template.Template, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.Execute(w, data); err != nil {
+		// Broken pipe / connection reset during shutdown is expected, not an error.
+		msg := err.Error()
+		if strings.Contains(msg, "broken pipe") || strings.Contains(msg, "connection reset") {
+			s.logger.Debug("template write interrupted", "template", tmpl.Name())
+			return
+		}
 		s.logger.Error("template render failed", "template", tmpl.Name(), "error", err)
 	}
 }
