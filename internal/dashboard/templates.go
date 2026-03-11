@@ -1204,20 +1204,6 @@ var recentPartialTmpl = template.Must(template.New("recent").Funcs(tmplFuncs).Pa
 <div class="empty">No events yet.</div>
 {{end}}`))
 
-var graphStatsTmpl = template.Must(template.New("graph-stats").Funcs(tmplFuncs).Parse(`
-{{range .Stats}}
-<div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
-  <span style="color:var(--text3)">{{.Label}}</span>
-  <span style="font-weight:700;font-family:var(--mono);color:{{.Color}}">{{.Value}}</span>
-</div>
-{{end}}
-{{range .Degraded}}
-<div style="padding:8px 10px;border:1px solid #fbbf24;border-radius:6px;margin-top:8px;background:rgba(251,191,36,0.06)">
-  <div style="color:#fbbf24;font-weight:600;font-size:0.75rem">DEGRADED</div>
-  <div style="color:var(--text3);font-size:0.72rem">{{.Name}} &middot; threat {{.Threat}}</div>
-</div>
-{{end}}`))
-
 var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs).Parse(`
 <div class="grid-2" style="gap:20px">
   <div class="card">
