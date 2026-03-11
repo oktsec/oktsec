@@ -1,5 +1,23 @@
 # Onboarding Flow
 
+## Quick path
+
+The fastest way to get started is `oktsec run`, which handles discovery, config generation, wrapping, and server startup in one command:
+
+```bash
+oktsec run
+```
+
+If no config exists, `run` performs the full onboarding flow below automatically, then starts the server. For more control, use the individual commands described in the rest of this page.
+
+!!! tip "Health check"
+    Run `oktsec doctor` at any time to verify your installation. It checks the home directory, config, secrets, database, keys, port availability, and detection rules.
+
+!!! warning "Deprecated commands"
+    The `setup`, `init`, and `serve` commands still work but print a deprecation notice. Use `oktsec run` instead.
+
+---
+
 ## Discover
 
 Scans your machine for MCP server configurations, OpenClaw, and NanoClaw installations:

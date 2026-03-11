@@ -1,6 +1,47 @@
 # Configuration Reference
 
-Oktsec is configured via `oktsec.yaml`. All commands accept `--config <path>` (default: `oktsec.yaml`).
+Oktsec is configured via YAML. All commands accept `--config <path>` to specify the config file explicitly.
+
+## Config resolution cascade
+
+When no explicit `--config` flag is provided, Oktsec resolves the config file using this 4-step cascade (first match wins):
+
+| Priority | Source | Path |
+|----------|--------|------|
+| 1 | `--config` flag | Explicit path passed on the command line |
+| 2 | `$OKTSEC_CONFIG` env var | Path from the environment variable |
+| 3 | Working directory | `./oktsec.yaml` |
+| 4 | Home directory | `~/.oktsec/config.yaml` |
+
+## Centralized home directory
+
+Oktsec stores all state in `~/.oktsec/`:
+
+```
+~/.oktsec/
+  config.yaml    # Main configuration
+  .env           # Secrets (API keys)
+  keys/          # Ed25519 keypairs
+  oktsec.db      # SQLite audit database
+```
+
+The `oktsec run` command creates this directory structure automatically on first run. Run `oktsec doctor` to verify it.
+
+## Secrets separation
+
+Sensitive values are stored in `~/.oktsec/.env`, separate from the main config:
+
+```bash
+OKTSEC_API_KEY=oks_a1b2c3d4e5f6...
+```
+
+This file is auto-generated on first run with a random `OKTSEC_API_KEY`. Keeping secrets out of the YAML config makes it safe to commit `config.yaml` to version control.
+
+## Config backup
+
+When Oktsec writes to the config file (e.g., via dashboard settings or `oktsec wrap`), it creates a `.bak` backup of the previous version in the same directory before writing.
+
+---
 
 ## Minimal config
 

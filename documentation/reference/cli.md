@@ -1,6 +1,11 @@
 # CLI Reference
 
-All commands accept the global flag `--config <path>` (default: `oktsec.yaml`).
+All commands accept the global flag `--config <path>`. Config is resolved using a 4-step cascade:
+
+1. `--config` flag (explicit path)
+2. `$OKTSEC_CONFIG` environment variable
+3. `./oktsec.yaml` (current directory)
+4. `~/.oktsec/config.yaml` (centralized home directory)
 
 ```bash
 oktsec [command] [flags]
@@ -8,9 +13,60 @@ oktsec [command] [flags]
 
 ---
 
+## Primary Commands
+
+### `run`
+
+The unified command for running Oktsec. If no config exists, performs auto-setup (discovery, config generation, key creation, wrapping) before starting the server.
+
+```bash
+oktsec run
+oktsec run --port 9090 --bind 0.0.0.0
+oktsec run --config /path/to/config.yaml
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--port` | int | config value | Override server port |
+| `--bind` | string | config value | Override bind address |
+| `--config` | string | resolved via cascade | Config file path |
+| `--enforce` | bool | `false` | Start in enforcement mode (block malicious requests) |
+
+What `run` does:
+
+1. Resolves config using the 4-step cascade
+2. If no config exists: discovers MCP clients, generates config and keypairs, wraps servers
+3. Starts the proxy server with dashboard, API, gateway (if configured), and Prometheus metrics
+4. Prints access code and endpoints
+
+### `doctor`
+
+Run 7 health checks to verify your Oktsec installation.
+
+```bash
+oktsec doctor
+```
+
+Checks:
+
+| # | Check | What it verifies |
+|---|-------|------------------|
+| 1 | Home directory | `~/.oktsec/` exists with correct permissions |
+| 2 | Config | Config file is valid and loadable |
+| 3 | Secrets | `.env` file exists with `OKTSEC_API_KEY` |
+| 4 | Database | SQLite database is accessible |
+| 5 | Keys | Ed25519 keypairs exist for all configured agents |
+| 6 | Port | Configured port is available |
+| 7 | Rules | Detection rules load without errors |
+
+---
+
 ## Setup & Onboarding
 
-### `setup`
+### `setup` (deprecated)
+
+!!! warning "Deprecated"
+    Use `oktsec run` instead. The `setup` command still works but prints a deprecation notice.
 
 One-command onboarding: discover all MCP servers, generate config and keypairs, wrap everything.
 
@@ -47,7 +103,10 @@ Checks 17 clients: Claude Desktop, Cursor, VS Code, Cline, Windsurf, Claude Code
 
 Also detects OpenClaw installations and runs a risk assessment.
 
-### `init`
+### `init` (deprecated)
+
+!!! warning "Deprecated"
+    Use `oktsec run` instead. The `init` command still works but prints a deprecation notice.
 
 Generate config and keypairs from discovered servers without wrapping.
 
@@ -104,7 +163,10 @@ oktsec unwrap cursor
 
 ## Server Modes
 
-### `serve`
+### `serve` (deprecated)
+
+!!! warning "Deprecated"
+    Use `oktsec run` instead. The `serve` command still works but prints a deprecation notice.
 
 Start the proxy server with dashboard, API, and Prometheus metrics.
 

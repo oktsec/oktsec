@@ -147,7 +147,7 @@ Agent CRUD, message pipeline, quarantine management, Prometheus metrics, MCP too
     The main mode. Agents send messages via REST API. Full security pipeline with dashboard.
 
     ```bash
-    oktsec serve
+    oktsec run
     ```
 
     ```bash
@@ -224,14 +224,11 @@ Agent CRUD, message pipeline, quarantine management, Prometheus metrics, MCP too
 # Install
 curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
 
-# One-command setup — discovers MCP servers, generates config, wraps everything
-oktsec setup
-
-# Start proxy + dashboard
-oktsec serve
+# Discover, configure, and start — all in one command
+oktsec run
 ```
 
-Open `http://127.0.0.1:8080/dashboard` with the access code printed in your terminal.
+Open `http://127.0.0.1:8080/dashboard` with the access code printed in your terminal. State lives in `~/.oktsec/`.
 
 [Full quick start guide :material-arrow-right:](getting-started/quickstart.md){ .md-button .md-button--primary }
 [View use cases :material-arrow-right:](use-cases/index.md){ .md-button }
