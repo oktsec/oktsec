@@ -46,8 +46,8 @@ func requestID(next http.Handler) http.Handler {
 }
 
 // logging logs each request with slog.
-// Static assets, health checks, and SSE streams are logged at debug level
-// to keep the console clean during normal operation.
+// Only API requests (/v1/*) and errors are logged at Info level.
+// Everything else (dashboard, health, metrics) is Debug.
 func logging(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,23 +55,19 @@ func logging(logger *slog.Logger) func(http.Handler) http.Handler {
 			sw := &statusWriter{ResponseWriter: w, status: 200}
 			next.ServeHTTP(sw, r)
 
-			p := r.URL.Path
 			attrs := []any{
 				"method", r.Method,
-				"path", p,
+				"path", r.URL.Path,
 				"status", sw.status,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"request_id", w.Header().Get("X-Request-ID"),
 			}
 
-			// Demote noisy paths to debug: static assets, health, favicon, SSE
-			if strings.HasPrefix(p, "/dashboard/static/") ||
-				strings.HasPrefix(p, "/dashboard/api/graph") ||
-				p == "/health" || p == "/favicon.ico" ||
-				strings.HasSuffix(p, "/stream") {
-				logger.Debug("request", attrs...)
-			} else {
+			// Log API traffic and errors at Info; everything else at Debug.
+			if strings.HasPrefix(r.URL.Path, "/v1/") || sw.status >= 500 {
 				logger.Info("request", attrs...)
+			} else {
+				logger.Debug("request", attrs...)
 			}
 		})
 	}
