@@ -22,6 +22,9 @@ import (
 	"github.com/oktsec/oktsec/internal/verdict"
 )
 
+// Version is set from the CLI at startup (via ldflags).
+var Version = "dev"
+
 type contextKey string
 
 const agentContextKey contextKey = "oktsec-agent"
@@ -124,7 +127,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 	// Create MCP server and register tools
 	g.mcpServer = mcp.NewServer(&mcp.Implementation{
 		Name:    "oktsec-gateway",
-		Version: "0.1.0",
+		Version: Version,
 	}, nil)
 
 	for frontendName, mapping := range g.toolMap {
@@ -186,7 +189,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"status":  "ok",
-			"version": "0.1.0",
+			"version": Version,
 		})
 	})
 
@@ -315,13 +318,26 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			agent = "unknown"
 		}
 
-		// 1a. Extract sub-agent identity from tool arguments
-		// Sub-agents include _oktsec_agent param to identify themselves.
+		// 1a. Extract sub-agent identity from tool arguments.
+		// The HTTP header (agent) is the authoritative identity for all
+		// security decisions (ACL, policy, suspension checks). The
+		// _oktsec_agent parameter is logged as metadata but cannot
+		// override policy — this prevents agent spoofing.
+		headerAgent := agent
 		subAgent := extractAndStripAgentParam(req)
 		if subAgent != "" {
-			agent = subAgent
-			// Auto-register unknown agents with permissive defaults
-			g.autoRegisterAgent(agent)
+			// Validate: only trust sub-agent if the header agent is
+			// configured and not suspended.
+			if agentCfg, ok := g.cfg.Agents[headerAgent]; ok && !agentCfg.Suspended {
+				agent = subAgent
+				g.autoRegisterAgent(agent)
+			} else {
+				g.logger.Warn("ignoring _oktsec_agent: header agent not configured or suspended",
+					"header_agent", headerAgent,
+					"claimed_agent", subAgent,
+				)
+				// Keep using headerAgent for all checks
+			}
 		}
 
 		// 1b. Extract tool arguments summary for audit (after stripping _oktsec_agent)

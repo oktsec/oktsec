@@ -128,10 +128,12 @@ func reviewQuarantineTool() *mcp.Tool {
 	return &mcp.Tool{
 		Name: "review_quarantine",
 		Description: "Review and manage quarantined messages. List pending items, " +
-			"view details, or approve/reject messages held for human review.",
+			"view details, or approve/reject messages held for human review. " +
+			"Agents cannot approve or reject their own quarantined messages.",
 		InputSchema: jsonSchema(map[string]any{
 			"action": prop("string", "Action to perform: list, detail, approve, reject"),
 			"id":     prop("string", "Quarantine item ID (required for detail, approve, reject)"),
+			"agent":  prop("string", "Your agent name (required for approve/reject to prevent self-review)"),
 			"limit":  prop("number", "Maximum items to return for list action (default 20)"),
 			"status": prop("string", "Filter by status for list action: pending, approved, rejected, expired"),
 		}, []string{"action"}),
@@ -308,6 +310,7 @@ func (h *handlers) handleReviewQuarantine(_ context.Context, request *mcp.CallTo
 	args := request.Params.Arguments
 	action := mcputil.GetString(args, "action", "")
 	id := mcputil.GetString(args, "id", "")
+	agent := mcputil.GetString(args, "agent", "")
 
 	switch action {
 	case "list":
@@ -315,9 +318,9 @@ func (h *handlers) handleReviewQuarantine(_ context.Context, request *mcp.CallTo
 	case "detail":
 		return h.quarantineDetail(id)
 	case "approve":
-		return h.quarantineDecide(id, "approve")
+		return h.quarantineDecide(id, "approve", agent)
 	case "reject":
-		return h.quarantineDecide(id, "reject")
+		return h.quarantineDecide(id, "reject", agent)
 	default:
 		return mcputil.NewToolResultError("action must be one of: list, detail, approve, reject"), nil
 	}
@@ -375,20 +378,35 @@ func (h *handlers) quarantineDetail(id string) (*mcp.CallToolResult, error) {
 	return mcputil.NewToolResultText(string(out)), nil
 }
 
-func (h *handlers) quarantineDecide(id, action string) (*mcp.CallToolResult, error) {
+func (h *handlers) quarantineDecide(id, action, agent string) (*mcp.CallToolResult, error) {
 	if id == "" {
 		return mcputil.NewToolResultError(fmt.Sprintf("id is required for %s action", action)), nil
 	}
-	var err error
+	if agent == "" {
+		return mcputil.NewToolResultError(fmt.Sprintf("agent is required for %s action", action)), nil
+	}
+
+	// Self-review check: agents cannot approve/reject their own quarantined messages
+	item, err := h.audit.QuarantineByID(id)
+	if err != nil {
+		return mcputil.NewToolResultError(fmt.Sprintf("lookup failed: %v", err)), nil
+	}
+	if item == nil {
+		return mcputil.NewToolResultError(fmt.Sprintf("quarantine item %q not found", id)), nil
+	}
+	if item.FromAgent == agent {
+		return mcputil.NewToolResultError("agents cannot review their own quarantined messages"), nil
+	}
+
 	if action == "approve" {
-		err = h.audit.QuarantineApprove(id, "mcp")
+		err = h.audit.QuarantineApprove(id, agent)
 	} else {
-		err = h.audit.QuarantineReject(id, "mcp")
+		err = h.audit.QuarantineReject(id, agent)
 	}
 	if err != nil {
 		return mcputil.NewToolResultError(fmt.Sprintf("%s failed: %v", action, err)), nil
 	}
 	status := action + "d" // approved or rejected
-	out, _ := json.MarshalIndent(map[string]string{"status": status, "id": id}, "", "  ")
+	out, _ := json.MarshalIndent(map[string]string{"status": status, "id": id, "reviewed_by": agent}, "", "  ")
 	return mcputil.NewToolResultText(string(out)), nil
 }
