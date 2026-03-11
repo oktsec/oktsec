@@ -65,6 +65,19 @@ var tmplFuncs = template.FuncMap{
 		}
 	},
 	"upper": strings.ToUpper,
+	"toolDot": func(toolName string) template.HTML {
+		colors := map[string]string{
+			"Bash": "#fbbf24", "Write": "#c084fc", "Edit": "#818cf8",
+			"Read": "#22d3ee", "Glob": "#2dd4bf", "Grep": "#2dd4bf",
+			"WebFetch": "#f472b6", "WebSearch": "#f472b6", "Agent": "#a78bfa",
+		}
+		c := "#71717a"
+		if v, ok := colors[toolName]; ok {
+			c = v
+		}
+		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
+	},
+	"hasRules": func(s string) bool { return s != "" && s != "[]" && s != "null" },
 	"pageTitle": func(active string) string {
 		titles := map[string]string{
 			"events":    "Events",
@@ -489,10 +502,10 @@ tr:hover td{background:rgba(99,102,241,0.04)}
 .agent-targets{color:var(--text3);font-size:0.78rem}
 
 /* Severity labels */
-.sev-critical{color:#f87171;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-high{color:#fb923c;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-medium{color:#60a5fa;font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-low{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-critical{background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-high{background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-medium{background:rgba(96,165,250,0.12);color:#60a5fa;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-low{background:rgba(113,113,122,0.12);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
 .sev-info{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
 
 /* Action badges */
@@ -579,6 +592,7 @@ tr:hover td{background:rgba(99,102,241,0.04)}
 /* Clickable rows */
 tr.clickable{cursor:pointer}
 tr.clickable:hover td{background:var(--surface2)}
+tr.has-rules>td:first-child{border-left:3px solid var(--warn);padding-left:11px}
 
 /* Rule card in list */
 .rule-list-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.2s}
@@ -1296,6 +1310,9 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
 .ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;align-items:start}
+.ad-grid>div{min-width:0}
+.ad-grid table{table-layout:fixed;width:100%}
+.ad-grid .fp{word-break:break-all;overflow-wrap:break-word}
 @media(max-width:960px){.ad-grid{grid-template-columns:1fr}}
 </style>
 <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
@@ -2257,16 +2274,16 @@ var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmp
 
 var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs).Parse(`
 <style>
-.ed-hdr{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border)}
-.ed-hdr h3{margin:0;font-size:0.88rem;font-weight:600;flex:1}
+.ed-hdr{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border)}
 .ed-close{background:none;border:none;color:var(--text3);font-size:1.2rem;cursor:pointer;padding:4px 8px;border-radius:4px;line-height:1}
 .ed-close:hover{background:var(--surface2);color:var(--text)}
 .ed-body{padding:0}
-.ed-section{border-bottom:1px solid var(--border);padding:16px 20px}
+.ed-section{border-bottom:1px solid var(--border);padding:18px 20px}
 .ed-section:last-child{border-bottom:none}
-.ed-slbl{font-size:0.68rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
-.ed-row{display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;font-size:0.78rem}
-.ed-row .k{color:var(--text3)}
+.ed-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+.ed-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ed-row:last-child{border-bottom:none}
+.ed-row .k{color:var(--text3);font-size:0.75rem}
 .ed-row .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ed-row .v a{color:var(--accent-light);text-decoration:none}
 </style>
@@ -2282,41 +2299,42 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
   <a href="/dashboard/events/{{.Entry.ID}}" style="font-size:0.68rem;color:var(--accent-light);text-decoration:none;white-space:nowrap;padding:3px 8px;border-radius:4px;border:1px solid rgba(99,102,241,0.2);transition:background 0.15s" onmouseover="this.style.background='rgba(99,102,241,0.08)'" onmouseout="this.style.background='transparent'">Detail &rarr;</a>
   <button class="ed-close" onclick="closePanel()">&times;</button>
 </div>
+<div style="font-size:0.72rem;color:var(--text3);padding:6px 20px;border-bottom:1px solid var(--border);font-family:var(--mono)" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</div>
 <div class="ed-body">
 
-  <!-- Message started -->
+  <!-- Message received -->
   <div class="ed-section">
-    <div class="ed-slbl">Message received <span style="margin-left:auto;font-family:var(--mono);font-weight:400;text-transform:none;letter-spacing:0" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</span></div>
+    <div class="ed-slbl">Message received</div>
     <div class="ed-row"><span class="k">Event ID</span><span class="v" title="{{.Entry.ID}}">{{.Entry.ID}}</span></div>
     <div class="ed-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
-    <div class="ed-row"><span class="k">To</span><span class="v">{{.Entry.ToAgent}}</span></div>
-    <div class="ed-row"><span class="k">Latency</span><span class="v">{{.Entry.LatencyMs}}ms</span></div>
-    {{if .Entry.SessionID}}<div class="ed-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{.Entry.SessionID}}</span></div>{{end}}
+    <div class="ed-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
+    <div class="ed-row"><span class="k">Latency</span><span class="v" style="color:var(--warn)">{{.Entry.LatencyMs}}ms</span></div>
+    {{if .Entry.SessionID}}<div class="ed-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
   </div>
 
   <!-- Pipeline -->
   <div class="ed-section">
     <div class="ed-slbl">Pipeline</div>
     <div class="ed-row"><span class="k">Identity</span><span class="v">{{if eq .Entry.SignatureVerified 1}}<span style="color:var(--success)">Verified</span>{{else if eq .Entry.SignatureVerified -1}}<span style="color:var(--danger)">Invalid</span>{{else}}{{if .RequireSig}}<span style="color:var(--danger)">Missing</span>{{else}}<span style="color:var(--text3)">Not required</span>{{end}}{{end}}</span></div>
-    <div class="ed-row"><span class="k">Content scan</span><span class="v">{{if .Rules}}<span style="color:var(--warn)">{{len .Rules}} {{if eq (len .Rules) 1}}rule{{else}}rules{{end}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.65rem">({{.RuleCount}})</span></span></div>
-    <div class="ed-row"><span class="k">Verdict</span><span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger)">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn)">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span></div>
+    <div class="ed-row"><span class="k">Content scan</span><span class="v">{{if .Rules}}<span style="color:var(--warn);font-weight:600">{{len .Rules}} {{if eq (len .Rules) 1}}rule{{else}}rules{{end}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.62rem">({{.RuleCount}})</span></span></div>
+    <div class="ed-row"><span class="k">Verdict</span><span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger);font-weight:600">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn);font-weight:600">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span></div>
     {{if ge .LLMRiskScore 0.0}}<div class="ed-row"><span class="k">LLM risk</span><span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#ef4444{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#fbbf24{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}} / 100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span></div>{{end}}
   </div>
 
   <!-- Rules triggered -->
   {{if .Rules}}
   <div class="ed-section">
-    <div class="ed-slbl">Rules triggered</div>
+    <div class="ed-slbl">Rules triggered ({{len .Rules}})</div>
     {{range .Rules}}
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:0.75rem">
-      {{if eq .Severity "CRITICAL"}}<span class="sev-critical" style="font-size:0.6rem">critical</span>
-      {{else if eq .Severity "HIGH"}}<span class="sev-high" style="font-size:0.6rem">high</span>
-      {{else if eq .Severity "MEDIUM"}}<span class="sev-medium" style="font-size:0.6rem">medium</span>
-      {{else}}<span class="sev-low" style="font-size:0.6rem">{{.Severity}}</span>{{end}}
-      <span style="font-family:var(--mono);font-weight:600;color:var(--text)">{{.RuleID}}</span>
-      <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Name}}</span>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:0.75rem;border-bottom:1px solid rgba(255,255,255,0.04)">
+      {{if eq .Severity "CRITICAL"}}<span class="sev-critical">critical</span>
+      {{else if eq .Severity "HIGH"}}<span class="sev-high">high</span>
+      {{else if eq .Severity "MEDIUM"}}<span class="sev-medium">medium</span>
+      {{else}}<span class="sev-low">{{.Severity}}</span>{{end}}
+      <span style="font-family:var(--mono);font-weight:600;color:var(--text);font-size:0.72rem">{{.RuleID}}</span>
+      <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.72rem">{{.Name}}</span>
     </div>
-    {{if .Match}}<div style="font-family:var(--mono);font-size:0.68rem;color:var(--text3);padding:2px 0 4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Match}}">{{.Match}}</div>{{end}}
+    {{if .Match}}<div style="font-family:var(--mono);font-size:0.65rem;color:var(--text3);padding:2px 0 4px;margin-left:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.7" title="{{.Match}}">{{truncate .Match 60}}</div>{{end}}
     {{end}}
   </div>
   {{end}}
@@ -2333,9 +2351,7 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
   <div class="ed-section">
     <div class="ed-slbl">Agent</div>
     <div class="ed-row"><span class="k">Name</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
-    {{if .AgentDesc}}<div class="ed-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{.AgentDesc}}</span></div>{{end}}
-    {{if .AgentLocation}}<div class="ed-row"><span class="k">Location</span><span class="v">{{.AgentLocation}}</span></div>{{end}}
-    {{if .AgentCreatedBy}}<div class="ed-row"><span class="k">Origin</span><span class="v" style="font-family:var(--sans)">{{.AgentCreatedBy}}</span></div>{{end}}
+    {{if .AgentDesc}}<div class="ed-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{truncate .AgentDesc 40}}</span></div>{{end}}
     {{if .ToolConstraintCount}}<div class="ed-row"><span class="k">Constraints</span><span class="v"><span style="color:var(--warn)">{{.ToolConstraintCount}} rules</span></span></div>{{end}}
     {{if .AgentSuspended}}<div class="ed-row"><span class="k">Status</span><span class="v"><span style="color:var(--danger);font-weight:600">Suspended</span></span></div>{{end}}
   </div>
@@ -2389,11 +2405,12 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
 .ep-back:hover{color:var(--accent)}
 .ep-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
 .ep-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-.ep-sec{border-bottom:1px solid var(--border);padding:16px 20px}
+.ep-sec{border-bottom:1px solid var(--border);padding:18px 20px}
 .ep-sec:last-child{border-bottom:none}
-.ep-slbl{font-size:0.68rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
-.ep-row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:0.78rem}
-.ep-row .k{color:var(--text3);flex-shrink:0}
+.ep-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.ep-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ep-row:last-child{border-bottom:none}
+.ep-row .k{color:var(--text3);flex-shrink:0;font-size:0.75rem}
 .ep-row .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:12px}
 .ep-row .v a{color:var(--accent-light);text-decoration:none}
 .ep-rule{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:0.75rem;border-bottom:1px solid var(--border)}
@@ -2426,10 +2443,10 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
       <div class="ep-sec">
         <div class="ep-slbl">Message</div>
         <div class="ep-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a>{{if .AgentSuspended}} <span style="color:var(--danger);font-size:0.58rem;font-weight:600">SUSPENDED</span>{{end}}</span></div>
-        <div class="ep-row"><span class="k">To</span><span class="v">{{.Entry.ToAgent}}</span></div>
-        <div class="ep-row"><span class="k">Latency</span><span class="v">{{.Entry.LatencyMs}}ms</span></div>
-        {{if .Entry.SessionID}}<div class="ep-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{.Entry.SessionID}}</span></div>{{end}}
-        <div class="ep-row"><span class="k">Decision</span><span class="v" style="font-family:var(--sans)">{{.Decision}}</span></div>
+        <div class="ep-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
+        <div class="ep-row"><span class="k">Latency</span><span class="v" style="color:var(--warn)">{{.Entry.LatencyMs}}ms</span></div>
+        {{if .Entry.SessionID}}<div class="ep-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
+        <div class="ep-row"><span class="k">Decision</span><span class="v" style="color:var(--success);font-family:var(--sans)">{{.Decision}}</span></div>
       </div>
 
       <!-- Pipeline -->
@@ -3966,19 +3983,14 @@ updateExportLinks();
   <div id="search-results">
   {{if .Entries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Signature</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
     <tbody id="events-body">
     {{range .Entries}}
-    <tr class="ev-row clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+    <tr class="ev-row clickable{{if hasRules .RulesTriggered}} has-rules{{end}}" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
-      <td>{{agentCell .ToAgent}}</td>
+      <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
-      <td>
-        {{if eq .SignatureVerified 1}}<span class="badge-verified" title="Signature verified">&#10003; Verified</span>
-        {{else if eq .SignatureVerified -1}}<span class="badge-invalid" title="Invalid signature">&#10007; Invalid</span>
-        {{else}}<span class="badge-unsigned" title="Message was not signed">&mdash; Unsigned</span>{{end}}
-      </td>
     </tr>
     {{end}}
     </tbody>
@@ -4092,15 +4104,14 @@ updateExportLinks();
 <div class="tab-content {{if eq .Tab "blocked"}}active{{end}}" data-tab-content="events" data-tab-name="blocked">
   {{if .BlockedEntries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Rules</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
     <tbody>
     {{range .BlockedEntries}}
-    <tr class="blk-row clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+    <tr class="blk-row clickable has-rules" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
-      <td>{{agentCell .ToAgent}}</td>
+      <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.RulesTriggered}}</td>
     </tr>
     {{end}}
     </tbody>
@@ -4144,15 +4155,22 @@ updateExportLinks();
       var ev = JSON.parse(e.data);
       var tbody = document.getElementById('events-body');
       if (!tbody) return;
-      var sigLabel = '<span class="badge-unsigned" title="Message was not signed">&mdash; Unsigned</span>';
-      if (ev.signature_verified === 1) sigLabel = '<span class="badge-verified" title="Signature verified">&#10003; Verified</span>';
-      else if (ev.signature_verified === -1) sigLabel = '<span class="badge-invalid" title="Invalid signature">&#10007; Invalid</span>';
+      var toolColors = {Bash:'#fbbf24',Write:'#c084fc',Edit:'#818cf8',Read:'#22d3ee',Glob:'#2dd4bf',Grep:'#2dd4bf',WebFetch:'#f472b6',WebSearch:'#f472b6',Agent:'#a78bfa'};
+      var toCell;
+      if (ev.tool_name) {
+        var tc = toolColors[ev.tool_name] || '#71717a';
+        toCell = '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:'+tc+';flex-shrink:0"></span>'+ev.tool_name+'</span>';
+      } else {
+        toCell = agentCellHTML(ev.to_agent||'');
+      }
+      var hasRules = ev.rules_triggered && ev.rules_triggered !== '[]' && ev.rules_triggered !== 'null';
       var row = document.createElement('tr');
-      row.className = 'clickable';
+      row.className = 'ev-row clickable' + (hasRules ? ' has-rules' : '');
       row.setAttribute('hx-get', '/dashboard/api/event/' + ev.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
-      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + agentCellHTML(ev.to_agent||'') + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td><td>' + sigLabel + '</td>';
+      row.ondblclick = function(evt){evt.preventDefault();evt.stopPropagation();window.location='/dashboard/events/'+ev.id;};
+      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
@@ -4445,7 +4463,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       var sep=document.createElementNS(NS,'line');
       sep.setAttribute('x1',sx); sep.setAttribute('y1',38);
       sep.setAttribute('x2',sx); sep.setAttribute('y2',H-10);
-      sep.setAttribute('stroke','#1c1c1e'); sep.setAttribute('stroke-width','1');
+      sep.setAttribute('stroke','#2a2a2e'); sep.setAttribute('stroke-width','1');
       sep.setAttribute('stroke-dasharray','2 4');
       svg.appendChild(sep);
     });
@@ -4479,7 +4497,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       else { lineEl=document.createElementNS(NS,'line'); }
       lineEl.setAttribute('stroke',strokeColor);
       lineEl.setAttribute('stroke-width',baseW);
-      lineEl.setAttribute('stroke-opacity',e.isTool?'0.35':'0.4');
+      lineEl.setAttribute('stroke-opacity',e.isTool?'0.5':'0.4');
       if(e.isTool) lineEl.setAttribute('stroke-dasharray','4 3');
       if(!e.isTool) lineEl.setAttribute('marker-end','url(#arr-'+hk+')');
       lineEl.style.cursor='pointer';
@@ -4579,10 +4597,18 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     function getConnectedNames(nodeName){
       var connected={};
       connected[nodeName]=true;
-      links.forEach(function(l){
-        if(l.fromName===nodeName) connected[l.toName]=true;
-        if(l.toName===nodeName) connected[l.fromName]=true;
-      });
+      // Upstream: trace back from clicked node to orchestrator
+      var upstream={};upstream[nodeName]=true;
+      var ch=true;
+      while(ch){ ch=false; links.forEach(function(l){
+        if(!l.isTool&&upstream[l.toName]&&!upstream[l.fromName]){ upstream[l.fromName]=true;connected[l.fromName]=true;ch=true; }
+      });}
+      // Downstream: trace forward from clicked node to tools
+      ch=true;
+      var downstream={};downstream[nodeName]=true;
+      while(ch){ ch=false; links.forEach(function(l){
+        if(downstream[l.fromName]&&!downstream[l.toName]){ downstream[l.toName]=true;connected[l.toName]=true;ch=true; }
+      });}
       return connected;
     }
 

@@ -2949,17 +2949,32 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		}
 	}
 
+	// Rewrite orchestrator → agent edges as gateway → agent so the visual
+	// flow correctly shows: orchestrator → gateway → agents.
+	// The audit trail records these as claude-code → agent because the
+	// gateway is transparent, but visually all traffic routes through it.
+	hasGateway := false
+	for k := range merged {
+		if k.to == "gateway" || k.from == "gateway" {
+			hasGateway = true
+			break
+		}
+	}
+
 	edges := make([]graph.EdgeInput, 0, len(merged))
 	for _, e := range merged {
 		if e.From == e.To {
 			continue
 		}
-		// Only keep edges where both endpoints are known agents.
 		if _, ok := agentSet[e.From]; !ok {
 			continue
 		}
 		if _, ok := agentSet[e.To]; !ok {
 			continue
+		}
+		// Reroute: claude-code → agent becomes gateway → agent
+		if hasGateway && e.From == "claude-code" && e.To != "gateway" {
+			e.From = "gateway"
 		}
 		edges = append(edges, *e)
 	}
@@ -3014,7 +3029,7 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 	// realistic graph — agents use multiple tools and tools are shared.
 	var subagents []string
 	for _, e := range edges {
-		if e.From == "claude-code" && e.To != "gateway" {
+		if (e.From == "claude-code" || e.From == "gateway") && e.To != "gateway" && e.To != "claude-code" {
 			if _, inCfg := s.cfg.Agents[e.To]; inCfg || len(e.To) <= 25 {
 				subagents = append(subagents, e.To)
 			}
