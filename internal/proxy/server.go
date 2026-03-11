@@ -40,6 +40,7 @@ type Server struct {
 	webhooks      *WebhookNotifier
 	dashboard     *dashboard.Server
 	llmQueue      *llm.Queue // nil if LLM disabled
+	handler       *Handler
 	logger        *slog.Logger
 	anomalyCancel context.CancelFunc
 	fwdSrv        *http.Server   // forward proxy (nil if disabled)
@@ -312,6 +313,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		scanner:   scanner,
 		audit:     auditStore,
 		webhooks:  webhooks,
+		handler:   handler,
 		dashboard: dash,
 		llmQueue:  llmQueue,
 		logger:    logger,
@@ -508,6 +510,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		_ = s.fwdSrv.Shutdown(ctx)
 	}
 	err := s.srv.Shutdown(ctx)
+	s.handler.Close()
 	s.scanner.Close()
 	if cerr := s.audit.Close(); cerr != nil && err == nil {
 		err = cerr

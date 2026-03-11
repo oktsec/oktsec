@@ -265,24 +265,23 @@ pip install oktsec  # coming soon -- install from sdk/python/ for now
 ```
 
 ```python
-from oktsec import OktsecClient
+from oktsec import Client
 
-client = OktsecClient(base_url="http://127.0.0.1:8080")
+client = Client("http://127.0.0.1:8080", "coordinator")
 
 # Send a message
 result = client.send_message(
-    from_agent="coordinator",
-    to_agent="researcher",
+    to="researcher",
     content="Analyze the latest threat report",
 )
 
 # With Ed25519 signing
 from oktsec import load_keypair
 keypair = load_keypair("./keys", "coordinator")
-client = OktsecClient(base_url="http://127.0.0.1:8080", keypair=keypair)
+client = Client("http://127.0.0.1:8080", "coordinator", keypair=keypair)
 ```
 
-Async support via `AsyncOktsecClient` (httpx-based).
+Async support via `AsyncClient` (httpx-based).
 
 ## Agent CRUD API
 
