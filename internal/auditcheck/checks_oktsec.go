@@ -23,7 +23,7 @@ func checkSignatureDisabled(cfg *config.Config, _ string) []Finding {
 			Title:       "Message signing is off",
 			Detail:      detail,
 			Remediation: "identity.require_signature: true",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=security",
 		}}
 	}
 	return nil
@@ -44,7 +44,7 @@ func checkNetworkExposure(cfg *config.Config, _ string) []Finding {
 			Title:       "Proxy is accessible from the network",
 			Detail:      "Anyone on your network can reach the proxy. It should only listen on localhost unless you need remote access.",
 			Remediation: "server.bind: 127.0.0.1",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=infra",
 		}}
 	}
 	return nil
@@ -66,7 +66,7 @@ func checkDefaultPolicyAllow(cfg *config.Config, _ string) []Finding {
 			Title:       "Unknown agents are allowed by default",
 			Detail:      "Any agent not in your config can still send messages. Switch to deny-by-default so only registered agents can communicate.",
 			Remediation: "default_policy: deny",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=security",
 		}}
 	}
 	return nil
@@ -122,7 +122,7 @@ func checkQuarantineDisabled(cfg *config.Config, _ string) []Finding {
 			Title:       "Suspicious messages aren't quarantined",
 			Detail:      "When oktsec detects something suspicious, it can hold the message for human review instead of delivering it. Enable the quarantine queue.",
 			Remediation: "quarantine.enabled: true",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=pipeline",
 		}}
 	}
 	return nil
@@ -140,7 +140,7 @@ func checkRateLimitDisabled(cfg *config.Config, _ string) []Finding {
 			Title:       "No rate limiting",
 			Detail:      "A compromised or misbehaving agent could flood the system with messages. Set a per-agent limit to prevent abuse.",
 			Remediation: "rate_limit.per_agent: 100",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=pipeline",
 		}}
 	}
 	return nil
@@ -159,7 +159,7 @@ func checkKeysDirectory(cfg *config.Config, configDir string) []Finding {
 			Title:       "No keys directory configured",
 			Detail:      "Signatures are required but oktsec doesn't know where to find the agent keys. Set the keys directory.",
 			Remediation: "oktsec doctor --repair",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=identity",
 		}}
 	}
 
@@ -204,7 +204,7 @@ func checkNoWebhooks(cfg *config.Config, _ string) []Finding {
 			Title:       "No alert notifications",
 			Detail:      "You won't be notified when oktsec blocks or quarantines a message. Add a webhook (Slack, email, etc.) to stay informed.",
 			Remediation: "webhooks: [url]",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=infra",
 		}}
 	}
 	return nil
@@ -218,7 +218,7 @@ func checkAnomalyThreshold(cfg *config.Config, _ string) []Finding {
 			Title:       "Anomaly detection is off",
 			Detail:      "oktsec can detect unusual agent behavior patterns (sudden spikes, new communication pairs). Enable it to catch threats early.",
 			Remediation: "anomaly.risk_threshold: 80",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=pipeline",
 		}}
 	}
 	return nil
@@ -251,7 +251,7 @@ func checkRetentionDays(cfg *config.Config, _ string) []Finding {
 			Title:       "Audit log grows forever",
 			Detail:      "The audit database has no retention limit and will grow indefinitely. Set a retention period to manage disk space.",
 			Remediation: "quarantine.retention_days: 90",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=pipeline",
 		}}
 	}
 	return nil
@@ -279,7 +279,7 @@ func checkForwardProxyNoScanResponses(cfg *config.Config, _ string) []Finding {
 			Title:       "Egress responses aren't scanned",
 			Detail:      "The forward proxy is active but not inspecting HTTP responses. Enable response scanning to catch data exfiltration.",
 			Remediation: "forward_proxy.scan_responses: true",
-			FixURL:      "/dashboard/settings",
+			FixURL:      "/dashboard/settings?tab=infra",
 		}}
 	}
 	return nil
