@@ -46,6 +46,7 @@ type Finding struct {
 	Product     string   `json:"product,omitempty"`
 	ConfigPath  string   `json:"config_path,omitempty"`
 	Remediation string   `json:"remediation,omitempty"`
+	FixURL      string   `json:"fix_url,omitempty"` // Dashboard link to fix (e.g. "/dashboard/settings")
 }
 
 // ProductInfo holds metadata about a detected product for UI display.

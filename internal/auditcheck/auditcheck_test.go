@@ -339,7 +339,7 @@ func TestCheckAuditDatabase_NotFound(t *testing.T) {
 	require.Len(t, findings, 1)
 	assert.Equal(t, "RET-003", findings[0].CheckID)
 	assert.Equal(t, Info, findings[0].Severity)
-	assert.Contains(t, findings[0].Title, "not found")
+	assert.Contains(t, findings[0].Title, "not created")
 }
 
 func TestCheckAuditDatabase_Exists(t *testing.T) {
@@ -351,7 +351,7 @@ func TestCheckAuditDatabase_Exists(t *testing.T) {
 	require.Len(t, findings, 1)
 	assert.Equal(t, "RET-003", findings[0].CheckID)
 	assert.Equal(t, Info, findings[0].Severity)
-	assert.Contains(t, findings[0].Title, "present")
+	assert.Contains(t, findings[0].Title, "active")
 }
 
 // --- Product auditors ---
