@@ -340,6 +340,9 @@ func Load(path string) (*Config, error) {
 	if cfg.RateLimit.WindowS == 0 {
 		cfg.RateLimit.WindowS = 60
 	}
+	if cfg.Quarantine.RetentionDays == 0 {
+		cfg.Quarantine.RetentionDays = 90
+	}
 	if cfg.Anomaly.CheckIntervalS == 0 {
 		cfg.Anomaly.CheckIntervalS = 60
 	}

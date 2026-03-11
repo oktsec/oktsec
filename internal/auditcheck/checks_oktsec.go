@@ -58,7 +58,7 @@ func checkDefaultPolicyAllow(cfg *config.Config, _ string) []Finding {
 	if policy == "allow" && len(cfg.Agents) > 0 {
 		sev := High
 		if isObserveMode(cfg) {
-			sev = Medium
+			sev = Info
 		}
 		return []Finding{{
 			Severity:    sev,
@@ -89,7 +89,7 @@ func checkNoAgents(cfg *config.Config, _ string) []Finding {
 func checkWildcardMessaging(cfg *config.Config, _ string) []Finding {
 	sev := High
 	if isObserveMode(cfg) {
-		sev = Medium
+		sev = Info
 	}
 	var findings []Finding
 	for name, agent := range cfg.Agents {
@@ -198,8 +198,12 @@ func checkKeysDirectory(cfg *config.Config, configDir string) []Finding {
 
 func checkNoWebhooks(cfg *config.Config, _ string) []Finding {
 	if len(cfg.Webhooks) == 0 {
+		sev := Medium
+		if isObserveMode(cfg) {
+			sev = Info
+		}
 		return []Finding{{
-			Severity:    Medium,
+			Severity:    sev,
 			CheckID:     "MON-002",
 			Title:       "No alert notifications",
 			Detail:      "You won't be notified when oktsec blocks or quarantines a message. Add a webhook (Slack, email, etc.) to stay informed.",
@@ -233,8 +237,12 @@ func checkNoBlockedContent(cfg *config.Config, _ string) []Finding {
 			return nil
 		}
 	}
+	sev := Medium
+	if isObserveMode(cfg) {
+		sev = Info
+	}
 	return []Finding{{
-		Severity:    Medium,
+		Severity:    sev,
 		CheckID:     "ACL-004",
 		Title:       "No content filtering rules",
 		Detail:      "Agents can send any content type. Add blocked_content patterns to prevent agents from sending sensitive data like credentials or PII.",
@@ -259,8 +267,12 @@ func checkRetentionDays(cfg *config.Config, _ string) []Finding {
 
 func checkNoCustomRules(cfg *config.Config, _ string) []Finding {
 	if cfg.CustomRulesDir == "" {
+		sev := Medium
+		if isObserveMode(cfg) {
+			sev = Info
+		}
 		return []Finding{{
-			Severity:    Medium,
+			Severity:    sev,
 			CheckID:     "ENG-001",
 			Title:       "Using default detection rules only",
 			Detail:      "oktsec ships with 188 built-in rules. Add custom rules specific to your environment for better coverage.",

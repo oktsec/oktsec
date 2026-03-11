@@ -18,13 +18,14 @@ type AgentMeta struct {
 
 // EdgeInput describes observed traffic on a single from→to edge.
 type EdgeInput struct {
-	From        string
-	To          string
-	Delivered   int
-	Blocked     int
-	Quarantined int
-	Rejected    int
-	Total       int
+	From         string
+	To           string
+	Delivered    int
+	Blocked      int
+	Quarantined  int
+	Rejected     int
+	Total        int
+	AvgLatencyMs float64
 }
 
 // Node is a computed graph node with metrics.
@@ -45,14 +46,15 @@ type Node struct {
 
 // Edge is a computed graph edge with health metrics.
 type Edge struct {
-	From        string  `json:"from"`
-	To          string  `json:"to"`
-	Delivered   int     `json:"delivered"`
-	Blocked     int     `json:"blocked"`
-	Quarantined int     `json:"quarantined"`
-	Rejected    int     `json:"rejected"`
-	Total       int     `json:"total"`
-	HealthScore float64 `json:"health_score"`
+	From         string  `json:"from"`
+	To           string  `json:"to"`
+	Delivered    int     `json:"delivered"`
+	Blocked      int     `json:"blocked"`
+	Quarantined  int     `json:"quarantined"`
+	Rejected     int     `json:"rejected"`
+	Total        int     `json:"total"`
+	HealthScore  float64 `json:"health_score"`
+	AvgLatencyMs float64 `json:"avg_latency_ms"`
 }
 
 // ACLEdge represents a permitted communication path from the ACL config.
@@ -69,10 +71,25 @@ type ShadowEdge struct {
 	Total int    `json:"total"`
 }
 
+// ToolNode represents a tool used by agents (displayed differently from agent nodes).
+type ToolNode struct {
+	Name  string `json:"name"`
+	Total int    `json:"total"` // total invocations across all agents
+}
+
+// ToolEdge represents an agent→tool usage edge.
+type ToolEdge struct {
+	Agent string `json:"agent"`
+	Tool  string `json:"tool"`
+	Total int    `json:"total"`
+}
+
 // AgentGraph is the complete computed interaction graph.
 type AgentGraph struct {
 	Nodes       []Node       `json:"nodes"`
 	Edges       []Edge       `json:"edges"`
+	ToolNodes   []ToolNode   `json:"tool_nodes,omitempty"`
+	ToolEdges   []ToolEdge   `json:"tool_edges,omitempty"`
 	ACLEdges    []ACLEdge    `json:"acl_edges"`
 	ShadowEdges []ShadowEdge `json:"shadow_edges"`
 	UnusedACL   []ACLEdge    `json:"unused_acl"`
@@ -138,14 +155,15 @@ func buildEdges(edges []EdgeInput) []Edge {
 			health = float64(e.Delivered) / float64(e.Total) * 100
 		}
 		result = append(result, Edge{
-			From:        e.From,
-			To:          e.To,
-			Delivered:   e.Delivered,
-			Blocked:     e.Blocked,
-			Quarantined: e.Quarantined,
-			Rejected:    e.Rejected,
-			Total:       e.Total,
-			HealthScore: math.Round(health*10) / 10,
+			From:         e.From,
+			To:           e.To,
+			Delivered:    e.Delivered,
+			Blocked:      e.Blocked,
+			Quarantined:  e.Quarantined,
+			Rejected:     e.Rejected,
+			Total:        e.Total,
+			HealthScore:  math.Round(health*10) / 10,
+			AvgLatencyMs: math.Round(e.AvgLatencyMs*10) / 10,
 		})
 	}
 	return result
