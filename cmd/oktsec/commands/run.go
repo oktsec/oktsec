@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/dashboard"
 	"github.com/oktsec/oktsec/internal/discover"
@@ -21,10 +22,11 @@ import (
 )
 
 type runOpts struct {
-	port     int
-	bind     string
-	enforce  bool
-	skipWrap bool
+	port      int
+	bind      string
+	enforce   bool
+	skipWrap  bool
+	noBrowser bool
 }
 
 func newRunCmd() *cobra.Command {
@@ -59,6 +61,7 @@ Config is resolved in order: --config flag, $OKTSEC_CONFIG env var,
 	cmd.Flags().StringVar(&opts.bind, "bind", "", "address to bind (default: 127.0.0.1)")
 	cmd.Flags().BoolVar(&opts.enforce, "enforce", false, "start in enforcement mode (block malicious requests)")
 	cmd.Flags().BoolVar(&opts.skipWrap, "skip-wrap", false, "generate config only, don't modify MCP client configs")
+	cmd.Flags().BoolVar(&opts.noBrowser, "no-browser", false, "don't open dashboard in browser")
 	return cmd
 }
 
@@ -66,8 +69,9 @@ func executeRun(opts runOpts) error {
 	configPath := cfgFile
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		bold := color.New(color.Bold).SprintFunc()
 		fmt.Println()
-		fmt.Println("  oktsec — first-time setup")
+		fmt.Printf("  %s\n", bold("oktsec — first-time setup"))
 		fmt.Println("  ────────────────────────────────────────")
 		fmt.Println()
 
@@ -86,7 +90,7 @@ func autoSetup(configPath string, opts runOpts) error {
 	}
 
 	// Step 1: Discover
-	fmt.Println("  Scanning for MCP servers...")
+	fmt.Printf("  %s\n", color.New(color.Bold).Sprint("Scanning for MCP servers..."))
 	result, err := discover.Scan()
 	if err != nil {
 		return err
@@ -104,7 +108,7 @@ func autoSetup(configPath string, opts runOpts) error {
 		return ensureSecrets(configPath)
 	}
 
-	fmt.Printf("  Found %d server(s) across %d client(s):\n\n", result.TotalServers(), result.TotalClients())
+	fmt.Printf("  Found %s across %d client(s):\n\n", color.GreenString("%d server(s)", result.TotalServers()), result.TotalClients())
 	for _, cr := range result.Clients {
 		if len(cr.Servers) == 0 {
 			continue
@@ -224,7 +228,7 @@ func autoSetup(configPath string, opts runOpts) error {
 		fmt.Println()
 	}
 
-	fmt.Println("  Setup complete. Starting server...")
+	fmt.Println("  " + color.GreenString("Setup complete.") + " Starting server...")
 	fmt.Println()
 	return nil
 }
@@ -309,6 +313,10 @@ func startServer(configPath string, opts runOpts) error {
 	}
 
 	printBanner(cfg, srv.DashboardCode())
+
+	if !opts.noBrowser {
+		openDashboard(cfg)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
