@@ -11,15 +11,27 @@ import (
 
 func checkSignatureDisabled(cfg *config.Config, _ string) []Finding {
 	if !cfg.Identity.RequireSignature {
+		sev := Critical
+		detail := "require_signature is false — any process can spoof agent identity. Set identity.require_signature: true."
+		if isObserveMode(cfg) {
+			sev = Info
+			detail = "require_signature is false (expected in observe mode). Enable when moving to enforce mode."
+		}
 		return []Finding{{
-			Severity:    Critical,
+			Severity:    sev,
 			CheckID:     "SIG-001",
 			Title:       "Message signatures not required",
-			Detail:      "require_signature is false — any process can spoof agent identity. Set identity.require_signature: true.",
+			Detail:      detail,
 			Remediation: "Set identity.require_signature: true",
 		}}
 	}
 	return nil
+}
+
+// isObserveMode returns true when the config is in observe (audit-only) mode.
+// Observe mode is the default: no signature enforcement, no blocking.
+func isObserveMode(cfg *config.Config) bool {
+	return !cfg.Identity.RequireSignature
 }
 
 func checkNetworkExposure(cfg *config.Config, _ string) []Finding {
@@ -42,8 +54,12 @@ func checkDefaultPolicyAllow(cfg *config.Config, _ string) []Finding {
 		policy = "allow"
 	}
 	if policy == "allow" && len(cfg.Agents) > 0 {
+		sev := High
+		if isObserveMode(cfg) {
+			sev = Medium
+		}
 		return []Finding{{
-			Severity:    High,
+			Severity:    sev,
 			CheckID:     "ACL-001",
 			Title:       "Default policy is 'allow' with agents defined",
 			Detail:      "Unconfigured agents bypass ACL entirely. Set default_policy: deny.",
@@ -67,12 +83,16 @@ func checkNoAgents(cfg *config.Config, _ string) []Finding {
 }
 
 func checkWildcardMessaging(cfg *config.Config, _ string) []Finding {
+	sev := High
+	if isObserveMode(cfg) {
+		sev = Medium
+	}
 	var findings []Finding
 	for name, agent := range cfg.Agents {
 		for _, target := range agent.CanMessage {
 			if target == "*" {
 				findings = append(findings, Finding{
-					Severity:    High,
+					Severity:    sev,
 					CheckID:     "ACL-003",
 					Title:       fmt.Sprintf("Agent %q can message everyone", name),
 					Detail:      fmt.Sprintf("Agent %q has can_message: [\"*\"]. Restrict to specific targets.", name),
@@ -87,8 +107,12 @@ func checkWildcardMessaging(cfg *config.Config, _ string) []Finding {
 
 func checkQuarantineDisabled(cfg *config.Config, _ string) []Finding {
 	if !cfg.Quarantine.Enabled {
+		sev := High
+		if isObserveMode(cfg) {
+			sev = Medium
+		}
 		return []Finding{{
-			Severity:    High,
+			Severity:    sev,
 			CheckID:     "RET-001",
 			Title:       "Quarantine queue disabled",
 			Detail:      "Suspicious messages are not held for human review. Set quarantine.enabled: true.",
@@ -100,8 +124,12 @@ func checkQuarantineDisabled(cfg *config.Config, _ string) []Finding {
 
 func checkRateLimitDisabled(cfg *config.Config, _ string) []Finding {
 	if cfg.RateLimit.PerAgent == 0 {
+		sev := High
+		if isObserveMode(cfg) {
+			sev = Medium
+		}
 		return []Finding{{
-			Severity:    High,
+			Severity:    sev,
 			CheckID:     "MON-001",
 			Title:       "No per-agent rate limit",
 			Detail:      "A compromised agent can flood the proxy. Set rate_limit.per_agent to a reasonable value.",
