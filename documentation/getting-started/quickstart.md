@@ -22,24 +22,16 @@ Get Oktsec running in under 2 minutes. No config needed.
     docker pull ghcr.io/oktsec/oktsec:latest
     ```
 
-## One-command setup
+## Run
 
 ```bash
-oktsec setup
+oktsec run
 ```
 
-This single command:
+This single command handles everything:
 
-1. **Discovers** all MCP clients on your machine (Claude Desktop, Cursor, VS Code, etc.)
-2. **Generates** `oktsec.yaml` with one agent per MCP server
-3. **Creates** Ed25519 keypairs for each agent
-4. **Wraps** every MCP server to route through the security proxy
-
-## Start the server
-
-```bash
-oktsec serve
-```
+1. **Auto-setup** — if no config exists, discovers MCP clients, generates config and keypairs, wraps servers
+2. **Starts** the proxy server with dashboard, API, and Prometheus metrics
 
 ```
   oktsec proxy
@@ -54,6 +46,9 @@ oktsec serve
 ```
 
 Open `http://127.0.0.1:8080/dashboard` and enter the access code.
+
+!!! info "State directory"
+    All state lives in `~/.oktsec/` — config, keys, database, and secrets. Run `oktsec doctor` to verify your installation.
 
 !!! note "Observe mode"
     By default, Oktsec runs in **observe mode** — it logs everything but blocks nothing. This lets you review activity before enabling enforcement.
@@ -105,6 +100,14 @@ curl -X POST http://localhost:8080/v1/message \
 ```
 
 The first message returns `"policy_decision": "allow"`. The second triggers detection rules and returns `"policy_decision": "content_blocked"`.
+
+## Verify your setup
+
+```bash
+oktsec doctor
+```
+
+Runs 7 health checks: home directory, config, secrets, database, keys, port availability, and detection rules.
 
 ## What's next?
 

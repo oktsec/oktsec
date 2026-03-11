@@ -114,29 +114,33 @@ For using Oktsec alongside **Docker Sandboxes** (isolated micro VMs for AI agent
 ### One-command setup (recommended)
 
 ```bash
-oktsec setup
-oktsec serve
+oktsec run
 ```
 
-That's it. `oktsec setup` discovers all MCP clients on your machine, generates a config with sensible defaults, creates Ed25519 keypairs, and wraps every MCP server through the security proxy — all in one step.
+That's it. If no config exists, `oktsec run` auto-discovers all MCP clients on your machine, generates a config with sensible defaults, creates Ed25519 keypairs, wraps every MCP server through the security proxy, and starts the proxy + dashboard. If a config already exists, it just starts serving. All state lives in `~/.oktsec/` (config, keys, database, secrets).
 
 Oktsec starts in **observe mode** — it logs everything but blocks nothing. Review activity in the dashboard at `http://127.0.0.1:8080/dashboard` using the access code shown in your terminal. Restart your MCP clients (Claude Desktop, Cursor, etc.) to activate.
 
 To enable **enforcement mode** (block malicious requests with JSON-RPC errors):
 
 ```bash
-oktsec wrap --all --enforce
+oktsec run --enforce
 # or for a single server:
 oktsec proxy --enforce --agent filesystem -- npx @mcp/server-filesystem /data
+```
+
+Check deployment health at any time:
+
+```bash
+oktsec doctor
 ```
 
 ### Step-by-step setup (if you prefer control)
 
 ```bash
 oktsec discover                    # See what's installed
-oktsec init                        # Generate config + keypairs
 oktsec wrap claude-desktop         # Wrap one client at a time
-oktsec serve                       # Start proxy + dashboard
+oktsec run                         # Auto-setup (if needed) + start proxy + dashboard
 ```
 
 ### Manual setup
@@ -316,18 +320,18 @@ Found 2 MCP configuration(s):
 
 Total: 6 MCP servers across 3 clients
 
-Run 'oktsec init' to generate configuration and start observing.
+Run 'oktsec run' to generate configuration and start observing.
 ```
 
 Supported clients: Claude Desktop, Cursor, VS Code, Cline, Windsurf, OpenClaw, NanoClaw.
 
 ### Init
 
-Auto-generates an `oktsec.yaml` config and Ed25519 keypairs for each discovered server:
+`oktsec run` auto-generates config and Ed25519 keypairs for each discovered server on first launch. For manual control:
 
 ```bash
-oktsec init
-oktsec init --keys ./keys --config ./oktsec.yaml
+oktsec run                         # Auto-generates config at ~/.oktsec/config.yaml if missing
+oktsec run --config ./oktsec.yaml  # Use a specific config path
 ```
 
 Each server is auto-classified by risk level based on its capabilities:
@@ -501,7 +505,7 @@ Available tools (6):
 Real-time web UI for monitoring agent activity. Protected by a GitHub-style local access code.
 
 ```bash
-oktsec serve
+oktsec run
 ```
 
 ```
@@ -573,6 +577,13 @@ oktsec keys revoke --agent my-agent             # Revoke without replacement
 Set `require_signature: false` to deploy Oktsec as a content scanner first. Messages without signatures are accepted but logged as `verified_sender: false`. Enable signatures when ready.
 
 ## Configuration
+
+Config resolution (first match wins):
+
+1. `--config` flag (explicit path)
+2. `$OKTSEC_CONFIG` environment variable
+3. `./oktsec.yaml` (backward compatibility)
+4. `~/.oktsec/config.yaml` (default)
 
 ```yaml
 version: "1"
@@ -718,14 +729,14 @@ Analytics queries use a 24-hour time window with covering indexes. All dashboard
 ## CLI reference
 
 ```
-oktsec setup [--enforce] [--skip-wrap]                   # One-command onboarding: discover + init + wrap all
+oktsec run [--port N] [--bind ADDR] [--enforce] [--skip-wrap]  # Auto-setup + serve (recommended)
+oktsec doctor                                            # Check deployment health (config, secrets, DB, keys, port, rules)
 oktsec discover                                          # Scan for MCP servers, OpenClaw, NanoClaw
-oktsec init [--keys ./keys] [--config oktsec.yaml]       # Auto-generate config + keypairs
 oktsec wrap [--enforce] [--all | <client>]               # Route MCP client(s) through oktsec proxy
 oktsec unwrap <client>                                   # Restore original client config
 oktsec scan-openclaw [--path ~/.openclaw/openclaw.json]  # Analyze OpenClaw installation
 oktsec proxy [--enforce] --agent <name> -- <cmd> [args]  # Stdio proxy for single MCP server
-oktsec serve [--config oktsec.yaml] [--port 8080] [--bind 127.0.0.1]
+oktsec serve [--config oktsec.yaml] [--port 8080] [--bind 127.0.0.1]  # Start proxy + dashboard
 oktsec mcp [--config oktsec.yaml]                        # Run as MCP tool server
 oktsec keygen --agent <name> [--agent <name>...] --out <dir>
 oktsec keys list|rotate|revoke [--agent <name>]
@@ -739,6 +750,8 @@ oktsec agent unsuspend <name>                            # Unsuspend an agent
 oktsec audit [--json] [--sarif]                          # Deployment security audit (41 checks)
 oktsec status                                            # Health score, detected products, top issues
 oktsec enforce [on|off]                                  # Toggle enforce/observe mode
+oktsec setup [--enforce] [--skip-wrap]                   # Deprecated: use 'oktsec run' instead
+oktsec init [--keys ./keys] [--config oktsec.yaml]       # Deprecated: use 'oktsec run' instead
 oktsec version
 ```
 

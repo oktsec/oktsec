@@ -13,8 +13,12 @@ var suspiciousCommands = []string{"curl", "wget", "nc", "bash -c", "eval"}
 // secretEnvKeys are substrings in env var names that indicate plaintext secrets.
 var secretEnvKeys = []string{"TOKEN", "SECRET", "KEY", "PASSWORD", "API_KEY"}
 
+// mcpScanFunc is the function used to discover MCP servers.
+// Override in tests to avoid scanning real host configs.
+var mcpScanFunc = discover.Scan
+
 func auditMCPServers() []Finding {
-	result, err := discover.Scan()
+	result, err := mcpScanFunc()
 	if err != nil || result == nil || result.TotalServers() == 0 {
 		return nil
 	}
