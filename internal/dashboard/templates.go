@@ -19,6 +19,17 @@ func snakeToTitle(s string) string {
 	return strings.Join(words, " ")
 }
 
+// kebabToTitle converts kebab-case to Title Case.
+func kebabToTitle(s string) string {
+	words := strings.FieldsFunc(s, func(r rune) bool { return r == '-' || r == '_' })
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func toFloat64(v any) float64 {
 	switch n := v.(type) {
 	case float64:
@@ -106,6 +117,7 @@ var tmplFuncs = template.FuncMap{
 	"contains": strings.Contains,
 	"printf":   fmt.Sprintf,
 	"snakeToTitle": snakeToTitle,
+	"kebabToTitle": kebabToTitle,
 	"truncTS": func(ts string) string {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			return t.Format("Jan 02 15:04")
@@ -1619,24 +1631,22 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .rules-tab.active{color:var(--accent-light);border-bottom-color:var(--accent-light)}
 .rules-tab .count{font-size:0.68rem;font-family:var(--mono);background:var(--surface2);padding:2px 8px;border-radius:10px;color:var(--text3)}
 .rules-tab.active .count{background:rgba(99,102,241,0.15);color:var(--accent-light)}
-.cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px}
+.cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
 @media(max-width:768px){.cat-grid{grid-template-columns:1fr}}
-.cat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;cursor:pointer;transition:all 0.2s;position:relative;text-decoration:none;color:inherit;display:block}
-.cat-card:hover{border-color:var(--accent);background:var(--surface2);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.15)}
-.cat-card-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
-.cat-card-name{font-weight:600;font-size:0.92rem}
+.cat-card{background:var(--surface);padding:18px 20px;cursor:pointer;transition:background 0.15s;text-decoration:none;color:inherit;display:block}
+.cat-card:hover{background:var(--surface2)}
+.cat-card-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+.cat-card-name{font-weight:600;font-size:0.88rem;letter-spacing:-0.01em}
 .cat-card-count{color:var(--text3);font-size:0.72rem;font-family:var(--mono);white-space:nowrap}
-.cat-card-desc{color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:14px}
+.cat-card-desc{color:var(--text3);font-size:0.75rem;line-height:1.5;margin-bottom:10px}
 .cat-card-footer{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.cat-card-sev{display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;font-family:var(--mono);padding:3px 8px;border-radius:4px}
+.cat-card-sev{display:inline-flex;align-items:center;gap:4px;font-size:0.65rem;font-family:var(--mono);padding:2px 7px;border-radius:4px}
 .cat-card-sev.critical{background:rgba(248,113,113,0.08);color:#f87171}
 .cat-card-sev.high{background:rgba(251,146,60,0.08);color:#fb923c}
-.cat-card-sev.medium{background:rgba(96,165,250,0.08);color:#60a5fa}
+.cat-card-sev.medium{background:rgba(96,165,250,0.06);color:#60a5fa}
 .cat-card-sev.low{background:var(--surface2);color:var(--text3)}
-.cat-card-status{margin-left:auto;font-size:0.72rem;font-weight:600}
-.cat-card-status.all-on{color:var(--success)}
+.cat-card-status{margin-left:auto;font-size:0.68rem;font-weight:500;color:var(--text3)}
 .cat-card-status.some-off{color:var(--warn)}
-.cat-card-status.all-off{color:var(--text3)}
 .custom-rule-row{display:flex;align-items:center;gap:16px;padding:14px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:border-color 0.2s}
 .custom-rule-row:hover{border-color:var(--accent)}
 .custom-rule-id{font-family:var(--mono);font-weight:600;font-size:0.82rem;color:var(--text);min-width:200px}
@@ -1654,19 +1664,19 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 {{if eq .Tab "detection"}}
 <!-- Detection Rules Tab -->
 {{if .Categories}}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-  <span style="color:var(--text3);font-size:0.82rem">{{.RuleCount}} rules across {{len .Categories}} categories</span>
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px">
+  <span style="color:var(--text3);font-size:0.78rem">{{.RuleCount}} rules across {{len .Categories}} categories</span>
   <div style="display:flex;gap:8px">
-    <button class="btn btn-sm" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"enable-all"}' hx-confirm="Enable ALL detection rules?">Enable All</button>
-    <button class="btn btn-sm btn-danger" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"disable-all"}' hx-confirm="Disable ALL detection rules? This removes all security scanning.">Disable All</button>
+    <button class="btn btn-sm" style="font-size:0.72rem" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"enable-all"}' hx-confirm="Enable ALL detection rules?">Enable All</button>
+    <button class="btn btn-sm" style="font-size:0.72rem;background:transparent;border:1px solid var(--border);color:var(--text3)" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"disable-all"}' hx-confirm="Disable ALL detection rules? This removes all security scanning.">Disable All</button>
   </div>
 </div>
 <div class="cat-grid">
   {{range .Categories}}
   <a href="/dashboard/rules/{{.Name}}" class="cat-card">
     <div class="cat-card-head">
-      <span class="cat-card-name">{{.Name}}</span>
-      <span class="cat-card-count">{{.Total}} rules</span>
+      <span class="cat-card-name">{{kebabToTitle .Name}}</span>
+      <span class="cat-card-count">{{.Total}}</span>
     </div>
     {{if .Description}}<div class="cat-card-desc">{{.Description}}</div>{{end}}
     <div class="cat-card-footer">
@@ -1674,9 +1684,8 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
       {{if .High}}<span class="cat-card-sev high">{{.High}} high</span>{{end}}
       {{if .Medium}}<span class="cat-card-sev medium">{{.Medium}} medium</span>{{end}}
       {{if .Low}}<span class="cat-card-sev low">{{.Low}} low</span>{{end}}
-      {{if eq .Disabled 0}}<span class="cat-card-status all-on">All enabled</span>
-      {{else if eq .Disabled .Total}}<span class="cat-card-status all-off">All disabled</span>
-      {{else}}<span class="cat-card-status some-off">{{.Disabled}}/{{.Total}} disabled</span>{{end}}
+      {{if and (gt .Disabled 0) (lt .Disabled .Total)}}<span class="cat-card-status some-off">{{.Disabled}} off</span>{{end}}
+      {{if eq .Disabled .Total}}<span class="cat-card-status">all off</span>{{end}}
     </div>
   </a>
   {{end}}
@@ -3146,7 +3155,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 
 {{if not .Enabled}}
 <!-- Setup state -->
-<div class="card" style="max-width:720px">
+<div class="card">
   <h2 style="font-size:1rem;margin-bottom:12px">Enable AI-Powered Detection</h2>
   <p style="color:var(--text2);font-size:0.82rem;line-height:1.6;margin-bottom:8px">
     oktsec's 188 rules catch known threats instantly. Add an AI layer to detect what patterns miss:

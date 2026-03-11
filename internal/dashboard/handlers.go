@@ -517,18 +517,12 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 
 		if s.scanner != nil {
 			for _, ri := range s.scanner.ListRules() {
-				var desc string
-				if detail, err := s.scanner.ExplainRule(ri.ID); err == nil && detail != nil {
-					desc = detail.Description
-				}
-
 				row := ruleRow{
-					ID:          ri.ID,
-					Name:        ri.Name,
-					Severity:    ri.Severity,
-					Category:    ri.Category,
-					Description: desc,
-					Disabled:    disabledRules[ri.ID],
+					ID:       ri.ID,
+					Name:     ri.Name,
+					Severity: ri.Severity,
+					Category: ri.Category,
+					Disabled: disabledRules[ri.ID],
 				}
 				allRules = append(allRules, row)
 
