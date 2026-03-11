@@ -9,6 +9,7 @@ import (
 
 func TestMessageWindow_AddAndConcatenate(t *testing.T) {
 	w := NewMessageWindow(10, time.Hour)
+	defer w.Stop()
 
 	w.Add("agent-a", "first message")
 	w.Add("agent-a", "second message")
@@ -22,6 +23,7 @@ func TestMessageWindow_AddAndConcatenate(t *testing.T) {
 
 func TestMessageWindow_SingleMessageReturnsEmpty(t *testing.T) {
 	w := NewMessageWindow(10, time.Hour)
+	defer w.Stop()
 
 	w.Add("agent-a", "only one")
 
@@ -33,6 +35,7 @@ func TestMessageWindow_SingleMessageReturnsEmpty(t *testing.T) {
 
 func TestMessageWindow_MaxSizeEviction(t *testing.T) {
 	w := NewMessageWindow(3, time.Hour)
+	defer w.Stop()
 
 	w.Add("agent-a", "msg-1")
 	w.Add("agent-a", "msg-2")
@@ -48,12 +51,13 @@ func TestMessageWindow_MaxSizeEviction(t *testing.T) {
 
 func TestMessageWindow_MaxAgeEviction(t *testing.T) {
 	w := NewMessageWindow(10, 50*time.Millisecond)
+	defer w.Stop()
 
 	w.Add("agent-a", "old message")
 	time.Sleep(100 * time.Millisecond)
 	w.Add("agent-a", "new message")
 
-	// "old message" should be evicted by age; only one entry remains → empty
+	// "old message" should be evicted by age; only one entry remains -> empty
 	got := w.Concatenated("agent-a")
 	if got != "" {
 		t.Errorf("expired messages should be evicted, got: %q", got)
@@ -62,6 +66,7 @@ func TestMessageWindow_MaxAgeEviction(t *testing.T) {
 
 func TestMessageWindow_IsolatesSenders(t *testing.T) {
 	w := NewMessageWindow(10, time.Hour)
+	defer w.Stop()
 
 	w.Add("agent-a", "a-msg-1")
 	w.Add("agent-a", "a-msg-2")
@@ -80,6 +85,7 @@ func TestMessageWindow_IsolatesSenders(t *testing.T) {
 
 func TestMessageWindow_ConcurrentAccess(t *testing.T) {
 	w := NewMessageWindow(100, time.Hour)
+	defer w.Stop()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
@@ -94,4 +100,31 @@ func TestMessageWindow_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+func TestMessageWindow_Evict(t *testing.T) {
+	w := NewMessageWindow(10, 50*time.Millisecond)
+	defer w.Stop()
+
+	w.Add("agent-stale", "msg")
+	// Verify entry exists
+	idx := w.shardIndex("agent-stale")
+	s := &w.shards[idx]
+	s.mu.Lock()
+	if _, ok := s.entries["agent-stale"]; !ok {
+		t.Fatal("expected agent-stale entry before eviction")
+	}
+	// Overwrite with old timestamp to simulate staleness
+	old := time.Now().Add(-1 * time.Hour)
+	s.entries["agent-stale"] = []windowEntry{{content: "old", added: old}}
+	s.mu.Unlock()
+
+	w.evict()
+
+	s.mu.Lock()
+	_, ok := s.entries["agent-stale"]
+	s.mu.Unlock()
+	if ok {
+		t.Error("expected agent-stale to be evicted")
+	}
 }

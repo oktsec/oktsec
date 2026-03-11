@@ -104,14 +104,13 @@ Each agent gets an Ed25519 keypair. The private key stays with the agent; the pu
 === "Python"
 
     ```python
-    from oktsec import OktsecClient, load_keypair
+    from oktsec import Client, load_keypair
 
     keypair = load_keypair("./keys", "planner")
-    client = OktsecClient(base_url="http://localhost:8080", keypair=keypair)
+    client = Client("http://localhost:8080", "planner", keypair=keypair)
 
     result = client.send_message(
-        from_agent="planner",
-        to_agent="researcher",
+        to="researcher",
         content="Find the top 5 papers on LLM security published in 2025",
     )
 

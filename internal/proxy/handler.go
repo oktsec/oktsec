@@ -73,6 +73,12 @@ func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluat
 	}
 }
 
+// Close stops background goroutines (rate limiter eviction, message window eviction).
+func (h *Handler) Close() {
+	h.rateLimiter.Stop()
+	h.window.Stop()
+}
+
 // SetLLMQueue attaches the async LLM analysis queue to the handler.
 func (h *Handler) SetLLMQueue(q *llm.Queue) {
 	h.llmQueue = q
