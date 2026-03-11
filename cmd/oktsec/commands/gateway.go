@@ -11,6 +11,7 @@ import (
 
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/gateway"
+	"github.com/oktsec/oktsec/internal/hooks"
 	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/spf13/cobra"
 )
@@ -64,6 +65,10 @@ func newGatewayCmd() *cobra.Command {
 				return err
 			}
 			gw.SetCfgPath(cfgFile)
+
+			// Wire hooks handler for tool-call telemetry.
+			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
+			gw.SetHooksHandler(hh)
 
 			// Wire LLM analysis queue (async, optional)
 			var llmQueue *llm.Queue

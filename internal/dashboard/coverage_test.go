@@ -441,8 +441,8 @@ func TestServer_LLMPageShowsSetupWhenDisabled(t *testing.T) {
 		t.Fatalf("llm page status = %d, want 200", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, "Enable LLM") {
-		t.Error("expected setup state with 'Enable LLM' button")
+	if !strings.Contains(body, "Enable AI") {
+		t.Error("expected setup state with 'Enable AI Analysis' button")
 	}
 }
 

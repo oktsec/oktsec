@@ -53,6 +53,7 @@ type Gateway struct {
 	constraintChecker *ConstraintChecker
 	llmQueue          *llm.Queue
 	signalDetector    *llm.SignalDetector
+	hooksHandler      http.Handler
 	logger            *slog.Logger
 	registeredAgents  map[string]bool
 	registeredMu      sync.Mutex
@@ -192,6 +193,11 @@ func (g *Gateway) Start(ctx context.Context) error {
 			"version": Version,
 		})
 	})
+
+	// Hook endpoint: receives tool-call telemetry from any MCP client.
+	if g.hooksHandler != nil {
+		mux.Handle("POST /hooks/event", g.hooksHandler)
+	}
 
 	g.httpServer = &http.Server{
 		Handler:        mux,
@@ -602,7 +608,8 @@ func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, t
 		ID:             msgID,
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
 		FromAgent:      agent,
-		ToAgent:        "gateway",
+		ToAgent:        agent,
+		ToolName:       tool,
 		ContentHash:    "",
 		Status:         status,
 		RulesTriggered: findingsJSON,
@@ -611,6 +618,11 @@ func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, t
 		Intent:         toolArgs,
 		SessionID:      sessionID,
 	})
+}
+
+// Scanner returns the gateway's content scanner.
+func (g *Gateway) Scanner() *engine.Scanner {
+	return g.scanner
 }
 
 // AuditStore returns the gateway's audit store for external wiring (e.g., LLM result callbacks).
@@ -626,6 +638,11 @@ func (g *Gateway) SetLLMQueue(q *llm.Queue) {
 // SetSignalDetector sets the triage pre-filter for LLM analysis.
 func (g *Gateway) SetSignalDetector(sd *llm.SignalDetector) {
 	g.signalDetector = sd
+}
+
+// SetHooksHandler sets the handler for /hooks/event (tool-call telemetry).
+func (g *Gateway) SetHooksHandler(h http.Handler) {
+	g.hooksHandler = h
 }
 
 // submitToLLM submits tool call content for async LLM analysis if configured.
@@ -849,16 +866,5 @@ func buildConstraintMaps(cfg *config.Config) (map[string][]ToolConstraint, map[s
 }
 
 // verdictToGateway maps a verdict to (status, policyDecision).
-func verdictToGateway(v engine.ScanVerdict) (status, decision string) {
-	switch v {
-	case engine.VerdictBlock:
-		return audit.StatusBlocked, audit.DecisionContentBlocked
-	case engine.VerdictQuarantine:
-		return audit.StatusQuarantined, audit.DecisionContentQuarantined
-	case engine.VerdictFlag:
-		return audit.StatusDelivered, audit.DecisionContentFlagged
-	default:
-		return audit.StatusDelivered, audit.DecisionAllow
-	}
-}
+var verdictToGateway = verdict.ToAuditStatus
 

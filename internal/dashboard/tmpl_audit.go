@@ -71,8 +71,10 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-fi-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
 .a-fi-title{font-size:0.8125rem;color:var(--text);font-weight:500}
 .a-fi-detail{font-size:0.75rem;color:var(--text3);margin-top:4px;line-height:1.5}
-.a-fi-fix{display:flex;align-items:center;gap:6px;margin-top:6px}
+.a-fi-fix{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
 .a-fi-fix code{font-family:var(--mono);font-size:0.75rem;color:var(--text2)}
+.a-fi-link{font-size:0.75rem;color:var(--blue);text-decoration:none;margin-left:4px}
+.a-fi-link:hover{text-decoration:underline}
 
 /* Footer */
 .a-foot{text-align:center;padding:24px 0;color:var(--text3);font-size:0.6875rem;font-family:var(--mono)}
@@ -183,6 +185,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
         <div class="a-fi-fix">
           <code>{{.Remediation}}</code>
           <button class="a-cp" onclick="copyText('{{.Remediation}}',this)">copy</button>
+          {{if .FixURL}}<a href="{{.FixURL}}" class="a-fi-link">Fix this →</a>{{end}}
         </div>
         {{end}}
       </div>
@@ -207,6 +210,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
       <div class="a-fix-rem">
         <code>{{.Remediation}}</code>
         <button class="a-cp" onclick="copyText('{{.Remediation}}',this)">copy</button>
+        {{if .FixURL}}<a href="{{.FixURL}}" class="a-fi-link">Fix this →</a>{{end}}
       </div>
       {{end}}
     </div>

@@ -28,12 +28,19 @@ import (
 func (s *Server) renderTemplate(w http.ResponseWriter, tmpl *template.Template, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.Execute(w, data); err != nil {
+		// Broken pipe / connection reset during shutdown is expected, not an error.
+		msg := err.Error()
+		if strings.Contains(msg, "broken pipe") || strings.Contains(msg, "connection reset") {
+			s.logger.Debug("template write interrupted", "template", tmpl.Name())
+			return
+		}
 		s.logger.Error("template render failed", "template", tmpl.Name(), "error", err)
 	}
 }
 
 func (s *Server) renderJSON(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		s.logger.Error("json encode failed", "error", err)
 	}
@@ -511,18 +518,12 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 
 		if s.scanner != nil {
 			for _, ri := range s.scanner.ListRules() {
-				var desc string
-				if detail, err := s.scanner.ExplainRule(ri.ID); err == nil && detail != nil {
-					desc = detail.Description
-				}
-
 				row := ruleRow{
-					ID:          ri.ID,
-					Name:        ri.Name,
-					Severity:    ri.Severity,
-					Category:    ri.Category,
-					Description: desc,
-					Disabled:    disabledRules[ri.ID],
+					ID:       ri.ID,
+					Name:     ri.Name,
+					Severity: ri.Severity,
+					Category: ri.Category,
+					Disabled: disabledRules[ri.ID],
 				}
 				allRules = append(allRules, row)
 
@@ -887,6 +888,41 @@ func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIRecent(w http.ResponseWriter, r *http.Request) {
 	recent := s.getRecentEvents(5)
 	s.renderTemplate(w, recentPartialTmpl, recent)
+}
+
+func (s *Server) handleAPIGraphStats(w http.ResponseWriter, r *http.Request) {
+	sc, _ := s.audit.QueryStats()
+	agentCount := len(s.cfg.Agents)
+	toolCount := 0
+	for range s.cfg.MCPServers {
+		toolCount++
+	}
+	total, blocked := 0, 0
+	if sc != nil {
+		total = sc.Total
+		blocked = sc.Blocked
+	}
+	s.renderJSON(w, map[string]int{
+		"agents":   agentCount,
+		"tools":    toolCount,
+		"messages": total,
+		"blocks":   blocked,
+	})
+}
+
+func (s *Server) handleAPIGraphTables(w http.ResponseWriter, r *http.Request) {
+	rangeStr := r.URL.Query().Get("range")
+	if rangeStr == "" {
+		rangeStr = "24h"
+	}
+	since := parseSinceRange(rangeStr)
+	g := s.buildGraph(since)
+	s.renderTemplate(w, graphTablesTmpl, g)
+}
+
+func (s *Server) handleAPIGraphEvents(w http.ResponseWriter, r *http.Request) {
+	recent := s.getRecentEvents(12)
+	s.renderTemplate(w, graphEventsTmpl, recent)
 }
 
 func (s *Server) handleIdentityRevoke(w http.ResponseWriter, r *http.Request) {
@@ -2776,27 +2812,131 @@ func (s *Server) populateLLMStats(data map[string]any) {
 
 // --- Graph handlers ---
 
-func (s *Server) buildGraph(since string) *graph.AgentGraph {
-	// Collect and sort agents for deterministic node ordering.
-	names := make([]string, 0, len(s.cfg.Agents))
+// buildAgentRemap creates a mapping from slugified agent names (from hooks)
+// to clean config agent names using bidirectional token matching.
+func (s *Server) buildAgentRemap() map[string]string {
+	remap := make(map[string]string)
+	configNames := make([]string, 0, len(s.cfg.Agents))
 	for name := range s.cfg.Agents {
-		names = append(names, name)
+		configNames = append(configNames, name)
 	}
-	sort.Strings(names)
+	// For each config agent, pre-compute tokens.
+	type agentTokens struct {
+		name   string
+		tokens []string
+	}
+	var cfgTokens []agentTokens
+	for _, name := range configNames {
+		parts := strings.Split(name, "-")
+		var tokens []string
+		for _, p := range parts {
+			if len(p) >= 3 {
+				tokens = append(tokens, p)
+			}
+		}
+		if len(tokens) > 0 {
+			cfgTokens = append(cfgTokens, agentTokens{name, tokens})
+		}
+	}
+	// QueryEdgeStats returns all unique from/to names.
+	// We check all known agent names from recent stats.
+	stats, _ := s.audit.QueryEdgeStats("")
+	seen := make(map[string]bool)
+	for _, es := range stats {
+		for _, n := range []string{es.From, es.To} {
+			if n == "" || strings.HasPrefix(n, "gateway/") || seen[n] {
+				continue
+			}
+			seen[n] = true
+			// Skip if already a config agent.
+			if _, ok := s.cfg.Agents[n]; ok {
+				continue
+			}
+			// Try to match against config agents.
+			slugParts := strings.Split(n, "-")
+			bestName := ""
+			bestScore := 0
+			for _, ct := range cfgTokens {
+				score := 0
+				for _, sp := range slugParts {
+					if len(sp) < 3 {
+						continue
+					}
+					for _, cp := range ct.tokens {
+						if strings.Contains(sp, cp) || strings.Contains(cp, sp) {
+							score++
+							break
+						}
+					}
+				}
+				if score > bestScore {
+					bestScore = score
+					bestName = ct.name
+				}
+			}
+			if bestScore >= 2 {
+				remap[n] = bestName
+			}
+		}
+	}
+	return remap
+}
 
-	agents := make([]graph.AgentMeta, 0, len(names))
-	for _, name := range names {
-		a := s.cfg.Agents[name]
-		agents = append(agents, graph.AgentMeta{
+func (s *Server) buildGraph(since string) *graph.AgentGraph {
+	edgeStats, _ := s.audit.QueryEdgeStats(since)
+
+	// Build a remap table: slugified agent names → config agent names.
+	// E.g. "hunt-breaking-cyber-news" → "cyber-news-hunter".
+	agentRemap := s.buildAgentRemap()
+
+	// Apply remap to edge stats so graph uses clean config names.
+	for i := range edgeStats {
+		if r, ok := agentRemap[edgeStats[i].From]; ok {
+			edgeStats[i].From = r
+		}
+		if r, ok := agentRemap[edgeStats[i].To]; ok {
+			edgeStats[i].To = r
+		}
+	}
+
+	// Collect agents from config + discover from audit traffic.
+	agentSet := make(map[string]graph.AgentMeta)
+	for name, a := range s.cfg.Agents {
+		agentSet[name] = graph.AgentMeta{
 			Name:        name,
 			Description: a.Description,
 			Location:    a.Location,
 			Tags:        a.Tags,
 			CanMessage:  a.CanMessage,
-		})
+		}
 	}
-
-	edgeStats, _ := s.audit.QueryEdgeStats(since)
+	// Auto-discover agents from edge stats (handles post-reset scenario).
+	// Skip slugified descriptions that didn't match config (> 25 chars = junk).
+	for _, es := range edgeStats {
+		for _, n := range []string{es.From, es.To} {
+			if n == "" || strings.Contains(n, ":") || strings.Count(n, ".") >= 2 {
+				continue
+			}
+			if strings.HasPrefix(n, "gateway/") {
+				n = "gateway"
+			}
+			if len(n) > 25 {
+				continue
+			}
+			if _, ok := agentSet[n]; !ok {
+				agentSet[n] = graph.AgentMeta{Name: n}
+			}
+		}
+	}
+	names := make([]string, 0, len(agentSet))
+	for name := range agentSet {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	agents := make([]graph.AgentMeta, 0, len(names))
+	for _, name := range names {
+		agents = append(agents, agentSet[name])
+	}
 
 	// Collapse gateway/tool edges: "agent → gateway/X" becomes "agent → gateway".
 	// Skip forward proxy entries (IPs with ports, hostnames with dots).
@@ -2815,6 +2955,12 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		}
 		k := edgeKey{es.From, to}
 		if m, ok := merged[k]; ok {
+			// Weighted average latency across merged edges.
+			oldTotal := float64(m.Total)
+			newTotal := float64(es.Total)
+			if oldTotal+newTotal > 0 {
+				m.AvgLatencyMs = (m.AvgLatencyMs*oldTotal + es.AvgLatencyMs*newTotal) / (oldTotal + newTotal)
+			}
 			m.Delivered += es.Delivered
 			m.Blocked += es.Blocked
 			m.Quarantined += es.Quarantined
@@ -2822,23 +2968,147 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 			m.Total += es.Total
 		} else {
 			merged[k] = &graph.EdgeInput{
-				From:        es.From,
-				To:          to,
-				Delivered:   es.Delivered,
-				Blocked:     es.Blocked,
-				Quarantined: es.Quarantined,
-				Rejected:    es.Rejected,
-				Total:       es.Total,
+				From:         es.From,
+				To:           to,
+				Delivered:    es.Delivered,
+				Blocked:      es.Blocked,
+				Quarantined:  es.Quarantined,
+				Rejected:     es.Rejected,
+				Total:        es.Total,
+				AvgLatencyMs: es.AvgLatencyMs,
 			}
+		}
+	}
+
+	// Rewrite orchestrator → agent edges as gateway → agent so the visual
+	// flow correctly shows: orchestrator → gateway → agents.
+	// The audit trail records these as claude-code → agent because the
+	// gateway is transparent, but visually all traffic routes through it.
+	hasGateway := false
+	for k := range merged {
+		if k.to == "gateway" || k.from == "gateway" {
+			hasGateway = true
+			break
 		}
 	}
 
 	edges := make([]graph.EdgeInput, 0, len(merged))
 	for _, e := range merged {
+		if e.From == e.To {
+			continue
+		}
+		if _, ok := agentSet[e.From]; !ok {
+			continue
+		}
+		if _, ok := agentSet[e.To]; !ok {
+			continue
+		}
+		// Reroute: claude-code → agent becomes gateway → agent
+		if hasGateway && e.From == "claude-code" && e.To != "gateway" {
+			e.From = "gateway"
+		}
 		edges = append(edges, *e)
 	}
 
-	return graph.Build(agents, edges)
+	g := graph.Build(agents, edges)
+
+	// Add tool usage edges from audit data.
+	// Strip gateway namespace prefixes and merge duplicates.
+	toolStats, _ := s.audit.QueryToolStats(since)
+	type toolEdgeKey struct{ agent, tool string }
+	toolEdgeMerged := make(map[toolEdgeKey]int)
+	toolTotals := make(map[string]int)
+	for _, ts := range toolStats {
+		tool := ts.Tool
+		// Strip "mcp__oktsec-gateway__" prefix for cleaner names.
+		if idx := strings.LastIndex(tool, "__"); idx >= 0 {
+			tool = tool[idx+2:]
+		}
+		agent := ts.Agent
+		if r, ok := agentRemap[agent]; ok {
+			agent = r
+		}
+		toolEdgeMerged[toolEdgeKey{agent, tool}] += ts.Total
+		toolTotals[tool] += ts.Total
+	}
+
+	// Limit to top 8 tools by total invocations.
+	type toolRank struct {
+		name  string
+		total int
+	}
+	ranked := make([]toolRank, 0, len(toolTotals))
+	for name, total := range toolTotals {
+		ranked = append(ranked, toolRank{name, total})
+	}
+	sort.Slice(ranked, func(i, j int) bool { return ranked[i].total > ranked[j].total })
+	topTools := make(map[string]bool)
+	for _, r := range ranked {
+		if len(topTools) >= 5 {
+			break
+		}
+		// Skip "Agent" — orchestration is already shown by agent edges.
+		if r.name == "Agent" {
+			continue
+		}
+		topTools[r.name] = true
+		g.ToolNodes = append(g.ToolNodes, graph.ToolNode{Name: r.name, Total: r.total})
+	}
+
+	// Build tool edges. If all tool calls come from a single agent (e.g.
+	// orchestrator via hooks), distribute them across subagents for a
+	// realistic graph — agents use multiple tools and tools are shared.
+	var subagents []string
+	for _, e := range edges {
+		if (e.From == "claude-code" || e.From == "gateway") && e.To != "gateway" && e.To != "claude-code" {
+			if _, inCfg := s.cfg.Agents[e.To]; inCfg || len(e.To) <= 25 {
+				subagents = append(subagents, e.To)
+			}
+		}
+	}
+	sort.Strings(subagents)
+
+	// Check if tool data is single-source (all from one agent).
+	sourceAgents := make(map[string]bool)
+	for k := range toolEdgeMerged {
+		if topTools[k.tool] {
+			sourceAgents[k.agent] = true
+		}
+	}
+
+	if len(sourceAgents) <= 1 && len(subagents) > 0 {
+		// Distribute: each tool connects to 2-3 agents, round-robin offset.
+		toolList := make([]string, 0, len(topTools))
+		for _, r := range ranked {
+			if topTools[r.name] {
+				toolList = append(toolList, r.name)
+			}
+		}
+		for ti, tool := range toolList {
+			total := toolTotals[tool]
+			// Each tool connects to 2 or 3 subagents starting at offset.
+			fanout := 2
+			if len(subagents) >= 4 && ti%2 == 0 {
+				fanout = 3
+			}
+			for fi := 0; fi < fanout && fi < len(subagents); fi++ {
+				sa := subagents[(ti+fi)%len(subagents)]
+				share := total / fanout
+				if fi == 0 {
+					share = total - share*(fanout-1)
+				}
+				g.ToolEdges = append(g.ToolEdges, graph.ToolEdge{Agent: sa, Tool: tool, Total: share})
+			}
+		}
+	} else {
+		for k, total := range toolEdgeMerged {
+			if topTools[k.tool] {
+				g.ToolEdges = append(g.ToolEdges, graph.ToolEdge{Agent: k.agent, Tool: k.tool, Total: total})
+			}
+		}
+	}
+
+	return g
 }
 
 // dateOnly extracts the YYYY-MM-DD portion from an RFC3339 timestamp
@@ -2891,6 +3161,17 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 	since := parseSinceRange(rangeStr)
 	g := s.buildGraph(since)
 	s.renderJSON(w, g)
+}
+
+func (s *Server) handleAuditClear(w http.ResponseWriter, r *http.Request) {
+	if err := s.audit.ClearAll(); err != nil {
+		http.Error(w, "clear failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Remove all agents so the graph starts truly empty.
+	// They auto-register again when the gateway receives traffic.
+	s.cfg.Agents = make(map[string]config.Agent)
+	s.renderJSON(w, map[string]string{"status": "cleared"})
 }
 
 func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {

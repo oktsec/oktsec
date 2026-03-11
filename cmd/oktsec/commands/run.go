@@ -2,9 +2,11 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,8 @@ import (
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/dashboard"
 	"github.com/oktsec/oktsec/internal/discover"
+	"github.com/oktsec/oktsec/internal/gateway"
+	"github.com/oktsec/oktsec/internal/hooks"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/proxy"
 	"github.com/spf13/cobra"
@@ -164,6 +168,27 @@ func autoSetup(configPath string, opts runOpts) error {
 		port = opts.port
 	}
 
+	// Build mcp_servers from discovered servers (deduplicated by name).
+	// The gateway will front these backends so all tool calls go through the pipeline.
+	mcpServers := make(map[string]any)
+	seen := make(map[string]bool)
+	for _, entry := range result.AllServers() {
+		name := entry.Server.Name
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		srv := map[string]any{
+			"transport": "stdio",
+			"command":   entry.Server.Command,
+			"args":      entry.Server.Args,
+		}
+		if len(entry.Server.Env) > 0 {
+			srv["env"] = entry.Server.Env
+		}
+		mcpServers[name] = srv
+	}
+
 	cfgMap := map[string]any{
 		"version": "1",
 		"server": map[string]any{
@@ -176,6 +201,26 @@ func autoSetup(configPath string, opts runOpts) error {
 		},
 		"db_path": dbPath,
 		"agents":  agents,
+		"gateway": map[string]any{
+			"enabled":       true,
+			"port":          9090,
+			"endpoint_path": "/mcp",
+		},
+		"mcp_servers": mcpServers,
+		"quarantine": map[string]any{
+			"enabled":        true,
+			"expiry_hours":   24,
+			"retention_days": 90,
+		},
+		"rate_limit": map[string]any{
+			"per_agent": 100,
+			"window":    60,
+		},
+		"anomaly": map[string]any{
+			"risk_threshold": 80,
+			"check_interval": 60,
+			"min_messages":   10,
+		},
 	}
 
 	data, err := yaml.Marshal(cfgMap)
@@ -199,31 +244,46 @@ func autoSetup(configPath string, opts runOpts) error {
 		return err
 	}
 
-	// Step 4: Wrap
+	// Step 4: Connect clients
 	if !opts.skipWrap {
-		fmt.Println("  Wrapping MCP servers...")
+		fmt.Println("  Connecting MCP clients...")
 
+		totalConnected := 0
+
+		// Claude Code: register gateway via HTTP MCP transport (preferred over wrapping)
+		if hasClaudeCLI() {
+			if err := autoConnectClaudeCode(9090, "/mcp"); err != nil {
+				fmt.Printf("    %-16s  error: %s\n", "Claude Code", err)
+			} else {
+				fmt.Printf("    %-16s  connected via gateway\n", "Claude Code")
+				totalConnected++
+			}
+		}
+
+		// Other clients: wrap stdio servers through oktsec proxy
 		wrapOpts := discover.WrapOpts{
 			Enforce:    opts.enforce,
 			ConfigPath: absConfig,
 		}
-		results := discover.WrapAllClients(wrapOpts)
-
-		totalWrapped := 0
-		for _, r := range results {
-			name := discover.ClientDisplayName(r.Client)
-			if r.Error != nil {
-				fmt.Printf("    %-16s  error: %s\n", name, *r.Error)
+		for _, cr := range result.Clients {
+			// Skip claude-code (handled above via gateway)
+			if cr.Client == "claude-code" || !discover.IsWrappable(cr.Client) || len(cr.Servers) == 0 {
 				continue
 			}
-			if r.Wrapped > 0 {
-				fmt.Printf("    %-16s  %d server(s) wrapped\n", name, r.Wrapped)
-				totalWrapped += r.Wrapped
+			wrapped, err := discover.WrapClient(cr.Client, wrapOpts)
+			name := discover.ClientDisplayName(cr.Client)
+			if err != nil {
+				fmt.Printf("    %-16s  error: %s\n", name, err)
+				continue
+			}
+			if wrapped > 0 {
+				fmt.Printf("    %-16s  %d server(s) wrapped\n", name, wrapped)
+				totalConnected += wrapped
 			}
 		}
 
-		if totalWrapped > 0 {
-			fmt.Printf("\n    %d server(s) now routing through oktsec.\n", totalWrapped)
+		if totalConnected > 0 {
+			fmt.Printf("\n    %d client(s) now routing through oktsec.\n", totalConnected)
 		}
 		fmt.Println()
 	}
@@ -231,6 +291,100 @@ func autoSetup(configPath string, opts runOpts) error {
 	fmt.Println("  " + color.GreenString("Setup complete.") + " Starting server...")
 	fmt.Println()
 	return nil
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// hasClaudeCLI checks if the `claude` CLI is available on the system.
+func hasClaudeCLI() bool {
+	_, err := exec.LookPath("claude")
+	return err == nil
+}
+
+// autoConnectClaudeCode registers the oktsec gateway as an HTTP MCP server in Claude Code
+// and configures hooks to capture all tool-call telemetry.
+func autoConnectClaudeCode(port int, endpoint string) error {
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, endpoint)
+
+	//nolint:gosec // args are not user-controlled
+	out, err := exec.Command(
+		"claude", "mcp", "add",
+		"--transport", "http",
+		"--header", "X-Oktsec-Agent: claude-code",
+		"--scope", "user",
+		"oktsec-gateway", url,
+	).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("claude mcp add: %w\n%s", err, string(out))
+	}
+
+	// Configure hooks to capture all tool-call telemetry.
+	if err := configureClaudeCodeHooks(port); err != nil {
+		// Non-fatal: gateway still works without hooks.
+		fmt.Printf("    %-16s  hooks: %s\n", "", err)
+	}
+
+	return nil
+}
+
+// configureClaudeCodeHooks writes PreToolUse/PostToolUse hooks to Claude Code's
+// user settings so all tool calls are forwarded to the oktsec gateway.
+func configureClaudeCodeHooks(gatewayPort int) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+
+	// Read existing settings (or start fresh).
+	var settings map[string]any
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		_ = json.Unmarshal(data, &settings)
+	}
+	if settings == nil {
+		settings = make(map[string]any)
+	}
+
+	hooksURL := fmt.Sprintf("http://127.0.0.1:%d/hooks/event", gatewayPort)
+
+	hookEntry := []any{
+		map[string]any{
+			"matcher": ".*",
+			"hooks": []any{
+				map[string]any{
+					"type": "http",
+					"url":  hooksURL,
+					"headers": map[string]string{
+						"X-Oktsec-Agent":  "claude-code",
+						"X-Oktsec-Client": "claude-code",
+					},
+					"timeout": 5,
+				},
+			},
+		},
+	}
+
+	hooksMap, _ := settings["hooks"].(map[string]any)
+	if hooksMap == nil {
+		hooksMap = make(map[string]any)
+	}
+	hooksMap["PreToolUse"] = hookEntry
+	hooksMap["PostToolUse"] = hookEntry
+	settings["hooks"] = hooksMap
+
+	// Ensure directory exists.
+	_ = os.MkdirAll(filepath.Dir(settingsPath), 0o700)
+
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(settingsPath, append(data, '\n'), 0o600)
 }
 
 // ensureSecrets creates the .env file with auto-generated secrets if it doesn't exist.
@@ -257,6 +411,20 @@ func writeMinimalConfig(configPath string) error {
 		},
 		"db_path": dbPath,
 		"agents":  map[string]any{},
+		"quarantine": map[string]any{
+			"enabled":        true,
+			"expiry_hours":   24,
+			"retention_days": 90,
+		},
+		"rate_limit": map[string]any{
+			"per_agent": 100,
+			"window":    60,
+		},
+		"anomaly": map[string]any{
+			"risk_threshold": 80,
+			"check_interval": 60,
+			"min_messages":   10,
+		},
 	}
 
 	data, err := yaml.Marshal(cfgMap)
@@ -307,6 +475,7 @@ func startServer(configPath string, opts runOpts) error {
 
 	dashboard.Version = version
 	proxy.Version = version
+	gateway.Version = version
 	srv, err := proxy.NewServer(cfg, configPath, logger)
 	if err != nil {
 		return err
@@ -326,12 +495,59 @@ func startServer(configPath string, opts runOpts) error {
 		errCh <- srv.Start()
 	}()
 
+	// Start embedded gateway if configured with backends.
+	var gw *gateway.Gateway
+	if cfg.Gateway.Enabled && len(cfg.MCPServers) > 0 {
+		var gwErr error
+		gw, gwErr = gateway.NewGateway(cfg, logger)
+		if gwErr != nil {
+			logger.Warn("gateway failed to initialize", "error", gwErr)
+		} else {
+			gw.SetCfgPath(configPath)
+			// Wire hooks handler so /hooks/event is available on the gateway.
+			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
+			gw.SetHooksHandler(hh)
+			go func() {
+				if e := gw.Start(ctx); e != nil {
+					logger.Error("gateway error", "error", e)
+				}
+			}()
+			bindAddr := cfg.Gateway.Bind
+			if bindAddr == "" {
+				bindAddr = "127.0.0.1"
+			}
+			ep := cfg.Gateway.EndpointPath
+			if ep == "" {
+				ep = "/mcp"
+			}
+			fmt.Printf("  Gateway:   http://%s:%d%s (%d backend%s)\n\n",
+				bindAddr, cfg.Gateway.Port, ep, len(cfg.MCPServers), plural(len(cfg.MCPServers)))
+		}
+	}
+
 	select {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		stop() // Reset signal handling so a second Ctrl+C forces exit.
+		fmt.Fprintln(os.Stderr, "\nShutting down...")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+
+		// Force exit on second signal while shutting down.
+		go func() {
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+			<-sigCh
+			fmt.Fprintln(os.Stderr, "Force exit.")
+			os.Exit(1)
+		}()
+
+		if gw != nil {
+			_ = gw.Shutdown(shutdownCtx)
+		}
+		_ = srv.Shutdown(shutdownCtx)
+		return nil
 	}
 }

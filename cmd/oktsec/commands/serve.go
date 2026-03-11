@@ -37,7 +37,6 @@ func newServeCmd() *cobra.Command {
 func printBanner(cfg *config.Config, dashCode string) {
 	cyan := color.New(color.FgCyan).SprintFunc()
 	boldYellow := color.New(color.FgYellow, color.Bold).SprintFunc()
-	dim := color.New(color.Faint).SprintFunc()
 
 	bindAddr := cfg.Server.Bind
 	if bindAddr == "" {
@@ -70,10 +69,6 @@ func printBanner(cfg *config.Config, dashCode string) {
 		fmt.Println("  ────────────────────────────────────────")
 		fmt.Println("  No agents configured. Run 'oktsec run' to get started.")
 	}
-	fmt.Println()
-	fmt.Printf("  %s\n", dim("Enter the access code in the browser to access the dashboard."))
-	fmt.Printf("  %s\n", dim("Code is valid for this session only (regenerated on restart)."))
-	fmt.Printf("  %s\n", dim("Press Ctrl+C to stop."))
 	fmt.Println()
 }
 

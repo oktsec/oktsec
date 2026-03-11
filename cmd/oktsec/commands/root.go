@@ -9,9 +9,10 @@ var cfgFile string
 
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "oktsec",
-		Short: "Security proxy for inter-agent communication",
-		Long:  "Oktsec — Identity verification, policy enforcement, and audit trail for AI agent messaging. Deterministic-first security with optional LLM-augmented analysis. Single binary.",
+		Use:          "oktsec",
+		Short:        "Security proxy for inter-agent communication",
+		Long:         "Oktsec — Identity verification, policy enforcement, and audit trail for AI agent messaging. Deterministic-first security with optional LLM-augmented analysis. Single binary.",
+		SilenceUsage: true,
 		// Bare "oktsec" (no subcommand) runs the same flow as "oktsec run"
 		RunE: func(cmd *cobra.Command, args []string) error {
 			port, _ := cmd.Flags().GetInt("port")

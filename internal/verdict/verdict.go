@@ -58,6 +58,20 @@ func Severity(v engine.ScanVerdict) int {
 	}
 }
 
+// ToAuditStatus maps a scan verdict to the corresponding audit status and decision.
+func ToAuditStatus(v engine.ScanVerdict) (status, decision string) {
+	switch v {
+	case engine.VerdictBlock:
+		return audit.StatusBlocked, audit.DecisionContentBlocked
+	case engine.VerdictQuarantine:
+		return audit.StatusQuarantined, audit.DecisionContentQuarantined
+	case engine.VerdictFlag:
+		return audit.StatusDelivered, audit.DecisionContentFlagged
+	default:
+		return audit.StatusDelivered, audit.DecisionAllow
+	}
+}
+
 // ApplyRuleOverrides applies per-rule action overrides from rules config.
 // - "ignore" removes findings from the outcome entirely
 // - "block"/"quarantine"/"allow-and-flag" overrides that finding's verdict contribution

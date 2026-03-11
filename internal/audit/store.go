@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 	latency_ms INTEGER,
 	intent TEXT DEFAULT '',
 	session_id TEXT DEFAULT '',
+	tool_name TEXT DEFAULT '',
 	prev_hash TEXT DEFAULT '',
 	entry_hash TEXT DEFAULT '',
 	proxy_signature TEXT DEFAULT ''
@@ -247,6 +249,7 @@ func (s *Store) migrateSchema() {
 		"ALTER TABLE audit_log ADD COLUMN entry_hash TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN proxy_signature TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN session_id TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN tool_name TEXT DEFAULT ''",
 		"CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id)",
 	}
 
@@ -299,6 +302,32 @@ func (s *Store) migrateSchema() {
 		}
 	}
 
+	// Backfill: old entries stored tool names in to_agent with empty tool_name.
+	// Move them to the proper column so tools don't appear as agents.
+	// Guard: skip if no rows need backfilling (avoids no-op work on every restart).
+	var needsBackfill int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE to_agent IN ('Bash','Read','Write','Edit','Glob','Grep','Agent','WebFetch','WebSearch','NotebookEdit','TodoRead','TodoWrite') AND COALESCE(tool_name,'') = '' LIMIT 1`).Scan(&needsBackfill)
+	if needsBackfill > 0 {
+		knownTools := []string{
+			"Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent",
+			"WebFetch", "WebSearch", "NotebookEdit", "TodoRead", "TodoWrite",
+		}
+		for _, t := range knownTools {
+			_, _ = s.db.Exec(
+				`UPDATE audit_log SET tool_name = to_agent, to_agent = from_agent WHERE to_agent = ? AND COALESCE(tool_name,'') = ''`, t,
+			)
+		}
+		// Backfill changed to_agent which is part of the hash chain payload.
+		// Re-compute the entire chain so verification passes.
+		s.rebuildChainHashes()
+	}
+
+	// Safety net: if chain is broken (e.g., from a previous migration that didn't rebuild),
+	// re-compute hashes now. Only checks the first 5 entries to avoid slow startup.
+	if needsBackfill == 0 {
+		s.repairChainIfBroken()
+	}
+
 	// Alerts table for persisting webhook notifications
 	alertsSchema := `CREATE TABLE IF NOT EXISTS alerts (
 		id TEXT PRIMARY KEY,
@@ -319,6 +348,92 @@ func (s *Store) migrateSchema() {
 }
 
 // loadLastHash reads the most recent entry_hash for chain continuity on restart.
+// repairChainIfBroken spot-checks a few entries and rebuilds if hashes are stale.
+func (s *Store) repairChainIfBroken() {
+	rows, err := s.db.Query(
+		`SELECT id, timestamp, from_agent, to_agent, COALESCE(content_hash,''), status, COALESCE(prev_hash,''), COALESCE(entry_hash,'') FROM audit_log WHERE entry_hash <> '' ORDER BY rowid ASC LIMIT 5`,
+	)
+	if err != nil {
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	prevHash := ""
+	broken := false
+	for rows.Next() {
+		var id, ts, from, to, contentHash, status, ph, eh string
+		if err := rows.Scan(&id, &ts, &from, &to, &contentHash, &status, &ph, &eh); err != nil {
+			continue
+		}
+		expected := ComputeEntryHash(prevHash, id, ts, from, to, contentHash, status)
+		if eh != expected {
+			broken = true
+			break
+		}
+		prevHash = eh
+	}
+	if broken {
+		s.logger.Info("chain hashes stale, rebuilding...")
+		s.rebuildChainHashes()
+	}
+}
+
+// rebuildChainHashes re-computes the entry_hash and prev_hash for all entries.
+// Called after backfill migrations that modify chain-relevant fields (e.g., to_agent).
+func (s *Store) rebuildChainHashes() {
+	rows, err := s.db.Query(
+		`SELECT id, timestamp, from_agent, to_agent, COALESCE(content_hash,''), status FROM audit_log ORDER BY rowid ASC`,
+	)
+	if err != nil {
+		s.logger.Warn("chain rebuild: query failed", "error", err)
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	type row struct {
+		id, ts, from, to, contentHash, status string
+	}
+	var entries []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.ts, &r.from, &r.to, &r.contentHash, &r.status); err != nil {
+			continue
+		}
+		entries = append(entries, r)
+	}
+	if len(entries) == 0 {
+		return
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		s.logger.Warn("chain rebuild: tx begin failed", "error", err)
+		return
+	}
+	stmt, err := tx.Prepare(`UPDATE audit_log SET prev_hash = ?, entry_hash = ? WHERE id = ?`)
+	if err != nil {
+		_ = tx.Rollback()
+		return
+	}
+	defer func() { _ = stmt.Close() }()
+
+	prevHash := ""
+	for _, e := range entries {
+		hash := ComputeEntryHash(prevHash, e.id, e.ts, e.from, e.to, e.contentHash, e.status)
+		if _, err := stmt.Exec(prevHash, hash, e.id); err != nil {
+			s.logger.Warn("chain rebuild: update failed", "id", e.id, "error", err)
+		}
+		prevHash = hash
+	}
+
+	if err := tx.Commit(); err != nil {
+		s.logger.Warn("chain rebuild: commit failed", "error", err)
+		return
+	}
+	s.lastHash = prevHash
+	s.logger.Info("chain rebuilt after backfill migration", "entries", len(entries))
+}
+
 func (s *Store) loadLastHash() {
 	var hash sql.NullString
 	err := s.db.QueryRow("SELECT entry_hash FROM audit_log WHERE entry_hash != '' ORDER BY timestamp DESC LIMIT 1").Scan(&hash)
@@ -335,7 +450,7 @@ func (s *Store) Log(entry Entry) {
 
 // Query returns audit entries matching the given filters.
 func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
-	query := "SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,'') FROM audit_log WHERE 1=1"
+	query := "SELECT id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,'') FROM audit_log WHERE 1=1"
 	var args []any
 
 	if opts.Status != "" {
@@ -389,7 +504,7 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 	for rows.Next() {
 		var e Entry
 		var fp, rules sql.NullString
-		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ContentHash,
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 			&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
 			&e.Intent, &e.SessionID, &e.EntryHash); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
@@ -470,11 +585,11 @@ func (s *Store) QueryHourlyStats() (map[int]int, error) {
 // QueryByID fetches a single audit entry by ID.
 func (s *Store) QueryByID(id string) (*Entry, error) {
 	row := s.db.QueryRow(
-		"SELECT id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,'') FROM audit_log WHERE id = ?", id)
+		"SELECT id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,'') FROM audit_log WHERE id = ?", id)
 
 	var e Entry
 	var fp, rules sql.NullString
-	if err := row.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ContentHash,
+	if err := row.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 		&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
 		&e.Intent, &e.SessionID, &e.EntryHash); err != nil {
 		if err == sql.ErrNoRows {
@@ -625,7 +740,7 @@ func (s *Store) writeLoop() {
 			continue
 		}
 
-		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, tool_name, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			s.logger.Error("audit batch prepare failed", "error", err)
 			_ = tx.Rollback()
@@ -636,7 +751,7 @@ func (s *Store) writeLoop() {
 		txOK := true
 		for i := range batch {
 			_, err := stmt.Exec(
-				batch[i].ID, batch[i].Timestamp, batch[i].FromAgent, batch[i].ToAgent, batch[i].ContentHash,
+				batch[i].ID, batch[i].Timestamp, batch[i].FromAgent, batch[i].ToAgent, batch[i].ToolName, batch[i].ContentHash,
 				batch[i].SignatureVerified, batch[i].PubkeyFingerprint, batch[i].Status, batch[i].RulesTriggered,
 				batch[i].PolicyDecision, batch[i].LatencyMs, batch[i].Intent, batch[i].SessionID,
 				batch[i].PrevHash, batch[i].EntryHash, batch[i].ProxySignature,
@@ -897,7 +1012,7 @@ func (s *Store) QueryTrafficAgents() ([]string, error) {
 		`SELECT DISTINCT agent FROM (
 			SELECT from_agent AS agent FROM audit_log WHERE timestamp >= ?
 			UNION
-			SELECT to_agent AS agent FROM audit_log WHERE timestamp >= ?
+			SELECT to_agent AS agent FROM audit_log WHERE timestamp >= ? AND COALESCE(tool_name,'') = ''
 		) WHERE agent NOT LIKE 'gateway/%'
 		  AND agent != 'gateway'
 		  AND agent NOT LIKE '%:%'
@@ -1052,46 +1167,86 @@ func (s *Store) QueryEdgeStats(since string) ([]EdgeStat, error) {
 	if cutoff == "" {
 		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	}
-	rows, err := s.db.Query(`SELECT from_agent, to_agent, status, COUNT(*) FROM audit_log WHERE timestamp >= ? GROUP BY from_agent, to_agent, status`, cutoff)
+	rows, err := s.db.Query(`SELECT from_agent, to_agent, status, COUNT(*), COALESCE(AVG(latency_ms),0) FROM audit_log WHERE timestamp >= ? GROUP BY from_agent, to_agent, status`, cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("query edge stats: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 
 	type key struct{ from, to string }
-	edges := make(map[key]*EdgeStat)
+	type accumulator struct {
+		stat       *EdgeStat
+		totalCount int
+		latencySum float64
+	}
+	edges := make(map[key]*accumulator)
 	for rows.Next() {
 		var from, to, status string
 		var count int
-		if err := rows.Scan(&from, &to, &status, &count); err != nil {
+		var avgLat float64
+		if err := rows.Scan(&from, &to, &status, &count, &avgLat); err != nil {
 			continue
 		}
 		k := key{from, to}
-		es, ok := edges[k]
+		acc, ok := edges[k]
 		if !ok {
-			es = &EdgeStat{From: from, To: to}
-			edges[k] = es
+			acc = &accumulator{stat: &EdgeStat{From: from, To: to}}
+			edges[k] = acc
 		}
-		es.Total += count
+		acc.stat.Total += count
+		acc.totalCount += count
+		acc.latencySum += avgLat * float64(count)
 		switch status {
 		case StatusDelivered:
-			es.Delivered += count
+			acc.stat.Delivered += count
 		case StatusBlocked:
-			es.Blocked += count
+			acc.stat.Blocked += count
 		case StatusQuarantined:
-			es.Quarantined += count
+			acc.stat.Quarantined += count
 		case StatusRejected:
-			es.Rejected += count
+			acc.stat.Rejected += count
+		}
+	}
+	// Compute weighted average latency per edge.
+	for _, acc := range edges {
+		if acc.totalCount > 0 {
+			acc.stat.AvgLatencyMs = math.Round(acc.latencySum/float64(acc.totalCount)*10) / 10
 		}
 	}
 
 	result := make([]EdgeStat, 0, len(edges))
-	for _, es := range edges {
-		result = append(result, *es)
+	for _, acc := range edges {
+		result = append(result, *acc.stat)
 	}
 
 	sort.Slice(result, func(i, j int) bool { return result[i].Total > result[j].Total })
 
+	return result, rows.Err()
+}
+
+// QueryToolStats returns aggregated tool usage counts per agent for the given time window.
+func (s *Store) QueryToolStats(since string) ([]ToolStat, error) {
+	cutoff := since
+	if cutoff == "" {
+		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
+	rows, err := s.db.Query(
+		`SELECT from_agent, tool_name, COUNT(*) FROM audit_log WHERE timestamp >= ? AND COALESCE(tool_name,'') <> '' GROUP BY from_agent, tool_name ORDER BY COUNT(*) DESC`,
+		cutoff,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query tool stats: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []ToolStat
+	for rows.Next() {
+		var ts ToolStat
+		if err := rows.Scan(&ts.Agent, &ts.Tool, &ts.Total); err != nil {
+			continue
+		}
+		result = append(result, ts)
+	}
 	return result, rows.Err()
 }
 
@@ -1244,6 +1399,12 @@ func (s *Store) PurgeOldEntries(retentionDays int) (int, error) {
 	}
 	n, _ := res.RowsAffected()
 	return int(n), nil
+}
+
+// ClearAll deletes all audit log entries. Used for demo/dev resets.
+func (s *Store) ClearAll() error {
+	_, err := s.db.Exec(`DELETE FROM audit_log`)
+	return err
 }
 
 // expiryLoop periodically expires old quarantine items and purges old audit entries.

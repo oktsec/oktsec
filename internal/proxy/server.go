@@ -499,7 +499,7 @@ func (s *Server) Start() error {
 
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
-	s.logger.Info("shutting down")
+	s.logger.Debug("shutting down")
 	if s.llmQueue != nil {
 		s.llmQueue.Stop()
 	}

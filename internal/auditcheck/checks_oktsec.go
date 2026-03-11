@@ -11,15 +11,28 @@ import (
 
 func checkSignatureDisabled(cfg *config.Config, _ string) []Finding {
 	if !cfg.Identity.RequireSignature {
+		sev := Critical
+		detail := "Agents can impersonate each other because message signing is off. Any process on this machine can send messages as any agent."
+		if isObserveMode(cfg) {
+			sev = Info
+			detail = "Message signing is off, which is normal for observe mode. Turn it on when you're ready to enforce security."
+		}
 		return []Finding{{
-			Severity:    Critical,
+			Severity:    sev,
 			CheckID:     "SIG-001",
-			Title:       "Message signatures not required",
-			Detail:      "require_signature is false — any process can spoof agent identity. Set identity.require_signature: true.",
-			Remediation: "Set identity.require_signature: true",
+			Title:       "Message signing is off",
+			Detail:      detail,
+			Remediation: "identity.require_signature: true",
+			FixURL:      "/dashboard/settings?tab=security",
 		}}
 	}
 	return nil
+}
+
+// isObserveMode returns true when the config is in observe (audit-only) mode.
+// Observe mode is the default: no signature enforcement, no blocking.
+func isObserveMode(cfg *config.Config) bool {
+	return !cfg.Identity.RequireSignature
 }
 
 func checkNetworkExposure(cfg *config.Config, _ string) []Finding {
@@ -28,9 +41,10 @@ func checkNetworkExposure(cfg *config.Config, _ string) []Finding {
 		return []Finding{{
 			Severity:    Critical,
 			CheckID:     "NET-001",
-			Title:       "Proxy exposed to all network interfaces",
-			Detail:      fmt.Sprintf("server.bind is %q — the proxy accepts connections from any host. Set server.bind: 127.0.0.1.", bind),
-			Remediation: `Set server.bind: "127.0.0.1"`,
+			Title:       "Proxy is accessible from the network",
+			Detail:      "Anyone on your network can reach the proxy. It should only listen on localhost unless you need remote access.",
+			Remediation: "server.bind: 127.0.0.1",
+			FixURL:      "/dashboard/settings?tab=infra",
 		}}
 	}
 	return nil
@@ -42,12 +56,17 @@ func checkDefaultPolicyAllow(cfg *config.Config, _ string) []Finding {
 		policy = "allow"
 	}
 	if policy == "allow" && len(cfg.Agents) > 0 {
+		sev := High
+		if isObserveMode(cfg) {
+			sev = Info
+		}
 		return []Finding{{
-			Severity:    High,
+			Severity:    sev,
 			CheckID:     "ACL-001",
-			Title:       "Default policy is 'allow' with agents defined",
-			Detail:      "Unconfigured agents bypass ACL entirely. Set default_policy: deny.",
-			Remediation: "Set default_policy: deny",
+			Title:       "Unknown agents are allowed by default",
+			Detail:      "Any agent not in your config can still send messages. Switch to deny-by-default so only registered agents can communicate.",
+			Remediation: "default_policy: deny",
+			FixURL:      "/dashboard/settings?tab=security",
 		}}
 	}
 	return nil
@@ -58,25 +77,31 @@ func checkNoAgents(cfg *config.Config, _ string) []Finding {
 		return []Finding{{
 			Severity:    High,
 			CheckID:     "ACL-002",
-			Title:       "No agents defined",
-			Detail:      "Without agent definitions there is no access control. Define agents in the config.",
-			Remediation: "Add agents with oktsec agent add <name>",
+			Title:       "No agents registered",
+			Detail:      "Without agents, there's no access control. Register your agents so oktsec knows who's allowed to communicate.",
+			Remediation: "oktsec agent add <name>",
+			FixURL:      "/dashboard/agents",
 		}}
 	}
 	return nil
 }
 
 func checkWildcardMessaging(cfg *config.Config, _ string) []Finding {
+	sev := High
+	if isObserveMode(cfg) {
+		sev = Info
+	}
 	var findings []Finding
 	for name, agent := range cfg.Agents {
 		for _, target := range agent.CanMessage {
 			if target == "*" {
 				findings = append(findings, Finding{
-					Severity:    High,
+					Severity:    sev,
 					CheckID:     "ACL-003",
-					Title:       fmt.Sprintf("Agent %q can message everyone", name),
-					Detail:      fmt.Sprintf("Agent %q has can_message: [\"*\"]. Restrict to specific targets.", name),
-					Remediation: `Replace can_message: ["*"] with specific names`,
+					Title:       fmt.Sprintf("%s can message any agent", name),
+					Detail:      fmt.Sprintf("%s has no restrictions on who it can talk to. Limit it to specific agents to prevent lateral movement.", name),
+					Remediation: fmt.Sprintf("agents.%s.can_message: [specific-agents]", name),
+					FixURL:      fmt.Sprintf("/dashboard/agents/%s", name),
 				})
 				break
 			}
@@ -87,12 +112,17 @@ func checkWildcardMessaging(cfg *config.Config, _ string) []Finding {
 
 func checkQuarantineDisabled(cfg *config.Config, _ string) []Finding {
 	if !cfg.Quarantine.Enabled {
+		sev := High
+		if isObserveMode(cfg) {
+			sev = Medium
+		}
 		return []Finding{{
-			Severity:    High,
+			Severity:    sev,
 			CheckID:     "RET-001",
-			Title:       "Quarantine queue disabled",
-			Detail:      "Suspicious messages are not held for human review. Set quarantine.enabled: true.",
-			Remediation: "Set quarantine.enabled: true",
+			Title:       "Suspicious messages aren't quarantined",
+			Detail:      "When oktsec detects something suspicious, it can hold the message for human review instead of delivering it. Enable the quarantine queue.",
+			Remediation: "quarantine.enabled: true",
+			FixURL:      "/dashboard/settings?tab=pipeline",
 		}}
 	}
 	return nil
@@ -100,12 +130,17 @@ func checkQuarantineDisabled(cfg *config.Config, _ string) []Finding {
 
 func checkRateLimitDisabled(cfg *config.Config, _ string) []Finding {
 	if cfg.RateLimit.PerAgent == 0 {
+		sev := High
+		if isObserveMode(cfg) {
+			sev = Medium
+		}
 		return []Finding{{
-			Severity:    High,
+			Severity:    sev,
 			CheckID:     "MON-001",
-			Title:       "No per-agent rate limit",
-			Detail:      "A compromised agent can flood the proxy. Set rate_limit.per_agent to a reasonable value.",
-			Remediation: "Set rate_limit.per_agent: 100",
+			Title:       "No rate limiting",
+			Detail:      "A compromised or misbehaving agent could flood the system with messages. Set a per-agent limit to prevent abuse.",
+			Remediation: "rate_limit.per_agent: 100",
+			FixURL:      "/dashboard/settings?tab=pipeline",
 		}}
 	}
 	return nil
@@ -121,9 +156,10 @@ func checkKeysDirectory(cfg *config.Config, configDir string) []Finding {
 		return []Finding{{
 			Severity:    High,
 			CheckID:     "SIG-002",
-			Title:       "Keys directory not configured",
-			Detail:      "Signatures are required but no keys_dir is set. Set identity.keys_dir.",
-			Remediation: "Run oktsec keygen <agent-name>",
+			Title:       "No keys directory configured",
+			Detail:      "Signatures are required but oktsec doesn't know where to find the agent keys. Set the keys directory.",
+			Remediation: "oktsec doctor --repair",
+			FixURL:      "/dashboard/settings?tab=identity",
 		}}
 	}
 
@@ -136,9 +172,9 @@ func checkKeysDirectory(cfg *config.Config, configDir string) []Finding {
 		return []Finding{{
 			Severity:    High,
 			CheckID:     "SIG-002",
-			Title:       "Keys directory missing or unreadable",
-			Detail:      fmt.Sprintf("Cannot read keys directory %q: %v", cfg.Identity.KeysDir, err),
-			Remediation: "Run oktsec keygen <agent-name>",
+			Title:       "Keys directory is missing",
+			Detail:      fmt.Sprintf("Can't read %s. Run oktsec doctor --repair to recreate it.", cfg.Identity.KeysDir),
+			Remediation: "oktsec doctor --repair",
 		}}
 	}
 
@@ -152,9 +188,9 @@ func checkKeysDirectory(cfg *config.Config, configDir string) []Finding {
 		return []Finding{{
 			Severity:    High,
 			CheckID:     "SIG-002",
-			Title:       "Keys directory is empty",
-			Detail:      fmt.Sprintf("No .pub files in %q. Generate keys with 'oktsec keygen'.", cfg.Identity.KeysDir),
-			Remediation: "Run oktsec keygen <agent-name>",
+			Title:       "No agent keys found",
+			Detail:      "The keys directory is empty. Generate keys for your agents so they can sign messages.",
+			Remediation: "oktsec doctor --repair",
 		}}
 	}
 	return nil
@@ -162,12 +198,17 @@ func checkKeysDirectory(cfg *config.Config, configDir string) []Finding {
 
 func checkNoWebhooks(cfg *config.Config, _ string) []Finding {
 	if len(cfg.Webhooks) == 0 {
+		sev := Medium
+		if isObserveMode(cfg) {
+			sev = Info
+		}
 		return []Finding{{
-			Severity:    Medium,
+			Severity:    sev,
 			CheckID:     "MON-002",
-			Title:       "No webhooks configured",
-			Detail:      "No external alerting for blocked or quarantined messages. Add webhooks for monitoring.",
-			Remediation: "Add webhook URLs under webhooks:",
+			Title:       "No alert notifications",
+			Detail:      "You won't be notified when oktsec blocks or quarantines a message. Add a webhook (Slack, email, etc.) to stay informed.",
+			Remediation: "webhooks: [url]",
+			FixURL:      "/dashboard/settings?tab=infra",
 		}}
 	}
 	return nil
@@ -178,9 +219,10 @@ func checkAnomalyThreshold(cfg *config.Config, _ string) []Finding {
 		return []Finding{{
 			Severity:    Medium,
 			CheckID:     "MON-003",
-			Title:       "Anomaly detection threshold is zero",
-			Detail:      "No behavioral monitoring. Set anomaly.risk_threshold to enable anomaly detection.",
-			Remediation: "Set anomaly.risk_threshold: 80",
+			Title:       "Anomaly detection is off",
+			Detail:      "oktsec can detect unusual agent behavior patterns (sudden spikes, new communication pairs). Enable it to catch threats early.",
+			Remediation: "anomaly.risk_threshold: 80",
+			FixURL:      "/dashboard/settings?tab=pipeline",
 		}}
 	}
 	return nil
@@ -195,12 +237,17 @@ func checkNoBlockedContent(cfg *config.Config, _ string) []Finding {
 			return nil
 		}
 	}
+	sev := Medium
+	if isObserveMode(cfg) {
+		sev = Info
+	}
 	return []Finding{{
-		Severity:    Medium,
+		Severity:    sev,
 		CheckID:     "ACL-004",
-		Title:       "No agents have blocked_content rules",
-		Detail:      "Content filtering is not in use. Add blocked_content patterns to agents.",
-		Remediation: "Add blocked_content patterns to agents",
+		Title:       "No content filtering rules",
+		Detail:      "Agents can send any content type. Add blocked_content patterns to prevent agents from sending sensitive data like credentials or PII.",
+		Remediation: "agents.<name>.blocked_content: [patterns]",
+		FixURL:      "/dashboard/agents",
 	}}
 }
 
@@ -209,9 +256,10 @@ func checkRetentionDays(cfg *config.Config, _ string) []Finding {
 		return []Finding{{
 			Severity:    Medium,
 			CheckID:     "RET-002",
-			Title:       "Audit log retention is unlimited",
-			Detail:      "retention_days is 0 — the audit log will grow indefinitely. Set quarantine.retention_days.",
-			Remediation: "Set quarantine.retention_days: 90",
+			Title:       "Audit log grows forever",
+			Detail:      "The audit database has no retention limit and will grow indefinitely. Set a retention period to manage disk space.",
+			Remediation: "quarantine.retention_days: 90",
+			FixURL:      "/dashboard/settings?tab=pipeline",
 		}}
 	}
 	return nil
@@ -219,12 +267,17 @@ func checkRetentionDays(cfg *config.Config, _ string) []Finding {
 
 func checkNoCustomRules(cfg *config.Config, _ string) []Finding {
 	if cfg.CustomRulesDir == "" {
+		sev := Medium
+		if isObserveMode(cfg) {
+			sev = Info
+		}
 		return []Finding{{
-			Severity:    Medium,
+			Severity:    sev,
 			CheckID:     "ENG-001",
-			Title:       "No custom rules directory",
-			Detail:      "Only default Aguara rules are applied. Set custom_rules_dir for environment-specific detections.",
-			Remediation: "Set custom_rules_dir: ./custom-rules",
+			Title:       "Using default detection rules only",
+			Detail:      "oktsec ships with 188 built-in rules. Add custom rules specific to your environment for better coverage.",
+			Remediation: "custom_rules_dir: ./rules",
+			FixURL:      "/dashboard/rules",
 		}}
 	}
 	return nil
@@ -235,9 +288,10 @@ func checkForwardProxyNoScanResponses(cfg *config.Config, _ string) []Finding {
 		return []Finding{{
 			Severity:    Medium,
 			CheckID:     "NET-002",
-			Title:       "Forward proxy does not scan responses",
-			Detail:      "Inbound HTTP bodies are not inspected. Set forward_proxy.scan_responses: true.",
-			Remediation: "Set forward_proxy.scan_responses: true",
+			Title:       "Egress responses aren't scanned",
+			Detail:      "The forward proxy is active but not inspecting HTTP responses. Enable response scanning to catch data exfiltration.",
+			Remediation: "forward_proxy.scan_responses: true",
+			FixURL:      "/dashboard/settings?tab=infra",
 		}}
 	}
 	return nil
@@ -271,8 +325,8 @@ func checkPrivateKeyPermissions(cfg *config.Config, configDir string) []Finding 
 			findings = append(findings, Finding{
 				Severity:    Medium,
 				CheckID:     "SIG-003",
-				Title:       fmt.Sprintf("Private key %q has loose permissions", e.Name()),
-				Detail:      fmt.Sprintf("File mode is %04o — group/world readable. Run: chmod 600 %s", mode, filepath.Join(keysDir, e.Name())),
+				Title:       fmt.Sprintf("Private key %q is readable by others", e.Name()),
+				Detail:      fmt.Sprintf("Other users on this machine can read this key. Fix with: chmod 600 %s", filepath.Join(keysDir, e.Name())),
 				Remediation: fmt.Sprintf("chmod 600 %s", filepath.Join(keysDir, e.Name())),
 			})
 		}
@@ -287,15 +341,15 @@ func checkAuditDatabase(_ *config.Config, configDir string) []Finding {
 		return []Finding{{
 			Severity: Info,
 			CheckID:  "RET-003",
-			Title:    "Audit database not found",
-			Detail:   fmt.Sprintf("No oktsec.db at %s — the proxy has not run yet or uses a different path.", configDir),
+			Title:    "Audit database not created yet",
+			Detail:   "The database will be created automatically when the proxy processes its first message.",
 		}}
 	}
 	sizeMB := float64(info.Size()) / (1024 * 1024)
 	return []Finding{{
 		Severity: Info,
 		CheckID:  "RET-003",
-		Title:    "Audit database present",
-		Detail:   fmt.Sprintf("oktsec.db exists (%.1f MB).", sizeMB),
+		Title:    "Audit database active",
+		Detail:   fmt.Sprintf("Audit trail is recording (%.1f MB).", sizeMB),
 	}}
 }

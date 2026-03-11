@@ -8,6 +8,7 @@ type Entry struct {
 	Timestamp         string `json:"timestamp"`
 	FromAgent         string `json:"from_agent"`
 	ToAgent           string `json:"to_agent"`
+	ToolName          string `json:"tool_name,omitempty"`        // tool executed (e.g., "Bash", "Write") — distinct from agent
 	ContentHash       string `json:"content_hash"`
 	SignatureVerified int    `json:"signature_verified"` // 1=verified, 0=unsigned, -1=invalid
 	PubkeyFingerprint string `json:"pubkey_fingerprint,omitempty"`
@@ -66,13 +67,21 @@ type RuleStat struct {
 
 // EdgeStat holds aggregated message counts for a single from→to edge.
 type EdgeStat struct {
-	From        string `json:"from"`
-	To          string `json:"to"`
-	Delivered   int    `json:"delivered"`
-	Blocked     int    `json:"blocked"`
-	Quarantined int    `json:"quarantined"`
-	Rejected    int    `json:"rejected"`
-	Total       int    `json:"total"`
+	From         string  `json:"from"`
+	To           string  `json:"to"`
+	Delivered    int     `json:"delivered"`
+	Blocked      int     `json:"blocked"`
+	Quarantined  int     `json:"quarantined"`
+	Rejected     int     `json:"rejected"`
+	Total        int     `json:"total"`
+	AvgLatencyMs float64 `json:"avg_latency_ms"`
+}
+
+// ToolStat holds aggregated tool usage counts for an agent→tool edge.
+type ToolStat struct {
+	Agent string `json:"agent"`
+	Tool  string `json:"tool"`
+	Total int    `json:"total"`
 }
 
 // AgentRisk holds risk scoring for an agent based on audit history and LLM analysis.

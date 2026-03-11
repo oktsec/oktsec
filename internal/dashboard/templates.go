@@ -19,6 +19,17 @@ func snakeToTitle(s string) string {
 	return strings.Join(words, " ")
 }
 
+// kebabToTitle converts kebab-case to Title Case.
+func kebabToTitle(s string) string {
+	words := strings.FieldsFunc(s, func(r rune) bool { return r == '-' || r == '_' })
+	for i, w := range words {
+		if len(w) > 0 {
+			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		}
+	}
+	return strings.Join(words, " ")
+}
+
 func toFloat64(v any) float64 {
 	switch n := v.(type) {
 	case float64:
@@ -54,11 +65,25 @@ var tmplFuncs = template.FuncMap{
 		}
 	},
 	"upper": strings.ToUpper,
+	"toolDot": func(toolName string) template.HTML {
+		colors := map[string]string{
+			"Bash": "#fbbf24", "Write": "#c084fc", "Edit": "#818cf8",
+			"Read": "#22d3ee", "Glob": "#2dd4bf", "Grep": "#2dd4bf",
+			"WebFetch": "#f472b6", "WebSearch": "#f472b6", "Agent": "#a78bfa",
+		}
+		c := "#71717a"
+		if v, ok := colors[toolName]; ok {
+			c = v
+		}
+		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
+	},
+	"hasRules": func(s string) bool { return s != "" && s != "[]" && s != "null" },
 	"pageTitle": func(active string) string {
 		titles := map[string]string{
-			"events": "Event Log",
-			"audit":  "Security Posture",
-			"llm":    "Threat Intel",
+			"events":    "Events",
+			"audit":     "Security Posture",
+			"llm":       "Threat Intel",
+			"discovery": "Discovery",
 		}
 		if t, ok := titles[active]; ok {
 			return strings.ToUpper(t)
@@ -105,6 +130,7 @@ var tmplFuncs = template.FuncMap{
 	"contains": strings.Contains,
 	"printf":   fmt.Sprintf,
 	"snakeToTitle": snakeToTitle,
+	"kebabToTitle": kebabToTitle,
 	"truncTS": func(ts string) string {
 		if t, err := time.Parse(time.RFC3339, ts); err == nil {
 			return t.Format("Jan 02 15:04")
@@ -266,7 +292,7 @@ button:active{transform:scale(0.98)}
   <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M12 11V9a2 2 0 0 0-4 0"/></svg></div>
   <div class="logo">oktsec</div>
   <div class="subtitle">Dashboard Access</div>
-  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec serve</code> to get a code.<br><small style="opacity:0.5">Code changes each time the server restarts.</small></p>
+  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec run</code> to get a code.<br><small style="opacity:0.5">Code changes each time the server restarts.</small></p>
   <form method="POST" action="/dashboard/login" autocomplete="off">
     <input type="text" name="code" placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric" autofocus required>
     <button type="submit">Authenticate</button>
@@ -476,10 +502,10 @@ tr:hover td{background:rgba(99,102,241,0.04)}
 .agent-targets{color:var(--text3);font-size:0.78rem}
 
 /* Severity labels */
-.sev-critical{color:#f87171;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-high{color:#fb923c;font-size:0.68rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-medium{color:#60a5fa;font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-low{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-critical{background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-high{background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-medium{background:rgba(96,165,250,0.12);color:#60a5fa;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
+.sev-low{background:rgba(113,113,122,0.12);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
 .sev-info{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
 
 /* Action badges */
@@ -566,6 +592,7 @@ tr:hover td{background:rgba(99,102,241,0.04)}
 /* Clickable rows */
 tr.clickable{cursor:pointer}
 tr.clickable:hover td{background:var(--surface2)}
+tr.has-rules>td:first-child{border-left:3px solid var(--warn);padding-left:11px}
 
 /* Rule card in list */
 .rule-list-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.2s}
@@ -713,18 +740,18 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
 <aside class="sidebar">
   <a href="/dashboard" class="brand">oktsec</a>
   <div class="sidebar-section">
-    <div class="sidebar-section-label">Main</div>
+    <div class="sidebar-section-label">Monitor</div>
     <a href="/dashboard" class="sidebar-item {{if eq .Active "overview"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
       Overview
     </a>
     <a href="/dashboard/events" class="sidebar-item {{if eq .Active "events"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-      Event Log
+      Events
     </a>
-    <a href="/dashboard/graph" class="sidebar-item {{if eq .Active "graph"}}active{{end}}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-      Graph
+    <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Alerts
     </a>
   </div>
   <div class="sidebar-section">
@@ -741,17 +768,20 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
       Security Posture
     </a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Analyze</div>
     <a href="/dashboard/llm" class="sidebar-item {{if eq .Active "llm"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><circle cx="12" cy="6" r="1"/><path d="M9 22v-2"/><path d="M15 22v-2"/></svg>
       Threat Intel
     </a>
-    <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-      Alerts
+    <a href="/dashboard/graph" class="sidebar-item {{if eq .Active "graph"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      Graph
     </a>
   </div>
   <div class="sidebar-section">
-    <div class="sidebar-section-label">Management</div>
+    <div class="sidebar-section-label">Configure</div>
     <a href="/dashboard/gateway" class="sidebar-item {{if eq .Active "gateway"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
       Gateway
@@ -911,7 +941,7 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
 {{else}}
 
 <!-- Hero: the 3 numbers that tell the story -->
-<div class="hero-stats" hx-get="/dashboard/api/stats" hx-trigger="every 5s" hx-swap="none">
+<div class="hero-stats" id="hero-stats">
   <a href="/dashboard/events" class="hero-stat" style="text-decoration:none;color:inherit">
     <div class="num success" id="stat-total">{{.Stats.TotalMessages}}</div>
     <div class="lbl">Messages Protected</div>
@@ -1135,6 +1165,16 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
       while (tbody.children.length > 20) tbody.removeChild(tbody.lastChild);
     } catch(err) {}
   };
+
+  // Poll hero stats
+  function pollHeroStats(){
+    fetch('/dashboard/api/stats?_t='+Date.now(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+      var el=function(id){return document.getElementById(id)};
+      if(el('stat-total'))el('stat-total').textContent=d.total_messages.toLocaleString();
+      if(el('stat-blocked'))el('stat-blocked').textContent=(d.blocked+d.rejected).toLocaleString();
+    }).catch(function(){});
+  }
+  setInterval(pollHeroStats,4000);
 })();
 </script>
 ` + layoutFoot))
@@ -1162,6 +1202,70 @@ var recentPartialTmpl = template.Must(template.New("recent").Funcs(tmplFuncs).Pa
 </table>
 {{else}}
 <div class="empty">No events yet.</div>
+{{end}}`))
+
+var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs).Parse(`
+<div class="grid-2" style="gap:20px">
+  <div class="card">
+    <h2>Node Threat Scores</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Higher scores mean more blocked or quarantined messages originating from this agent.</p>
+    {{if .Nodes}}
+    <table>
+      <thead><tr><th>Agent</th><th>Threat</th><th>Sent</th><th>Recv</th><th>Betweenness</th></tr></thead>
+      <tbody>
+      {{range .Nodes}}
+      <tr class="clickable" onclick="location.href='/dashboard/agents/{{.Name}}'">
+        <td style="font-weight:600">{{agentCell .Name}}</td>
+        <td><div style="display:flex;align-items:center;gap:8px"><div class="risk-bar" style="width:60px"><div class="risk-bar-fill {{if gt .ThreatScore 60.0}}risk-high{{else if gt .ThreatScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .ThreatScore}}%"></div></div><span>{{printf "%.1f" .ThreatScore}}</span></div></td>
+        <td>{{.TotalSent}}</td>
+        <td>{{.TotalRecv}}</td>
+        <td>{{if eq .Betweenness -1.0}}&#8212;{{else}}{{printf "%.3f" .Betweenness}}{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No agents detected</p>{{end}}
+  </div>
+  <div class="card">
+    <h2>Edge Health</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Percentage of messages on each connection that were delivered successfully.</p>
+    {{if .Edges}}
+    <table>
+      <thead><tr><th>From</th><th>To</th><th>Total</th><th>Health</th></tr></thead>
+      <tbody>
+      {{range .Edges}}
+      <tr>
+        <td>{{.From}}</td>
+        <td>{{.To}}</td>
+        <td>{{.Total}}</td>
+        <td><div style="display:flex;align-items:center;gap:8px"><div class="risk-bar" style="width:60px"><div class="risk-bar-fill {{if lt .HealthScore 40.0}}risk-high{{else if lt .HealthScore 70.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .HealthScore}}%"></div></div><span>{{printf "%.0f" .HealthScore}}%</span></div></td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No traffic in this time range</p>{{end}}
+  </div>
+</div>
+{{if .ShadowEdges}}
+<div class="card">
+  <h2 style="color:var(--warn)">Shadow Edges</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not defined in ACL policy.</p>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>Messages</th></tr></thead>
+    <tbody>{{range .ShadowEdges}}<tr><td>{{.From}}</td><td>{{.To}}</td><td>{{.Total}}</td></tr>{{end}}</tbody>
+  </table>
+</div>
+{{end}}`))
+
+var graphEventsTmpl = template.Must(template.New("graph-events").Funcs(tmplFuncs).Parse(`
+{{range .}}
+<div style="padding:6px 0;border-left:3px solid {{if eq .Status "blocked"}}#f87171{{else if eq .Status "quarantined"}}#fbbf24{{else}}var(--border){{end}};padding-left:10px;margin-bottom:6px">
+  <div style="color:var(--text3);font-size:0.68rem" data-ts="{{.Timestamp}}">{{.Timestamp}}</div>
+  {{if .ToolName}}<div style="display:flex;align-items:center;gap:5px">{{toolDot .ToolName}} <span style="color:var(--text3);font-size:0.7rem">{{if eq .Status "blocked"}}blocked{{else if eq .Status "quarantined"}}quarantined{{else}}processed{{end}}</span></div>
+  {{else}}<span style="color:{{if eq .Status "blocked"}}#f87171{{else if eq .Status "quarantined"}}#fbbf24{{else}}var(--text2){{end}};font-weight:{{if ne .Status "delivered"}}600{{else}}400{{end}}">{{.FromAgent}} &rarr; {{.ToAgent}}</span>{{end}}
+</div>
+{{else}}
+<div style="color:var(--text3);padding:20px 0;text-align:center">No events yet</div>
 {{end}}`))
 
 var searchResultsTmpl = template.Must(template.New("search-results").Funcs(tmplFuncs).Parse(`
@@ -1268,269 +1372,298 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 
 var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;align-items:start}
+.ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+.ad-grid>div{min-width:0}
+.ad-grid table{width:100%}
+.ad-grid .fp{word-break:break-all;overflow-wrap:break-word}
+.ad-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
+.ad-tab{padding:10px 20px;font-size:0.82rem;font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color 0.15s,border-color 0.15s}
+.ad-tab:hover{color:var(--text2)}
+.ad-tab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.ad-panel{display:none}
+.ad-panel.active{display:block}
+.ad-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.ad-kv{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ad-kv:last-child{border-bottom:none}
+.ad-kv .k{color:var(--text3);font-size:0.75rem}
+.ad-kv .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ad-rule{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);position:relative}
+.ad-rule:last-child{border-bottom:none}
+.ad-rule-bar{position:absolute;left:0;top:0;bottom:0;border-radius:4px;opacity:0.07;pointer-events:none}
+.ad-gauge{display:flex;gap:2px;align-items:center}
+.ad-gauge span{width:4px;height:16px;border-radius:2px;background:var(--border)}
+.ad-gauge span.filled{background:var(--success)}
+.ad-gauge span.filled.warn{background:var(--warn)}
+.ad-gauge span.filled.danger{background:var(--danger)}
+.ad-tool-bar{height:10px;border-radius:5px;display:flex;overflow:hidden}
 @media(max-width:960px){.ad-grid{grid-template-columns:1fr}}
 </style>
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
-  {{avatar .Name 40}}
-  <div style="min-width:0">
-    <h1 style="margin:0;font-size:1.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Agent: <span>{{.Name}}</span></h1>
-    <p style="color:var(--text2);font-size:0.82rem;margin:2px 0 0">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Detail view for agent {{.Name}}.{{end}}</p>
+
+<!-- Breadcrumb -->
+<div style="font-size:0.72rem;color:var(--text3);margin-bottom:16px;font-family:var(--mono)">
+  <a href="/dashboard/agents" style="color:var(--text3);text-decoration:none">AGENTS</a>
+  <span style="margin:0 6px">/</span>
+  <span style="color:var(--accent-light)">{{.Name}}</span>
+</div>
+
+<!-- Header: avatar + name + actions -->
+<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+  {{avatar .Name 48}}
+  <div style="min-width:0;flex:1">
+    <h1 style="margin:0;font-size:1.3rem;font-weight:700">{{.Name}}</h1>
+    <p style="color:var(--text3);font-size:0.82rem;margin:2px 0 0">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Agent detail{{end}}</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-shrink:0">
+    <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm" style="border-color:var(--success);color:var(--success);background:transparent" onclick="return confirm('Generate new keypair for {{.Name}}?')">Generate Keypair</button></form>
+    <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm" style="border-color:var(--success);color:var(--success);background:transparent">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm" style="border-color:var(--warn);color:var(--warn);background:transparent">Suspend</button>{{end}}</form>
+    <button class="btn btn-sm" style="border-color:var(--danger);color:var(--danger);background:transparent" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete</button>
   </div>
 </div>
 
-<div class="stats">
-  <div class="stat">
-    <div class="label">Total Messages</div>
-    <div class="value">{{.TotalMsgs}}</div>
+<!-- Stats -->
+<div class="stats" style="margin-bottom:16px">
+  <div class="stat"><div class="label">Total Messages</div><div class="value">{{.TotalMsgs}}</div></div>
+  <div class="stat"><div class="label">Delivered</div><div class="value success">{{.Delivered}}</div></div>
+  <div class="stat"><div class="label">Blocked</div><div class="value danger">{{.Blocked}}</div></div>
+  <div class="stat"><div class="label">Quarantined</div><div class="value" style="color:var(--accent-light)">{{.Quarantined}}</div></div>
+</div>
+
+<!-- Risk Score + Tool Distribution -->
+<div class="ad-grid" style="margin-bottom:20px">
+  <div class="card" style="padding:16px 20px">
+    <div class="ad-slbl">Risk Score</div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <span style="font-size:1.5rem;font-weight:700;font-family:var(--mono)" class="{{if gt .RiskScore 60.0}}danger{{else if gt .RiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.0f" .RiskScore}}</span>
+      <div class="ad-gauge" id="risk-gauge"></div>
+      <span style="color:var(--text3);font-size:0.72rem;font-family:var(--mono)">/ 100</span>
+    </div>
+    <script>
+    (function(){
+      var g=document.getElementById('risk-gauge');if(!g)return;
+      var score={{printf "%.0f" .RiskScore}};
+      var segs=20;
+      for(var i=0;i<segs;i++){
+        var s=document.createElement('span');
+        var threshold=i*(100/segs);
+        if(threshold<score){
+          s.className='filled'+(score>60?' danger':(score>30?' warn':''));
+        }
+        g.appendChild(s);
+      }
+    })();
+    </script>
   </div>
-  <div class="stat">
-    <div class="label">Delivered</div>
-    <div class="value success">{{.Delivered}}</div>
-  </div>
-  <div class="stat">
-    <div class="label">Blocked</div>
-    <div class="value danger">{{.Blocked}}</div>
-  </div>
-  <div class="stat">
-    <div class="label">Quarantined</div>
-    <div class="value" style="color:var(--accent-light)">{{.Quarantined}}</div>
+  <div class="card" style="padding:16px 20px">
+    <div class="ad-slbl">Tool Distribution</div>
+    <div class="ad-tool-bar" id="tool-dist-bar"></div>
+    <div id="tool-dist-legend" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:0.68rem;color:var(--text3)"></div>
+    <script>
+    (function(){
+      var partners={{if .CommPartners}}[{{range .CommPartners}}{to:"{{.To}}",total:{{.Total}}},{{end}}]{{else}}[]{{end}};
+      var toolColors={'Bash':'#fbbf24','Read':'#22d3ee','Edit':'#818cf8','Grep':'#f472b6','Write':'#c084fc','Glob':'#2dd4bf','Agent':'#a78bfa'};
+      var tools={},total=0;
+      partners.forEach(function(p){
+        var parts=p.to.split('/');
+        var t=parts.length>1?parts[parts.length-1]:p.to;
+        if(!tools[t])tools[t]=0;
+        tools[t]+=p.total;total+=p.total;
+      });
+      var sorted=Object.keys(tools).sort(function(a,b){return tools[b]-tools[a]});
+      var bar=document.getElementById('tool-dist-bar');
+      var legend=document.getElementById('tool-dist-legend');
+      if(!bar||!total)return;
+      sorted.forEach(function(t){
+        var pct=(tools[t]/total*100).toFixed(0);
+        if(pct<1)return;
+        var seg=document.createElement('div');
+        seg.style.cssText='width:'+pct+'%;background:'+(toolColors[t]||'#71717a');
+        bar.appendChild(seg);
+        var l=document.createElement('span');
+        l.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+(toolColors[t]||'#71717a')+';vertical-align:middle;margin-right:3px"></span>'+t+' '+pct+'%';
+        legend.appendChild(l);
+      });
+    })();
+    </script>
   </div>
 </div>
 
-<!-- Configuration bar -->
-<div class="card" style="margin-bottom:16px;padding:14px 20px">
-  <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;font-size:0.78rem">
-    <div style="display:flex;align-items:center;gap:8px">
-      <span style="color:var(--text3)">Risk</span>
-      <span style="font-family:var(--mono);font-weight:700;font-size:0.88rem" class="{{if gt .RiskScore 60.0}}danger{{else if gt .RiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.0f" .RiskScore}}</span>
-      <div class="risk-bar" style="width:80px"><div class="risk-bar-fill {{if gt .RiskScore 60.0}}risk-high{{else if gt .RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .RiskScore}}%"></div></div>
-    </div>
-    {{if and .LLMEnabled (gt .AgentRisk.LLMAnalysisCount 0)}}
-    <div style="border-left:1px solid var(--border);padding-left:16px;display:flex;gap:12px;color:var(--text3);font-size:0.72rem">
-      <span>LLM avg <span style="font-family:var(--mono);font-weight:600;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</span></span>
-      <span>peak <span style="font-family:var(--mono);font-weight:600">{{printf "%.0f" .AgentRisk.LLMMaxRisk}}</span></span>
-      <span>analyses <span style="font-family:var(--mono)">{{.AgentRisk.LLMAnalysisCount}}</span></span>
-    </div>
-    {{end}}
-    {{if .Agent.Location}}<div style="border-left:1px solid var(--border);padding-left:16px;color:var(--text3)">Location: <code style="color:var(--text2);background:var(--bg3);padding:1px 5px;border-radius:3px;font-size:0.72rem">{{.Agent.Location}}</code></div>{{end}}
-    {{if .Agent.CreatedBy}}<div style="color:var(--text3)">Origin: <span style="color:var(--text2)">{{.Agent.CreatedBy}}</span></div>{{end}}
-  </div>
+<!-- Tabs -->
+<div class="ad-tabs">
+  <button class="ad-tab active" onclick="adTab('overview')">Overview</button>
+  <button class="ad-tab" onclick="adTab('config')">Configuration</button>
+  <button class="ad-tab" onclick="adTab('policies')">Tool Policies</button>
+  <button class="ad-tab" onclick="adTab('messages')">Recent Messages</button>
 </div>
+<script>
+function adTab(name){
+  document.querySelectorAll('.ad-tab').forEach(function(t){t.classList.remove('active')});
+  document.querySelectorAll('.ad-panel').forEach(function(p){p.classList.remove('active')});
+  event.target.classList.add('active');
+  document.getElementById('ad-'+name).classList.add('active');
+}
+</script>
 
-<div class="ad-grid">
-  <!-- Left column -->
-  <div style="display:flex;flex-direction:column;gap:16px">
-    {{if .TopRules}}
-    <div class="card" style="margin-bottom:0">
-      <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Top Triggered Rules (24h)</div>
-      <table style="font-size:0.82rem">
-        <thead><tr><th>Rule</th><th>Severity</th><th style="text-align:right">Count</th></tr></thead>
-        <tbody>
-        {{range .TopRules}}
-        <tr class="clickable" hx-get="/dashboard/api/rule/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
-          <td><span style="font-weight:600">{{.Name}}</span><br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.RuleID}}</span></td>
-          <td>{{if eq .Severity "critical"}}<span class="badge-blocked">critical</span>{{else if eq .Severity "high"}}<span class="badge-blocked">high</span>{{else if eq .Severity "medium"}}<span class="badge-quarantined">medium</span>{{else}}<span class="badge-delivered">low</span>{{end}}</td>
-          <td style="text-align:right;font-family:var(--mono);font-weight:600">{{.Count}}</td>
-        </tr>
-        {{end}}
-        </tbody>
-      </table>
+<!-- Overview Tab -->
+<div id="ad-overview" class="ad-panel active">
+  <div class="ad-grid">
+    <!-- Top Triggered Rules -->
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Top triggered rules (24h) {{if .TopRules}}<a href="/dashboard/rules" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a>{{end}}</div>
+      {{if .TopRules}}
+      {{range .TopRules}}
+      <div class="ad-rule" style="padding-left:8px">
+        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f87171{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
+        <div style="flex:1;min-width:0;position:relative">
+          <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+            <span style="font-family:var(--mono);font-size:0.68rem;color:var(--text3)">{{.RuleID}}</span>
+            {{if eq .Severity "critical"}}<span class="sev-critical">critical</span>
+            {{else if eq .Severity "high"}}<span class="sev-high">high</span>
+            {{else if eq .Severity "medium"}}<span class="sev-medium">medium</span>
+            {{else}}<span class="sev-low">low</span>{{end}}
+          </div>
+        </div>
+        <span style="font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--text);flex-shrink:0">{{.Count}}</span>
+      </div>
+      {{end}}
+      {{else}}
+      <div class="empty" style="padding:20px 0">No rules triggered for this agent.</div>
+      {{end}}
     </div>
-    {{else}}
-    <div class="card" style="margin-bottom:0">
-      <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Top Triggered Rules (24h)</div>
-      <div class="empty" style="padding:12px 0">No rules triggered for this agent.</div>
-    </div>
-    {{end}}
 
-    {{if .CommPartners}}
-    <div class="card" style="margin-bottom:0">
-      <h2>Communication Partners (24h)</h2>
-      <table style="font-size:0.82rem">
-        <thead><tr><th>Partner</th><th style="text-align:right">Total</th><th style="text-align:right">Blocked</th><th style="text-align:right">Rate</th></tr></thead>
+    <!-- Communication Partners -->
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Communication partners (24h)</div>
+      {{if .CommPartners}}
+      <table style="font-size:0.78rem">
+        <thead><tr><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Partner</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Total</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Blocked</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Rate</th></tr></thead>
         <tbody>
         {{range .CommPartners}}
-        <tr class="clickable" onclick="window.location='/dashboard/graph?from={{.From}}&to={{.To}}'">
-          <td>{{agentCell .To}}</td>
+        <tr style="{{if eq .Total 0}}opacity:0.4{{end}}">
+          <td>{{toolDot .To}}</td>
           <td style="text-align:right;font-family:var(--mono)">{{.Total}}</td>
-          <td style="text-align:right;font-family:var(--mono)">{{.Blocked}}</td>
+          <td style="text-align:right;font-family:var(--mono);color:{{if .Blocked}}var(--danger){{else}}var(--success){{end}}">{{.Blocked}}</td>
           <td style="text-align:right;font-family:var(--mono)">{{if .Total}}{{printf "%.0f" (divf (mulf .Blocked 100) .Total)}}%{{else}}0%{{end}}</td>
         </tr>
         {{end}}
         </tbody>
       </table>
-    </div>
-    {{end}}
-
-    {{if and .LLMEnabled .LLMHistory}}
-    <div class="card" style="margin-bottom:0">
-      <h2>LLM Threat Intelligence</h2>
-      {{if gt .AgentRisk.LLMThreatCount 0}}
-      <div style="display:flex;gap:16px;margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:0.82rem">
-        <div style="text-align:center;flex:1">
-          <div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else if gt .AgentRisk.LLMThreatCount 1}}var(--warn){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div>
-          <div style="font-size:0.65rem;color:var(--text3)">Threats</div>
-        </div>
-        <div style="text-align:center;flex:1">
-          <div style="font-size:1.1rem;font-weight:700;color:var(--danger)">{{.AgentRisk.LLMConfirmed}}</div>
-          <div style="font-size:0.65rem;color:var(--text3)">Confirmed</div>
-        </div>
-        <div style="text-align:center;flex:1">
-          <div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div>
-          <div style="font-size:0.65rem;color:var(--text3)">Avg Risk</div>
-        </div>
-        <div style="text-align:center;flex:1">
-          <div style="font-size:1.1rem;font-weight:700">{{printf "%.0f" .AgentRisk.LLMMaxRisk}}</div>
-          <div style="font-size:0.65rem;color:var(--text3)">Peak</div>
-        </div>
-      </div>
+      {{else}}
+      <div class="empty" style="padding:20px 0">No communication partners.</div>
       {{end}}
-      <table style="font-size:0.82rem">
-        <thead><tr><th>Time</th><th style="text-align:right">Risk</th><th>Action</th><th>Status</th></tr></thead>
-        <tbody>
-        {{range .LLMHistory}}
-        <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
-          <td data-ts="{{.Timestamp}}" style="font-size:0.75rem">{{.Timestamp}}</td>
-          <td style="text-align:right;font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
-          <td>{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
-          <td>{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-size:0.72rem;font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3);font-size:0.72rem">dismissed</span>{{else}}<span style="color:var(--warn);font-size:0.72rem">pending</span>{{end}}</td>
-        </tr>
-        {{end}}
-        </tbody>
-      </table>
-      <div style="margin-top:8px;text-align:right"><a href="/dashboard/llm" style="color:var(--accent);font-size:0.75rem">View all &rarr;</a></div>
     </div>
-    {{end}}
   </div>
 
-  <!-- Right column -->
-  <div style="display:flex;flex-direction:column;gap:16px">
-    <div class="card" style="margin-bottom:0">
-      <h2>Configuration</h2>
-      <table style="font-size:0.82rem">
-        <tr><td style="color:var(--text3);white-space:nowrap;padding-right:16px">Can message</td><td>{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</td></tr>
-        <tr><td style="color:var(--text3);white-space:nowrap">Location</td><td>{{if .Agent.Location}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.75rem">{{.Agent.Location}}</code>{{else}}<span style="color:var(--text3)">unknown</span>{{end}}</td></tr>
-        {{if .Agent.CreatedBy}}<tr><td style="color:var(--text3);white-space:nowrap">Created by</td><td>{{.Agent.CreatedBy}}</td></tr>{{end}}
-        {{if .Agent.CreatedAt}}<tr><td style="color:var(--text3);white-space:nowrap">Created at</td><td data-ts="{{.Agent.CreatedAt}}" style="font-size:0.78rem">{{.Agent.CreatedAt}}</td></tr>{{end}}
-        {{if .Agent.Tags}}<tr><td style="color:var(--text3);white-space:nowrap">Tags</td><td>{{range $i, $tag := .Agent.Tags}}{{if $i}} {{end}}<span class="agent-tag">{{$tag}}</span>{{end}}</td></tr>{{end}}
-        {{if .Agent.BlockedContent}}<tr><td style="color:var(--text3);white-space:nowrap">Blocked content</td><td>{{range $i, $c := .Agent.BlockedContent}}{{if $i}}, {{end}}{{$c}}{{end}}</td></tr>{{end}}
-        {{if .Agent.AllowedTools}}<tr><td style="color:var(--text3);white-space:nowrap">Allowed tools</td><td>{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.75rem">{{$t}}</code>{{end}}</td></tr>{{end}}
-        {{if .Agent.ToolPolicies}}<tr><td style="color:var(--text3);white-space:nowrap">Tool policies</td><td>{{range $tool, $p := .Agent.ToolPolicies}}<span class="acl-target">{{$tool}}</span> {{end}}</td></tr>{{end}}
-        {{if .Agent.ToolConstraints}}<tr><td style="color:var(--text3);white-space:nowrap">Tool constraints</td><td>{{range .Agent.ToolConstraints}}<code style="background:rgba(244,63,94,0.15);color:var(--danger);padding:2px 6px;border-radius:4px;font-size:0.72rem;margin-right:4px">{{.Tool}}</code>{{end}}</td></tr>{{end}}
-        {{if .KeyFP}}<tr><td style="color:var(--text3);white-space:nowrap">Key fingerprint</td><td class="fp" style="font-size:0.72rem">{{.KeyFP}}</td></tr>{{end}}
-      </table>
-      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-        <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm" onclick="return confirm('Generate new keypair for {{.Name}}? Existing key will be overwritten.')">Generate Keypair</button></form>
-        <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm" style="background:var(--success)">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm" style="background:var(--warn);color:#000">Suspend</button>{{end}}</form>
-        <button class="btn btn-sm btn-danger" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete Agent</button>
-      </div>
+  {{if and .LLMEnabled .LLMHistory}}
+  <div class="card" style="padding:18px 20px;margin-top:20px">
+    <div class="ad-slbl">LLM Threat Intelligence</div>
+    {{if gt .AgentRisk.LLMThreatCount 0}}
+    <div style="display:flex;gap:16px;margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:0.82rem">
+      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div><div style="font-size:0.65rem;color:var(--text3)">Threats</div></div>
+      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:var(--danger)">{{.AgentRisk.LLMConfirmed}}</div><div style="font-size:0.65rem;color:var(--text3)">Confirmed</div></div>
+      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div><div style="font-size:0.65rem;color:var(--text3)">Avg Risk</div></div>
     </div>
-
-    <div class="card" style="margin-bottom:0">
-      <h2>Edit Metadata</h2>
-  <form method="POST" action="/dashboard/agents/{{.Name}}/edit">
-    <div class="form-row">
-      <div class="form-group">
-        <label>Description</label>
-        <input type="text" name="description" value="{{.Agent.Description}}">
-      </div>
-      <div class="form-group">
-        <label>Location</label>
-        <input type="text" name="location" value="{{.Agent.Location}}">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Can Message (space-separated)</label>
-        <input type="text" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}">
-      </div>
-      <div class="form-group">
-        <label>Tags (space-separated)</label>
-        <input type="text" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Blocked Content (space-separated categories)</label>
-        <input type="text" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}">
-      </div>
-      <div class="form-group">
-        <label>Allowed Tools (space-separated, empty = all)</label>
-        <input type="text" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-    </div>
-
-    <div class="card" style="margin-bottom:0">
-      <h2>Tool Policies</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.
-  </p>
-  {{if .Agent.ToolPolicies}}
-  <table style="margin-bottom:16px">
-    <thead><tr><th>Tool</th><th>Max/call</th><th>Daily limit</th><th>Approval above</th><th>Rate limit</th></tr></thead>
-    <tbody>
-    {{range $tool, $p := .Agent.ToolPolicies}}
-    <tr>
-      <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{$tool}}</td>
-      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.MaxAmount}}{{printf "$%.0f" $p.MaxAmount}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.DailyLimit}}{{printf "$%.0f" $p.DailyLimit}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RequireApprovalAbove}}{{printf "$%.0f" $p.RequireApprovalAbove}} <span style="color:var(--warn);font-size:0.68rem">quarantine</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RateLimit}}{{$p.RateLimit}}/hr{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-    </tr>
     {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <div class="empty" style="margin-bottom:16px">No tool policies configured. Add policies below to enforce spending limits, rate limits, or approval thresholds on specific tools.</div>
+    <table style="font-size:0.82rem">
+      <thead><tr><th>Time</th><th style="text-align:right">Risk</th><th>Action</th><th>Status</th></tr></thead>
+      <tbody>
+      {{range .LLMHistory}}
+      <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
+        <td data-ts="{{.Timestamp}}" style="font-size:0.75rem">{{.Timestamp}}</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
+        <td>{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
+        <td>{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-size:0.72rem;font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3);font-size:0.72rem">dismissed</span>{{else}}<span style="color:var(--warn);font-size:0.72rem">pending</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    <div style="margin-top:8px;text-align:right"><a href="/dashboard/llm" style="color:var(--accent);font-size:0.75rem">View all &rarr;</a></div>
+  </div>
   {{end}}
+</div>
 
-  <form method="POST" action="/dashboard/agents/{{.Name}}/edit" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-    <input type="hidden" name="description" value="{{.Agent.Description}}">
-    <input type="hidden" name="location" value="{{.Agent.Location}}">
-    <input type="hidden" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}">
-    <input type="hidden" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}">
-    <input type="hidden" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}">
-    <input type="hidden" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}">
-    {{range $tool, $p := .Agent.ToolPolicies}}
-    <input type="hidden" name="tp_{{$tool}}_max_amount" value="{{printf "%.0f" $p.MaxAmount}}">
-    <input type="hidden" name="tp_{{$tool}}_daily_limit" value="{{printf "%.0f" $p.DailyLimit}}">
-    <input type="hidden" name="tp_{{$tool}}_require_approval" value="{{printf "%.0f" $p.RequireApprovalAbove}}">
-    <input type="hidden" name="tp_{{$tool}}_rate_limit" value="{{$p.RateLimit}}">
+<!-- Configuration Tab -->
+<div id="ad-config" class="ad-panel">
+  <div class="ad-grid">
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Identity</div>
+      <div class="ad-kv"><span class="k">Can message</span><span class="v">{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</span></div>
+      <div class="ad-kv"><span class="k">Location</span><span class="v">{{if .Agent.Location}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.72rem">{{.Agent.Location}}</code>{{else}}unknown{{end}}</span></div>
+      {{if .Agent.ToolConstraints}}<div class="ad-kv"><span class="k">Tool constraints</span><span class="v">{{range .Agent.ToolConstraints}}<code style="background:rgba(244,63,94,0.15);color:var(--danger);padding:2px 6px;border-radius:4px;font-size:0.72rem;margin-left:4px">{{.Tool}}</code>{{end}}</span></div>{{end}}
+      {{if .KeyFP}}<div class="ad-kv"><span class="k">Key fingerprint</span><span class="v fp" title="{{.KeyFP}}">{{truncate .KeyFP 32}}</span></div>{{end}}
+      {{if .Agent.CreatedBy}}<div class="ad-kv"><span class="k">Origin</span><span class="v" style="font-family:var(--sans)">{{.Agent.CreatedBy}}</span></div>{{end}}
+      {{if .Agent.CreatedAt}}<div class="ad-kv"><span class="k">Created</span><span class="v" data-ts="{{.Agent.CreatedAt}}">{{.Agent.CreatedAt}}</span></div>{{end}}
+    </div>
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Edit Metadata</div>
+      <form method="POST" action="/dashboard/agents/{{.Name}}/edit">
+        <div style="margin-bottom:12px"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);display:block;margin-bottom:4px">Description</label><input type="text" name="description" value="{{.Agent.Description}}" style="width:100%;box-sizing:border-box"></div>
+        <div style="margin-bottom:12px"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);display:block;margin-bottom:4px">Location</label><input type="text" name="location" value="{{.Agent.Location}}" style="width:100%;box-sizing:border-box"></div>
+        <div class="form-row">
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Can Message (space-separated)</label><input type="text" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}"></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Tags (space-separated)</label><input type="text" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Blocked Content (space-separated categories)</label><input type="text" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}"></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Allowed Tools (space-separated, empty = all)</label><input type="text" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}"></div>
+        </div>
+        <button type="submit" class="btn btn-sm" style="background:var(--success)">Save</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Tool Policies Tab -->
+<div id="ad-policies" class="ad-panel">
+  <div class="card" style="padding:18px 20px">
+    <div class="ad-slbl">Tool Policies</div>
+    <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.</p>
+    {{if .Agent.ToolPolicies}}
+    <table style="margin-bottom:16px">
+      <thead><tr><th>Tool</th><th>Max/call</th><th>Daily limit</th><th>Approval above</th><th>Rate limit</th></tr></thead>
+      <tbody>
+      {{range $tool, $p := .Agent.ToolPolicies}}
+      <tr>
+        <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{$tool}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.MaxAmount}}{{printf "$%.0f" $p.MaxAmount}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.DailyLimit}}{{printf "$%.0f" $p.DailyLimit}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RequireApprovalAbove}}{{printf "$%.0f" $p.RequireApprovalAbove}} <span style="color:var(--warn);font-size:0.68rem">quarantine</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RateLimit}}{{$p.RateLimit}}/hr{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div class="empty" style="margin-bottom:16px">No tool policies configured.<br><span style="font-size:0.75rem;color:var(--text3)">Add policies below to enforce spending limits, rate limits, or approval thresholds.</span></div>
     {{end}}
-    <input type="hidden" name="policy_tools" id="tp-policy-tools" value="{{range $tool, $p := .Agent.ToolPolicies}}{{$tool}} {{end}}">
-    <div style="font-size:0.78rem;font-weight:500;color:var(--text2);margin-bottom:10px">Add tool policy</div>
-    <div class="form-row" style="align-items:flex-end">
-      <div class="form-group" style="flex:1.5">
-        <label>Tool name</label>
-        <input type="text" id="tp-tool-name" placeholder="e.g. create_virtual_card" required>
-      </div>
-      <div class="form-group">
-        <label>Max/call ($)</label>
-        <input type="number" id="tp-max" min="0" step="1" placeholder="100">
-      </div>
-      <div class="form-group">
-        <label>Daily limit ($)</label>
-        <input type="number" id="tp-daily" min="0" step="1" placeholder="500">
-      </div>
-      <div class="form-group">
-        <label>Approval above ($)</label>
-        <input type="number" id="tp-approval" min="0" step="1" placeholder="50">
-      </div>
-      <div class="form-group" style="flex:0.7">
-        <label>Rate (/hr)</label>
-        <input type="number" id="tp-rate" min="0" step="1" placeholder="10">
-      </div>
-      <button type="submit" class="btn btn-sm" style="background:var(--success);margin-bottom:12px" onclick="return stagePolicy()">Save Policy</button>
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:8px">
+      <div class="ad-slbl">Add Tool Policy</div>
+      <form method="POST" action="/dashboard/agents/{{.Name}}/edit">
+        <input type="hidden" name="description" value="{{.Agent.Description}}">
+        <input type="hidden" name="location" value="{{.Agent.Location}}">
+        <input type="hidden" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}">
+        <input type="hidden" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}">
+        <input type="hidden" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}">
+        <input type="hidden" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}">
+        {{range $tool, $p := .Agent.ToolPolicies}}
+        <input type="hidden" name="tp_{{$tool}}_max_amount" value="{{printf "%.0f" $p.MaxAmount}}">
+        <input type="hidden" name="tp_{{$tool}}_daily_limit" value="{{printf "%.0f" $p.DailyLimit}}">
+        <input type="hidden" name="tp_{{$tool}}_require_approval" value="{{printf "%.0f" $p.RequireApprovalAbove}}">
+        <input type="hidden" name="tp_{{$tool}}_rate_limit" value="{{$p.RateLimit}}">
+        {{end}}
+        <input type="hidden" name="policy_tools" id="tp-policy-tools" value="{{range $tool, $p := .Agent.ToolPolicies}}{{$tool}} {{end}}">
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group" style="flex:1.5"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Tool name</label><input type="text" id="tp-tool-name" placeholder="e.g. create_" required></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Max/call ($)</label><input type="number" id="tp-max" min="0" step="1" placeholder="100"></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Daily limit ($)</label><input type="number" id="tp-daily" min="0" step="1" placeholder="500"></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Approval above ($)</label><input type="number" id="tp-approval" min="0" step="1" placeholder="50"></div>
+          <div class="form-group" style="flex:0.7"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Rate (/hr)</label><input type="number" id="tp-rate" min="0" step="1" placeholder="10"></div>
+          <button type="submit" class="btn btn-sm" style="background:var(--success);margin-bottom:12px" onclick="return stagePolicy()">Save Policy</button>
+        </div>
+      </form>
     </div>
-  </form>
-    </div>
-  </div><!-- /right column -->
-</div><!-- /2-col grid -->
-
+  </div>
+</div>
 <script>
 function stagePolicy() {
   var name = document.getElementById('tp-tool-name').value.trim();
@@ -1552,56 +1685,55 @@ function stagePolicy() {
 }
 </script>
 
-<div class="card">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <h2 style="margin:0">Recent Messages</h2>
-    {{if .Entries}}<a href="/dashboard/events?agent={{.Agent.Name}}" style="font-size:0.78rem;color:var(--accent-light)">View all in Event Log &rarr;</a>{{end}}
-  </div>
-  {{if .Entries}}
-  <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th></tr></thead>
-    <tbody>
-    {{range .Entries}}
-    <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-      <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-      <td>{{agentCell .FromAgent}}</td>
-      <td>{{agentCell .ToAgent}}</td>
-      <td>
-        {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
-        {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
-        {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
-        {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
-        {{else}}{{.Status}}{{end}}
-      </td>
-      <td style="text-align:right;color:var(--text3)">{{.LatencyMs}}ms</td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
-    <span id="ad-pager-info"></span>
-    <div style="display:flex;gap:4px">
-      <button id="ad-prev" onclick="adPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
-      <button id="ad-next" onclick="adPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+<!-- Recent Messages Tab -->
+<div id="ad-messages" class="ad-panel">
+  <div class="card" style="padding:18px 20px">
+    <div class="ad-slbl">Recent Messages {{if .Entries}}<a href="/dashboard/events?agent={{.Name}}" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all in Event Log &rarr;</a>{{end}}</div>
+    {{if .Entries}}
+    <table style="font-size:0.78rem">
+      <thead><tr><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Time</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">To</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Status</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Latency</th></tr></thead>
+      <tbody>
+      {{range .Entries}}
+      <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+        <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+        <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
+        <td>
+          {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
+          {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
+          {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
+          {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
+          {{else}}{{.Status}}{{end}}
+        </td>
+        <td style="text-align:right;font-family:var(--mono);color:var(--text3)">{{.LatencyMs}}ms</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
+      <span id="ad-pager-info"></span>
+      <div style="display:flex;gap:4px">
+        <button id="ad-prev" onclick="adPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
+        <button id="ad-next" onclick="adPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+      </div>
     </div>
+    <script>
+    var adCur=1,adSize=15;
+    function adRender(){
+      var rows=document.querySelectorAll('.ad-msg');
+      var total=rows.length;
+      var start=(adCur-1)*adSize,end=Math.min(start+adSize,total);
+      rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
+      document.getElementById('ad-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
+      document.getElementById('ad-prev').disabled=adCur<=1;
+      document.getElementById('ad-next').disabled=end>=total;
+    }
+    function adPage(d){adCur+=d;adRender();}
+    adRender();
+    </script>
+    {{else}}
+    <div class="empty">No messages for this agent yet.</div>
+    {{end}}
   </div>
-  <script>
-  var adCur=1,adSize=15;
-  function adRender(){
-    var rows=document.querySelectorAll('.ad-msg');
-    var total=rows.length;
-    var start=(adCur-1)*adSize,end=Math.min(start+adSize,total);
-    rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
-    document.getElementById('ad-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
-    document.getElementById('ad-prev').disabled=adCur<=1;
-    document.getElementById('ad-next').disabled=end>=total;
-  }
-  function adPage(d){adCur+=d;adRender();}
-  adRender();
-  </script>
-  {{else}}
-  <div class="empty">No messages for this agent yet.</div>
-  {{end}}
 </div>
 ` + layoutFoot))
 
@@ -1615,24 +1747,22 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .rules-tab.active{color:var(--accent-light);border-bottom-color:var(--accent-light)}
 .rules-tab .count{font-size:0.68rem;font-family:var(--mono);background:var(--surface2);padding:2px 8px;border-radius:10px;color:var(--text3)}
 .rules-tab.active .count{background:rgba(99,102,241,0.15);color:var(--accent-light)}
-.cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:24px}
+.cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
 @media(max-width:768px){.cat-grid{grid-template-columns:1fr}}
-.cat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;cursor:pointer;transition:all 0.2s;position:relative;text-decoration:none;color:inherit;display:block}
-.cat-card:hover{border-color:var(--accent);background:var(--surface2);transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,0.15)}
-.cat-card-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
-.cat-card-name{font-weight:600;font-size:0.92rem}
+.cat-card{background:var(--surface);padding:18px 20px;cursor:pointer;transition:background 0.15s;text-decoration:none;color:inherit;display:block}
+.cat-card:hover{background:var(--surface2)}
+.cat-card-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+.cat-card-name{font-weight:600;font-size:0.88rem;letter-spacing:-0.01em}
 .cat-card-count{color:var(--text3);font-size:0.72rem;font-family:var(--mono);white-space:nowrap}
-.cat-card-desc{color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:14px}
+.cat-card-desc{color:var(--text3);font-size:0.75rem;line-height:1.5;margin-bottom:10px}
 .cat-card-footer{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.cat-card-sev{display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;font-family:var(--mono);padding:3px 8px;border-radius:4px}
+.cat-card-sev{display:inline-flex;align-items:center;gap:4px;font-size:0.65rem;font-family:var(--mono);padding:2px 7px;border-radius:4px}
 .cat-card-sev.critical{background:rgba(248,113,113,0.08);color:#f87171}
 .cat-card-sev.high{background:rgba(251,146,60,0.08);color:#fb923c}
-.cat-card-sev.medium{background:rgba(96,165,250,0.08);color:#60a5fa}
+.cat-card-sev.medium{background:rgba(96,165,250,0.06);color:#60a5fa}
 .cat-card-sev.low{background:var(--surface2);color:var(--text3)}
-.cat-card-status{margin-left:auto;font-size:0.72rem;font-weight:600}
-.cat-card-status.all-on{color:var(--success)}
+.cat-card-status{margin-left:auto;font-size:0.68rem;font-weight:500;color:var(--text3)}
 .cat-card-status.some-off{color:var(--warn)}
-.cat-card-status.all-off{color:var(--text3)}
 .custom-rule-row{display:flex;align-items:center;gap:16px;padding:14px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:border-color 0.2s}
 .custom-rule-row:hover{border-color:var(--accent)}
 .custom-rule-id{font-family:var(--mono);font-weight:600;font-size:0.82rem;color:var(--text);min-width:200px}
@@ -1650,19 +1780,19 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 {{if eq .Tab "detection"}}
 <!-- Detection Rules Tab -->
 {{if .Categories}}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-  <span style="color:var(--text3);font-size:0.82rem">{{.RuleCount}} rules across {{len .Categories}} categories</span>
+<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px">
+  <span style="color:var(--text3);font-size:0.78rem">{{.RuleCount}} rules across {{len .Categories}} categories</span>
   <div style="display:flex;gap:8px">
-    <button class="btn btn-sm" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"enable-all"}' hx-confirm="Enable ALL detection rules?">Enable All</button>
-    <button class="btn btn-sm btn-danger" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"disable-all"}' hx-confirm="Disable ALL detection rules? This removes all security scanning.">Disable All</button>
+    <button class="btn btn-sm" style="font-size:0.72rem" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"enable-all"}' hx-confirm="Enable ALL detection rules?">Enable All</button>
+    <button class="btn btn-sm" style="font-size:0.72rem;background:transparent;border:1px solid var(--border);color:var(--text3)" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"disable-all"}' hx-confirm="Disable ALL detection rules? This removes all security scanning.">Disable All</button>
   </div>
 </div>
 <div class="cat-grid">
   {{range .Categories}}
   <a href="/dashboard/rules/{{.Name}}" class="cat-card">
     <div class="cat-card-head">
-      <span class="cat-card-name">{{.Name}}</span>
-      <span class="cat-card-count">{{.Total}} rules</span>
+      <span class="cat-card-name">{{kebabToTitle .Name}}</span>
+      <span class="cat-card-count">{{.Total}}</span>
     </div>
     {{if .Description}}<div class="cat-card-desc">{{.Description}}</div>{{end}}
     <div class="cat-card-footer">
@@ -1670,9 +1800,8 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
       {{if .High}}<span class="cat-card-sev high">{{.High}} high</span>{{end}}
       {{if .Medium}}<span class="cat-card-sev medium">{{.Medium}} medium</span>{{end}}
       {{if .Low}}<span class="cat-card-sev low">{{.Low}} low</span>{{end}}
-      {{if eq .Disabled 0}}<span class="cat-card-status all-on">All enabled</span>
-      {{else if eq .Disabled .Total}}<span class="cat-card-status all-off">All disabled</span>
-      {{else}}<span class="cat-card-status some-off">{{.Disabled}}/{{.Total}} disabled</span>{{end}}
+      {{if and (gt .Disabled 0) (lt .Disabled .Total)}}<span class="cat-card-status some-off">{{.Disabled}} off</span>{{end}}
+      {{if eq .Disabled .Total}}<span class="cat-card-status">all off</span>{{end}}
     </div>
   </a>
   {{end}}
@@ -2233,16 +2362,16 @@ var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmp
 
 var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs).Parse(`
 <style>
-.ed-hdr{display:flex;align-items:center;gap:10px;padding:14px 20px;border-bottom:1px solid var(--border)}
-.ed-hdr h3{margin:0;font-size:0.88rem;font-weight:600;flex:1}
+.ed-hdr{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border)}
 .ed-close{background:none;border:none;color:var(--text3);font-size:1.2rem;cursor:pointer;padding:4px 8px;border-radius:4px;line-height:1}
 .ed-close:hover{background:var(--surface2);color:var(--text)}
 .ed-body{padding:0}
-.ed-section{border-bottom:1px solid var(--border);padding:16px 20px}
+.ed-section{border-bottom:1px solid var(--border);padding:18px 20px}
 .ed-section:last-child{border-bottom:none}
-.ed-slbl{font-size:0.68rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px}
-.ed-row{display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;font-size:0.78rem}
-.ed-row .k{color:var(--text3)}
+.ed-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+.ed-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ed-row:last-child{border-bottom:none}
+.ed-row .k{color:var(--text3);font-size:0.75rem}
 .ed-row .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ed-row .v a{color:var(--accent-light);text-decoration:none}
 </style>
@@ -2258,41 +2387,42 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
   <a href="/dashboard/events/{{.Entry.ID}}" style="font-size:0.68rem;color:var(--accent-light);text-decoration:none;white-space:nowrap;padding:3px 8px;border-radius:4px;border:1px solid rgba(99,102,241,0.2);transition:background 0.15s" onmouseover="this.style.background='rgba(99,102,241,0.08)'" onmouseout="this.style.background='transparent'">Detail &rarr;</a>
   <button class="ed-close" onclick="closePanel()">&times;</button>
 </div>
+<div style="font-size:0.72rem;color:var(--text3);padding:6px 20px;border-bottom:1px solid var(--border);font-family:var(--mono)" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</div>
 <div class="ed-body">
 
-  <!-- Message started -->
+  <!-- Message received -->
   <div class="ed-section">
-    <div class="ed-slbl">Message received <span style="margin-left:auto;font-family:var(--mono);font-weight:400;text-transform:none;letter-spacing:0" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</span></div>
+    <div class="ed-slbl">Message received</div>
     <div class="ed-row"><span class="k">Event ID</span><span class="v" title="{{.Entry.ID}}">{{.Entry.ID}}</span></div>
     <div class="ed-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
-    <div class="ed-row"><span class="k">To</span><span class="v">{{.Entry.ToAgent}}</span></div>
-    <div class="ed-row"><span class="k">Latency</span><span class="v">{{.Entry.LatencyMs}}ms</span></div>
-    {{if .Entry.SessionID}}<div class="ed-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{.Entry.SessionID}}</span></div>{{end}}
+    <div class="ed-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
+    <div class="ed-row"><span class="k">Latency</span><span class="v" style="color:var(--warn)">{{.Entry.LatencyMs}}ms</span></div>
+    {{if .Entry.SessionID}}<div class="ed-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
   </div>
 
   <!-- Pipeline -->
   <div class="ed-section">
     <div class="ed-slbl">Pipeline</div>
     <div class="ed-row"><span class="k">Identity</span><span class="v">{{if eq .Entry.SignatureVerified 1}}<span style="color:var(--success)">Verified</span>{{else if eq .Entry.SignatureVerified -1}}<span style="color:var(--danger)">Invalid</span>{{else}}{{if .RequireSig}}<span style="color:var(--danger)">Missing</span>{{else}}<span style="color:var(--text3)">Not required</span>{{end}}{{end}}</span></div>
-    <div class="ed-row"><span class="k">Content scan</span><span class="v">{{if .Rules}}<span style="color:var(--warn)">{{len .Rules}} {{if eq (len .Rules) 1}}rule{{else}}rules{{end}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.65rem">({{.RuleCount}})</span></span></div>
-    <div class="ed-row"><span class="k">Verdict</span><span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger)">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn)">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span></div>
+    <div class="ed-row"><span class="k">Content scan</span><span class="v">{{if .Rules}}<span style="color:var(--warn);font-weight:600">{{len .Rules}} {{if eq (len .Rules) 1}}rule{{else}}rules{{end}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.62rem">({{.RuleCount}})</span></span></div>
+    <div class="ed-row"><span class="k">Verdict</span><span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger);font-weight:600">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn);font-weight:600">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span></div>
     {{if ge .LLMRiskScore 0.0}}<div class="ed-row"><span class="k">LLM risk</span><span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#ef4444{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#fbbf24{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}} / 100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span></div>{{end}}
   </div>
 
   <!-- Rules triggered -->
   {{if .Rules}}
   <div class="ed-section">
-    <div class="ed-slbl">Rules triggered</div>
+    <div class="ed-slbl">Rules triggered ({{len .Rules}})</div>
     {{range .Rules}}
-    <div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:0.75rem">
-      {{if eq .Severity "CRITICAL"}}<span class="sev-critical" style="font-size:0.6rem">critical</span>
-      {{else if eq .Severity "HIGH"}}<span class="sev-high" style="font-size:0.6rem">high</span>
-      {{else if eq .Severity "MEDIUM"}}<span class="sev-medium" style="font-size:0.6rem">medium</span>
-      {{else}}<span class="sev-low" style="font-size:0.6rem">{{.Severity}}</span>{{end}}
-      <span style="font-family:var(--mono);font-weight:600;color:var(--text)">{{.RuleID}}</span>
-      <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Name}}</span>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:0.75rem;border-bottom:1px solid rgba(255,255,255,0.04)">
+      {{if eq .Severity "CRITICAL"}}<span class="sev-critical">critical</span>
+      {{else if eq .Severity "HIGH"}}<span class="sev-high">high</span>
+      {{else if eq .Severity "MEDIUM"}}<span class="sev-medium">medium</span>
+      {{else}}<span class="sev-low">{{.Severity}}</span>{{end}}
+      <span style="font-family:var(--mono);font-weight:600;color:var(--text);font-size:0.72rem">{{.RuleID}}</span>
+      <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.72rem">{{.Name}}</span>
     </div>
-    {{if .Match}}<div style="font-family:var(--mono);font-size:0.68rem;color:var(--text3);padding:2px 0 4px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Match}}">{{.Match}}</div>{{end}}
+    {{if .Match}}<div style="font-family:var(--mono);font-size:0.65rem;color:var(--text3);padding:2px 0 4px;margin-left:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.7" title="{{.Match}}">{{truncate .Match 60}}</div>{{end}}
     {{end}}
   </div>
   {{end}}
@@ -2309,9 +2439,7 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
   <div class="ed-section">
     <div class="ed-slbl">Agent</div>
     <div class="ed-row"><span class="k">Name</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
-    {{if .AgentDesc}}<div class="ed-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{.AgentDesc}}</span></div>{{end}}
-    {{if .AgentLocation}}<div class="ed-row"><span class="k">Location</span><span class="v">{{.AgentLocation}}</span></div>{{end}}
-    {{if .AgentCreatedBy}}<div class="ed-row"><span class="k">Origin</span><span class="v" style="font-family:var(--sans)">{{.AgentCreatedBy}}</span></div>{{end}}
+    {{if .AgentDesc}}<div class="ed-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{truncate .AgentDesc 40}}</span></div>{{end}}
     {{if .ToolConstraintCount}}<div class="ed-row"><span class="k">Constraints</span><span class="v"><span style="color:var(--warn)">{{.ToolConstraintCount}} rules</span></span></div>{{end}}
     {{if .AgentSuspended}}<div class="ed-row"><span class="k">Status</span><span class="v"><span style="color:var(--danger);font-weight:600">Suspended</span></span></div>{{end}}
   </div>
@@ -2365,11 +2493,12 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
 .ep-back:hover{color:var(--accent)}
 .ep-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
 .ep-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-.ep-sec{border-bottom:1px solid var(--border);padding:16px 20px}
+.ep-sec{border-bottom:1px solid var(--border);padding:18px 20px}
 .ep-sec:last-child{border-bottom:none}
-.ep-slbl{font-size:0.68rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
-.ep-row{display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:0.78rem}
-.ep-row .k{color:var(--text3);flex-shrink:0}
+.ep-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.ep-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ep-row:last-child{border-bottom:none}
+.ep-row .k{color:var(--text3);flex-shrink:0;font-size:0.75rem}
 .ep-row .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:12px}
 .ep-row .v a{color:var(--accent-light);text-decoration:none}
 .ep-rule{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:0.75rem;border-bottom:1px solid var(--border)}
@@ -2402,10 +2531,10 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
       <div class="ep-sec">
         <div class="ep-slbl">Message</div>
         <div class="ep-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a>{{if .AgentSuspended}} <span style="color:var(--danger);font-size:0.58rem;font-weight:600">SUSPENDED</span>{{end}}</span></div>
-        <div class="ep-row"><span class="k">To</span><span class="v">{{.Entry.ToAgent}}</span></div>
-        <div class="ep-row"><span class="k">Latency</span><span class="v">{{.Entry.LatencyMs}}ms</span></div>
-        {{if .Entry.SessionID}}<div class="ep-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{.Entry.SessionID}}</span></div>{{end}}
-        <div class="ep-row"><span class="k">Decision</span><span class="v" style="font-family:var(--sans)">{{.Decision}}</span></div>
+        <div class="ep-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
+        <div class="ep-row"><span class="k">Latency</span><span class="v" style="color:var(--warn)">{{.Entry.LatencyMs}}ms</span></div>
+        {{if .Entry.SessionID}}<div class="ep-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
+        <div class="ep-row"><span class="k">Decision</span><span class="v" style="color:var(--success);font-family:var(--sans)">{{.Decision}}</span></div>
       </div>
 
       <!-- Pipeline -->
@@ -2697,7 +2826,13 @@ var ruleToggleTmpl = template.Must(template.New("rule-toggle").Parse(`<span id="
 // --- Settings page ---
 
 var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Security mode, agent identity, pipeline behavior, and infrastructure configuration.</p>
+<style>
+.st-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.st-grid .card{margin-bottom:0}
+.st-span{grid-column:1 / -1}
+@media(max-width:960px){.st-grid{grid-template-columns:1fr}.st-span{grid-column:auto}}
+</style>
+<p class="page-desc">How oktsec protects your agents, verifies their identity, and handles threats.</p>
 
 <div class="tabs" data-tab-group="settings">
   <a href="/dashboard/settings?tab=security" class="tab {{if eq .Tab "security"}}active{{end}}">Security</a>
@@ -2712,7 +2847,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 <div class="card">
   <h2>Security Mode</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Controls how oktsec handles message signatures. This is the most important setting — it determines whether agents can communicate without proving their identity.
+    The most important setting. Determines whether agents must prove their identity before sending messages.
   </p>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if .RequireSig}}var(--accent){{else}}var(--border){{end}};background:{{if .RequireSig}}rgba(99,102,241,0.06){{else}}var(--surface){{end}}">
@@ -2720,7 +2855,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         {{if .RequireSig}}&#x2713; {{end}}Enforce Mode
       </div>
       <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-        Every message must include a valid Ed25519 signature. Unsigned or tampered messages are <strong style="color:var(--danger)">rejected</strong>. Use this in production.
+        Every message must be signed. Unsigned or tampered messages are <strong style="color:var(--danger)">rejected</strong>. Recommended for production.
       </p>
     </div>
     <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if not .RequireSig}}var(--warn){{else}}var(--border){{end}};background:{{if not .RequireSig}}rgba(251,191,36,0.06){{else}}var(--surface){{end}}">
@@ -2728,7 +2863,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         {{if not .RequireSig}}&#x2713; {{end}}Observe Mode
       </div>
       <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-        Messages are scanned for threats but signatures are <strong style="color:var(--warn)">not required</strong>. Useful for onboarding agents gradually.
+        Messages are scanned but signatures are <strong style="color:var(--warn)">not required</strong>. Good for getting started and onboarding agents.
       </p>
     </div>
   </div>
@@ -2742,7 +2877,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 <div class="card">
   <h2>Default Policy</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Controls the baseline access control for agent-to-agent communication. When set to <strong>deny</strong>, agents can only message targets listed in their <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">can_message</code> list.
+    Who can talk to whom. When set to <strong>deny</strong>, agents can only message targets you've explicitly allowed.
   </p>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if eq .DefaultPolicy "deny"}}var(--accent){{else}}var(--border){{end}};background:{{if eq .DefaultPolicy "deny"}}rgba(99,102,241,0.06){{else}}var(--surface){{end}}">
@@ -2776,9 +2911,9 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 <div class="tab-content {{if eq .Tab "identity"}}active{{end}}" data-tab-content="settings" data-tab-name="identity">
 
 <div class="card">
-  <h2>Agent Identity &amp; Keys</h2>
+  <h2>Agent Keys</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Each agent has an Ed25519 keypair. The public key is stored here; the agent holds the private key. Keys are used to sign and verify messages between agents.
+    Each agent has a signing key to prove its identity. Public keys are stored here; agents hold their private keys. Revoke a key to immediately block an agent.
   </p>
   <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
     <strong>Keys directory:</strong> <code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">{{.KeysDir}}</code>
@@ -2832,85 +2967,60 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 <!-- Pipeline -->
 <div class="tab-content {{if eq .Tab "pipeline"}}active{{end}}" data-tab-content="settings" data-tab-name="pipeline">
 
+<div class="st-grid">
+
 <div class="card">
-  <h2>Quarantine Queue</h2>
+  <h2>Quarantine</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    When a message triggers high-severity rules, it's held in quarantine instead of being delivered. A human must approve or reject it before the content reaches the destination agent.
+    Hold suspicious messages for human review before they reach the destination agent.
   </p>
-  <div style="display:flex;gap:24px;margin-bottom:16px">
-    <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Pending</span>
-      <div style="font-size:1rem;font-weight:600;margin-top:4px;color:{{if .QPending}}var(--warn){{else}}var(--success){{end}}">{{.QPending}}</div>
-    </div>
-  </div>
   <form method="POST" action="/dashboard/settings/quarantine">
-    <div style="margin-bottom:20px">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Quarantine enabled</span>
+        <span style="font-size:0.85rem;color:var(--text2)">Enable quarantine</span>
       </label>
+      {{if .QPending}}<span style="font-family:var(--mono);font-size:0.82rem;color:var(--warn);font-weight:600">{{.QPending}} pending</span>{{end}}
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Expiry Hours</label>
+        <label>Review window (hours)</label>
         <input type="number" name="expiry_hours" value="{{.QExpiryHours}}" min="1">
       </div>
       <div class="form-group">
-        <label>Retention Days</label>
+        <label>Keep history (days)</label>
         <input type="number" name="retention_days" value="{{.QRetentionDays}}" min="0">
       </div>
     </div>
-    <p style="color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:16px">
-      Quarantined messages expire after the configured hours if not reviewed.
-      Retention days controls auto-purge of old audit entries (0 = keep forever).
-    </p>
     <button type="submit" class="btn btn-sm">Save</button>
   </form>
 </div>
 
 <div class="card">
-  <h2>Rate Limiting</h2>
+  <h2>Behavior Monitoring</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Limit how many messages each agent can send within a sliding time window. Set per-agent to 0 to disable rate limiting.
-  </p>
-  <form method="POST" action="/dashboard/settings/rate-limit">
-    <div class="form-row">
-      <div class="form-group">
-        <label>Per Agent (max messages)</label>
-        <input type="number" name="per_agent" value="{{.RateLimitPerAgent}}" min="0">
-      </div>
-      <div class="form-group">
-        <label>Window (seconds)</label>
-        <input type="number" name="window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}" min="1">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2>Anomaly Detection</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Automatic risk scoring evaluates agent behavior over time. When an agent's risk score exceeds the threshold, it triggers an alert — or an automatic suspension if enabled.
+    Track agent behavior over time and flag unusual patterns like sudden traffic spikes or new communication pairs.
   </p>
   <form method="POST" action="/dashboard/settings/anomaly">
     <div style="margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Auto-suspend agents when threshold exceeded</span>
+        <span style="font-size:0.85rem;color:var(--text2)">Auto-suspend risky agents</span>
       </label>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Check Interval (seconds)</label>
+        <label>Check every (seconds)</label>
         <input type="number" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}" min="1">
       </div>
       <div class="form-group">
-        <label>Risk Threshold (0–100)</label>
+        <label>Risk threshold (0-100)</label>
         <input type="number" name="risk_threshold" value="{{printf "%.1f" .AnomalyRiskThreshold}}" min="0" max="100" step="0.1">
       </div>
+    </div>
+    <div class="form-row">
       <div class="form-group">
-        <label>Min Messages</label>
+        <label>Min messages before scoring</label>
         <input type="number" name="min_messages" value="{{.AnomalyMinMessages}}" min="0">
       </div>
     </div>
@@ -2919,98 +3029,79 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 </div>
 
 <div class="card">
-  <h2>Intent Validation</h2>
+  <h2>Message Limits</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Agents can declare their intent (e.g. <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">code_review</code>, <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">deploy</code>). The proxy validates that the message content is consistent with the declared intent. Mismatches escalate the verdict to <strong style="color:var(--warn)">flag</strong>.
+    Prevent agents from flooding the system. Each agent gets a maximum number of messages per time window.
+  </p>
+  <form method="POST" action="/dashboard/settings/rate-limit">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Max messages per agent</label>
+        <input type="number" name="per_agent" value="{{.RateLimitPerAgent}}" min="0">
+      </div>
+      <div class="form-group">
+        <label>Time window (seconds)</label>
+        <input type="number" name="window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}" min="1">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Intent Checks</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Agents declare what they're doing (e.g. "code review", "deploy"). oktsec checks that the message content matches.
   </p>
   <form method="POST" action="/dashboard/settings/intent">
     <div style="margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Require intent declaration</span>
+        <span style="font-size:0.85rem;color:var(--text2)">Require intent on every message</span>
       </label>
-      <p style="color:var(--text3);font-size:0.75rem;margin-top:8px;line-height:1.5">
-        When enabled, messages without an <code style="font-size:0.72rem;font-family:var(--mono)">intent</code> field are flagged. When disabled, intent is validated only if provided.
-      </p>
     </div>
     <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
-      <strong>Supported categories:</strong>
+      <strong>Available:</strong>
       <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text2)">code_review, deploy, data_query, monitoring, security, communication, file_ops, config</span>
     </div>
     <button type="submit" class="btn btn-sm">Save</button>
   </form>
 </div>
 
+</div><!-- /pipeline grid -->
+
 </div>
 
 <!-- Infrastructure -->
 <div class="tab-content {{if eq .Tab "infra"}}active{{end}}" data-tab-content="settings" data-tab-name="infra">
 
-<div class="card">
-  <h2>Forward Proxy</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    HTTP forward proxy for Docker Sandbox integration. Intercepts outbound HTTP traffic from sandboxed agents and applies domain filtering and content scanning.
-  </p>
-  <form method="POST" action="/dashboard/settings/forward-proxy">
-    <div style="display:flex;gap:32px;margin-bottom:20px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Enabled</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Scan requests</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Scan responses</span>
-      </label>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:1">
-        <label>Allowed Domains (one per line)</label>
-        <textarea name="allowed_domains" rows="4" style="font-family:var(--mono);font-size:0.82rem" placeholder="e.g. api.example.com">{{.FPAllowedDomains}}</textarea>
-      </div>
-      <div class="form-group" style="flex:1">
-        <label>Blocked Domains (one per line)</label>
-        <textarea name="blocked_domains" rows="4" style="font-family:var(--mono);font-size:0.82rem" placeholder="e.g. evil.com">{{.FPBlockedDomains}}</textarea>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Max Body Size (bytes)</label>
-        <input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
+<div class="st-grid">
 
 <div class="card">
-  <h2>Webhook Channels</h2>
+  <h2>Notifications</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Define webhook destinations once by name. Use channel names in enforcement overrides instead of pasting raw URLs.
+    Get notified when oktsec blocks or quarantines a message. Add webhook URLs for Slack, email, or any HTTP endpoint.
   </p>
 
   <form method="POST" action="/dashboard/settings/webhooks" style="margin-bottom:20px">
     <div class="form-row">
       <div class="form-group" style="flex:1;min-width:140px">
-        <label>Name</label>
+        <label>Channel name</label>
         <input type="text" name="name" placeholder="e.g. slack-security" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*">
       </div>
       <div class="form-group" style="flex:3">
-        <label>URL</label>
-        <input type="url" name="url" placeholder="https://hooks.slack.com/services/T00/B00/xxx" required>
+        <label>Webhook URL</label>
+        <input type="url" name="url" placeholder="https://hooks.slack.com/services/..." required>
       </div>
       <div class="form-group" style="align-self:flex-end">
-        <button type="submit" class="btn">Save</button>
+        <button type="submit" class="btn">Add</button>
       </div>
     </div>
   </form>
 
   {{if .WebhookChannels}}
   <table>
-    <thead><tr><th>Name</th><th>URL</th><th></th></tr></thead>
+    <thead><tr><th>Channel</th><th>URL</th><th></th></tr></thead>
     <tbody>
     {{range .WebhookChannels}}
     <tr id="wh-row-{{.Name}}">
@@ -3022,25 +3113,80 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     </tbody>
   </table>
   {{else}}
-  <div class="empty">No webhook channels configured. Add one above to use in enforcement overrides.</div>
+  <div class="empty">No notification channels yet. Add one above to receive alerts.</div>
   {{end}}
 </div>
 
 <div class="card">
-  <h2>Server</h2>
+  <h2>Outbound Traffic</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Core proxy settings. These require a server restart to take effect.
+    Control which external services agents can reach and scan their HTTP traffic for data leaks.
   </p>
-  <table>
-    <tbody>
-    <tr><td style="color:var(--text3);font-weight:600;width:160px">Port</td><td>{{.ServerPort}}</td></tr>
-    <tr><td style="color:var(--text3);font-weight:600">Bind Address</td><td>{{.ServerBind}}</td></tr>
-    <tr><td style="color:var(--text3);font-weight:600">Log Level</td><td>{{.LogLevel}}</td></tr>
-    <tr><td style="color:var(--text3);font-weight:600">Custom Rules Dir</td><td>{{if .CustomRulesDir}}{{.CustomRulesDir}}{{else}}<span style="color:var(--text3)">not set</span>{{end}}</td></tr>
-    <tr><td style="color:var(--text3);font-weight:600">Webhooks</td><td>{{.WebhookCount}} configured</td></tr>
-    </tbody>
-  </table>
+  <form method="POST" action="/dashboard/settings/forward-proxy">
+    <div style="display:flex;gap:32px;margin-bottom:20px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Enable proxy</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Scan outgoing</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Scan incoming</span>
+      </label>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label>Allowed domains (one per line)</label>
+        <textarea name="allowed_domains" rows="3" style="font-family:var(--mono);font-size:0.82rem" placeholder="api.example.com">{{.FPAllowedDomains}}</textarea>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Blocked domains (one per line)</label>
+        <textarea name="blocked_domains" rows="3" style="font-family:var(--mono);font-size:0.82rem" placeholder="evil.com">{{.FPBlockedDomains}}</textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Max body size (bytes)</label>
+        <input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
 </div>
+
+<div class="card st-span">
+  <h2>Server Info</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Current proxy configuration. Changes to these settings require a restart.
+  </p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Port</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{.ServerPort}}</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Bind address</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{.ServerBind}}</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Log level</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{.LogLevel}}</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Custom rules</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{if .CustomRulesDir}}{{.CustomRulesDir}}{{else}}<span style="color:var(--text3)">default only</span>{{end}}</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Notifications</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{.WebhookCount}} channel{{if ne .WebhookCount 1}}s{{end}}</span>
+    </div>
+  </div>
+</div>
+
+</div><!-- /infra grid -->
 
 </div>
 
@@ -3121,75 +3267,66 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 @media(max-width:768px){.llm-hero{grid-template-columns:repeat(2,1fr)}.llm-grid{grid-template-columns:1fr}}
 </style>
 
-<p class="page-desc">Async semantic analysis of agent communications. Never blocks the proxy pipeline.</p>
+<p class="page-desc">AI analysis catches threats that rules alone can't see. Runs async, never slows the pipeline.</p>
 
 {{if not .Enabled}}
 <!-- Setup state -->
-<div class="llm-grid">
-  <div class="card" style="grid-column:1/-1">
-    <div style="display:flex;gap:32px;align-items:flex-start">
-      <div style="flex:1">
-        <h2 style="font-size:1rem;margin-bottom:8px">Enable LLM-Augmented Detection</h2>
-        <p style="color:var(--text2);font-size:0.82rem;line-height:1.6;margin-bottom:20px">
-          175 deterministic rules catch known threats at sub-millisecond speed. The LLM layer catches what regex cannot - semantic exfiltration, intent drift, social engineering between agents - then generates new deterministic rules from its findings.
-        </p>
-        <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--bg2);border-radius:8px;margin-bottom:24px;flex-wrap:wrap">
-          <div class="fw-step"><span class="num">1</span> LLM analyzes message</div>
-          <span class="fw-arrow">&#9654;</span>
-          <div class="fw-step"><span class="num">2</span> Detects novel threat</div>
-          <span class="fw-arrow">&#9654;</span>
-          <div class="fw-step"><span class="num">3</span> Generates YAML rule</div>
-          <span class="fw-arrow">&#9654;</span>
-          <div class="fw-step"><span class="num">4</span> <span style="color:var(--success);font-weight:600">Caught at &lt;1ms forever</span></div>
-        </div>
+<div class="card">
+  <h2 style="font-size:1rem;margin-bottom:12px">Enable AI-Powered Detection</h2>
+  <p style="color:var(--text2);font-size:0.82rem;line-height:1.6;margin-bottom:8px">
+    oktsec's 188 rules catch known threats instantly. Add an AI layer to detect what patterns miss:
+  </p>
+  <ul style="color:var(--text2);font-size:0.82rem;line-height:1.8;margin:0 0 20px 18px;padding:0">
+    <li>Semantic data exfiltration disguised as normal messages</li>
+    <li>Social engineering between agents</li>
+    <li>Intent drift (agent doing something it shouldn't)</li>
+    <li>Auto-generates new detection rules from findings</li>
+  </ul>
 
-        <form method="POST" action="/dashboard/settings/llm">
-          <input type="hidden" name="enabled" value="true">
+  <form method="POST" action="/dashboard/settings/llm">
+    <input type="hidden" name="enabled" value="true">
 
-          <label style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;display:block;margin-bottom:10px">Provider</label>
-          <div style="display:flex;gap:10px;margin-bottom:20px">
-            <label class="prov-opt sel" onclick="selectProvider('openai',this)">
-              <input type="radio" name="provider" value="openai" checked style="position:absolute;opacity:0">
-              <div class="pname">OpenAI-Compatible</div>
-              <div class="pdesc">OpenAI, Ollama, vLLM, Groq, Azure, LM Studio, Mistral</div>
-            </label>
-            <label class="prov-opt" onclick="selectProvider('claude',this)">
-              <input type="radio" name="provider" value="claude" style="position:absolute;opacity:0">
-              <div class="pname">Claude</div>
-              <div class="pdesc">Anthropic Messages API</div>
-            </label>
-            <label class="prov-opt" onclick="selectProvider('webhook',this)">
-              <input type="radio" name="provider" value="webhook" style="position:absolute;opacity:0">
-              <div class="pname">Webhook</div>
-              <div class="pdesc">Custom HTTP endpoint</div>
-            </label>
-          </div>
+    <label style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;display:block;margin-bottom:10px">Provider</label>
+    <div style="display:flex;gap:10px;margin-bottom:20px">
+      <label class="prov-opt sel" onclick="selectProvider('openai',this)">
+        <input type="radio" name="provider" value="openai" checked style="position:absolute;opacity:0">
+        <div class="pname">OpenAI-Compatible</div>
+        <div class="pdesc">OpenAI, Ollama, vLLM, Groq, Azure, LM Studio</div>
+      </label>
+      <label class="prov-opt" onclick="selectProvider('claude',this)">
+        <input type="radio" name="provider" value="claude" style="position:absolute;opacity:0">
+        <div class="pname">Claude</div>
+        <div class="pdesc">Anthropic API</div>
+      </label>
+      <label class="prov-opt" onclick="selectProvider('webhook',this)">
+        <input type="radio" name="provider" value="webhook" style="position:absolute;opacity:0">
+        <div class="pname">Webhook</div>
+        <div class="pdesc">Custom endpoint</div>
+      </label>
+    </div>
 
-          <div class="form-row" style="margin-bottom:12px" id="llm-fields-row">
-            <div class="form-group" style="flex:1" id="llm-model-group">
-              <label id="llm-model-label">Model</label>
-              <input type="text" name="model" id="llm-model" placeholder="gpt-4o">
-            </div>
-            <div class="form-group" style="flex:1" id="llm-key-group">
-              <label id="llm-key-label">API Key Environment Variable</label>
-              <input type="text" name="api_key_env" id="llm-key" placeholder="OPENAI_API_KEY">
-            </div>
-          </div>
-          <div class="form-row" style="margin-bottom:20px">
-            <div class="form-group" style="flex:1">
-              <label id="llm-url-label">Base URL <span style="color:var(--text3);font-size:0.72rem">(leave empty for provider defaults)</span></label>
-              <input type="text" name="base_url" id="llm-url" placeholder="http://localhost:11434/v1">
-            </div>
-          </div>
-          <script>
-          var provCfg={openai:{model:'gpt-4o, qwen3.5:latest, llama3',modelLabel:'Model',key:'Optional for local models (Ollama, LM Studio)',keyLabel:'API Key Env Variable <span style="color:var(--text3);font-size:0.72rem">(optional for local)</span>',url:'http://localhost:11434/v1',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(required for non-OpenAI)</span>',showModel:true,showKey:true},claude:{model:'claude-sonnet-4-6',modelLabel:'Model',key:'ANTHROPIC_API_KEY',keyLabel:'API Key Env Variable',url:'https://api.anthropic.com',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span>',showModel:true,showKey:true},webhook:{model:'',modelLabel:'',key:'',keyLabel:'',url:'https://your-endpoint.example.com/analyze',urlLabel:'Webhook URL',showModel:false,showKey:false}};
-          function selectProvider(p,el){el.parentNode.querySelectorAll('.prov-opt').forEach(function(c){c.classList.remove('sel')});el.classList.add('sel');var c=provCfg[p];document.getElementById('llm-model').placeholder=c.model;document.getElementById('llm-key').placeholder=c.key;document.getElementById('llm-key-label').innerHTML=c.keyLabel;document.getElementById('llm-url').placeholder=c.url;document.getElementById('llm-url-label').innerHTML=c.urlLabel;document.getElementById('llm-model-group').style.display=c.showModel?'':'none';document.getElementById('llm-key-group').style.display=c.showKey?'':'none';if(!c.showModel)document.getElementById('llm-model').value='';if(!c.showKey)document.getElementById('llm-key').value=''}
-          </script>
-          <button type="submit" class="btn">Enable LLM Analysis</button>
-        </form>
+    <div class="form-row" style="margin-bottom:12px" id="llm-fields-row">
+      <div class="form-group" style="flex:1" id="llm-model-group">
+        <label id="llm-model-label">Model</label>
+        <input type="text" name="model" id="llm-model" placeholder="gpt-4o">
+      </div>
+      <div class="form-group" style="flex:1" id="llm-key-group">
+        <label id="llm-key-label">API key env variable</label>
+        <input type="text" name="api_key_env" id="llm-key" placeholder="OPENAI_API_KEY">
       </div>
     </div>
-  </div>
+    <div class="form-row" style="margin-bottom:20px">
+      <div class="form-group" style="flex:1">
+        <label id="llm-url-label">Base URL <span style="color:var(--text3);font-size:0.72rem">(leave empty for provider defaults)</span></label>
+        <input type="text" name="base_url" id="llm-url" placeholder="http://localhost:11434/v1">
+      </div>
+    </div>
+    <script>
+    var provCfg={openai:{model:'gpt-4o, qwen3.5:latest, llama3',modelLabel:'Model',key:'Optional for local models (Ollama, LM Studio)',keyLabel:'API key env variable <span style="color:var(--text3);font-size:0.72rem">(optional for local)</span>',url:'http://localhost:11434/v1',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(required for non-OpenAI)</span>',showModel:true,showKey:true},claude:{model:'claude-sonnet-4-6',modelLabel:'Model',key:'ANTHROPIC_API_KEY',keyLabel:'API key env variable',url:'https://api.anthropic.com',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span>',showModel:true,showKey:true},webhook:{model:'',modelLabel:'',key:'',keyLabel:'',url:'https://your-endpoint.example.com/analyze',urlLabel:'Webhook URL',showModel:false,showKey:false}};
+    function selectProvider(p,el){el.parentNode.querySelectorAll('.prov-opt').forEach(function(c){c.classList.remove('sel')});el.classList.add('sel');var c=provCfg[p];document.getElementById('llm-model').placeholder=c.model;document.getElementById('llm-key').placeholder=c.key;document.getElementById('llm-key-label').innerHTML=c.keyLabel;document.getElementById('llm-url').placeholder=c.url;document.getElementById('llm-url-label').innerHTML=c.urlLabel;document.getElementById('llm-model-group').style.display=c.showModel?'':'none';document.getElementById('llm-key-group').style.display=c.showKey?'':'none';if(!c.showModel)document.getElementById('llm-model').value='';if(!c.showKey)document.getElementById('llm-key').value=''}
+    </script>
+    <button type="submit" class="btn">Enable AI Analysis</button>
+  </form>
 </div>
 
 {{else}}
@@ -3934,19 +4071,14 @@ updateExportLinks();
   <div id="search-results">
   {{if .Entries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Signature</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
     <tbody id="events-body">
     {{range .Entries}}
-    <tr class="ev-row clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+    <tr class="ev-row clickable{{if hasRules .RulesTriggered}} has-rules{{end}}" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
-      <td>{{agentCell .ToAgent}}</td>
+      <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
-      <td>
-        {{if eq .SignatureVerified 1}}<span class="badge-verified" title="Signature verified">&#10003; Verified</span>
-        {{else if eq .SignatureVerified -1}}<span class="badge-invalid" title="Invalid signature">&#10007; Invalid</span>
-        {{else}}<span class="badge-unsigned" title="Message was not signed">&mdash; Unsigned</span>{{end}}
-      </td>
     </tr>
     {{end}}
     </tbody>
@@ -4060,15 +4192,14 @@ updateExportLinks();
 <div class="tab-content {{if eq .Tab "blocked"}}active{{end}}" data-tab-content="events" data-tab-name="blocked">
   {{if .BlockedEntries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Rules</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
     <tbody>
     {{range .BlockedEntries}}
-    <tr class="blk-row clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+    <tr class="blk-row clickable has-rules" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
-      <td>{{agentCell .ToAgent}}</td>
+      <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.RulesTriggered}}</td>
     </tr>
     {{end}}
     </tbody>
@@ -4112,15 +4243,22 @@ updateExportLinks();
       var ev = JSON.parse(e.data);
       var tbody = document.getElementById('events-body');
       if (!tbody) return;
-      var sigLabel = '<span class="badge-unsigned" title="Message was not signed">&mdash; Unsigned</span>';
-      if (ev.signature_verified === 1) sigLabel = '<span class="badge-verified" title="Signature verified">&#10003; Verified</span>';
-      else if (ev.signature_verified === -1) sigLabel = '<span class="badge-invalid" title="Invalid signature">&#10007; Invalid</span>';
+      var toolColors = {Bash:'#fbbf24',Write:'#c084fc',Edit:'#818cf8',Read:'#22d3ee',Glob:'#2dd4bf',Grep:'#2dd4bf',WebFetch:'#f472b6',WebSearch:'#f472b6',Agent:'#a78bfa'};
+      var toCell;
+      if (ev.tool_name) {
+        var tc = toolColors[ev.tool_name] || '#71717a';
+        toCell = '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:'+tc+';flex-shrink:0"></span>'+ev.tool_name+'</span>';
+      } else {
+        toCell = agentCellHTML(ev.to_agent||'');
+      }
+      var hasRules = ev.rules_triggered && ev.rules_triggered !== '[]' && ev.rules_triggered !== 'null';
       var row = document.createElement('tr');
-      row.className = 'clickable';
+      row.className = 'ev-row clickable' + (hasRules ? ' has-rules' : '');
       row.setAttribute('hx-get', '/dashboard/api/event/' + ev.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
-      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + agentCellHTML(ev.to_agent||'') + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td><td>' + sigLabel + '</td>';
+      row.ondblclick = function(evt){evt.preventDefault();evt.stopPropagation();window.location='/dashboard/events/'+ev.id;};
+      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
@@ -4150,20 +4288,38 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 </div>
 {{end}}
 
-<div class="card">
-  <h2>Network Topology</h2>
-  <div id="graph-container" style="width:100%;height:500px;background:var(--bg);border-radius:8px;border:1px solid var(--border);position:relative;overflow:hidden"></div>
-  <div style="display:flex;gap:20px;margin-top:12px;font-size:0.72rem;color:var(--text3)">
-    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#4ade80" fill-opacity="0.3" stroke="#4ade80" stroke-width="1.5"/></svg> Low threat</span>
-    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#fbbf24" fill-opacity="0.3" stroke="#fbbf24" stroke-width="1.5"/></svg> Medium threat</span>
-    <span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="#f87171" fill-opacity="0.3" stroke="#f87171" stroke-width="1.5"/></svg> High threat</span>
-    <span style="margin-left:12px"><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#4ade80" stroke-width="2"/></svg> Healthy edge</span>
-    <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#fbbf24" stroke-width="2"/></svg> Degraded</span>
-    <span><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#f87171" stroke-width="2"/></svg> Unhealthy</span>
-    <span style="margin-left:12px"><svg width="20" height="12"><line x1="0" y1="6" x2="20" y2="6" stroke="#71717a" stroke-width="1" stroke-dasharray="4 3" stroke-opacity="0.5"/></svg> ACL (no traffic)</span>
+<div class="card" style="padding:0;overflow:hidden">
+  <div style="display:flex;min-height:480px;height:calc(100vh - 340px)">
+    <div style="flex:1;position:relative;overflow:hidden">
+      <div id="graph-container" style="width:100%;height:100%;background:var(--bg);position:relative;overflow:hidden"></div>
+      <div style="position:absolute;bottom:12px;left:16px;display:flex;gap:16px;font-size:0.7rem;color:var(--text3)">
+        <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#5eead4" stroke-width="2"/></svg> Orchestration</span>
+        <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.5"/></svg> Tool call</span>
+      </div>
+    </div>
+    <div style="width:340px;border-left:1px solid var(--border);background:var(--surface);flex-shrink:0;overflow-y:auto;font-size:0.8rem">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
+        <h3 style="font-size:0.95rem;font-weight:700;margin-bottom:14px">Overview</h3>
+        <div id="gw-stats">
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Agents</span><span id="gs-agents" style="font-weight:700;font-family:var(--mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Tools</span><span id="gs-tools" style="font-weight:700;font-family:var(--mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Messages scanned</span><span id="gs-messages" style="font-weight:700;font-family:var(--mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Policy blocks</span><span id="gs-blocks" style="font-weight:700;font-family:var(--mono);color:#f87171">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Audit entries</span><span id="gs-audit" style="font-weight:700;font-family:var(--mono)">--</span></div>
+        </div>
+      </div>
+      <div style="padding:16px 20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span style="font-size:0.7rem;color:var(--text3);letter-spacing:0.05em;font-weight:600">EVENT LOG</span>
+          <span id="gw-event-count" style="font-size:0.7rem;color:var(--text3)"></span>
+        </div>
+        <div id="gw-events" style="font-size:0.75rem;font-family:var(--mono)"></div>
+      </div>
+    </div>
   </div>
 </div>
 
+<div id="graph-tables">
 <div class="grid-2" style="gap:20px">
   <div class="card">
     <h2>Node Threat Scores</h2>
@@ -4254,6 +4410,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
   {{end}}
 </div>
 {{end}}
+</div><!-- end graph-tables -->
 
 <script>
 (function() {
@@ -4271,338 +4428,502 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     }
 
     var W = el.clientWidth, H = el.clientHeight;
-    var NR = 18; // node radius
-    var PAD = 70;
-
-    // Deterministic initial placement: arrange nodes in a circle
+    var NR = 18, OR = 26, TR = 10, PAD = 50;
     var cx = W / 2, cy = H / 2;
-    var radius = Math.min(W, H) / 2 - PAD - 20;
-    var nodeCount = data.nodes.length;
-    var nodes = data.nodes.map(function(n, i) {
-      var angle = (2 * Math.PI * i / nodeCount) - Math.PI / 2;
-      return {name: n.name, threat: n.threat_score, sent: n.total_sent||0, recv: n.total_recv||0, betweenness: n.betweenness!=null?n.betweenness:-1, x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle), vx: 0, vy: 0};
+    // 3-column layout: ORCHESTRATOR | AGENTS | TOOLS
+    var COL1 = W * 0.12; // orchestrator
+    var COL_GW = W * 0.25; // gateway checkpoint
+    var COL2 = W * 0.48; // agents
+    var COL3 = W * 0.78; // tools
+    var NS = 'http://www.w3.org/2000/svg';
+
+    // ── Build edge latency map from raw data ──
+    var latencyMap = {};
+    (data.edges || []).forEach(function(e) {
+      latencyMap[e.from+'>'+e.to] = e.avg_latency_ms || 0;
+    });
+
+    // ── Build node + link arrays ──
+    var nodes = data.nodes.map(function(n) {
+      return {name:n.name, isTool:false, isOrch:n.name==='claude-code', threat:n.threat_score, sent:n.total_sent||0, recv:n.total_recv||0, betweenness:n.betweenness!=null?n.betweenness:-1, x:cx, y:cy, _g:null};
     });
     var nodeIdx = {};
-    nodes.forEach(function(n, i) { nodeIdx[n.name] = i; });
+    nodes.forEach(function(n,i){ nodeIdx[n.name]=i; });
 
-    var links = (data.edges || []).filter(function(e) {
-      return nodeIdx[e.from] !== undefined && nodeIdx[e.to] !== undefined;
-    }).map(function(e) {
-      return {from: nodeIdx[e.from], to: nodeIdx[e.to], health: e.health_score, total: e.total, fromName: e.from, toName: e.to};
+    var links = (data.edges||[]).filter(function(e){
+      return nodeIdx[e.from]!==undefined && nodeIdx[e.to]!==undefined;
+    }).map(function(e){
+      return {from:nodeIdx[e.from], to:nodeIdx[e.to], health:e.health_score, total:e.total, latency:e.avg_latency_ms||0, fromName:e.from, toName:e.to, isTool:false};
     });
 
-    // ACL edges — policy connections (shown as dashed lines)
-    var trafficSet = {};
-    links.forEach(function(e) { trafficSet[e.fromName+'>'+e.toName] = true; });
-    var aclLinks = (data.acl_edges || []).filter(function(e) {
-      return nodeIdx[e.from] !== undefined && nodeIdx[e.to] !== undefined && !trafficSet[e.from+'>'+e.to];
-    }).map(function(e) {
-      return {from: nodeIdx[e.from], to: nodeIdx[e.to], fromName: e.from, toName: e.to};
+    (data.tool_nodes||[]).forEach(function(tn){
+      nodeIdx[tn.name]=nodes.length;
+      nodes.push({name:tn.name, isTool:true, isOrch:false, toolTotal:tn.total, threat:0, sent:0, recv:0, betweenness:-1, x:cx, y:cy, _g:null});
+    });
+    (data.tool_edges||[]).forEach(function(te){
+      var ai=nodeIdx[te.agent], ti=nodeIdx[te.tool];
+      if(ai!==undefined&&ti!==undefined) links.push({from:ai, to:ti, health:100, total:te.total, latency:0, fromName:te.agent, toName:te.tool, isTool:true});
     });
 
-    // All connections for layout (traffic + ACL)
-    var allLinks = links.concat(aclLinks);
+    // ── Columnar layout: ORCHESTRATOR → AGENTS → TOOLS ──
+    // Separate agents from gateway
+    var agentNodes=[], gwIdx=-1;
+    nodes.forEach(function(n,i){
+      if(n.isOrch) return;
+      if(n.isTool) return;
+      if(n.name==='gateway'){ gwIdx=i; return; }
+      agentNodes.push(i);
+    });
 
-    // Fruchterman-Reingold layout (deterministic — starts from circle)
-    var k = Math.sqrt(W * H / Math.max(nodes.length, 1)) * 1.1;
-    var temp = W / 4;
-    for (var iter = 0; iter < 200; iter++) {
-      for (var i = 0; i < nodes.length; i++) {
-        nodes[i].vx = 0; nodes[i].vy = 0;
-        for (var j = 0; j < nodes.length; j++) {
-          if (i === j) continue;
-          var dx = nodes[i].x - nodes[j].x, dy = nodes[i].y - nodes[j].y;
-          var dist = Math.sqrt(dx*dx + dy*dy) || 1;
-          var f = (k * k) / dist;
-          nodes[i].vx += (dx / dist) * f;
-          nodes[i].vy += (dy / dist) * f;
-        }
-      }
-      for (var e = 0; e < allLinks.length; e++) {
-        var s = nodes[allLinks[e].from], t = nodes[allLinks[e].to];
-        var dx = t.x - s.x, dy = t.y - s.y;
-        var dist = Math.sqrt(dx*dx + dy*dy) || 1;
-        var f = (dist * dist) / k;
-        var fx = (dx / dist) * f, fy = (dy / dist) * f;
-        s.vx += fx; s.vy += fy;
-        t.vx -= fx; t.vy -= fy;
-      }
-      for (var i = 0; i < nodes.length; i++) {
-        var d = Math.sqrt(nodes[i].vx*nodes[i].vx + nodes[i].vy*nodes[i].vy) || 1;
-        var c = Math.min(d, temp);
-        nodes[i].x += (nodes[i].vx / d) * c;
-        nodes[i].y += (nodes[i].vy / d) * c;
-        nodes[i].x = Math.max(PAD, Math.min(W-PAD, nodes[i].x));
-        nodes[i].y = Math.max(PAD, Math.min(H-PAD, nodes[i].y));
-      }
-      temp *= 0.95;
+    // Position orchestrator (column 1)
+    if(nodeIdx['claude-code']!==undefined){
+      nodes[nodeIdx['claude-code']].x=COL1;
+      nodes[nodeIdx['claude-code']].y=H*0.50;
     }
+    // Position gateway checkpoint (between col 1 and col 2)
+    if(gwIdx>=0){
+      nodes[gwIdx].x=COL_GW;
+      nodes[gwIdx].y=H*0.50;
+    }
+    // Position agents vertically in column 2
+    var agentSpacing=Math.min(80, (H-PAD*2)/(agentNodes.length+1));
+    var agentStartY=(H-(agentNodes.length-1)*agentSpacing)/2;
+    agentNodes.forEach(function(idx,i){
+      nodes[idx].x=COL2;
+      nodes[idx].y=agentStartY+i*agentSpacing;
+    });
+    // Position tool nodes vertically in column 3
+    var toolNodes=[];
+    nodes.forEach(function(n,i){ if(n.isTool) toolNodes.push(i); });
+    var toolSpacing=Math.min(60, (H-PAD*2)/(toolNodes.length+1));
+    var toolStartY=(H-(toolNodes.length-1)*toolSpacing)/2;
+    toolNodes.forEach(function(idx,i){
+      nodes[idx].x=COL3;
+      nodes[idx].y=toolStartY+i*toolSpacing;
+    });
+    function nodeRadius(n){return n.isTool?TR+4:(n.isOrch?OR+4:NR+4);}
 
-    // Build SVG
-    var NS = 'http://www.w3.org/2000/svg';
-    var svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('width', W); svg.setAttribute('height', H);
-    svg.setAttribute('viewBox', '0 0 '+W+' '+H);
-    svg.style.width = '100%'; svg.style.height = '100%';
+    // ── SVG setup ──
+    var svg=document.createElementNS(NS,'svg');
+    svg.setAttribute('width',W); svg.setAttribute('height',H);
+    svg.setAttribute('viewBox','0 0 '+W+' '+H);
+    svg.style.width='100%'; svg.style.height='100%';
 
-    // Arrow markers — smaller, refined
-    var defs = document.createElementNS(NS, 'defs');
-    var edgeColors = {ok:'#4ade80', warn:'#fbbf24', bad:'#f87171'};
-    ['ok','warn','bad'].forEach(function(k) {
-      var m = document.createElementNS(NS, 'marker');
-      m.setAttribute('id', 'arr-'+k); m.setAttribute('viewBox', '0 0 8 6');
-      m.setAttribute('refX', '8'); m.setAttribute('refY', '3');
-      m.setAttribute('markerWidth', '6'); m.setAttribute('markerHeight', '5');
-      m.setAttribute('orient', 'auto');
-      var p = document.createElementNS(NS, 'path');
-      p.setAttribute('d', 'M0,0.5 L7,3 L0,5.5'); p.setAttribute('fill', edgeColors[k]);
+    var defs=document.createElementNS(NS,'defs');
+    var edgeColors={ok:'#5eead4',warn:'#fbbf24',bad:'#f87171'};
+    ['ok','warn','bad'].forEach(function(k){
+      var m=document.createElementNS(NS,'marker');
+      m.setAttribute('id','arr-'+k); m.setAttribute('viewBox','0 0 8 6');
+      m.setAttribute('refX','8'); m.setAttribute('refY','3');
+      m.setAttribute('markerWidth','6'); m.setAttribute('markerHeight','5');
+      m.setAttribute('orient','auto');
+      var p=document.createElementNS(NS,'path');
+      p.setAttribute('d','M0,0.5 L7,3 L0,5.5'); p.setAttribute('fill',edgeColors[k]);
       m.appendChild(p); defs.appendChild(m);
     });
-    // ACL arrow marker (dim)
-    var mAcl = document.createElementNS(NS, 'marker');
-    mAcl.setAttribute('id', 'arr-acl'); mAcl.setAttribute('viewBox', '0 0 8 6');
-    mAcl.setAttribute('refX', '8'); mAcl.setAttribute('refY', '3');
-    mAcl.setAttribute('markerWidth', '5'); mAcl.setAttribute('markerHeight', '4');
-    mAcl.setAttribute('orient', 'auto');
-    var pAcl = document.createElementNS(NS, 'path');
-    pAcl.setAttribute('d', 'M0,0.5 L7,3 L0,5.5'); pAcl.setAttribute('fill', '#71717a');
-    mAcl.appendChild(pAcl); defs.appendChild(mAcl);
+    // Glow filter
+    var glow=document.createElementNS(NS,'filter');
+    glow.setAttribute('id','glow'); glow.setAttribute('x','-50%'); glow.setAttribute('y','-50%');
+    glow.setAttribute('width','200%'); glow.setAttribute('height','200%');
+    var gb=document.createElementNS(NS,'feGaussianBlur'); gb.setAttribute('stdDeviation','4'); gb.setAttribute('result','blur');
+    glow.appendChild(gb);
+    var fm=document.createElementNS(NS,'feMerge');
+    var mn1=document.createElementNS(NS,'feMergeNode'); mn1.setAttribute('in','blur');
+    var mn2=document.createElementNS(NS,'feMergeNode'); mn2.setAttribute('in','SourceGraphic');
+    fm.appendChild(mn1); fm.appendChild(mn2); glow.appendChild(fm); defs.appendChild(glow);
+    // Orchestrator gradient
+    var orchGrad=document.createElementNS(NS,'radialGradient'); orchGrad.setAttribute('id','orchFill');
+    var s1=document.createElementNS(NS,'stop'); s1.setAttribute('offset','0%'); s1.setAttribute('stop-color','#a78bfa'); s1.setAttribute('stop-opacity','0.25');
+    var s2=document.createElementNS(NS,'stop'); s2.setAttribute('offset','100%'); s2.setAttribute('stop-color','#7c3aed'); s2.setAttribute('stop-opacity','0.08');
+    orchGrad.appendChild(s1); orchGrad.appendChild(s2); defs.appendChild(orchGrad);
     svg.appendChild(defs);
 
-    var lineEls = [];
+    var style=document.createElementNS(NS,'style');
+    style.textContent='@keyframes orchPulse{0%,100%{opacity:0.7}50%{opacity:1}}.orch-hex{animation:orchPulse 3s ease-in-out infinite}.graph-dim{opacity:0.18!important;transition:opacity 0.3s}.graph-bright{opacity:1!important;transition:opacity 0.3s}';
+    svg.appendChild(style);
 
-    // Draw ACL edges — dashed lines showing policy connections
-    aclLinks.forEach(function(e) {
-      var s = nodes[e.from], t = nodes[e.to];
-      var dx = t.x - s.x, dy = t.y - s.y;
-      var dist = Math.sqrt(dx*dx + dy*dy) || 1;
-      var ex = t.x - (dx/dist)*(NR+6), ey = t.y - (dy/dist)*(NR+6);
-      var el = document.createElementNS(NS, 'line');
-      el.setAttribute('x1', s.x); el.setAttribute('y1', s.y);
-      el.setAttribute('x2', ex); el.setAttribute('y2', ey);
-      el.setAttribute('stroke', '#71717a');
-      el.setAttribute('stroke-width', '0.8');
-      el.setAttribute('stroke-opacity', '0.15');
-      el.setAttribute('stroke-dasharray', '4 4');
-      el.setAttribute('marker-end', 'url(#arr-acl)');
-      svg.appendChild(el);
-      lineEls.push({el: el, link: e, curved: false});
+    // Column headers
+    var headerFont='font-size:9px;fill:#52525b;font-family:ui-monospace,SFMono-Regular,monospace;letter-spacing:0.08em';
+    ['ORCHESTRATOR','AGENTS','TOOLS'].forEach(function(label,ci){
+      var hx=[COL1,COL2,COL3][ci];
+      var ht=document.createElementNS(NS,'text');
+      ht.setAttribute('x',hx); ht.setAttribute('y',24);
+      ht.setAttribute('text-anchor','middle');
+      ht.setAttribute('style',headerFont);
+      ht.textContent=label;
+      svg.appendChild(ht);
     });
 
-    // Draw traffic edges — curved paths for parallel edges
-    var edgePairs = {};
-    links.forEach(function(e) {
-      var key = Math.min(e.from,e.to)+'-'+Math.max(e.from,e.to);
-      edgePairs[key] = (edgePairs[key]||0)+1;
+    // Column separator lines
+    [COL_GW+(COL2-COL_GW)*0.5, COL2+(COL3-COL2)*0.5].forEach(function(sx){
+      var sep=document.createElementNS(NS,'line');
+      sep.setAttribute('x1',sx); sep.setAttribute('y1',38);
+      sep.setAttribute('x2',sx); sep.setAttribute('y2',H-10);
+      sep.setAttribute('stroke','#2a2a2e'); sep.setAttribute('stroke-width','1');
+      sep.setAttribute('stroke-dasharray','2 4');
+      svg.appendChild(sep);
     });
-    var edgePairCount = {};
-    var particles = [];
-    links.forEach(function(e) {
-      var hk = e.health >= 70 ? 'ok' : (e.health >= 40 ? 'warn' : 'bad');
 
-      // Offset for parallel edges
-      var key = Math.min(e.from,e.to)+'-'+Math.max(e.from,e.to);
-      var pairTotal = edgePairs[key]||1;
-      edgePairCount[key] = (edgePairCount[key]||0)+1;
-      var co = 0;
-      if (pairTotal > 1) co = (edgePairCount[key]%2===0?1:-1) * 20;
+    // ── Edges ──
+    var lineEls=[], particles=[], latencyLabels=[];
+    var edgePairs={};
+    links.forEach(function(e){ var key=Math.min(e.from,e.to)+'-'+Math.max(e.from,e.to); edgePairs[key]=(edgePairs[key]||0)+1; });
+    var edgePairCount={};
+    var maxTotal=1;
+    links.forEach(function(e){ if(!e.isTool&&e.total>maxTotal) maxTotal=e.total; });
 
-      var el;
-      if (co !== 0) {
-        el = document.createElementNS(NS, 'path');
-        el.setAttribute('fill', 'none');
+    links.forEach(function(e){
+      var hk, strokeColor, baseW, co=0;
+
+      if(e.isTool){
+        // Tool edges: dashed purple lines
+        hk='ok'; strokeColor='#a78bfa'; baseW=1.2;
       } else {
-        el = document.createElementNS(NS, 'line');
+        hk=e.health>=70?'ok':(e.health>=40?'warn':'bad');
+        strokeColor=edgeColors[hk];
+        var key=Math.min(e.from,e.to)+'-'+Math.max(e.from,e.to);
+        var pairTotal=edgePairs[key]||1;
+        edgePairCount[key]=(edgePairCount[key]||0)+1;
+        if(pairTotal>1) co=(edgePairCount[key]%2===0?1:-1)*18;
+        baseW=Math.min(3,0.8+(e.total/maxTotal)*2.2);
       }
-      el.setAttribute('stroke', edgeColors[hk]);
-      el.setAttribute('stroke-width', '1.2');
-      el.setAttribute('stroke-opacity', '0.35');
-      el.setAttribute('marker-end', 'url(#arr-'+hk+')');
-      el.style.cursor = 'pointer';
-      el.addEventListener('click', function() {
-        htmx.ajax('GET', '/dashboard/api/graph/edge?from='+encodeURIComponent(e.fromName)+'&to='+encodeURIComponent(e.toName), {target:'#panel-content', swap:'innerHTML'});
-      });
-      el.addEventListener('mouseenter', function(){ this.setAttribute('stroke-opacity','0.8'); this.setAttribute('stroke-width','2'); });
-      el.addEventListener('mouseleave', function(){ this.setAttribute('stroke-opacity','0.35'); this.setAttribute('stroke-width','1.2'); });
-      svg.appendChild(el);
 
-      // Particle dot — position computed in animation loop (subtle, slow)
-      var dot = document.createElementNS(NS, 'circle');
-      dot.setAttribute('r', '2');
-      dot.setAttribute('fill', edgeColors[hk]);
-      dot.setAttribute('opacity', '0.5');
-      svg.appendChild(dot);
-      particles.push({dot: dot, link: e, co: co, t: Math.random(), speed: 0.0015 + Math.random()*0.002});
+      var lineEl;
+      if(co!==0){ lineEl=document.createElementNS(NS,'path'); lineEl.setAttribute('fill','none'); }
+      else { lineEl=document.createElementNS(NS,'line'); }
+      lineEl.setAttribute('stroke',strokeColor);
+      lineEl.setAttribute('stroke-width',baseW);
+      lineEl.setAttribute('stroke-opacity',e.isTool?'0.5':'0.4');
+      if(e.isTool) lineEl.setAttribute('stroke-dasharray','4 3');
+      if(!e.isTool) lineEl.setAttribute('marker-end','url(#arr-'+hk+')');
+      lineEl.style.cursor='pointer';
+      lineEl.setAttribute('data-edge','1');
+      lineEl.setAttribute('data-from',e.fromName);
+      lineEl.setAttribute('data-to',e.toName);
+      svg.appendChild(lineEl);
 
-      lineEls.push({el: el, link: e, curved: co!==0, co: co});
+      // Latency label (orchestration edges only)
+      var latLabel=null;
+      if(!e.isTool && e.latency > 0){
+        latLabel=document.createElementNS(NS,'text');
+        latLabel.setAttribute('text-anchor','middle');
+        latLabel.setAttribute('fill',hk==='ok'?'#5eead4':(hk==='warn'?'#fbbf24':'#f87171'));
+        latLabel.setAttribute('font-size','9');
+        latLabel.setAttribute('font-family','ui-monospace,SFMono-Regular,monospace');
+        latLabel.setAttribute('opacity','0.7');
+        latLabel.textContent=Math.round(e.latency)+'ms';
+        latLabel.setAttribute('data-edge','1');
+        latLabel.setAttribute('data-from',e.fromName);
+        latLabel.setAttribute('data-to',e.toName);
+        svg.appendChild(latLabel);
+        latencyLabels.push({el:latLabel, link:e, co:co});
+      }
+
+      // Particles
+      var numP=e.isTool?1:Math.min(3,Math.max(1,Math.ceil(e.total/maxTotal*3)));
+      for(var pi=0;pi<numP;pi++){
+        var dot=document.createElementNS(NS,'circle');
+        dot.setAttribute('r',e.isTool?'1.8':'2.5');
+        dot.setAttribute('fill',strokeColor);
+        dot.setAttribute('opacity',e.isTool?'0.5':'0.6');
+        dot.setAttribute('data-edge','1');
+        dot.setAttribute('data-from',e.fromName);
+        dot.setAttribute('data-to',e.toName);
+        svg.appendChild(dot);
+        particles.push({dot:dot, link:e, co:co, t:pi/numP, speed:e.isTool?0.001+Math.random()*0.001:0.0015+Math.random()*0.002});
+      }
+      lineEls.push({el:lineEl, link:e, curved:co!==0, co:co, baseW:baseW, hk:hk, isTool:e.isTool});
     });
 
-    // Helper: compute edge endpoints from live node positions
-    function edgeEndpoints(le) {
-      var s = nodes[le.link.from], t = nodes[le.link.to];
-      var dx = t.x - s.x, dy = t.y - s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
-      var ex = t.x-(dx/d)*(NR+6), ey = t.y-(dy/d)*(NR+6);
-      return {sx:s.x, sy:s.y, ex:ex, ey:ey, dx:dx, dy:dy, d:d};
+    function edgeEndpoints(le){
+      var s=nodes[le.link.from],t=nodes[le.link.to];
+      var dx=t.x-s.x, dy=t.y-s.y, d=Math.sqrt(dx*dx+dy*dy)||1;
+      var tr=nodeRadius(t);
+      return {sx:s.x,sy:s.y,ex:t.x-(dx/d)*tr,ey:t.y-(dy/d)*tr,dx:dx,dy:dy,d:d};
     }
 
-    // Initial edge positions
-    function updateEdges() {
-      lineEls.forEach(function(le) {
-        var ep = edgeEndpoints(le);
-        if (le.curved) {
-          var mx = (ep.sx+ep.ex)/2 + (-ep.dy/ep.d)*le.co;
-          var my = (ep.sy+ep.ey)/2 + (ep.dx/ep.d)*le.co;
-          le.el.setAttribute('d', 'M'+ep.sx+','+ep.sy+' Q'+mx+','+my+' '+ep.ex+','+ep.ey);
+    function updateEdges(){
+      lineEls.forEach(function(le){
+        var ep=edgeEndpoints(le);
+        if(le.curved){
+          var mx=(ep.sx+ep.ex)/2+(-ep.dy/ep.d)*le.co;
+          var my=(ep.sy+ep.ey)/2+(ep.dx/ep.d)*le.co;
+          le.el.setAttribute('d','M'+ep.sx+','+ep.sy+' Q'+mx+','+my+' '+ep.ex+','+ep.ey);
         } else {
-          le.el.setAttribute('x1', ep.sx); le.el.setAttribute('y1', ep.sy);
-          le.el.setAttribute('x2', ep.ex); le.el.setAttribute('y2', ep.ey);
+          le.el.setAttribute('x1',ep.sx); le.el.setAttribute('y1',ep.sy);
+          le.el.setAttribute('x2',ep.ex); le.el.setAttribute('y2',ep.ey);
         }
+      });
+      // Update latency label positions (midpoint of edge)
+      latencyLabels.forEach(function(ll){
+        var s=nodes[ll.link.from],t=nodes[ll.link.to];
+        var mx=(s.x+t.x)/2, my=(s.y+t.y)/2;
+        if(ll.co!==0){
+          var dx=t.x-s.x,dy=t.y-s.y,d=Math.sqrt(dx*dx+dy*dy)||1;
+          mx+=(-dy/d)*ll.co*0.5; my+=(dx/d)*ll.co*0.5;
+        }
+        ll.el.setAttribute('x',mx); ll.el.setAttribute('y',my-6);
       });
     }
     updateEdges();
 
-    // Particle animation loop — reads live node positions
-    function animParticles() {
-      particles.forEach(function(p) {
-        p.t += p.speed;
-        if (p.t > 1) p.t -= 1;
-        var s = nodes[p.link.from], t = nodes[p.link.to];
-        var dx = t.x-s.x, dy = t.y-s.y, d = Math.sqrt(dx*dx+dy*dy)||1;
-        var ex = t.x-(dx/d)*(NR+6), ey = t.y-(dy/d)*(NR+6);
-        var tt = p.t, x, y;
-        if (p.co !== 0) {
-          var mx = (s.x+ex)/2+(-dy/d)*p.co, my = (s.y+ey)/2+(dx/d)*p.co;
-          var u = 1-tt;
-          x = u*u*s.x + 2*u*tt*mx + tt*tt*ex;
-          y = u*u*s.y + 2*u*tt*my + tt*tt*ey;
-        } else {
-          x = s.x + (ex-s.x)*tt;
-          y = s.y + (ey-s.y)*tt;
-        }
-        p.dot.setAttribute('cx', x);
-        p.dot.setAttribute('cy', y);
+    // Particle animation
+    function animParticles(){
+      particles.forEach(function(p){
+        p.t+=p.speed; if(p.t>1) p.t-=1;
+        var s=nodes[p.link.from],t=nodes[p.link.to];
+        var dx=t.x-s.x,dy=t.y-s.y,d=Math.sqrt(dx*dx+dy*dy)||1;
+        var tr=nodeRadius(t);
+        var ex=t.x-(dx/d)*tr, ey=t.y-(dy/d)*tr;
+        var tt=p.t, x, y;
+        if(p.co!==0){
+          var mx=(s.x+ex)/2+(-dy/d)*p.co, my=(s.y+ey)/2+(dx/d)*p.co;
+          var u=1-tt;
+          x=u*u*s.x+2*u*tt*mx+tt*tt*ex; y=u*u*s.y+2*u*tt*my+tt*tt*ey;
+        } else { x=s.x+(ex-s.x)*tt; y=s.y+(ey-s.y)*tt; }
+        p.dot.setAttribute('cx',x); p.dot.setAttribute('cy',y);
       });
       requestAnimationFrame(animParticles);
     }
     requestAnimationFrame(animParticles);
 
-    // Inline popover for node click
-    var popover = document.createElement('div');
-    popover.style.cssText = 'position:absolute;display:none;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;min-width:200px;z-index:10;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:var(--sans);pointer-events:auto';
-    el.appendChild(popover);
-    var activePopNode = null;
+    // ── Focus/Dim state ──
+    var focusedNode=null;
 
-    function showPopover(n) {
-      if (activePopNode === n.name) { popover.style.display='none'; activePopNode=null; return; }
-      activePopNode = n.name;
-      var threatLbl = n.threat > 60 ? 'High' : (n.threat > 30 ? 'Medium' : 'Low');
-      var threatClr = n.threat > 60 ? '#f87171' : (n.threat > 30 ? '#fbbf24' : '#4ade80');
-      popover.innerHTML =
-        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'+agentCellHTML(n.name)+'</div>'+
-        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:0.75rem;margin-bottom:12px">'+
-          '<div><span style="color:var(--text3)">Threat</span><div style="font-weight:700;color:'+threatClr+';font-family:var(--mono)">'+n.threat.toFixed(1)+' '+threatLbl+'</div></div>'+
-          '<div><span style="color:var(--text3)">Betweenness</span><div style="font-weight:600;font-family:var(--mono)">'+(n.betweenness>=0?n.betweenness.toFixed(3):'\u2014')+'</div></div>'+
-          '<div><span style="color:var(--text3)">Sent</span><div style="font-weight:600;font-family:var(--mono)">'+n.sent+'</div></div>'+
-          '<div><span style="color:var(--text3)">Received</span><div style="font-weight:600;font-family:var(--mono)">'+n.recv+'</div></div>'+
-        '</div>'+
-        '<a href="/dashboard/agents/'+encodeURIComponent(n.name)+'" style="display:block;text-align:center;padding:6px 14px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:6px;font-size:0.75rem;font-weight:500;text-decoration:none;transition:all 0.15s" onmouseover="this.style.borderColor=\'var(--accent)\';this.style.color=\'var(--text)\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--text2)\'">View Profile &rarr;</a>';
-      // Position: above node, centered
-      var px = n.x - 100, py = n.y - NR - 160;
-      if (py < 8) py = n.y + NR + 20; // flip below if too close to top
-      if (px < 8) px = 8;
-      if (px + 200 > W) px = W - 208;
-      popover.style.left = px+'px'; popover.style.top = py+'px';
-      popover.style.display = 'block';
+    function getConnectedNames(nodeName){
+      var connected={};
+      connected[nodeName]=true;
+      // Upstream: trace back from clicked node to orchestrator
+      var upstream={};upstream[nodeName]=true;
+      var ch=true;
+      while(ch){ ch=false; links.forEach(function(l){
+        if(!l.isTool&&upstream[l.toName]&&!upstream[l.fromName]){ upstream[l.fromName]=true;connected[l.fromName]=true;ch=true; }
+      });}
+      // Downstream: trace forward from clicked node to tools
+      ch=true;
+      var downstream={};downstream[nodeName]=true;
+      while(ch){ ch=false; links.forEach(function(l){
+        if(downstream[l.fromName]&&!downstream[l.toName]){ downstream[l.toName]=true;connected[l.toName]=true;ch=true; }
+      });}
+      return connected;
     }
 
-    // Close popover on background click
-    svg.addEventListener('click', function(ev) {
-      if (ev.target === svg) { popover.style.display='none'; activePopNode=null; }
-    });
+    function focusNode(n){
+      if(focusedNode===n.name){ unfocus(); return; }
+      focusedNode=n.name;
+      var connected=getConnectedNames(n.name);
+      nodes.forEach(function(nd){
+        if(nd._g){
+          if(connected[nd.name]) nd._g.classList.remove('graph-dim'), nd._g.classList.add('graph-bright');
+          else nd._g.classList.add('graph-dim'), nd._g.classList.remove('graph-bright');
+        }
+      });
+      svg.querySelectorAll('[data-edge]').forEach(function(el2){
+        var ef=el2.getAttribute('data-from'), et=el2.getAttribute('data-to');
+        if(connected[ef]&&connected[et]) el2.classList.remove('graph-dim'), el2.classList.add('graph-bright');
+        else el2.classList.add('graph-dim'), el2.classList.remove('graph-bright');
+      });
+    }
 
-    // Draw nodes — avatar circle + label below (rendered last so they appear on top of edges)
-    // We create a group that sits above edges+particles
-    var nodeLayer = document.createElementNS(NS, 'g');
-    nodes.forEach(function(n, i) {
-      var g = document.createElementNS(NS, 'g');
-      g.style.cursor = 'pointer';
+    function unfocus(){
+      focusedNode=null;
+      nodes.forEach(function(nd){ if(nd._g){ nd._g.classList.remove('graph-dim','graph-bright'); }});
+      svg.querySelectorAll('[data-edge]').forEach(function(el2){ el2.classList.remove('graph-dim','graph-bright'); });
+    }
 
-      // Threat-based ring color
-      var ringColor = n.threat > 60 ? '#f87171' : (n.threat > 30 ? '#fbbf24' : '#4ade80');
+    // polling moved to separate script block below
 
-      // Outer ring (threat indicator)
-      var ring = document.createElementNS(NS, 'circle');
-      ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y); ring.setAttribute('r', NR+2);
-      ring.setAttribute('fill', 'none');
-      ring.setAttribute('stroke', ringColor); ring.setAttribute('stroke-width', '1.5');
-      ring.setAttribute('stroke-opacity', '0.6');
+    // Click background to unfocus
+    svg.addEventListener('click',function(ev){ if(ev.target===svg) unfocus(); });
 
-      // Avatar as foreignObject
-      var fo = document.createElementNS(NS, 'foreignObject');
-      fo.setAttribute('x', n.x-NR); fo.setAttribute('y', n.y-NR);
-      fo.setAttribute('width', NR*2); fo.setAttribute('height', NR*2);
-      var avDiv = document.createElement('div');
-      avDiv.innerHTML = agentAvatar(n.name, NR*2);
-      fo.appendChild(avDiv);
+    // ── Nodes ──
+    var nodeLayer=document.createElementNS(NS,'g');
+    function hexPts(hx,hy,r){
+      var pts=[];
+      for(var hi=0;hi<6;hi++){var a=Math.PI/6+(Math.PI/3)*hi; pts.push((hx+r*Math.cos(a)).toFixed(1)+','+(hy+r*Math.sin(a)).toFixed(1));}
+      return pts.join(' ');
+    }
 
-      // Label background pill (makes text readable over edges)
-      var labelY = n.y + NR + 14;
-      var textLen = n.name.length * 5.8 + 10;
-      var labelBg = document.createElementNS(NS, 'rect');
-      labelBg.setAttribute('x', n.x - textLen/2); labelBg.setAttribute('y', labelY - 9);
-      labelBg.setAttribute('width', textLen); labelBg.setAttribute('height', 14);
-      labelBg.setAttribute('rx', '3');
-      labelBg.setAttribute('fill', '#09090b'); labelBg.setAttribute('fill-opacity', '0.85');
+    nodes.forEach(function(n,i){
+      var g=document.createElementNS(NS,'g');
+      g.style.cursor='pointer';
+      n._g=g;
 
-      // Label below node
-      var label = document.createElementNS(NS, 'text');
-      label.setAttribute('x', n.x); label.setAttribute('y', labelY);
-      label.setAttribute('text-anchor', 'middle'); label.setAttribute('fill', '#e4e4e7');
-      label.setAttribute('font-size', '11'); label.setAttribute('font-weight', '500');
-      label.setAttribute('font-family', 'ui-monospace, SFMono-Regular, SF Mono, Menlo, monospace');
-      label.textContent = n.name;
+      var shape, fo, labelY, textLen;
+      var nameLen=Math.min(n.name.length,22);
 
-      g.appendChild(ring); g.appendChild(fo); g.appendChild(labelBg); g.appendChild(label);
+      if(n.isTool){
+        shape=document.createElementNS(NS,'rect');
+        shape.setAttribute('x',n.x-TR-2); shape.setAttribute('y',n.y-TR-2);
+        shape.setAttribute('width',(TR+2)*2); shape.setAttribute('height',(TR+2)*2);
+        shape.setAttribute('rx','4');
+        shape.setAttribute('fill','rgba(139,92,246,0.06)');
+        shape.setAttribute('stroke','#7c3aed'); shape.setAttribute('stroke-width','1');
+        shape.setAttribute('stroke-opacity','0.5');
+        fo=document.createElementNS(NS,'foreignObject');
+        fo.setAttribute('x',n.x-TR); fo.setAttribute('y',n.y-TR);
+        fo.setAttribute('width',TR*2); fo.setAttribute('height',TR*2);
+        var toolDiv=document.createElement('div');
+        toolDiv.style.cssText='width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#a78bfa;font-family:ui-monospace,SFMono-Regular,monospace;font-size:10px;font-weight:600';
+        toolDiv.textContent=n.name.charAt(0).toUpperCase();
+        fo.appendChild(toolDiv);
+        labelY=n.y+TR+11; textLen=nameLen*4.5+6;
 
-      // Store refs on node for drag updates
-      n._ring = ring; n._fo = fo; n._label = label; n._labelBg = labelBg;
+      } else if(n.isOrch){
+        shape=document.createElementNS(NS,'polygon');
+        shape.setAttribute('points',hexPts(n.x,n.y,OR+3));
+        shape.setAttribute('fill','url(#orchFill)');
+        shape.setAttribute('stroke','#a78bfa'); shape.setAttribute('stroke-width','2.5');
+        shape.setAttribute('filter','url(#glow)');
+        shape.classList.add('orch-hex');
+        var innerHex=document.createElementNS(NS,'polygon');
+        innerHex.setAttribute('points',hexPts(n.x,n.y,OR-5));
+        innerHex.setAttribute('fill','rgba(139,92,246,0.15)');
+        innerHex.setAttribute('stroke','#c4b5fd'); innerHex.setAttribute('stroke-width','1');
+        innerHex.setAttribute('stroke-opacity','0.4');
+        fo=document.createElementNS(NS,'foreignObject');
+        fo.setAttribute('x',n.x-14); fo.setAttribute('y',n.y-14);
+        fo.setAttribute('width',28); fo.setAttribute('height',28);
+        var orchIcon=document.createElement('div');
+        orchIcon.style.cssText='width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#c4b5fd;font-size:16px;font-weight:700;font-family:ui-monospace,SFMono-Regular,monospace';
+        orchIcon.textContent='\u2B21';
+        fo.appendChild(orchIcon);
+        n._innerHex=innerHex;
+        labelY=n.y+OR+16; textLen=nameLen*5.8+10;
 
-      // Click: show inline popover (not panel)
-      var didDrag = false;
-      g.addEventListener('click', function(ev) {
+      } else {
+        var ringColor=n.threat>60?'#f87171':(n.threat>30?'#fbbf24':'#4ade80');
+        shape=document.createElementNS(NS,'circle');
+        shape.setAttribute('cx',n.x); shape.setAttribute('cy',n.y); shape.setAttribute('r',NR+2);
+        shape.setAttribute('fill','none');
+        shape.setAttribute('stroke',ringColor); shape.setAttribute('stroke-width','1.5');
+        shape.setAttribute('stroke-opacity','0.6');
+        fo=document.createElementNS(NS,'foreignObject');
+        fo.setAttribute('x',n.x-NR); fo.setAttribute('y',n.y-NR);
+        fo.setAttribute('width',NR*2); fo.setAttribute('height',NR*2);
+        var avDiv=document.createElement('div');
+        avDiv.innerHTML=agentAvatar(n.name,NR*2);
+        fo.appendChild(avDiv);
+        labelY=n.y+NR+14; textLen=nameLen*5.8+10;
+
+        // Status dot (small indicator at top-right of node)
+        var statusDot=document.createElementNS(NS,'circle');
+        statusDot.setAttribute('cx',n.x+NR-2); statusDot.setAttribute('cy',n.y-NR+2);
+        statusDot.setAttribute('r','4');
+        statusDot.setAttribute('fill',ringColor);
+        statusDot.setAttribute('stroke','#09090b'); statusDot.setAttribute('stroke-width','1.5');
+        n._statusDot=statusDot;
+      }
+
+      // Label
+      var labelBg=document.createElementNS(NS,'rect');
+      labelBg.setAttribute('x',n.x-textLen/2); labelBg.setAttribute('y',labelY-9);
+      labelBg.setAttribute('width',textLen); labelBg.setAttribute('height',n.isOrch?26:14);
+      labelBg.setAttribute('rx','3');
+      labelBg.setAttribute('fill','#09090b'); labelBg.setAttribute('fill-opacity','0.85');
+
+      var label=document.createElementNS(NS,'text');
+      label.setAttribute('x',n.x); label.setAttribute('y',labelY);
+      label.setAttribute('text-anchor','middle');
+      label.setAttribute('fill',n.isTool?'#a78bfa':'#e4e4e7');
+      label.setAttribute('font-size',n.isTool?'8.5':(n.isOrch?'12':'10.5'));
+      label.setAttribute('font-weight',n.isOrch?'600':'500');
+      label.setAttribute('font-family','ui-monospace,SFMono-Regular,SF Mono,Menlo,monospace');
+      var displayName=n.name==='gateway'?'oktsec':(n.name.length>22?n.name.substring(0,20)+'\u2026':n.name);
+      label.textContent=displayName;
+
+      // Orchestrator subtitle
+      var subLabel=null;
+      if(n.isOrch){
+        subLabel=document.createElementNS(NS,'text');
+        subLabel.setAttribute('x',n.x); subLabel.setAttribute('y',labelY+12);
+        subLabel.setAttribute('text-anchor','middle');
+        subLabel.setAttribute('fill','#71717a');
+        subLabel.setAttribute('font-size','9');
+        subLabel.setAttribute('font-family','ui-monospace,SFMono-Regular,SF Mono,Menlo,monospace');
+        subLabel.textContent='orchestrator';
+      }
+
+      g.appendChild(shape);
+      if(n._innerHex) g.appendChild(n._innerHex);
+      g.appendChild(fo); g.appendChild(labelBg); g.appendChild(label);
+      if(subLabel) g.appendChild(subLabel);
+      if(n._statusDot) g.appendChild(n._statusDot);
+      n._ring=shape; n._fo=fo; n._label=label; n._labelBg=labelBg; n._subLabel=subLabel;
+
+      var didDrag=false;
+      g.addEventListener('click',function(ev){
         ev.stopPropagation();
-        if (didDrag) { didDrag = false; return; }
-        showPopover(n);
+        if(didDrag){didDrag=false;return;}
+        if(n.isTool) return;
+        focusNode(n);
       });
 
       // Drag support
-      var dragging = false;
-      fo.addEventListener('mousedown', function(ev) { dragging = true; ev.preventDefault(); });
-      svg.addEventListener('mousemove', function(ev) {
-        if (!dragging) return;
-        didDrag = true;
-        popover.style.display = 'none'; activePopNode = null;
-        var rect = svg.getBoundingClientRect();
-        n.x = Math.max(PAD, Math.min(W-PAD, ev.clientX - rect.left));
-        n.y = Math.max(PAD, Math.min(H-PAD, ev.clientY - rect.top));
-        var ly = n.y + NR + 14;
-        ring.setAttribute('cx', n.x); ring.setAttribute('cy', n.y);
-        fo.setAttribute('x', n.x-NR); fo.setAttribute('y', n.y-NR);
-        label.setAttribute('x', n.x); label.setAttribute('y', ly);
-        labelBg.setAttribute('x', n.x - textLen/2); labelBg.setAttribute('y', ly - 9);
+      var dragging=false;
+      fo.addEventListener('mousedown',function(ev){dragging=true;ev.preventDefault();});
+      svg.addEventListener('mousemove',function(ev){
+        if(!dragging)return;
+        didDrag=true;
+        var rect=svg.getBoundingClientRect();
+        n.x=Math.max(PAD,Math.min(W-PAD,ev.clientX-rect.left));
+        n.y=Math.max(PAD,Math.min(H-PAD,ev.clientY-rect.top));
+        if(n.isTool){
+          shape.setAttribute('x',n.x-TR-2); shape.setAttribute('y',n.y-TR-2);
+          fo.setAttribute('x',n.x-TR); fo.setAttribute('y',n.y-TR);
+        } else if(n.isOrch){
+          shape.setAttribute('points',hexPts(n.x,n.y,OR+3));
+          if(n._innerHex) n._innerHex.setAttribute('points',hexPts(n.x,n.y,OR-5));
+          fo.setAttribute('x',n.x-14); fo.setAttribute('y',n.y-14);
+        } else {
+          shape.setAttribute('cx',n.x); shape.setAttribute('cy',n.y);
+          fo.setAttribute('x',n.x-NR); fo.setAttribute('y',n.y-NR);
+          if(n._statusDot){ n._statusDot.setAttribute('cx',n.x+NR-2); n._statusDot.setAttribute('cy',n.y-NR+2); }
+        }
+        var ly=n.isTool?n.y+TR+11:(n.isOrch?n.y+OR+16:n.y+NR+14);
+        label.setAttribute('x',n.x); label.setAttribute('y',ly);
+        labelBg.setAttribute('x',n.x-textLen/2); labelBg.setAttribute('y',ly-9);
+        if(n._subLabel){ n._subLabel.setAttribute('x',n.x); n._subLabel.setAttribute('y',ly+12); }
         updateEdges();
       });
-      svg.addEventListener('mouseup', function() {
-        if (dragging && !didDrag) didDrag = false;
-        dragging = false;
+      svg.addEventListener('mouseup',function(){
+        if(dragging&&!didDrag) didDrag=false;
+        dragging=false;
       });
 
       nodeLayer.appendChild(g);
     });
     svg.appendChild(nodeLayer);
-
     el.appendChild(svg);
   }
+})();
+</script>
+<script>
+(function(){
+  var _prevEv='',_prevTb='';
+  function _nc(){return '_t='+Date.now();}
+  function pollGraph(){
+    fetch('/dashboard/api/graph/stats?'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+      var g=function(id){return document.getElementById(id)};
+      if(g('gs-agents'))g('gs-agents').textContent=d.agents;
+      if(g('gs-tools'))g('gs-tools').textContent=d.tools;
+      if(g('gs-messages'))g('gs-messages').textContent=d.messages.toLocaleString();
+      if(g('gs-blocks'))g('gs-blocks').textContent=d.blocks;
+      if(g('gs-audit'))g('gs-audit').textContent=d.messages.toLocaleString();
+      var ec=document.getElementById('gw-event-count');
+      if(ec)ec.textContent=d.messages.toLocaleString()+' EVENTS';
+    }).catch(function(){});
+    fetch('/dashboard/api/graph/events?'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.text()}).then(function(h){
+      var t=h.trim();
+      if(t!==_prevEv){_prevEv=t;var el=document.getElementById('gw-events');if(el){el.innerHTML=t;el.querySelectorAll('[data-ts]').forEach(function(e){var ts=e.getAttribute('data-ts');if(ts&&typeof _relTime==='function')e.textContent=_relTime(ts);});}}
+    }).catch(function(){});
+    fetch('/dashboard/api/graph/tables?range={{.Range}}&'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.text()}).then(function(h){
+      var t=h.trim();
+      if(t!==_prevTb){_prevTb=t;var el=document.getElementById('graph-tables');if(el)el.innerHTML=t;}
+    }).catch(function(){});
+  }
+  pollGraph();
+  setInterval(pollGraph,5000);
 })();
 </script>
 ` + layoutFoot))

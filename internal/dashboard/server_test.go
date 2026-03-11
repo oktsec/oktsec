@@ -163,7 +163,7 @@ func TestServer_DashboardPages(t *testing.T) {
 		contains string
 	}{
 		{"/dashboard", "Overview"},
-		{"/dashboard/events", "EVENT LOG"},
+		{"/dashboard/events", "EVENTS"},
 		{"/dashboard/agents", "Agents"},
 		{"/dashboard/graph", "Graph"},
 		{"/dashboard/rules", "Rules"},
@@ -1045,9 +1045,9 @@ func TestServer_SettingsTabsRender(t *testing.T) {
 		contains string
 	}{
 		{"security", "Security Mode"},
-		{"identity", "Agent Identity"},
-		{"pipeline", "Quarantine Queue"},
-		{"infra", "Forward Proxy"},
+		{"identity", "Agent Keys"},
+		{"pipeline", "Quarantine"},
+		{"infra", "Notifications"},
 	}
 	for _, tc := range tabs {
 		req := httptest.NewRequest("GET", "/dashboard/settings?tab="+tc.tab, nil)

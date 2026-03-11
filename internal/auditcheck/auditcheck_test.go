@@ -62,7 +62,8 @@ func TestCheckSignatureDisabled(t *testing.T) {
 	findings := checkSignatureDisabled(cfg, "")
 	require.Len(t, findings, 1)
 	assert.Equal(t, "SIG-001", findings[0].CheckID)
-	assert.Equal(t, Critical, findings[0].Severity)
+	// In observe mode (RequireSignature=false), severity is Info, not Critical.
+	assert.Equal(t, Info, findings[0].Severity)
 }
 
 func TestCheckSignatureEnabled(t *testing.T) {
@@ -338,7 +339,7 @@ func TestCheckAuditDatabase_NotFound(t *testing.T) {
 	require.Len(t, findings, 1)
 	assert.Equal(t, "RET-003", findings[0].CheckID)
 	assert.Equal(t, Info, findings[0].Severity)
-	assert.Contains(t, findings[0].Title, "not found")
+	assert.Contains(t, findings[0].Title, "not created")
 }
 
 func TestCheckAuditDatabase_Exists(t *testing.T) {
@@ -350,7 +351,7 @@ func TestCheckAuditDatabase_Exists(t *testing.T) {
 	require.Len(t, findings, 1)
 	assert.Equal(t, "RET-003", findings[0].CheckID)
 	assert.Equal(t, Info, findings[0].Severity)
-	assert.Contains(t, findings[0].Title, "present")
+	assert.Contains(t, findings[0].Title, "active")
 }
 
 // --- Product auditors ---
