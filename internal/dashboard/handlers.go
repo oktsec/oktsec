@@ -40,6 +40,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmpl *template.Template, 
 
 func (s *Server) renderJSON(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		s.logger.Error("json encode failed", "error", err)
 	}
@@ -887,6 +888,36 @@ func (s *Server) handleAPIStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIRecent(w http.ResponseWriter, r *http.Request) {
 	recent := s.getRecentEvents(5)
 	s.renderTemplate(w, recentPartialTmpl, recent)
+}
+
+func (s *Server) handleAPIGraphStats(w http.ResponseWriter, r *http.Request) {
+	sc, _ := s.audit.QueryStats()
+	agentCount := len(s.cfg.Agents)
+	toolCount := 0
+	for range s.cfg.MCPServers {
+		toolCount++
+	}
+	total, blocked := 0, 0
+	if sc != nil {
+		total = sc.Total
+		blocked = sc.Blocked
+	}
+	s.renderJSON(w, map[string]int{
+		"agents":   agentCount,
+		"tools":    toolCount,
+		"messages": total,
+		"blocks":   blocked,
+	})
+}
+
+func (s *Server) handleAPIGraphTables(w http.ResponseWriter, r *http.Request) {
+	rangeStr := r.URL.Query().Get("range")
+	if rangeStr == "" {
+		rangeStr = "24h"
+	}
+	since := parseSinceRange(rangeStr)
+	g := s.buildGraph(since)
+	s.renderTemplate(w, graphTablesTmpl, g)
 }
 
 func (s *Server) handleAPIGraphEvents(w http.ResponseWriter, r *http.Request) {

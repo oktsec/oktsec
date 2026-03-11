@@ -262,6 +262,8 @@ func (s *Server) routes() {
 	// HTMX partial endpoints
 	s.mux.HandleFunc("GET /dashboard/api/stats", s.handleAPIStats)
 	s.mux.HandleFunc("GET /dashboard/api/recent", s.handleAPIRecent)
+	s.mux.HandleFunc("GET /dashboard/api/graph/stats", s.handleAPIGraphStats)
+	s.mux.HandleFunc("GET /dashboard/api/graph/tables", s.handleAPIGraphTables)
 	s.mux.HandleFunc("GET /dashboard/api/graph/events", s.handleAPIGraphEvents)
 
 	// Export & Report

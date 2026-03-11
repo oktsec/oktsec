@@ -941,7 +941,7 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
 {{else}}
 
 <!-- Hero: the 3 numbers that tell the story -->
-<div class="hero-stats" hx-get="/dashboard/api/stats" hx-trigger="every 5s" hx-swap="none">
+<div class="hero-stats" id="hero-stats">
   <a href="/dashboard/events" class="hero-stat" style="text-decoration:none;color:inherit">
     <div class="num success" id="stat-total">{{.Stats.TotalMessages}}</div>
     <div class="lbl">Messages Protected</div>
@@ -1165,6 +1165,16 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
       while (tbody.children.length > 20) tbody.removeChild(tbody.lastChild);
     } catch(err) {}
   };
+
+  // Poll hero stats
+  function pollHeroStats(){
+    fetch('/dashboard/api/stats?_t='+Date.now(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+      var el=function(id){return document.getElementById(id)};
+      if(el('stat-total'))el('stat-total').textContent=d.total_messages.toLocaleString();
+      if(el('stat-blocked'))el('stat-blocked').textContent=(d.blocked+d.rejected).toLocaleString();
+    }).catch(function(){});
+  }
+  setInterval(pollHeroStats,4000);
 })();
 </script>
 ` + layoutFoot))
@@ -1194,12 +1204,79 @@ var recentPartialTmpl = template.Must(template.New("recent").Funcs(tmplFuncs).Pa
 <div class="empty">No events yet.</div>
 {{end}}`))
 
+var graphStatsTmpl = template.Must(template.New("graph-stats").Funcs(tmplFuncs).Parse(`
+{{range .Stats}}
+<div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+  <span style="color:var(--text3)">{{.Label}}</span>
+  <span style="font-weight:700;font-family:var(--mono);color:{{.Color}}">{{.Value}}</span>
+</div>
+{{end}}
+{{range .Degraded}}
+<div style="padding:8px 10px;border:1px solid #fbbf24;border-radius:6px;margin-top:8px;background:rgba(251,191,36,0.06)">
+  <div style="color:#fbbf24;font-weight:600;font-size:0.75rem">DEGRADED</div>
+  <div style="color:var(--text3);font-size:0.72rem">{{.Name}} &middot; threat {{.Threat}}</div>
+</div>
+{{end}}`))
+
+var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs).Parse(`
+<div class="grid-2" style="gap:20px">
+  <div class="card">
+    <h2>Node Threat Scores</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Higher scores mean more blocked or quarantined messages originating from this agent.</p>
+    {{if .Nodes}}
+    <table>
+      <thead><tr><th>Agent</th><th>Threat</th><th>Sent</th><th>Recv</th><th>Betweenness</th></tr></thead>
+      <tbody>
+      {{range .Nodes}}
+      <tr class="clickable" onclick="location.href='/dashboard/agents/{{.Name}}'">
+        <td style="font-weight:600">{{agentCell .Name}}</td>
+        <td><div style="display:flex;align-items:center;gap:8px"><div class="risk-bar" style="width:60px"><div class="risk-bar-fill {{if gt .ThreatScore 60.0}}risk-high{{else if gt .ThreatScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .ThreatScore}}%"></div></div><span>{{printf "%.1f" .ThreatScore}}</span></div></td>
+        <td>{{.TotalSent}}</td>
+        <td>{{.TotalRecv}}</td>
+        <td>{{if eq .Betweenness -1.0}}&#8212;{{else}}{{printf "%.3f" .Betweenness}}{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No agents detected</p>{{end}}
+  </div>
+  <div class="card">
+    <h2>Edge Health</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Percentage of messages on each connection that were delivered successfully.</p>
+    {{if .Edges}}
+    <table>
+      <thead><tr><th>From</th><th>To</th><th>Total</th><th>Health</th></tr></thead>
+      <tbody>
+      {{range .Edges}}
+      <tr>
+        <td>{{.From}}</td>
+        <td>{{.To}}</td>
+        <td>{{.Total}}</td>
+        <td><div style="display:flex;align-items:center;gap:8px"><div class="risk-bar" style="width:60px"><div class="risk-bar-fill {{if lt .HealthScore 40.0}}risk-high{{else if lt .HealthScore 70.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .HealthScore}}%"></div></div><span>{{printf "%.0f" .HealthScore}}%</span></div></td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}<p class="empty">No traffic in this time range</p>{{end}}
+  </div>
+</div>
+{{if .ShadowEdges}}
+<div class="card">
+  <h2 style="color:var(--warn)">Shadow Edges</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not defined in ACL policy.</p>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>Messages</th></tr></thead>
+    <tbody>{{range .ShadowEdges}}<tr><td>{{.From}}</td><td>{{.To}}</td><td>{{.Total}}</td></tr>{{end}}</tbody>
+  </table>
+</div>
+{{end}}`))
+
 var graphEventsTmpl = template.Must(template.New("graph-events").Funcs(tmplFuncs).Parse(`
 {{range .}}
 <div style="padding:6px 0;border-left:3px solid {{if eq .Status "blocked"}}#f87171{{else if eq .Status "quarantined"}}#fbbf24{{else}}var(--border){{end}};padding-left:10px;margin-bottom:6px">
   <div style="color:var(--text3);font-size:0.68rem" data-ts="{{.Timestamp}}">{{.Timestamp}}</div>
-  <span style="color:{{if eq .Status "blocked"}}#f87171{{else if eq .Status "quarantined"}}#fbbf24{{else}}var(--text2){{end}};font-weight:{{if ne .Status "delivered"}}600{{else}}400{{end}}">{{.FromAgent}}</span>
-  {{if .ToolName}}<div style="color:var(--text3);font-size:0.7rem;margin-top:1px">{{.ToolName}} call {{if eq .Status "blocked"}}blocked{{else if eq .Status "quarantined"}}quarantined{{else}}processed{{end}}</div>{{end}}
+  {{if .ToolName}}<div style="display:flex;align-items:center;gap:5px">{{toolDot .ToolName}} <span style="color:var(--text3);font-size:0.7rem">{{if eq .Status "blocked"}}blocked{{else if eq .Status "quarantined"}}quarantined{{else}}processed{{end}}</span></div>
+  {{else}}<span style="color:{{if eq .Status "blocked"}}#f87171{{else if eq .Status "quarantined"}}#fbbf24{{else}}var(--text2){{end}};font-weight:{{if ne .Status "delivered"}}600{{else}}400{{end}}">{{.FromAgent}} &rarr; {{.ToAgent}}</span>{{end}}
 </div>
 {{else}}
 <div style="color:var(--text3);padding:20px 0;text-align:center">No events yet</div>
@@ -1309,272 +1386,298 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 
 var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;align-items:start}
+.ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
 .ad-grid>div{min-width:0}
-.ad-grid table{table-layout:fixed;width:100%}
+.ad-grid table{width:100%}
 .ad-grid .fp{word-break:break-all;overflow-wrap:break-word}
+.ad-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
+.ad-tab{padding:10px 20px;font-size:0.82rem;font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color 0.15s,border-color 0.15s}
+.ad-tab:hover{color:var(--text2)}
+.ad-tab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+.ad-panel{display:none}
+.ad-panel.active{display:block}
+.ad-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.ad-kv{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ad-kv:last-child{border-bottom:none}
+.ad-kv .k{color:var(--text3);font-size:0.75rem}
+.ad-kv .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ad-rule{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);position:relative}
+.ad-rule:last-child{border-bottom:none}
+.ad-rule-bar{position:absolute;left:0;top:0;bottom:0;border-radius:4px;opacity:0.07;pointer-events:none}
+.ad-gauge{display:flex;gap:2px;align-items:center}
+.ad-gauge span{width:4px;height:16px;border-radius:2px;background:var(--border)}
+.ad-gauge span.filled{background:var(--success)}
+.ad-gauge span.filled.warn{background:var(--warn)}
+.ad-gauge span.filled.danger{background:var(--danger)}
+.ad-tool-bar{height:10px;border-radius:5px;display:flex;overflow:hidden}
 @media(max-width:960px){.ad-grid{grid-template-columns:1fr}}
 </style>
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
-  {{avatar .Name 40}}
-  <div style="min-width:0">
-    <h1 style="margin:0;font-size:1.3rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Agent: <span>{{.Name}}</span></h1>
-    <p style="color:var(--text2);font-size:0.82rem;margin:2px 0 0">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Detail view for agent {{.Name}}.{{end}}</p>
+
+<!-- Breadcrumb -->
+<div style="font-size:0.72rem;color:var(--text3);margin-bottom:16px;font-family:var(--mono)">
+  <a href="/dashboard/agents" style="color:var(--text3);text-decoration:none">AGENTS</a>
+  <span style="margin:0 6px">/</span>
+  <span style="color:var(--accent-light)">{{.Name}}</span>
+</div>
+
+<!-- Header: avatar + name + actions -->
+<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+  {{avatar .Name 48}}
+  <div style="min-width:0;flex:1">
+    <h1 style="margin:0;font-size:1.3rem;font-weight:700">{{.Name}}</h1>
+    <p style="color:var(--text3);font-size:0.82rem;margin:2px 0 0">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Agent detail{{end}}</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-shrink:0">
+    <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm" style="border-color:var(--success);color:var(--success);background:transparent" onclick="return confirm('Generate new keypair for {{.Name}}?')">Generate Keypair</button></form>
+    <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm" style="border-color:var(--success);color:var(--success);background:transparent">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm" style="border-color:var(--warn);color:var(--warn);background:transparent">Suspend</button>{{end}}</form>
+    <button class="btn btn-sm" style="border-color:var(--danger);color:var(--danger);background:transparent" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete</button>
   </div>
 </div>
 
-<div class="stats">
-  <div class="stat">
-    <div class="label">Total Messages</div>
-    <div class="value">{{.TotalMsgs}}</div>
+<!-- Stats -->
+<div class="stats" style="margin-bottom:16px">
+  <div class="stat"><div class="label">Total Messages</div><div class="value">{{.TotalMsgs}}</div></div>
+  <div class="stat"><div class="label">Delivered</div><div class="value success">{{.Delivered}}</div></div>
+  <div class="stat"><div class="label">Blocked</div><div class="value danger">{{.Blocked}}</div></div>
+  <div class="stat"><div class="label">Quarantined</div><div class="value" style="color:var(--accent-light)">{{.Quarantined}}</div></div>
+</div>
+
+<!-- Risk Score + Tool Distribution -->
+<div class="ad-grid" style="margin-bottom:20px">
+  <div class="card" style="padding:16px 20px">
+    <div class="ad-slbl">Risk Score</div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <span style="font-size:1.5rem;font-weight:700;font-family:var(--mono)" class="{{if gt .RiskScore 60.0}}danger{{else if gt .RiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.0f" .RiskScore}}</span>
+      <div class="ad-gauge" id="risk-gauge"></div>
+      <span style="color:var(--text3);font-size:0.72rem;font-family:var(--mono)">/ 100</span>
+    </div>
+    <script>
+    (function(){
+      var g=document.getElementById('risk-gauge');if(!g)return;
+      var score={{printf "%.0f" .RiskScore}};
+      var segs=20;
+      for(var i=0;i<segs;i++){
+        var s=document.createElement('span');
+        var threshold=i*(100/segs);
+        if(threshold<score){
+          s.className='filled'+(score>60?' danger':(score>30?' warn':''));
+        }
+        g.appendChild(s);
+      }
+    })();
+    </script>
   </div>
-  <div class="stat">
-    <div class="label">Delivered</div>
-    <div class="value success">{{.Delivered}}</div>
-  </div>
-  <div class="stat">
-    <div class="label">Blocked</div>
-    <div class="value danger">{{.Blocked}}</div>
-  </div>
-  <div class="stat">
-    <div class="label">Quarantined</div>
-    <div class="value" style="color:var(--accent-light)">{{.Quarantined}}</div>
+  <div class="card" style="padding:16px 20px">
+    <div class="ad-slbl">Tool Distribution</div>
+    <div class="ad-tool-bar" id="tool-dist-bar"></div>
+    <div id="tool-dist-legend" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:0.68rem;color:var(--text3)"></div>
+    <script>
+    (function(){
+      var partners={{if .CommPartners}}[{{range .CommPartners}}{to:"{{.To}}",total:{{.Total}}},{{end}}]{{else}}[]{{end}};
+      var toolColors={'Bash':'#fbbf24','Read':'#22d3ee','Edit':'#818cf8','Grep':'#f472b6','Write':'#c084fc','Glob':'#2dd4bf','Agent':'#a78bfa'};
+      var tools={},total=0;
+      partners.forEach(function(p){
+        var parts=p.to.split('/');
+        var t=parts.length>1?parts[parts.length-1]:p.to;
+        if(!tools[t])tools[t]=0;
+        tools[t]+=p.total;total+=p.total;
+      });
+      var sorted=Object.keys(tools).sort(function(a,b){return tools[b]-tools[a]});
+      var bar=document.getElementById('tool-dist-bar');
+      var legend=document.getElementById('tool-dist-legend');
+      if(!bar||!total)return;
+      sorted.forEach(function(t){
+        var pct=(tools[t]/total*100).toFixed(0);
+        if(pct<1)return;
+        var seg=document.createElement('div');
+        seg.style.cssText='width:'+pct+'%;background:'+(toolColors[t]||'#71717a');
+        bar.appendChild(seg);
+        var l=document.createElement('span');
+        l.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+(toolColors[t]||'#71717a')+';vertical-align:middle;margin-right:3px"></span>'+t+' '+pct+'%';
+        legend.appendChild(l);
+      });
+    })();
+    </script>
   </div>
 </div>
 
-<!-- Configuration bar -->
-<div class="card" style="margin-bottom:16px;padding:14px 20px">
-  <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;font-size:0.78rem">
-    <div style="display:flex;align-items:center;gap:8px">
-      <span style="color:var(--text3)">Risk</span>
-      <span style="font-family:var(--mono);font-weight:700;font-size:0.88rem" class="{{if gt .RiskScore 60.0}}danger{{else if gt .RiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.0f" .RiskScore}}</span>
-      <div class="risk-bar" style="width:80px"><div class="risk-bar-fill {{if gt .RiskScore 60.0}}risk-high{{else if gt .RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .RiskScore}}%"></div></div>
-    </div>
-    {{if and .LLMEnabled (gt .AgentRisk.LLMAnalysisCount 0)}}
-    <div style="border-left:1px solid var(--border);padding-left:16px;display:flex;gap:12px;color:var(--text3);font-size:0.72rem">
-      <span>LLM avg <span style="font-family:var(--mono);font-weight:600;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</span></span>
-      <span>peak <span style="font-family:var(--mono);font-weight:600">{{printf "%.0f" .AgentRisk.LLMMaxRisk}}</span></span>
-      <span>analyses <span style="font-family:var(--mono)">{{.AgentRisk.LLMAnalysisCount}}</span></span>
-    </div>
-    {{end}}
-    {{if .Agent.Location}}<div style="border-left:1px solid var(--border);padding-left:16px;color:var(--text3)">Location: <code style="color:var(--text2);background:var(--bg3);padding:1px 5px;border-radius:3px;font-size:0.72rem">{{.Agent.Location}}</code></div>{{end}}
-    {{if .Agent.CreatedBy}}<div style="color:var(--text3)">Origin: <span style="color:var(--text2)">{{.Agent.CreatedBy}}</span></div>{{end}}
-  </div>
+<!-- Tabs -->
+<div class="ad-tabs">
+  <button class="ad-tab active" onclick="adTab('overview')">Overview</button>
+  <button class="ad-tab" onclick="adTab('config')">Configuration</button>
+  <button class="ad-tab" onclick="adTab('policies')">Tool Policies</button>
+  <button class="ad-tab" onclick="adTab('messages')">Recent Messages</button>
 </div>
+<script>
+function adTab(name){
+  document.querySelectorAll('.ad-tab').forEach(function(t){t.classList.remove('active')});
+  document.querySelectorAll('.ad-panel').forEach(function(p){p.classList.remove('active')});
+  event.target.classList.add('active');
+  document.getElementById('ad-'+name).classList.add('active');
+}
+</script>
 
-<div class="ad-grid">
-  <!-- Left column -->
-  <div style="display:flex;flex-direction:column;gap:16px">
-    {{if .TopRules}}
-    <div class="card">
-      <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Top Triggered Rules (24h)</div>
-      <table style="font-size:0.82rem">
-        <thead><tr><th>Rule</th><th>Severity</th><th style="text-align:right">Count</th></tr></thead>
-        <tbody>
-        {{range .TopRules}}
-        <tr class="clickable" hx-get="/dashboard/api/rule/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
-          <td><span style="font-weight:600">{{.Name}}</span><br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.RuleID}}</span></td>
-          <td>{{if eq .Severity "critical"}}<span class="badge-blocked">critical</span>{{else if eq .Severity "high"}}<span class="badge-blocked">high</span>{{else if eq .Severity "medium"}}<span class="badge-quarantined">medium</span>{{else}}<span class="badge-delivered">low</span>{{end}}</td>
-          <td style="text-align:right;font-family:var(--mono);font-weight:600">{{.Count}}</td>
-        </tr>
-        {{end}}
-        </tbody>
-      </table>
+<!-- Overview Tab -->
+<div id="ad-overview" class="ad-panel active">
+  <div class="ad-grid">
+    <!-- Top Triggered Rules -->
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Top triggered rules (24h) {{if .TopRules}}<a href="/dashboard/rules" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a>{{end}}</div>
+      {{if .TopRules}}
+      {{range .TopRules}}
+      <div class="ad-rule" style="padding-left:8px">
+        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f87171{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
+        <div style="flex:1;min-width:0;position:relative">
+          <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+            <span style="font-family:var(--mono);font-size:0.68rem;color:var(--text3)">{{.RuleID}}</span>
+            {{if eq .Severity "critical"}}<span class="sev-critical">critical</span>
+            {{else if eq .Severity "high"}}<span class="sev-high">high</span>
+            {{else if eq .Severity "medium"}}<span class="sev-medium">medium</span>
+            {{else}}<span class="sev-low">low</span>{{end}}
+          </div>
+        </div>
+        <span style="font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--text);flex-shrink:0">{{.Count}}</span>
+      </div>
+      {{end}}
+      {{else}}
+      <div class="empty" style="padding:20px 0">No rules triggered for this agent.</div>
+      {{end}}
     </div>
-    {{else}}
-    <div class="card">
-      <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Top Triggered Rules (24h)</div>
-      <div class="empty" style="padding:12px 0">No rules triggered for this agent.</div>
-    </div>
-    {{end}}
 
-    {{if .CommPartners}}
-    <div class="card">
-      <h2>Communication Partners (24h)</h2>
-      <table style="font-size:0.82rem">
-        <thead><tr><th>Partner</th><th style="text-align:right">Total</th><th style="text-align:right">Blocked</th><th style="text-align:right">Rate</th></tr></thead>
+    <!-- Communication Partners -->
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Communication partners (24h)</div>
+      {{if .CommPartners}}
+      <table style="font-size:0.78rem">
+        <thead><tr><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Partner</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Total</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Blocked</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Rate</th></tr></thead>
         <tbody>
         {{range .CommPartners}}
-        <tr class="clickable" onclick="window.location='/dashboard/graph?from={{.From}}&to={{.To}}'">
-          <td>{{agentCell .To}}</td>
+        <tr style="{{if eq .Total 0}}opacity:0.4{{end}}">
+          <td>{{toolDot .To}}</td>
           <td style="text-align:right;font-family:var(--mono)">{{.Total}}</td>
-          <td style="text-align:right;font-family:var(--mono)">{{.Blocked}}</td>
+          <td style="text-align:right;font-family:var(--mono);color:{{if .Blocked}}var(--danger){{else}}var(--success){{end}}">{{.Blocked}}</td>
           <td style="text-align:right;font-family:var(--mono)">{{if .Total}}{{printf "%.0f" (divf (mulf .Blocked 100) .Total)}}%{{else}}0%{{end}}</td>
         </tr>
         {{end}}
         </tbody>
       </table>
-    </div>
-    {{end}}
-
-    {{if and .LLMEnabled .LLMHistory}}
-    <div class="card">
-      <h2>LLM Threat Intelligence</h2>
-      {{if gt .AgentRisk.LLMThreatCount 0}}
-      <div style="display:flex;gap:16px;margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:0.82rem">
-        <div style="text-align:center;flex:1">
-          <div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else if gt .AgentRisk.LLMThreatCount 1}}var(--warn){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div>
-          <div style="font-size:0.65rem;color:var(--text3)">Threats</div>
-        </div>
-        <div style="text-align:center;flex:1">
-          <div style="font-size:1.1rem;font-weight:700;color:var(--danger)">{{.AgentRisk.LLMConfirmed}}</div>
-          <div style="font-size:0.65rem;color:var(--text3)">Confirmed</div>
-        </div>
-        <div style="text-align:center;flex:1">
-          <div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div>
-          <div style="font-size:0.65rem;color:var(--text3)">Avg Risk</div>
-        </div>
-        <div style="text-align:center;flex:1">
-          <div style="font-size:1.1rem;font-weight:700">{{printf "%.0f" .AgentRisk.LLMMaxRisk}}</div>
-          <div style="font-size:0.65rem;color:var(--text3)">Peak</div>
-        </div>
-      </div>
+      {{else}}
+      <div class="empty" style="padding:20px 0">No communication partners.</div>
       {{end}}
-      <table style="font-size:0.82rem">
-        <thead><tr><th>Time</th><th style="text-align:right">Risk</th><th>Action</th><th>Status</th></tr></thead>
-        <tbody>
-        {{range .LLMHistory}}
-        <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
-          <td data-ts="{{.Timestamp}}" style="font-size:0.75rem">{{.Timestamp}}</td>
-          <td style="text-align:right;font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
-          <td>{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
-          <td>{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-size:0.72rem;font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3);font-size:0.72rem">dismissed</span>{{else}}<span style="color:var(--warn);font-size:0.72rem">pending</span>{{end}}</td>
-        </tr>
-        {{end}}
-        </tbody>
-      </table>
-      <div style="margin-top:8px;text-align:right"><a href="/dashboard/llm" style="color:var(--accent);font-size:0.75rem">View all &rarr;</a></div>
     </div>
-    {{end}}
   </div>
 
-  <!-- Right column -->
-  <div style="display:flex;flex-direction:column;gap:16px">
-    <div class="card">
-      <h2>Configuration</h2>
-      <table style="font-size:0.82rem">
-        <tr><td style="color:var(--text3);white-space:nowrap;padding-right:16px">Can message</td><td>{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</td></tr>
-        <tr><td style="color:var(--text3);white-space:nowrap">Location</td><td>{{if .Agent.Location}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.75rem">{{.Agent.Location}}</code>{{else}}<span style="color:var(--text3)">unknown</span>{{end}}</td></tr>
-        {{if .Agent.CreatedBy}}<tr><td style="color:var(--text3);white-space:nowrap">Created by</td><td>{{.Agent.CreatedBy}}</td></tr>{{end}}
-        {{if .Agent.CreatedAt}}<tr><td style="color:var(--text3);white-space:nowrap">Created at</td><td data-ts="{{.Agent.CreatedAt}}" style="font-size:0.78rem">{{.Agent.CreatedAt}}</td></tr>{{end}}
-        {{if .Agent.Tags}}<tr><td style="color:var(--text3);white-space:nowrap">Tags</td><td>{{range $i, $tag := .Agent.Tags}}{{if $i}} {{end}}<span class="agent-tag">{{$tag}}</span>{{end}}</td></tr>{{end}}
-        {{if .Agent.BlockedContent}}<tr><td style="color:var(--text3);white-space:nowrap">Blocked content</td><td>{{range $i, $c := .Agent.BlockedContent}}{{if $i}}, {{end}}{{$c}}{{end}}</td></tr>{{end}}
-        {{if .Agent.AllowedTools}}<tr><td style="color:var(--text3);white-space:nowrap">Allowed tools</td><td>{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.75rem">{{$t}}</code>{{end}}</td></tr>{{end}}
-        {{if .Agent.ToolPolicies}}<tr><td style="color:var(--text3);white-space:nowrap">Tool policies</td><td>{{range $tool, $p := .Agent.ToolPolicies}}<span class="acl-target">{{$tool}}</span> {{end}}</td></tr>{{end}}
-        {{if .Agent.ToolConstraints}}<tr><td style="color:var(--text3);white-space:nowrap">Tool constraints</td><td>{{range .Agent.ToolConstraints}}<code style="background:rgba(244,63,94,0.15);color:var(--danger);padding:2px 6px;border-radius:4px;font-size:0.72rem;margin-right:4px">{{.Tool}}</code>{{end}}</td></tr>{{end}}
-        {{if .KeyFP}}<tr><td style="color:var(--text3);white-space:nowrap">Key fingerprint</td><td class="fp" style="font-size:0.72rem">{{.KeyFP}}</td></tr>{{end}}
-      </table>
-      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
-        <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm" onclick="return confirm('Generate new keypair for {{.Name}}? Existing key will be overwritten.')">Generate Keypair</button></form>
-        <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm" style="background:var(--success)">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm" style="background:var(--warn);color:#000">Suspend</button>{{end}}</form>
-        <button class="btn btn-sm btn-danger" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete Agent</button>
-      </div>
+  {{if and .LLMEnabled .LLMHistory}}
+  <div class="card" style="padding:18px 20px;margin-top:20px">
+    <div class="ad-slbl">LLM Threat Intelligence</div>
+    {{if gt .AgentRisk.LLMThreatCount 0}}
+    <div style="display:flex;gap:16px;margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:0.82rem">
+      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div><div style="font-size:0.65rem;color:var(--text3)">Threats</div></div>
+      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:var(--danger)">{{.AgentRisk.LLMConfirmed}}</div><div style="font-size:0.65rem;color:var(--text3)">Confirmed</div></div>
+      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div><div style="font-size:0.65rem;color:var(--text3)">Avg Risk</div></div>
     </div>
-
-    <div class="card">
-      <h2>Edit Metadata</h2>
-  <form method="POST" action="/dashboard/agents/{{.Name}}/edit">
-    <div class="form-row">
-      <div class="form-group">
-        <label>Description</label>
-        <input type="text" name="description" value="{{.Agent.Description}}">
-      </div>
-      <div class="form-group">
-        <label>Location</label>
-        <input type="text" name="location" value="{{.Agent.Location}}">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Can Message (space-separated)</label>
-        <input type="text" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}">
-      </div>
-      <div class="form-group">
-        <label>Tags (space-separated)</label>
-        <input type="text" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Blocked Content (space-separated categories)</label>
-        <input type="text" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}">
-      </div>
-      <div class="form-group">
-        <label>Allowed Tools (space-separated, empty = all)</label>
-        <input type="text" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-    </div>
-
-    <div class="card">
-      <h2>Tool Policies</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.
-  </p>
-  {{if .Agent.ToolPolicies}}
-  <table style="margin-bottom:16px">
-    <thead><tr><th>Tool</th><th>Max/call</th><th>Daily limit</th><th>Approval above</th><th>Rate limit</th></tr></thead>
-    <tbody>
-    {{range $tool, $p := .Agent.ToolPolicies}}
-    <tr>
-      <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{$tool}}</td>
-      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.MaxAmount}}{{printf "$%.0f" $p.MaxAmount}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.DailyLimit}}{{printf "$%.0f" $p.DailyLimit}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RequireApprovalAbove}}{{printf "$%.0f" $p.RequireApprovalAbove}} <span style="color:var(--warn);font-size:0.68rem">quarantine</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-      <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RateLimit}}{{$p.RateLimit}}/hr{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-    </tr>
     {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <div class="empty" style="margin-bottom:16px">No tool policies configured. Add policies below to enforce spending limits, rate limits, or approval thresholds on specific tools.</div>
+    <table style="font-size:0.82rem">
+      <thead><tr><th>Time</th><th style="text-align:right">Risk</th><th>Action</th><th>Status</th></tr></thead>
+      <tbody>
+      {{range .LLMHistory}}
+      <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
+        <td data-ts="{{.Timestamp}}" style="font-size:0.75rem">{{.Timestamp}}</td>
+        <td style="text-align:right;font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
+        <td>{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
+        <td>{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-size:0.72rem;font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3);font-size:0.72rem">dismissed</span>{{else}}<span style="color:var(--warn);font-size:0.72rem">pending</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    <div style="margin-top:8px;text-align:right"><a href="/dashboard/llm" style="color:var(--accent);font-size:0.75rem">View all &rarr;</a></div>
+  </div>
   {{end}}
+</div>
 
-  <form method="POST" action="/dashboard/agents/{{.Name}}/edit" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-    <input type="hidden" name="description" value="{{.Agent.Description}}">
-    <input type="hidden" name="location" value="{{.Agent.Location}}">
-    <input type="hidden" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}">
-    <input type="hidden" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}">
-    <input type="hidden" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}">
-    <input type="hidden" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}">
-    {{range $tool, $p := .Agent.ToolPolicies}}
-    <input type="hidden" name="tp_{{$tool}}_max_amount" value="{{printf "%.0f" $p.MaxAmount}}">
-    <input type="hidden" name="tp_{{$tool}}_daily_limit" value="{{printf "%.0f" $p.DailyLimit}}">
-    <input type="hidden" name="tp_{{$tool}}_require_approval" value="{{printf "%.0f" $p.RequireApprovalAbove}}">
-    <input type="hidden" name="tp_{{$tool}}_rate_limit" value="{{$p.RateLimit}}">
+<!-- Configuration Tab -->
+<div id="ad-config" class="ad-panel">
+  <div class="ad-grid">
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Identity</div>
+      <div class="ad-kv"><span class="k">Can message</span><span class="v">{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</span></div>
+      <div class="ad-kv"><span class="k">Location</span><span class="v">{{if .Agent.Location}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.72rem">{{.Agent.Location}}</code>{{else}}unknown{{end}}</span></div>
+      {{if .Agent.ToolConstraints}}<div class="ad-kv"><span class="k">Tool constraints</span><span class="v">{{range .Agent.ToolConstraints}}<code style="background:rgba(244,63,94,0.15);color:var(--danger);padding:2px 6px;border-radius:4px;font-size:0.72rem;margin-left:4px">{{.Tool}}</code>{{end}}</span></div>{{end}}
+      {{if .KeyFP}}<div class="ad-kv"><span class="k">Key fingerprint</span><span class="v fp" title="{{.KeyFP}}">{{truncate .KeyFP 32}}</span></div>{{end}}
+      {{if .Agent.CreatedBy}}<div class="ad-kv"><span class="k">Origin</span><span class="v" style="font-family:var(--sans)">{{.Agent.CreatedBy}}</span></div>{{end}}
+      {{if .Agent.CreatedAt}}<div class="ad-kv"><span class="k">Created</span><span class="v" data-ts="{{.Agent.CreatedAt}}">{{.Agent.CreatedAt}}</span></div>{{end}}
+    </div>
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Edit Metadata</div>
+      <form method="POST" action="/dashboard/agents/{{.Name}}/edit">
+        <div style="margin-bottom:12px"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);display:block;margin-bottom:4px">Description</label><input type="text" name="description" value="{{.Agent.Description}}" style="width:100%;box-sizing:border-box"></div>
+        <div style="margin-bottom:12px"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);display:block;margin-bottom:4px">Location</label><input type="text" name="location" value="{{.Agent.Location}}" style="width:100%;box-sizing:border-box"></div>
+        <div class="form-row">
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Can Message (space-separated)</label><input type="text" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}"></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Tags (space-separated)</label><input type="text" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Blocked Content (space-separated categories)</label><input type="text" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}"></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Allowed Tools (space-separated, empty = all)</label><input type="text" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}"></div>
+        </div>
+        <button type="submit" class="btn btn-sm" style="background:var(--success)">Save</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Tool Policies Tab -->
+<div id="ad-policies" class="ad-panel">
+  <div class="card" style="padding:18px 20px">
+    <div class="ad-slbl">Tool Policies</div>
+    <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.</p>
+    {{if .Agent.ToolPolicies}}
+    <table style="margin-bottom:16px">
+      <thead><tr><th>Tool</th><th>Max/call</th><th>Daily limit</th><th>Approval above</th><th>Rate limit</th></tr></thead>
+      <tbody>
+      {{range $tool, $p := .Agent.ToolPolicies}}
+      <tr>
+        <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{$tool}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.MaxAmount}}{{printf "$%.0f" $p.MaxAmount}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.DailyLimit}}{{printf "$%.0f" $p.DailyLimit}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RequireApprovalAbove}}{{printf "$%.0f" $p.RequireApprovalAbove}} <span style="color:var(--warn);font-size:0.68rem">quarantine</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RateLimit}}{{$p.RateLimit}}/hr{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div class="empty" style="margin-bottom:16px">No tool policies configured.<br><span style="font-size:0.75rem;color:var(--text3)">Add policies below to enforce spending limits, rate limits, or approval thresholds.</span></div>
     {{end}}
-    <input type="hidden" name="policy_tools" id="tp-policy-tools" value="{{range $tool, $p := .Agent.ToolPolicies}}{{$tool}} {{end}}">
-    <div style="font-size:0.78rem;font-weight:500;color:var(--text2);margin-bottom:10px">Add tool policy</div>
-    <div class="form-row" style="align-items:flex-end">
-      <div class="form-group" style="flex:1.5">
-        <label>Tool name</label>
-        <input type="text" id="tp-tool-name" placeholder="e.g. create_virtual_card" required>
-      </div>
-      <div class="form-group">
-        <label>Max/call ($)</label>
-        <input type="number" id="tp-max" min="0" step="1" placeholder="100">
-      </div>
-      <div class="form-group">
-        <label>Daily limit ($)</label>
-        <input type="number" id="tp-daily" min="0" step="1" placeholder="500">
-      </div>
-      <div class="form-group">
-        <label>Approval above ($)</label>
-        <input type="number" id="tp-approval" min="0" step="1" placeholder="50">
-      </div>
-      <div class="form-group" style="flex:0.7">
-        <label>Rate (/hr)</label>
-        <input type="number" id="tp-rate" min="0" step="1" placeholder="10">
-      </div>
-      <button type="submit" class="btn btn-sm" style="background:var(--success);margin-bottom:12px" onclick="return stagePolicy()">Save Policy</button>
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:8px">
+      <div class="ad-slbl">Add Tool Policy</div>
+      <form method="POST" action="/dashboard/agents/{{.Name}}/edit">
+        <input type="hidden" name="description" value="{{.Agent.Description}}">
+        <input type="hidden" name="location" value="{{.Agent.Location}}">
+        <input type="hidden" name="can_message" value="{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}{{$t}}{{end}}">
+        <input type="hidden" name="tags" value="{{range $i, $t := .Agent.Tags}}{{if $i}} {{end}}{{$t}}{{end}}">
+        <input type="hidden" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}">
+        <input type="hidden" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}">
+        {{range $tool, $p := .Agent.ToolPolicies}}
+        <input type="hidden" name="tp_{{$tool}}_max_amount" value="{{printf "%.0f" $p.MaxAmount}}">
+        <input type="hidden" name="tp_{{$tool}}_daily_limit" value="{{printf "%.0f" $p.DailyLimit}}">
+        <input type="hidden" name="tp_{{$tool}}_require_approval" value="{{printf "%.0f" $p.RequireApprovalAbove}}">
+        <input type="hidden" name="tp_{{$tool}}_rate_limit" value="{{$p.RateLimit}}">
+        {{end}}
+        <input type="hidden" name="policy_tools" id="tp-policy-tools" value="{{range $tool, $p := .Agent.ToolPolicies}}{{$tool}} {{end}}">
+        <div class="form-row" style="align-items:flex-end">
+          <div class="form-group" style="flex:1.5"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Tool name</label><input type="text" id="tp-tool-name" placeholder="e.g. create_" required></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Max/call ($)</label><input type="number" id="tp-max" min="0" step="1" placeholder="100"></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Daily limit ($)</label><input type="number" id="tp-daily" min="0" step="1" placeholder="500"></div>
+          <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Approval above ($)</label><input type="number" id="tp-approval" min="0" step="1" placeholder="50"></div>
+          <div class="form-group" style="flex:0.7"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Rate (/hr)</label><input type="number" id="tp-rate" min="0" step="1" placeholder="10"></div>
+          <button type="submit" class="btn btn-sm" style="background:var(--success);margin-bottom:12px" onclick="return stagePolicy()">Save Policy</button>
+        </div>
+      </form>
     </div>
-  </form>
-    </div>
-  </div><!-- /right column -->
-</div><!-- /2-col grid -->
-
+  </div>
+</div>
 <script>
 function stagePolicy() {
   var name = document.getElementById('tp-tool-name').value.trim();
@@ -1596,56 +1699,55 @@ function stagePolicy() {
 }
 </script>
 
-<div class="card">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-    <h2 style="margin:0">Recent Messages</h2>
-    {{if .Entries}}<a href="/dashboard/events?agent={{.Agent.Name}}" style="font-size:0.78rem;color:var(--accent-light)">View all in Event Log &rarr;</a>{{end}}
-  </div>
-  {{if .Entries}}
-  <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th></tr></thead>
-    <tbody>
-    {{range .Entries}}
-    <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-      <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-      <td>{{agentCell .FromAgent}}</td>
-      <td>{{agentCell .ToAgent}}</td>
-      <td>
-        {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
-        {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
-        {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
-        {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
-        {{else}}{{.Status}}{{end}}
-      </td>
-      <td style="text-align:right;color:var(--text3)">{{.LatencyMs}}ms</td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
-    <span id="ad-pager-info"></span>
-    <div style="display:flex;gap:4px">
-      <button id="ad-prev" onclick="adPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
-      <button id="ad-next" onclick="adPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+<!-- Recent Messages Tab -->
+<div id="ad-messages" class="ad-panel">
+  <div class="card" style="padding:18px 20px">
+    <div class="ad-slbl">Recent Messages {{if .Entries}}<a href="/dashboard/events?agent={{.Name}}" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all in Event Log &rarr;</a>{{end}}</div>
+    {{if .Entries}}
+    <table style="font-size:0.78rem">
+      <thead><tr><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Time</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">To</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Status</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Latency</th></tr></thead>
+      <tbody>
+      {{range .Entries}}
+      <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+        <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+        <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
+        <td>
+          {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
+          {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
+          {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
+          {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
+          {{else}}{{.Status}}{{end}}
+        </td>
+        <td style="text-align:right;font-family:var(--mono);color:var(--text3)">{{.LatencyMs}}ms</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
+      <span id="ad-pager-info"></span>
+      <div style="display:flex;gap:4px">
+        <button id="ad-prev" onclick="adPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
+        <button id="ad-next" onclick="adPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+      </div>
     </div>
+    <script>
+    var adCur=1,adSize=15;
+    function adRender(){
+      var rows=document.querySelectorAll('.ad-msg');
+      var total=rows.length;
+      var start=(adCur-1)*adSize,end=Math.min(start+adSize,total);
+      rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
+      document.getElementById('ad-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
+      document.getElementById('ad-prev').disabled=adCur<=1;
+      document.getElementById('ad-next').disabled=end>=total;
+    }
+    function adPage(d){adCur+=d;adRender();}
+    adRender();
+    </script>
+    {{else}}
+    <div class="empty">No messages for this agent yet.</div>
+    {{end}}
   </div>
-  <script>
-  var adCur=1,adSize=15;
-  function adRender(){
-    var rows=document.querySelectorAll('.ad-msg');
-    var total=rows.length;
-    var start=(adCur-1)*adSize,end=Math.min(start+adSize,total);
-    rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
-    document.getElementById('ad-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
-    document.getElementById('ad-prev').disabled=adCur<=1;
-    document.getElementById('ad-next').disabled=end>=total;
-  }
-  function adPage(d){adCur+=d;adRender();}
-  adRender();
-  </script>
-  {{else}}
-  <div class="empty">No messages for this agent yet.</div>
-  {{end}}
 </div>
 ` + layoutFoot))
 
@@ -4211,20 +4313,27 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     </div>
     <div style="width:340px;border-left:1px solid var(--border);background:var(--surface);flex-shrink:0;overflow-y:auto;font-size:0.8rem">
       <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
-        <h3 style="font-size:0.95rem;font-weight:700;margin-bottom:14px">Gateway Overview</h3>
-        <div id="gw-stats"></div>
+        <h3 style="font-size:0.95rem;font-weight:700;margin-bottom:14px">Overview</h3>
+        <div id="gw-stats">
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Agents</span><span id="gs-agents" style="font-weight:700;font-family:var(--mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Tools</span><span id="gs-tools" style="font-weight:700;font-family:var(--mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Messages scanned</span><span id="gs-messages" style="font-weight:700;font-family:var(--mono)">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Policy blocks</span><span id="gs-blocks" style="font-weight:700;font-family:var(--mono);color:#f87171">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Audit entries</span><span id="gs-audit" style="font-weight:700;font-family:var(--mono)">--</span></div>
+        </div>
       </div>
       <div style="padding:16px 20px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <span style="font-size:0.7rem;color:var(--text3);letter-spacing:0.05em;font-weight:600">EVENT LOG</span>
           <span id="gw-event-count" style="font-size:0.7rem;color:var(--text3)"></span>
         </div>
-        <div id="gw-events" style="font-size:0.75rem;font-family:var(--mono)" hx-get="/dashboard/api/graph/events" hx-trigger="load, every 4s" hx-swap="innerHTML"></div>
+        <div id="gw-events" style="font-size:0.75rem;font-family:var(--mono)"></div>
       </div>
     </div>
   </div>
 </div>
 
+<div id="graph-tables">
 <div class="grid-2" style="gap:20px">
   <div class="card">
     <h2>Node Threat Scores</h2>
@@ -4315,6 +4424,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
   {{end}}
 </div>
 {{end}}
+</div><!-- end graph-tables -->
 
 <script>
 (function() {
@@ -4635,30 +4745,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       svg.querySelectorAll('[data-edge]').forEach(function(el2){ el2.classList.remove('graph-dim','graph-bright'); });
     }
 
-    // ── Populate Gateway Overview stats ──
-    var totalScanned=0, totalBlocked=0, totalAgents=0, totalTools=(data.tool_nodes||[]).length;
-    (data.edges||[]).forEach(function(e){ totalScanned+=e.total; totalBlocked+=(e.blocked||0); });
-    nodes.forEach(function(n){ if(!n.isTool) totalAgents++; });
-    // Find degraded agents
-    var degraded=[];
-    nodes.forEach(function(n){ if(!n.isTool&&!n.isOrch&&n.threat>30){ degraded.push(n); }});
-    var statsEl=document.getElementById('gw-stats');
-    if(statsEl){
-      var sh='';
-      var statRows=[['Agents',totalAgents],['Tools',totalTools],['Messages scanned',totalScanned],['Policy blocks',totalBlocked,'#f87171'],['Audit entries',totalScanned]];
-      statRows.forEach(function(r){
-        sh+='<div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px">';
-        sh+='<span style="color:var(--text3)">'+r[0]+'</span><span style="font-weight:700;font-family:var(--mono);color:'+(r[2]||'var(--text)')+'">'+r[1].toLocaleString()+'</span></div>';
-      });
-      degraded.forEach(function(d){
-        sh+='<div style="padding:8px 10px;border:1px solid #fbbf24;border-radius:6px;margin-top:8px;background:rgba(251,191,36,0.06)">';
-        sh+='<div style="color:#fbbf24;font-weight:600;font-size:0.75rem">DEGRADED</div>';
-        sh+='<div style="color:var(--text3);font-size:0.72rem">'+d.name+' &middot; threat '+d.threat.toFixed(0)+'</div></div>';
-      });
-      statsEl.innerHTML=sh;
-    }
-    var ecEl=document.getElementById('gw-event-count');
-    if(ecEl) ecEl.textContent=totalScanned+' EVENTS';
+    // polling moved to separate script block below
 
     // Click background to unfocus
     svg.addEventListener('click',function(ev){ if(ev.target===svg) unfocus(); });
@@ -4756,7 +4843,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       label.setAttribute('font-size',n.isTool?'8.5':(n.isOrch?'12':'10.5'));
       label.setAttribute('font-weight',n.isOrch?'600':'500');
       label.setAttribute('font-family','ui-monospace,SFMono-Regular,SF Mono,Menlo,monospace');
-      var displayName=n.name.length>22?n.name.substring(0,20)+'\u2026':n.name;
+      var displayName=n.name==='gateway'?'oktsec':(n.name.length>22?n.name.substring(0,20)+'\u2026':n.name);
       label.textContent=displayName;
 
       // Orchestrator subtitle
@@ -4823,6 +4910,34 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     svg.appendChild(nodeLayer);
     el.appendChild(svg);
   }
+})();
+</script>
+<script>
+(function(){
+  var _prevEv='',_prevTb='';
+  function _nc(){return '_t='+Date.now();}
+  function pollGraph(){
+    fetch('/dashboard/api/graph/stats?'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+      var g=function(id){return document.getElementById(id)};
+      if(g('gs-agents'))g('gs-agents').textContent=d.agents;
+      if(g('gs-tools'))g('gs-tools').textContent=d.tools;
+      if(g('gs-messages'))g('gs-messages').textContent=d.messages.toLocaleString();
+      if(g('gs-blocks'))g('gs-blocks').textContent=d.blocks;
+      if(g('gs-audit'))g('gs-audit').textContent=d.messages.toLocaleString();
+      var ec=document.getElementById('gw-event-count');
+      if(ec)ec.textContent=d.messages.toLocaleString()+' EVENTS';
+    }).catch(function(){});
+    fetch('/dashboard/api/graph/events?'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.text()}).then(function(h){
+      var t=h.trim();
+      if(t!==_prevEv){_prevEv=t;var el=document.getElementById('gw-events');if(el){el.innerHTML=t;el.querySelectorAll('[data-ts]').forEach(function(e){var ts=e.getAttribute('data-ts');if(ts&&typeof _relTime==='function')e.textContent=_relTime(ts);});}}
+    }).catch(function(){});
+    fetch('/dashboard/api/graph/tables?range={{.Range}}&'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.text()}).then(function(h){
+      var t=h.trim();
+      if(t!==_prevTb){_prevTb=t;var el=document.getElementById('graph-tables');if(el)el.innerHTML=t;}
+    }).catch(function(){});
+  }
+  pollGraph();
+  setInterval(pollGraph,5000);
 })();
 </script>
 ` + layoutFoot))
