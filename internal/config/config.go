@@ -313,8 +313,18 @@ func Load(path string) (*Config, error) {
 			RequireSignature: true,
 		},
 		Quarantine: QuarantineConfig{
-			Enabled:     true,
-			ExpiryHours: 24,
+			Enabled:       true,
+			ExpiryHours:   24,
+			RetentionDays: 90,
+		},
+		RateLimit: RateLimitConfig{
+			PerAgent: 100,
+			WindowS:  60,
+		},
+		Anomaly: AnomalyConfig{
+			CheckIntervalS: 60,
+			RiskThreshold:  80,
+			MinMessages:    10,
 		},
 	}
 
@@ -322,9 +332,16 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	// Apply zero-value defaults after unmarshal
+	// Apply zero-value defaults after unmarshal.
+	// These ensure sensible behavior even when fields are omitted from YAML.
 	if cfg.Quarantine.ExpiryHours == 0 {
 		cfg.Quarantine.ExpiryHours = 24
+	}
+	if cfg.RateLimit.WindowS == 0 {
+		cfg.RateLimit.WindowS = 60
+	}
+	if cfg.Anomaly.CheckIntervalS == 0 {
+		cfg.Anomaly.CheckIntervalS = 60
 	}
 
 	// Default and resolve db_path to absolute
@@ -369,8 +386,18 @@ func Defaults() *Config {
 		},
 		Agents: make(map[string]Agent),
 		Quarantine: QuarantineConfig{
-			Enabled:     true,
-			ExpiryHours: 24,
+			Enabled:       true,
+			ExpiryHours:   24,
+			RetentionDays: 90,
+		},
+		RateLimit: RateLimitConfig{
+			PerAgent: 100,
+			WindowS:  60,
+		},
+		Anomaly: AnomalyConfig{
+			CheckIntervalS: 60,
+			RiskThreshold:  80,
+			MinMessages:    10,
 		},
 	}
 }

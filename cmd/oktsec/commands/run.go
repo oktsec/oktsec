@@ -176,6 +176,20 @@ func autoSetup(configPath string, opts runOpts) error {
 		},
 		"db_path": dbPath,
 		"agents":  agents,
+		"quarantine": map[string]any{
+			"enabled":        true,
+			"expiry_hours":   24,
+			"retention_days": 90,
+		},
+		"rate_limit": map[string]any{
+			"per_agent": 100,
+			"window":    60,
+		},
+		"anomaly": map[string]any{
+			"risk_threshold": 80,
+			"check_interval": 60,
+			"min_messages":   10,
+		},
 	}
 
 	data, err := yaml.Marshal(cfgMap)
@@ -257,6 +271,20 @@ func writeMinimalConfig(configPath string) error {
 		},
 		"db_path": dbPath,
 		"agents":  map[string]any{},
+		"quarantine": map[string]any{
+			"enabled":        true,
+			"expiry_hours":   24,
+			"retention_days": 90,
+		},
+		"rate_limit": map[string]any{
+			"per_agent": 100,
+			"window":    60,
+		},
+		"anomaly": map[string]any{
+			"risk_threshold": 80,
+			"check_interval": 60,
+			"min_messages":   10,
+		},
 	}
 
 	data, err := yaml.Marshal(cfgMap)

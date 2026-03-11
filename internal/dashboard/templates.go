@@ -2845,18 +2845,13 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
     Hold suspicious messages for human review before they reach the destination agent.
   </p>
-  <div style="display:flex;gap:24px;margin-bottom:16px">
-    <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Pending review</span>
-      <div style="font-size:1rem;font-weight:600;margin-top:4px;color:{{if .QPending}}var(--warn){{else}}var(--success){{end}}">{{.QPending}}</div>
-    </div>
-  </div>
   <form method="POST" action="/dashboard/settings/quarantine">
-    <div style="margin-bottom:20px">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
         <span style="font-size:0.85rem;color:var(--text2)">Enable quarantine</span>
       </label>
+      {{if .QPending}}<span style="font-family:var(--mono);font-size:0.82rem;color:var(--warn);font-weight:600">{{.QPending}} pending</span>{{end}}
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -2868,32 +2863,6 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         <input type="number" name="retention_days" value="{{.QRetentionDays}}" min="0">
       </div>
     </div>
-    <p style="color:var(--text3);font-size:0.75rem;line-height:1.5;margin-bottom:16px">
-      Messages auto-expire if not reviewed within the window. History controls how long old entries are kept (0 = forever).
-    </p>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2>Message Limits</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Prevent agents from flooding the system. Each agent gets a maximum number of messages per time window.
-  </p>
-  <form method="POST" action="/dashboard/settings/rate-limit">
-    <div class="form-row">
-      <div class="form-group">
-        <label>Max messages per agent</label>
-        <input type="number" name="per_agent" value="{{.RateLimitPerAgent}}" min="0">
-      </div>
-      <div class="form-group">
-        <label>Time window (seconds)</label>
-        <input type="number" name="window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}" min="1">
-      </div>
-    </div>
-    <p style="color:var(--text3);font-size:0.75rem;line-height:1.5;margin-bottom:16px">
-      Set max messages to 0 to disable. Recommended: 100 messages per 60 seconds.
-    </p>
     <button type="submit" class="btn btn-sm">Save</button>
   </form>
 </div>
@@ -2931,9 +2900,29 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 </div>
 
 <div class="card">
+  <h2>Message Limits</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Prevent agents from flooding the system. Each agent gets a maximum number of messages per time window.
+  </p>
+  <form method="POST" action="/dashboard/settings/rate-limit">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Max messages per agent</label>
+        <input type="number" name="per_agent" value="{{.RateLimitPerAgent}}" min="0">
+      </div>
+      <div class="form-group">
+        <label>Time window (seconds)</label>
+        <input type="number" name="window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}" min="1">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
+</div>
+
+<div class="card">
   <h2>Intent Checks</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Agents can declare what they're doing (e.g. "code review", "deploy"). oktsec checks that the message content matches the declared purpose.
+    Agents declare what they're doing (e.g. "code review", "deploy"). oktsec checks that the message content matches.
   </p>
   <form method="POST" action="/dashboard/settings/intent">
     <div style="margin-bottom:20px">
@@ -2941,12 +2930,9 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}}><span class="toggle-slider"></span></span>
         <span style="font-size:0.85rem;color:var(--text2)">Require intent on every message</span>
       </label>
-      <p style="color:var(--text3);font-size:0.75rem;margin-top:8px;line-height:1.5">
-        When off, intent is only checked if the agent provides one. When on, messages without intent are flagged.
-      </p>
     </div>
     <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
-      <strong>Available intents:</strong>
+      <strong>Available:</strong>
       <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text2)">code_review, deploy, data_query, monitoring, security, communication, file_ops, config</span>
     </div>
     <button type="submit" class="btn btn-sm">Save</button>
