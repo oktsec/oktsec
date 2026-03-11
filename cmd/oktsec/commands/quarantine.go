@@ -166,7 +166,7 @@ func newQuarantineRejectCmd() *cobra.Command {
 
 func openAuditStore() (*audit.Store, error) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	store, err := audit.NewStore("oktsec.db", logger)
+	store, err := audit.NewStore(defaultDBPath(), logger)
 	if err != nil {
 		return nil, fmt.Errorf("opening audit db: %w", err)
 	}

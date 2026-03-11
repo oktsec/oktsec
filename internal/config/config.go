@@ -358,7 +358,7 @@ func Defaults() *Config {
 			LogLevel: "info",
 		},
 		Identity: IdentityConfig{
-			KeysDir:          "./keys",
+			KeysDir:          DefaultKeysDir(),
 			RequireSignature: true,
 		},
 		Agents: make(map[string]Agent),
@@ -370,7 +370,13 @@ func Defaults() *Config {
 }
 
 // Save writes the config to a YAML file at the given path.
+// Creates a .bak backup of the existing file before overwriting.
 func (c *Config) Save(path string) error {
+	// Backup existing file (best-effort)
+	if existing, err := os.ReadFile(path); err == nil {
+		_ = os.WriteFile(path+".bak", existing, 0o600)
+	}
+
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)

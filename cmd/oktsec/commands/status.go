@@ -61,7 +61,7 @@ func newStatusCmd() *cobra.Command {
 
 			// Audit stats
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-			store, err := audit.NewStore("oktsec.db", logger)
+			store, err := audit.NewStore(defaultDBPath(), logger)
 			if err == nil {
 				defer func() { _ = store.Close() }()
 
