@@ -46,19 +46,33 @@ func requestID(next http.Handler) http.Handler {
 }
 
 // logging logs each request with slog.
+// Static assets, health checks, and SSE streams are logged at debug level
+// to keep the console clean during normal operation.
 func logging(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			sw := &statusWriter{ResponseWriter: w, status: 200}
 			next.ServeHTTP(sw, r)
-			logger.Info("request",
+
+			p := r.URL.Path
+			attrs := []any{
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", p,
 				"status", sw.status,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"request_id", w.Header().Get("X-Request-ID"),
-			)
+			}
+
+			// Demote noisy paths to debug: static assets, health, favicon, SSE
+			if strings.HasPrefix(p, "/dashboard/static/") ||
+				strings.HasPrefix(p, "/dashboard/api/graph") ||
+				p == "/health" || p == "/favicon.ico" ||
+				strings.HasSuffix(p, "/stream") {
+				logger.Debug("request", attrs...)
+			} else {
+				logger.Info("request", attrs...)
+			}
 		})
 	}
 }
