@@ -18,11 +18,13 @@ func NewRoot() *cobra.Command {
 			bind, _ := cmd.Flags().GetString("bind")
 			enforce, _ := cmd.Flags().GetBool("enforce")
 			skipWrap, _ := cmd.Flags().GetBool("skip-wrap")
+			noBrowser, _ := cmd.Flags().GetBool("no-browser")
 			return executeRun(runOpts{
-				port:     port,
-				bind:     bind,
-				enforce:  enforce,
-				skipWrap: skipWrap,
+				port:      port,
+				bind:      bind,
+				enforce:   enforce,
+				skipWrap:  skipWrap,
+				noBrowser: noBrowser,
 			})
 		},
 	}
@@ -42,6 +44,7 @@ func NewRoot() *cobra.Command {
 	root.Flags().String("bind", "", "address to bind (default: 127.0.0.1)")
 	root.Flags().Bool("enforce", false, "start in enforcement mode")
 	root.Flags().Bool("skip-wrap", false, "generate config only, don't modify MCP client configs")
+	root.Flags().Bool("no-browser", false, "don't open dashboard in browser")
 
 	// Primary command
 	root.AddCommand(newRunCmd())
@@ -73,6 +76,7 @@ func NewRoot() *cobra.Command {
 		newAuditCmd(),
 		newAgentCmd(),
 		newEnforceCmd(),
+		newEnvCmd(),
 		newConnectCmd(),
 		newDisconnectCmd(),
 		newScanOpenClawCmd(),

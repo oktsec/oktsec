@@ -58,7 +58,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 			}
 			logger.Warn("could not load keys, signatures will not be verified", "error", err)
 		} else {
-			logger.Info("loaded agent keys", "count", keys.Count(), "agents", keys.Names())
+			logger.Debug("loaded agent keys", "count", keys.Count(), "agents", keys.Names())
 		}
 	}
 
@@ -451,7 +451,7 @@ func (s *Server) checkAnomalies() {
 
 // Start begins listening. Blocks until the server is shut down.
 func (s *Server) Start() error {
-	s.logger.Info("oktsec proxy starting",
+	s.logger.Debug("oktsec proxy starting",
 		"addr", s.ln.Addr().String(),
 		"require_signature", s.cfg.Identity.RequireSignature,
 		"forward_proxy", s.cfg.ForwardProxy.Enabled,

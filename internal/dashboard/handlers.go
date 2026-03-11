@@ -80,7 +80,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// Success — clear rate limit and create session
 	s.auth.RecordSuccess(ip)
-	s.logger.Info("login success", "ip", ip)
+	s.logger.Debug("login success", "ip", ip)
 
 	token := s.auth.CreateSession()
 	http.SetCookie(w, &http.Cookie{

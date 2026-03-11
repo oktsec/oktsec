@@ -46,19 +46,29 @@ func requestID(next http.Handler) http.Handler {
 }
 
 // logging logs each request with slog.
+// Only API requests (/v1/*) and errors are logged at Info level.
+// Everything else (dashboard, health, metrics) is Debug.
 func logging(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 			sw := &statusWriter{ResponseWriter: w, status: 200}
 			next.ServeHTTP(sw, r)
-			logger.Info("request",
+
+			attrs := []any{
 				"method", r.Method,
 				"path", r.URL.Path,
 				"status", sw.status,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"request_id", w.Header().Get("X-Request-ID"),
-			)
+			}
+
+			// Log API traffic and errors at Info; everything else at Debug.
+			if strings.HasPrefix(r.URL.Path, "/v1/") || sw.status >= 500 {
+				logger.Info("request", attrs...)
+			} else {
+				logger.Debug("request", attrs...)
+			}
 		})
 	}
 }

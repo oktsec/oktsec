@@ -297,6 +297,12 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
 
+	// Apply config migrations for backward compatibility.
+	data, _, migrateErr := MigrateConfig(data)
+	if migrateErr != nil {
+		return nil, fmt.Errorf("migrating config: %w", migrateErr)
+	}
+
 	cfg := &Config{
 		Version: "1",
 		Server: ServerConfig{
