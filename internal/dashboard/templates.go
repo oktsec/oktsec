@@ -56,9 +56,10 @@ var tmplFuncs = template.FuncMap{
 	"upper": strings.ToUpper,
 	"pageTitle": func(active string) string {
 		titles := map[string]string{
-			"events": "Event Log",
-			"audit":  "Security Posture",
-			"llm":    "Threat Intel",
+			"events":    "Events",
+			"audit":     "Security Posture",
+			"llm":       "Threat Intel",
+			"discovery": "Discovery",
 		}
 		if t, ok := titles[active]; ok {
 			return strings.ToUpper(t)
@@ -713,18 +714,18 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
 <aside class="sidebar">
   <a href="/dashboard" class="brand">oktsec</a>
   <div class="sidebar-section">
-    <div class="sidebar-section-label">Main</div>
+    <div class="sidebar-section-label">Monitor</div>
     <a href="/dashboard" class="sidebar-item {{if eq .Active "overview"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
       Overview
     </a>
     <a href="/dashboard/events" class="sidebar-item {{if eq .Active "events"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-      Event Log
+      Events
     </a>
-    <a href="/dashboard/graph" class="sidebar-item {{if eq .Active "graph"}}active{{end}}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-      Graph
+    <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      Alerts
     </a>
   </div>
   <div class="sidebar-section">
@@ -741,17 +742,20 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
       Security Posture
     </a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Analyze</div>
     <a href="/dashboard/llm" class="sidebar-item {{if eq .Active "llm"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><circle cx="12" cy="6" r="1"/><path d="M9 22v-2"/><path d="M15 22v-2"/></svg>
       Threat Intel
     </a>
-    <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-      Alerts
+    <a href="/dashboard/graph" class="sidebar-item {{if eq .Active "graph"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+      Graph
     </a>
   </div>
   <div class="sidebar-section">
-    <div class="sidebar-section-label">Management</div>
+    <div class="sidebar-section-label">Configure</div>
     <a href="/dashboard/gateway" class="sidebar-item {{if eq .Active "gateway"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
       Gateway
@@ -3138,75 +3142,66 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 @media(max-width:768px){.llm-hero{grid-template-columns:repeat(2,1fr)}.llm-grid{grid-template-columns:1fr}}
 </style>
 
-<p class="page-desc">Async semantic analysis of agent communications. Never blocks the proxy pipeline.</p>
+<p class="page-desc">AI analysis catches threats that rules alone can't see. Runs async, never slows the pipeline.</p>
 
 {{if not .Enabled}}
 <!-- Setup state -->
-<div class="llm-grid">
-  <div class="card" style="grid-column:1/-1">
-    <div style="display:flex;gap:32px;align-items:flex-start">
-      <div style="flex:1">
-        <h2 style="font-size:1rem;margin-bottom:8px">Enable LLM-Augmented Detection</h2>
-        <p style="color:var(--text2);font-size:0.82rem;line-height:1.6;margin-bottom:20px">
-          175 deterministic rules catch known threats at sub-millisecond speed. The LLM layer catches what regex cannot - semantic exfiltration, intent drift, social engineering between agents - then generates new deterministic rules from its findings.
-        </p>
-        <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--bg2);border-radius:8px;margin-bottom:24px;flex-wrap:wrap">
-          <div class="fw-step"><span class="num">1</span> LLM analyzes message</div>
-          <span class="fw-arrow">&#9654;</span>
-          <div class="fw-step"><span class="num">2</span> Detects novel threat</div>
-          <span class="fw-arrow">&#9654;</span>
-          <div class="fw-step"><span class="num">3</span> Generates YAML rule</div>
-          <span class="fw-arrow">&#9654;</span>
-          <div class="fw-step"><span class="num">4</span> <span style="color:var(--success);font-weight:600">Caught at &lt;1ms forever</span></div>
-        </div>
+<div class="card" style="max-width:720px">
+  <h2 style="font-size:1rem;margin-bottom:12px">Enable AI-Powered Detection</h2>
+  <p style="color:var(--text2);font-size:0.82rem;line-height:1.6;margin-bottom:8px">
+    oktsec's 188 rules catch known threats instantly. Add an AI layer to detect what patterns miss:
+  </p>
+  <ul style="color:var(--text2);font-size:0.82rem;line-height:1.8;margin:0 0 20px 18px;padding:0">
+    <li>Semantic data exfiltration disguised as normal messages</li>
+    <li>Social engineering between agents</li>
+    <li>Intent drift (agent doing something it shouldn't)</li>
+    <li>Auto-generates new detection rules from findings</li>
+  </ul>
 
-        <form method="POST" action="/dashboard/settings/llm">
-          <input type="hidden" name="enabled" value="true">
+  <form method="POST" action="/dashboard/settings/llm">
+    <input type="hidden" name="enabled" value="true">
 
-          <label style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;display:block;margin-bottom:10px">Provider</label>
-          <div style="display:flex;gap:10px;margin-bottom:20px">
-            <label class="prov-opt sel" onclick="selectProvider('openai',this)">
-              <input type="radio" name="provider" value="openai" checked style="position:absolute;opacity:0">
-              <div class="pname">OpenAI-Compatible</div>
-              <div class="pdesc">OpenAI, Ollama, vLLM, Groq, Azure, LM Studio, Mistral</div>
-            </label>
-            <label class="prov-opt" onclick="selectProvider('claude',this)">
-              <input type="radio" name="provider" value="claude" style="position:absolute;opacity:0">
-              <div class="pname">Claude</div>
-              <div class="pdesc">Anthropic Messages API</div>
-            </label>
-            <label class="prov-opt" onclick="selectProvider('webhook',this)">
-              <input type="radio" name="provider" value="webhook" style="position:absolute;opacity:0">
-              <div class="pname">Webhook</div>
-              <div class="pdesc">Custom HTTP endpoint</div>
-            </label>
-          </div>
+    <label style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;display:block;margin-bottom:10px">Provider</label>
+    <div style="display:flex;gap:10px;margin-bottom:20px">
+      <label class="prov-opt sel" onclick="selectProvider('openai',this)">
+        <input type="radio" name="provider" value="openai" checked style="position:absolute;opacity:0">
+        <div class="pname">OpenAI-Compatible</div>
+        <div class="pdesc">OpenAI, Ollama, vLLM, Groq, Azure, LM Studio</div>
+      </label>
+      <label class="prov-opt" onclick="selectProvider('claude',this)">
+        <input type="radio" name="provider" value="claude" style="position:absolute;opacity:0">
+        <div class="pname">Claude</div>
+        <div class="pdesc">Anthropic API</div>
+      </label>
+      <label class="prov-opt" onclick="selectProvider('webhook',this)">
+        <input type="radio" name="provider" value="webhook" style="position:absolute;opacity:0">
+        <div class="pname">Webhook</div>
+        <div class="pdesc">Custom endpoint</div>
+      </label>
+    </div>
 
-          <div class="form-row" style="margin-bottom:12px" id="llm-fields-row">
-            <div class="form-group" style="flex:1" id="llm-model-group">
-              <label id="llm-model-label">Model</label>
-              <input type="text" name="model" id="llm-model" placeholder="gpt-4o">
-            </div>
-            <div class="form-group" style="flex:1" id="llm-key-group">
-              <label id="llm-key-label">API Key Environment Variable</label>
-              <input type="text" name="api_key_env" id="llm-key" placeholder="OPENAI_API_KEY">
-            </div>
-          </div>
-          <div class="form-row" style="margin-bottom:20px">
-            <div class="form-group" style="flex:1">
-              <label id="llm-url-label">Base URL <span style="color:var(--text3);font-size:0.72rem">(leave empty for provider defaults)</span></label>
-              <input type="text" name="base_url" id="llm-url" placeholder="http://localhost:11434/v1">
-            </div>
-          </div>
-          <script>
-          var provCfg={openai:{model:'gpt-4o, qwen3.5:latest, llama3',modelLabel:'Model',key:'Optional for local models (Ollama, LM Studio)',keyLabel:'API Key Env Variable <span style="color:var(--text3);font-size:0.72rem">(optional for local)</span>',url:'http://localhost:11434/v1',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(required for non-OpenAI)</span>',showModel:true,showKey:true},claude:{model:'claude-sonnet-4-6',modelLabel:'Model',key:'ANTHROPIC_API_KEY',keyLabel:'API Key Env Variable',url:'https://api.anthropic.com',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span>',showModel:true,showKey:true},webhook:{model:'',modelLabel:'',key:'',keyLabel:'',url:'https://your-endpoint.example.com/analyze',urlLabel:'Webhook URL',showModel:false,showKey:false}};
-          function selectProvider(p,el){el.parentNode.querySelectorAll('.prov-opt').forEach(function(c){c.classList.remove('sel')});el.classList.add('sel');var c=provCfg[p];document.getElementById('llm-model').placeholder=c.model;document.getElementById('llm-key').placeholder=c.key;document.getElementById('llm-key-label').innerHTML=c.keyLabel;document.getElementById('llm-url').placeholder=c.url;document.getElementById('llm-url-label').innerHTML=c.urlLabel;document.getElementById('llm-model-group').style.display=c.showModel?'':'none';document.getElementById('llm-key-group').style.display=c.showKey?'':'none';if(!c.showModel)document.getElementById('llm-model').value='';if(!c.showKey)document.getElementById('llm-key').value=''}
-          </script>
-          <button type="submit" class="btn">Enable LLM Analysis</button>
-        </form>
+    <div class="form-row" style="margin-bottom:12px" id="llm-fields-row">
+      <div class="form-group" style="flex:1" id="llm-model-group">
+        <label id="llm-model-label">Model</label>
+        <input type="text" name="model" id="llm-model" placeholder="gpt-4o">
+      </div>
+      <div class="form-group" style="flex:1" id="llm-key-group">
+        <label id="llm-key-label">API key env variable</label>
+        <input type="text" name="api_key_env" id="llm-key" placeholder="OPENAI_API_KEY">
       </div>
     </div>
-  </div>
+    <div class="form-row" style="margin-bottom:20px">
+      <div class="form-group" style="flex:1">
+        <label id="llm-url-label">Base URL <span style="color:var(--text3);font-size:0.72rem">(leave empty for provider defaults)</span></label>
+        <input type="text" name="base_url" id="llm-url" placeholder="http://localhost:11434/v1">
+      </div>
+    </div>
+    <script>
+    var provCfg={openai:{model:'gpt-4o, qwen3.5:latest, llama3',modelLabel:'Model',key:'Optional for local models (Ollama, LM Studio)',keyLabel:'API key env variable <span style="color:var(--text3);font-size:0.72rem">(optional for local)</span>',url:'http://localhost:11434/v1',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(required for non-OpenAI)</span>',showModel:true,showKey:true},claude:{model:'claude-sonnet-4-6',modelLabel:'Model',key:'ANTHROPIC_API_KEY',keyLabel:'API key env variable',url:'https://api.anthropic.com',urlLabel:'Base URL <span style="color:var(--text3);font-size:0.72rem">(optional)</span>',showModel:true,showKey:true},webhook:{model:'',modelLabel:'',key:'',keyLabel:'',url:'https://your-endpoint.example.com/analyze',urlLabel:'Webhook URL',showModel:false,showKey:false}};
+    function selectProvider(p,el){el.parentNode.querySelectorAll('.prov-opt').forEach(function(c){c.classList.remove('sel')});el.classList.add('sel');var c=provCfg[p];document.getElementById('llm-model').placeholder=c.model;document.getElementById('llm-key').placeholder=c.key;document.getElementById('llm-key-label').innerHTML=c.keyLabel;document.getElementById('llm-url').placeholder=c.url;document.getElementById('llm-url-label').innerHTML=c.urlLabel;document.getElementById('llm-model-group').style.display=c.showModel?'':'none';document.getElementById('llm-key-group').style.display=c.showKey?'':'none';if(!c.showModel)document.getElementById('llm-model').value='';if(!c.showKey)document.getElementById('llm-key').value=''}
+    </script>
+    <button type="submit" class="btn">Enable AI Analysis</button>
+  </form>
 </div>
 
 {{else}}

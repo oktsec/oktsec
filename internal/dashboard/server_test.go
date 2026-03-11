@@ -163,7 +163,7 @@ func TestServer_DashboardPages(t *testing.T) {
 		contains string
 	}{
 		{"/dashboard", "Overview"},
-		{"/dashboard/events", "EVENT LOG"},
+		{"/dashboard/events", "EVENTS"},
 		{"/dashboard/agents", "Agents"},
 		{"/dashboard/graph", "Graph"},
 		{"/dashboard/rules", "Rules"},
