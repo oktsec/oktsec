@@ -175,6 +175,17 @@ func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store,
 		return nil, fmt.Errorf("setting WAL mode: %w", err)
 	}
 
+	// Performance PRAGMAs: WAL + NORMAL is safe (only loses data on OS crash, not app crash)
+	for _, pragma := range []string{
+		"PRAGMA synchronous = NORMAL",
+		"PRAGMA cache_size = -64000",
+		"PRAGMA temp_store = MEMORY",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			logger.Warn("PRAGMA failed", "pragma", pragma, "error", err)
+		}
+	}
+
 	// Set busy timeout so concurrent writers wait instead of returning SQLITE_BUSY
 	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
 		if cerr := db.Close(); cerr != nil {
@@ -203,7 +214,7 @@ func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store,
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Store{
 		db:            db,
-		writes:        make(chan Entry, 256),
+		writes:        make(chan Entry, 4096),
 		done:          make(chan struct{}),
 		logger:        logger,
 		Hub:           newHub(),
@@ -317,12 +328,9 @@ func (s *Store) loadLastHash() {
 }
 
 // Log enqueues an audit entry for async writing.
+// Blocks if the buffer is full — audit entries must never be dropped.
 func (s *Store) Log(entry Entry) {
-	select {
-	case s.writes <- entry:
-	default:
-		s.logger.Warn("audit write buffer full, dropping entry", "id", entry.ID)
-	}
+	s.writes <- entry
 }
 
 // Query returns audit entries matching the given filters.
@@ -574,30 +582,86 @@ func (s *Store) Close() error {
 
 func (s *Store) writeLoop() {
 	defer close(s.done)
+
+	const maxBatch = 100
+	batch := make([]Entry, 0, maxBatch)
+
 	for entry := range s.writes {
 		s.inflight.Add(1)
-		// Compute hash chain
-		s.lastHashMu.Lock()
-		entry.PrevHash = s.lastHash
-		entry.EntryHash = ComputeEntryHash(entry.PrevHash, entry.ID, entry.Timestamp, entry.FromAgent, entry.ToAgent, entry.ContentHash, entry.Status)
-		if s.proxyKey != nil {
-			entry.ProxySignature = SignEntryHash(s.proxyKey, entry.EntryHash)
+		batch = append(batch[:0], entry)
+
+		// Drain up to maxBatch-1 more entries non-blocking
+		for len(batch) < maxBatch {
+			select {
+			case e, ok := <-s.writes:
+				if !ok {
+					goto flush
+				}
+				s.inflight.Add(1)
+				batch = append(batch, e)
+			default:
+				goto flush
+			}
 		}
-		s.lastHash = entry.EntryHash
+
+	flush:
+		// Compute hash chain for the whole batch
+		s.lastHashMu.Lock()
+		for i := range batch {
+			batch[i].PrevHash = s.lastHash
+			batch[i].EntryHash = ComputeEntryHash(batch[i].PrevHash, batch[i].ID, batch[i].Timestamp, batch[i].FromAgent, batch[i].ToAgent, batch[i].ContentHash, batch[i].Status)
+			if s.proxyKey != nil {
+				batch[i].ProxySignature = SignEntryHash(s.proxyKey, batch[i].EntryHash)
+			}
+			s.lastHash = batch[i].EntryHash
+		}
 		s.lastHashMu.Unlock()
 
-		_, err := s.db.Exec(
-			`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			entry.ID, entry.Timestamp, entry.FromAgent, entry.ToAgent, entry.ContentHash,
-			entry.SignatureVerified, entry.PubkeyFingerprint, entry.Status, entry.RulesTriggered,
-			entry.PolicyDecision, entry.LatencyMs, entry.Intent, entry.SessionID, entry.PrevHash, entry.EntryHash, entry.ProxySignature,
-		)
+		// Write the batch in a single transaction
+		tx, err := s.db.Begin()
 		if err != nil {
-			s.logger.Error("audit write failed", "id", entry.ID, "error", err)
-		} else {
-			s.Hub.broadcast(entry)
+			s.logger.Error("audit batch tx begin failed", "error", err)
+			s.inflight.Add(-int64(len(batch)))
+			continue
 		}
-		s.inflight.Add(-1)
+
+		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		if err != nil {
+			s.logger.Error("audit batch prepare failed", "error", err)
+			_ = tx.Rollback()
+			s.inflight.Add(-int64(len(batch)))
+			continue
+		}
+
+		txOK := true
+		for i := range batch {
+			_, err := stmt.Exec(
+				batch[i].ID, batch[i].Timestamp, batch[i].FromAgent, batch[i].ToAgent, batch[i].ContentHash,
+				batch[i].SignatureVerified, batch[i].PubkeyFingerprint, batch[i].Status, batch[i].RulesTriggered,
+				batch[i].PolicyDecision, batch[i].LatencyMs, batch[i].Intent, batch[i].SessionID,
+				batch[i].PrevHash, batch[i].EntryHash, batch[i].ProxySignature,
+			)
+			if err != nil {
+				s.logger.Error("audit write failed", "id", batch[i].ID, "error", err)
+				txOK = false
+				break
+			}
+		}
+		_ = stmt.Close()
+
+		if txOK {
+			if err := tx.Commit(); err != nil {
+				s.logger.Error("audit batch commit failed", "error", err)
+			} else {
+				for i := range batch {
+					s.Hub.broadcast(batch[i])
+				}
+			}
+		} else {
+			_ = tx.Rollback()
+		}
+
+		s.inflight.Add(-int64(len(batch)))
 	}
 }
 

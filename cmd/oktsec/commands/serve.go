@@ -57,6 +57,7 @@ func newServeCmd() *cobra.Command {
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 			dashboard.Version = version
+			proxy.Version = version
 			srv, err := proxy.NewServer(cfg, cfgFile, logger)
 			if err != nil {
 				return err

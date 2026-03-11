@@ -25,6 +25,9 @@ import (
 	"github.com/oktsec/oktsec/internal/policy"
 )
 
+// Version is set from the CLI at startup (via ldflags).
+var Version = "dev"
+
 // Server is the oktsec HTTP proxy server.
 type Server struct {
 	cfg           *config.Config
@@ -190,17 +193,14 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	// Agent CRUD API
 	agentAPI := NewAgentAPI(cfg, cfgPath, keys, auditStore, logger)
 
-	// Routes
-	mux := http.NewServeMux()
-	mux.Handle("POST /v1/message", handler)
-	agentAPI.Register(mux)
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{
-			"status":  "ok",
-			"version": "0.1.0",
-		})
-	})
-	mux.HandleFunc("GET /v1/quarantine/{id}", func(w http.ResponseWriter, r *http.Request) {
+	// API key auth middleware (no-op when api_key is empty)
+	apiAuth := requireAPIKey(cfg.Server.APIKey)
+
+	// Protected API mux: all /v1/* routes and /metrics require the API key.
+	apiMux := http.NewServeMux()
+	apiMux.Handle("POST /v1/message", handler)
+	agentAPI.Register(apiMux)
+	apiMux.HandleFunc("GET /v1/quarantine/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		item, err := auditStore.QuarantineByID(id)
 		if err != nil {
@@ -215,7 +215,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		writeJSON(w, http.StatusOK, item)
 	})
 	// Audit chain verification endpoint
-	mux.HandleFunc("GET /v1/audit/verify", func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("GET /v1/audit/verify", func(w http.ResponseWriter, r *http.Request) {
 		entries, qErr := auditStore.QueryChainEntries(10000)
 		if qErr != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to query chain"})
@@ -232,7 +232,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	})
 
 	// Audit export with redaction levels
-	mux.HandleFunc("GET /v1/audit/export", func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("GET /v1/audit/export", func(w http.ResponseWriter, r *http.Request) {
 		level := audit.RedactionLevel(r.URL.Query().Get("redaction"))
 		if level == "" {
 			level = audit.RedactNone
@@ -247,17 +247,32 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	})
 
 	// Prometheus metrics endpoint
-	mux.Handle("GET /metrics", promhttp.Handler())
+	apiMux.Handle("GET /metrics", promhttp.Handler())
 
-	// Root splash page
+	// Top-level mux: unprotected routes + protected API behind auth middleware.
+	mux := http.NewServeMux()
+
+	// Health check -- always unauthenticated.
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "ok",
+			"version": Version,
+		})
+	})
+
+	// Root splash page -- unauthenticated.
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = dashboard.SplashTmpl.Execute(w, nil)
 	})
 
-	// Mount dashboard (auth middleware applied internally)
+	// Mount dashboard (has its own auth middleware internally).
 	mux.Handle("/dashboard/", dash.Handler())
 	mux.Handle("/dashboard", dash.Handler())
+
+	// Mount protected routes under API key middleware.
+	// Catch-all pattern "/" ensures /v1/* and /metrics are forwarded to apiMux.
+	mux.Handle("/", apiAuth(apiMux))
 
 	// Apply middleware to the mux (API + dashboard)
 	var h http.Handler = mux

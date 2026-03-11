@@ -128,7 +128,8 @@ type ServerConfig struct {
 	Port          int    `yaml:"port"`
 	Bind          string `yaml:"bind"`           // Address to bind (default: 127.0.0.1)
 	LogLevel      string `yaml:"log_level"`
-	RequireIntent bool   `yaml:"require_intent"` // Require agents to declare intent in messages
+	RequireIntent bool   `yaml:"require_intent"`                        // Require agents to declare intent in messages
+	APIKey        string `yaml:"api_key,omitempty" json:"api_key,omitempty"` // API key for /v1/* and /metrics endpoints (empty = no auth)
 }
 
 // IdentityConfig configures agent identity verification.
@@ -374,7 +375,7 @@ func (c *Config) Save(path string) error {
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("writing config: %w", err)
 	}
 	return nil
