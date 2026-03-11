@@ -1322,7 +1322,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   <!-- Left column -->
   <div style="display:flex;flex-direction:column;gap:16px">
     {{if .TopRules}}
-    <div class="card" style="margin-bottom:0">
+    <div class="card">
       <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Top Triggered Rules (24h)</div>
       <table style="font-size:0.82rem">
         <thead><tr><th>Rule</th><th>Severity</th><th style="text-align:right">Count</th></tr></thead>
@@ -1338,14 +1338,14 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       </table>
     </div>
     {{else}}
-    <div class="card" style="margin-bottom:0">
+    <div class="card">
       <div class="label" style="font-size:0.75rem;color:var(--text2);margin-bottom:6px">Top Triggered Rules (24h)</div>
       <div class="empty" style="padding:12px 0">No rules triggered for this agent.</div>
     </div>
     {{end}}
 
     {{if .CommPartners}}
-    <div class="card" style="margin-bottom:0">
+    <div class="card">
       <h2>Communication Partners (24h)</h2>
       <table style="font-size:0.82rem">
         <thead><tr><th>Partner</th><th style="text-align:right">Total</th><th style="text-align:right">Blocked</th><th style="text-align:right">Rate</th></tr></thead>
@@ -1364,7 +1364,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     {{end}}
 
     {{if and .LLMEnabled .LLMHistory}}
-    <div class="card" style="margin-bottom:0">
+    <div class="card">
       <h2>LLM Threat Intelligence</h2>
       {{if gt .AgentRisk.LLMThreatCount 0}}
       <div style="display:flex;gap:16px;margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:0.82rem">
@@ -1406,7 +1406,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
 
   <!-- Right column -->
   <div style="display:flex;flex-direction:column;gap:16px">
-    <div class="card" style="margin-bottom:0">
+    <div class="card">
       <h2>Configuration</h2>
       <table style="font-size:0.82rem">
         <tr><td style="color:var(--text3);white-space:nowrap;padding-right:16px">Can message</td><td>{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</td></tr>
@@ -1427,7 +1427,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       </div>
     </div>
 
-    <div class="card" style="margin-bottom:0">
+    <div class="card">
       <h2>Edit Metadata</h2>
   <form method="POST" action="/dashboard/agents/{{.Name}}/edit">
     <div class="form-row">
@@ -1464,7 +1464,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   </form>
     </div>
 
-    <div class="card" style="margin-bottom:0">
+    <div class="card">
       <h2>Tool Policies</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
     Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.
@@ -2697,7 +2697,13 @@ var ruleToggleTmpl = template.Must(template.New("rule-toggle").Parse(`<span id="
 // --- Settings page ---
 
 var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Security mode, agent identity, pipeline behavior, and infrastructure configuration.</p>
+<style>
+.st-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.st-grid .card{margin-bottom:0}
+.st-span{grid-column:1 / -1}
+@media(max-width:960px){.st-grid{grid-template-columns:1fr}.st-span{grid-column:auto}}
+</style>
+<p class="page-desc">How oktsec protects your agents, verifies their identity, and handles threats.</p>
 
 <div class="tabs" data-tab-group="settings">
   <a href="/dashboard/settings?tab=security" class="tab {{if eq .Tab "security"}}active{{end}}">Security</a>
@@ -2712,7 +2718,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 <div class="card">
   <h2>Security Mode</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Controls how oktsec handles message signatures. This is the most important setting — it determines whether agents can communicate without proving their identity.
+    The most important setting. Determines whether agents must prove their identity before sending messages.
   </p>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if .RequireSig}}var(--accent){{else}}var(--border){{end}};background:{{if .RequireSig}}rgba(99,102,241,0.06){{else}}var(--surface){{end}}">
@@ -2720,7 +2726,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         {{if .RequireSig}}&#x2713; {{end}}Enforce Mode
       </div>
       <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-        Every message must include a valid Ed25519 signature. Unsigned or tampered messages are <strong style="color:var(--danger)">rejected</strong>. Use this in production.
+        Every message must be signed. Unsigned or tampered messages are <strong style="color:var(--danger)">rejected</strong>. Recommended for production.
       </p>
     </div>
     <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if not .RequireSig}}var(--warn){{else}}var(--border){{end}};background:{{if not .RequireSig}}rgba(251,191,36,0.06){{else}}var(--surface){{end}}">
@@ -2728,7 +2734,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         {{if not .RequireSig}}&#x2713; {{end}}Observe Mode
       </div>
       <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-        Messages are scanned for threats but signatures are <strong style="color:var(--warn)">not required</strong>. Useful for onboarding agents gradually.
+        Messages are scanned but signatures are <strong style="color:var(--warn)">not required</strong>. Good for getting started and onboarding agents.
       </p>
     </div>
   </div>
@@ -2742,7 +2748,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 <div class="card">
   <h2>Default Policy</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Controls the baseline access control for agent-to-agent communication. When set to <strong>deny</strong>, agents can only message targets listed in their <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">can_message</code> list.
+    Who can talk to whom. When set to <strong>deny</strong>, agents can only message targets you've explicitly allowed.
   </p>
   <div style="display:flex;gap:16px;margin-bottom:16px">
     <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if eq .DefaultPolicy "deny"}}var(--accent){{else}}var(--border){{end}};background:{{if eq .DefaultPolicy "deny"}}rgba(99,102,241,0.06){{else}}var(--surface){{end}}">
@@ -2776,9 +2782,9 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 <div class="tab-content {{if eq .Tab "identity"}}active{{end}}" data-tab-content="settings" data-tab-name="identity">
 
 <div class="card">
-  <h2>Agent Identity &amp; Keys</h2>
+  <h2>Agent Keys</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Each agent has an Ed25519 keypair. The public key is stored here; the agent holds the private key. Keys are used to sign and verify messages between agents.
+    Each agent has a signing key to prove its identity. Public keys are stored here; agents hold their private keys. Revoke a key to immediately block an agent.
   </p>
   <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
     <strong>Keys directory:</strong> <code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">{{.KeysDir}}</code>
@@ -2832,14 +2838,16 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 <!-- Pipeline -->
 <div class="tab-content {{if eq .Tab "pipeline"}}active{{end}}" data-tab-content="settings" data-tab-name="pipeline">
 
+<div class="st-grid">
+
 <div class="card">
-  <h2>Quarantine Queue</h2>
+  <h2>Quarantine</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    When a message triggers high-severity rules, it's held in quarantine instead of being delivered. A human must approve or reject it before the content reaches the destination agent.
+    Hold suspicious messages for human review before they reach the destination agent.
   </p>
   <div style="display:flex;gap:24px;margin-bottom:16px">
     <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Pending</span>
+      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Pending review</span>
       <div style="font-size:1rem;font-weight:600;margin-top:4px;color:{{if .QPending}}var(--warn){{else}}var(--success){{end}}">{{.QPending}}</div>
     </div>
   </div>
@@ -2847,70 +2855,74 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div style="margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Quarantine enabled</span>
+        <span style="font-size:0.85rem;color:var(--text2)">Enable quarantine</span>
       </label>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Expiry Hours</label>
+        <label>Review window (hours)</label>
         <input type="number" name="expiry_hours" value="{{.QExpiryHours}}" min="1">
       </div>
       <div class="form-group">
-        <label>Retention Days</label>
+        <label>Keep history (days)</label>
         <input type="number" name="retention_days" value="{{.QRetentionDays}}" min="0">
       </div>
     </div>
-    <p style="color:var(--text3);font-size:0.78rem;line-height:1.5;margin-bottom:16px">
-      Quarantined messages expire after the configured hours if not reviewed.
-      Retention days controls auto-purge of old audit entries (0 = keep forever).
+    <p style="color:var(--text3);font-size:0.75rem;line-height:1.5;margin-bottom:16px">
+      Messages auto-expire if not reviewed within the window. History controls how long old entries are kept (0 = forever).
     </p>
     <button type="submit" class="btn btn-sm">Save</button>
   </form>
 </div>
 
 <div class="card">
-  <h2>Rate Limiting</h2>
+  <h2>Message Limits</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Limit how many messages each agent can send within a sliding time window. Set per-agent to 0 to disable rate limiting.
+    Prevent agents from flooding the system. Each agent gets a maximum number of messages per time window.
   </p>
   <form method="POST" action="/dashboard/settings/rate-limit">
     <div class="form-row">
       <div class="form-group">
-        <label>Per Agent (max messages)</label>
+        <label>Max messages per agent</label>
         <input type="number" name="per_agent" value="{{.RateLimitPerAgent}}" min="0">
       </div>
       <div class="form-group">
-        <label>Window (seconds)</label>
+        <label>Time window (seconds)</label>
         <input type="number" name="window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}" min="1">
       </div>
     </div>
+    <p style="color:var(--text3);font-size:0.75rem;line-height:1.5;margin-bottom:16px">
+      Set max messages to 0 to disable. Recommended: 100 messages per 60 seconds.
+    </p>
     <button type="submit" class="btn btn-sm">Save</button>
   </form>
 </div>
 
 <div class="card">
-  <h2>Anomaly Detection</h2>
+  <h2>Behavior Monitoring</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Automatic risk scoring evaluates agent behavior over time. When an agent's risk score exceeds the threshold, it triggers an alert — or an automatic suspension if enabled.
+    Track agent behavior over time and flag unusual patterns like sudden traffic spikes or new communication pairs.
   </p>
   <form method="POST" action="/dashboard/settings/anomaly">
     <div style="margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Auto-suspend agents when threshold exceeded</span>
+        <span style="font-size:0.85rem;color:var(--text2)">Auto-suspend risky agents</span>
       </label>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label>Check Interval (seconds)</label>
+        <label>Check every (seconds)</label>
         <input type="number" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}" min="1">
       </div>
       <div class="form-group">
-        <label>Risk Threshold (0–100)</label>
+        <label>Risk threshold (0-100)</label>
         <input type="number" name="risk_threshold" value="{{printf "%.1f" .AnomalyRiskThreshold}}" min="0" max="100" step="0.1">
       </div>
+    </div>
+    <div class="form-row">
       <div class="form-group">
-        <label>Min Messages</label>
+        <label>Min messages before scoring</label>
         <input type="number" name="min_messages" value="{{.AnomalyMinMessages}}" min="0">
       </div>
     </div>
@@ -2919,98 +2931,62 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 </div>
 
 <div class="card">
-  <h2>Intent Validation</h2>
+  <h2>Intent Checks</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Agents can declare their intent (e.g. <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">code_review</code>, <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">deploy</code>). The proxy validates that the message content is consistent with the declared intent. Mismatches escalate the verdict to <strong style="color:var(--warn)">flag</strong>.
+    Agents can declare what they're doing (e.g. "code review", "deploy"). oktsec checks that the message content matches the declared purpose.
   </p>
   <form method="POST" action="/dashboard/settings/intent">
     <div style="margin-bottom:20px">
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Require intent declaration</span>
+        <span style="font-size:0.85rem;color:var(--text2)">Require intent on every message</span>
       </label>
       <p style="color:var(--text3);font-size:0.75rem;margin-top:8px;line-height:1.5">
-        When enabled, messages without an <code style="font-size:0.72rem;font-family:var(--mono)">intent</code> field are flagged. When disabled, intent is validated only if provided.
+        When off, intent is only checked if the agent provides one. When on, messages without intent are flagged.
       </p>
     </div>
     <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
-      <strong>Supported categories:</strong>
+      <strong>Available intents:</strong>
       <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text2)">code_review, deploy, data_query, monitoring, security, communication, file_ops, config</span>
     </div>
     <button type="submit" class="btn btn-sm">Save</button>
   </form>
 </div>
 
+</div><!-- /pipeline grid -->
+
 </div>
 
 <!-- Infrastructure -->
 <div class="tab-content {{if eq .Tab "infra"}}active{{end}}" data-tab-content="settings" data-tab-name="infra">
 
-<div class="card">
-  <h2>Forward Proxy</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    HTTP forward proxy for Docker Sandbox integration. Intercepts outbound HTTP traffic from sandboxed agents and applies domain filtering and content scanning.
-  </p>
-  <form method="POST" action="/dashboard/settings/forward-proxy">
-    <div style="display:flex;gap:32px;margin-bottom:20px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Enabled</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Scan requests</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Scan responses</span>
-      </label>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:1">
-        <label>Allowed Domains (one per line)</label>
-        <textarea name="allowed_domains" rows="4" style="font-family:var(--mono);font-size:0.82rem" placeholder="e.g. api.example.com">{{.FPAllowedDomains}}</textarea>
-      </div>
-      <div class="form-group" style="flex:1">
-        <label>Blocked Domains (one per line)</label>
-        <textarea name="blocked_domains" rows="4" style="font-family:var(--mono);font-size:0.82rem" placeholder="e.g. evil.com">{{.FPBlockedDomains}}</textarea>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Max Body Size (bytes)</label>
-        <input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
+<div class="st-grid">
 
 <div class="card">
-  <h2>Webhook Channels</h2>
+  <h2>Notifications</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Define webhook destinations once by name. Use channel names in enforcement overrides instead of pasting raw URLs.
+    Get notified when oktsec blocks or quarantines a message. Add webhook URLs for Slack, email, or any HTTP endpoint.
   </p>
 
   <form method="POST" action="/dashboard/settings/webhooks" style="margin-bottom:20px">
     <div class="form-row">
       <div class="form-group" style="flex:1;min-width:140px">
-        <label>Name</label>
+        <label>Channel name</label>
         <input type="text" name="name" placeholder="e.g. slack-security" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*">
       </div>
       <div class="form-group" style="flex:3">
-        <label>URL</label>
-        <input type="url" name="url" placeholder="https://hooks.slack.com/services/T00/B00/xxx" required>
+        <label>Webhook URL</label>
+        <input type="url" name="url" placeholder="https://hooks.slack.com/services/..." required>
       </div>
       <div class="form-group" style="align-self:flex-end">
-        <button type="submit" class="btn">Save</button>
+        <button type="submit" class="btn">Add</button>
       </div>
     </div>
   </form>
 
   {{if .WebhookChannels}}
   <table>
-    <thead><tr><th>Name</th><th>URL</th><th></th></tr></thead>
+    <thead><tr><th>Channel</th><th>URL</th><th></th></tr></thead>
     <tbody>
     {{range .WebhookChannels}}
     <tr id="wh-row-{{.Name}}">
@@ -3022,25 +2998,80 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     </tbody>
   </table>
   {{else}}
-  <div class="empty">No webhook channels configured. Add one above to use in enforcement overrides.</div>
+  <div class="empty">No notification channels yet. Add one above to receive alerts.</div>
   {{end}}
 </div>
 
 <div class="card">
-  <h2>Server</h2>
+  <h2>Outbound Traffic</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Core proxy settings. These require a server restart to take effect.
+    Control which external services agents can reach and scan their HTTP traffic for data leaks.
   </p>
-  <table>
-    <tbody>
-    <tr><td style="color:var(--text3);font-weight:600;width:160px">Port</td><td>{{.ServerPort}}</td></tr>
-    <tr><td style="color:var(--text3);font-weight:600">Bind Address</td><td>{{.ServerBind}}</td></tr>
-    <tr><td style="color:var(--text3);font-weight:600">Log Level</td><td>{{.LogLevel}}</td></tr>
-    <tr><td style="color:var(--text3);font-weight:600">Custom Rules Dir</td><td>{{if .CustomRulesDir}}{{.CustomRulesDir}}{{else}}<span style="color:var(--text3)">not set</span>{{end}}</td></tr>
-    <tr><td style="color:var(--text3);font-weight:600">Webhooks</td><td>{{.WebhookCount}} configured</td></tr>
-    </tbody>
-  </table>
+  <form method="POST" action="/dashboard/settings/forward-proxy">
+    <div style="display:flex;gap:32px;margin-bottom:20px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Enable proxy</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Scan outgoing</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Scan incoming</span>
+      </label>
+    </div>
+    <div class="form-row">
+      <div class="form-group" style="flex:1">
+        <label>Allowed domains (one per line)</label>
+        <textarea name="allowed_domains" rows="3" style="font-family:var(--mono);font-size:0.82rem" placeholder="api.example.com">{{.FPAllowedDomains}}</textarea>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Blocked domains (one per line)</label>
+        <textarea name="blocked_domains" rows="3" style="font-family:var(--mono);font-size:0.82rem" placeholder="evil.com">{{.FPBlockedDomains}}</textarea>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Max body size (bytes)</label>
+        <input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
 </div>
+
+<div class="card st-span">
+  <h2>Server Info</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+    Current proxy configuration. Changes to these settings require a restart.
+  </p>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Port</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{.ServerPort}}</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Bind address</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{.ServerBind}}</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Log level</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{.LogLevel}}</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Custom rules</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{if .CustomRulesDir}}{{.CustomRulesDir}}{{else}}<span style="color:var(--text3)">default only</span>{{end}}</span>
+    </div>
+    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0">
+      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Notifications</span>
+      <span style="font-family:var(--mono);font-size:0.82rem">{{.WebhookCount}} channel{{if ne .WebhookCount 1}}s{{end}}</span>
+    </div>
+  </div>
+</div>
+
+</div><!-- /infra grid -->
 
 </div>
 
