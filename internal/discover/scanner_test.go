@@ -306,6 +306,57 @@ func TestParseClaudeCodeConfig_NoServers(t *testing.T) {
 	}
 }
 
+func TestParseConfigFile_FiltersOktsecWrappers(t *testing.T) {
+	dir := t.TempDir()
+	path := writeTestConfig(t, dir, "mcp.json", map[string]mcpServerJSON{
+		"filesystem": {Command: "npx", Args: []string{"-y", "@mcp/server-filesystem"}},
+		"wrapped":    {Command: "oktsec", Args: []string{"proxy", "--agent", "wrapped", "--", "node", "srv.js"}},
+		"gateway":    {Command: "oktsec", Args: []string{"proxy", "--config", "/cfg.yaml", "--agent", "gateway", "--", ""}},
+	})
+
+	servers, err := parseConfigFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the real server should be returned; oktsec wrappers are filtered out
+	if len(servers) != 1 {
+		t.Fatalf("got %d servers, want 1 (oktsec wrappers should be filtered)", len(servers))
+	}
+	if servers[0].Name != "filesystem" {
+		t.Errorf("name = %q, want filesystem", servers[0].Name)
+	}
+}
+
+func TestParseClaudeCodeConfig_FiltersOktsecWrappers(t *testing.T) {
+	dir := t.TempDir()
+	config := map[string]any{
+		"mcpServers": map[string]any{
+			"oktsec-gateway": map[string]any{
+				"command": "oktsec",
+				"args":    []string{"proxy", "--agent", "oktsec-gateway", "--", ""},
+			},
+			"real-server": map[string]any{
+				"command": "node",
+				"args":    []string{"server.js"},
+			},
+		},
+	}
+	data, _ := json.MarshalIndent(config, "", "  ")
+	path := filepath.Join(dir, ".claude.json")
+	_ = os.WriteFile(path, data, 0o644)
+
+	servers, err := parseClaudeCodeConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 {
+		t.Fatalf("got %d servers, want 1 (oktsec wrappers filtered)", len(servers))
+	}
+	if servers[0].Name != "real-server" {
+		t.Errorf("name = %q, want real-server", servers[0].Name)
+	}
+}
+
 func TestKnownClients_Count(t *testing.T) {
 	clients := KnownClients()
 	// 6 original + 11 new = 17

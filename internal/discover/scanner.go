@@ -162,6 +162,9 @@ func extractServersFromKey(raw map[string]json.RawMessage, key string) []MCPServ
 
 	var servers []MCPServer
 	for name, srv := range serverMap {
+		if isOktsecWrapper(srv) {
+			continue
+		}
 		servers = append(servers, MCPServer{
 			Name:    name,
 			Command: srv.Command,
@@ -266,7 +269,7 @@ func extractUniqueServers(raw json.RawMessage, seen map[string]bool) []MCPServer
 
 	var servers []MCPServer
 	for name, srv := range serverMap {
-		if seen[name] {
+		if seen[name] || isOktsecWrapper(srv) {
 			continue
 		}
 		seen[name] = true
@@ -278,6 +281,12 @@ func extractUniqueServers(raw json.RawMessage, seen map[string]bool) []MCPServer
 		})
 	}
 	return servers
+}
+
+// isOktsecWrapper returns true if the server entry is an oktsec proxy wrapper.
+// These are our own wrappers and should not be re-discovered as MCP servers.
+func isOktsecWrapper(srv mcpServerJSON) bool {
+	return srv.Command == "oktsec"
 }
 
 // FormatTree returns a human-readable tree of discovered MCP servers.
