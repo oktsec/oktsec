@@ -5,8 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"runtime"
 	"syscall"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -17,23 +15,8 @@ import (
 )
 
 // defaultDBPath returns a shared DB location so proxy and serve share the same audit trail.
-// Uses ~/.oktsec/oktsec.db on macOS/Linux, %LOCALAPPDATA%\oktsec\oktsec.db on Windows.
 func defaultDBPath() string {
-	var dir string
-	switch runtime.GOOS {
-	case "windows":
-		dir = os.Getenv("LOCALAPPDATA")
-		if dir == "" {
-			home, _ := os.UserHomeDir()
-			dir = filepath.Join(home, "AppData", "Local")
-		}
-		dir = filepath.Join(dir, "oktsec")
-	default:
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".oktsec")
-	}
-	_ = os.MkdirAll(dir, 0o700)
-	return filepath.Join(dir, "oktsec.db")
+	return config.DefaultDBPath()
 }
 
 func newProxyCmd() *cobra.Command {

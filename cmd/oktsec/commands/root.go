@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -26,7 +27,15 @@ func NewRoot() *cobra.Command {
 		},
 	}
 
-	root.PersistentFlags().StringVar(&cfgFile, "config", "oktsec.yaml", "config file path")
+	root.PersistentFlags().StringVar(&cfgFile, "config", "", "config file path (default: cascading resolution)")
+
+	// Resolve config path before any command runs
+	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		flagExplicit := cmd.Flags().Changed("config")
+		resolved, _ := config.ResolveConfigPath(cfgFile, flagExplicit)
+		cfgFile = resolved
+		return nil
+	}
 
 	// Flags for bare "oktsec" invocation (mirrors "oktsec run")
 	root.Flags().Int("port", 0, "override server port")
@@ -53,6 +62,7 @@ func NewRoot() *cobra.Command {
 	// User-facing commands
 	root.AddCommand(
 		newDiscoverCmd(),
+		newDoctorCmd(),
 		newWrapCmd(),
 		newUnwrapCmd(),
 		newRulesCmd(),

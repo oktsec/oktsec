@@ -37,12 +37,15 @@ func newRunCmd() *cobra.Command {
 
 If no config file exists, runs first-time setup automatically:
   1. Scans for MCP clients and servers on this machine
-  2. Generates oktsec.yaml with observe-mode defaults
+  2. Generates config with observe-mode defaults
   3. Generates Ed25519 keypairs for each discovered agent
   4. Wraps discovered MCP servers through oktsec proxy
   5. Starts the proxy server with dashboard
 
-If a config already exists, starts the server directly.`,
+If a config already exists, starts the server directly.
+
+Config is resolved in order: --config flag, $OKTSEC_CONFIG env var,
+./oktsec.yaml (local), ~/.oktsec/config.yaml (home).`,
 		Example: `  oktsec run
   oktsec run --port 9000
   oktsec run --enforce
@@ -77,6 +80,11 @@ func executeRun(opts runOpts) error {
 }
 
 func autoSetup(configPath string, opts runOpts) error {
+	// Ensure parent directory exists (e.g. ~/.oktsec/)
+	if dir := filepath.Dir(configPath); dir != "." {
+		_ = os.MkdirAll(dir, 0o700)
+	}
+
 	// Step 1: Discover
 	fmt.Println("  Scanning for MCP servers...")
 	result, err := discover.Scan()
@@ -90,7 +98,10 @@ func autoSetup(configPath string, opts runOpts) error {
 		fmt.Println("  Starting with empty config (0 agents).")
 		fmt.Println("  Add agents via the dashboard after startup.")
 		fmt.Println()
-		return writeMinimalConfig(configPath)
+		if err := writeMinimalConfig(configPath); err != nil {
+			return err
+		}
+		return ensureSecrets(configPath)
 	}
 
 	fmt.Printf("  Found %d server(s) across %d client(s):\n\n", result.TotalServers(), result.TotalClients())
@@ -107,7 +118,7 @@ func autoSetup(configPath string, opts runOpts) error {
 	fmt.Println()
 
 	// Step 2: Generate config + keypairs
-	keysDir := "./keys"
+	keysDir := config.DefaultKeysDir()
 	if err := os.MkdirAll(keysDir, 0o700); err != nil {
 		return fmt.Errorf("creating keys directory: %w", err)
 	}
@@ -142,14 +153,14 @@ func autoSetup(configPath string, opts runOpts) error {
 		absConfig = configPath
 	}
 
-	dbPath := defaultDBPath()
+	dbPath := config.DefaultDBPath()
 
 	port := 8080
 	if opts.port != 0 {
 		port = opts.port
 	}
 
-	cfg := map[string]any{
+	cfgMap := map[string]any{
 		"version": "1",
 		"server": map[string]any{
 			"port":      port,
@@ -163,7 +174,7 @@ func autoSetup(configPath string, opts runOpts) error {
 		"agents":  agents,
 	}
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yaml.Marshal(cfgMap)
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
@@ -179,7 +190,12 @@ func autoSetup(configPath string, opts runOpts) error {
 	fmt.Printf("    Audit DB: %s\n", dbPath)
 	fmt.Println()
 
-	// Step 3: Wrap
+	// Step 3: Generate secrets (.env)
+	if err := ensureSecrets(configPath); err != nil {
+		return err
+	}
+
+	// Step 4: Wrap
 	if !opts.skipWrap {
 		fmt.Println("  Wrapping MCP servers...")
 
@@ -213,23 +229,33 @@ func autoSetup(configPath string, opts runOpts) error {
 	return nil
 }
 
+// ensureSecrets creates the .env file with auto-generated secrets if it doesn't exist.
+func ensureSecrets(configPath string) error {
+	envPath := filepath.Join(filepath.Dir(configPath), ".env")
+	if err := config.EnsureEnvFile(envPath); err != nil {
+		return fmt.Errorf("creating secrets file: %w", err)
+	}
+	return nil
+}
+
 func writeMinimalConfig(configPath string) error {
-	dbPath := defaultDBPath()
-	cfg := map[string]any{
+	dbPath := config.DefaultDBPath()
+	keysDir := config.DefaultKeysDir()
+	cfgMap := map[string]any{
 		"version": "1",
 		"server": map[string]any{
 			"port":      8080,
 			"log_level": "info",
 		},
 		"identity": map[string]any{
-			"keys_dir":          "./keys",
+			"keys_dir":          keysDir,
 			"require_signature": false,
 		},
 		"db_path": dbPath,
 		"agents":  map[string]any{},
 	}
 
-	data, err := yaml.Marshal(cfg)
+	data, err := yaml.Marshal(cfgMap)
 	if err != nil {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
@@ -244,6 +270,12 @@ func startServer(configPath string, opts runOpts) error {
 		fmt.Fprintf(os.Stderr, "\n  Warning: could not load %s (%v)\n", configPath, err)
 		fmt.Fprintf(os.Stderr, "  Starting with default config.\n\n")
 		cfg = config.Defaults()
+	}
+
+	// Load secrets from .env (adjacent to config)
+	envPath := filepath.Join(filepath.Dir(configPath), ".env")
+	if env, _ := config.LoadEnv(envPath); env != nil {
+		config.ApplyEnv(cfg, env)
 	}
 
 	if opts.port != 0 {

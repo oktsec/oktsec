@@ -61,7 +61,7 @@ For other clients, this wraps their MCP servers through the oktsec proxy.`,
 				keysDir = cfg.Identity.KeysDir
 			}
 			if keysDir == "" {
-				keysDir = "./keys"
+				keysDir = config.DefaultKeysDir()
 			}
 
 			// Auto-register agent if not present

@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/spf13/cobra"
 )
@@ -40,6 +41,6 @@ func newKeygenCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringSliceVar(&agents, "agent", nil, "agent name(s) to generate keys for")
-	cmd.Flags().StringVar(&outDir, "out", "./keys", "output directory for keys")
+	cmd.Flags().StringVar(&outDir, "out", config.DefaultKeysDir(), "output directory for keys")
 	return cmd
 }
