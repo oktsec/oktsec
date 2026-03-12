@@ -41,6 +41,10 @@ type ToolEvent struct {
 	SessionID string `json:"session_id,omitempty"`
 	ToolUseID string `json:"tool_use_id,omitempty"`
 
+	// Subagent identity (Claude Code sends these when running inside a subagent)
+	AgentID   string `json:"agent_id,omitempty"`        // unique subagent instance ID
+	AgentType string `json:"agent_type,omitempty"`      // subagent type: "Explore", "Plan", or custom name
+
 	// Context
 	CWD string `json:"cwd,omitempty"`
 
@@ -65,7 +69,7 @@ func (e *ToolEvent) normalize(r *http.Request) {
 		e.Event = "pre_tool_use" // default
 	}
 
-	// Agent from header (takes precedence)
+	// Agent from header (fallback for non-subagent tool calls)
 	if hdr := r.Header.Get("X-Oktsec-Agent"); hdr != "" {
 		e.Agent = hdr
 	}
@@ -172,6 +176,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	msgID := uuid.New().String()
 	toolArgs := truncateStr(string(ev.ToolInput), 2000)
 
+	// Resolve the acting agent when running inside a subagent.
+	// Claude Code sends agent_type for tool calls within subagents.
+	if ev.AgentType != "" {
+		resolved := h.resolveAgent(ev.AgentType)
+		if resolved != "" {
+			ev.Agent = resolved
+		}
+	}
+
 	// For Agent tool calls, extract the subagent name from description
 	// so the graph shows claude-code → subagent instead of claude-code → gateway/Agent.
 	toAgent := "gateway/" + ev.ToolName
@@ -223,6 +236,52 @@ func formatBlockReason(outcome *engine.ScanOutcome) string {
 		return "blocked by security policy"
 	}
 	return fmt.Sprintf("rule %s: %s", outcome.Findings[0].RuleID, outcome.Findings[0].Name)
+}
+
+// resolveAgent maps a Claude Code agent_type to a known agent name from config.
+// Returns the matched agent name, or the slugified agent_type if no match.
+// Built-in types like "Explore", "Plan", "general-purpose" are kept as-is.
+func (h *Handler) resolveAgent(agentType string) string {
+	lower := strings.ToLower(agentType)
+
+	// Exact match against configured agents.
+	if _, ok := h.cfg.Agents[lower]; ok {
+		return lower
+	}
+
+	// Keyword match: split agent_type into words and match against agent names.
+	words := strings.FieldsFunc(lower, func(r rune) bool {
+		return r == '-' || r == '_' || r == ' '
+	})
+	bestName := ""
+	bestScore := 0
+	for name := range h.cfg.Agents {
+		if name == "claude-code" {
+			continue
+		}
+		parts := strings.Split(name, "-")
+		score := 0
+		for _, p := range parts {
+			if len(p) < 3 {
+				continue
+			}
+			for _, w := range words {
+				if strings.Contains(w, p) || strings.Contains(p, w) {
+					score++
+					break
+				}
+			}
+		}
+		if score > bestScore {
+			bestScore = score
+			bestName = name
+		}
+	}
+	if bestScore >= 2 {
+		return bestName
+	}
+
+	return lower
 }
 
 // extractSubagentName parses Agent tool_input to get a slug from the description field,

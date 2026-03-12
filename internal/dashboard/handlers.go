@@ -485,10 +485,11 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load LLM-generated rules once (reused for counts and tab data)
-	var llmPending, llmActive []llm.GeneratedRule
+	var llmPending, llmActive, llmDisabled []llm.GeneratedRule
 	if s.ruleGen != nil {
 		llmPending, _ = s.ruleGen.ListPending()
 		llmActive, _ = s.ruleGen.ListActive()
+		llmDisabled, _ = s.ruleGen.ListDisabled()
 	}
 
 	data := map[string]any{
@@ -606,6 +607,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	// LLM-generated rules (needed for llm-rules tab + detection tab indicator)
 	data["LLMPending"] = llmPending
 	data["LLMActive"] = llmActive
+	data["LLMDisabled"] = llmDisabled
 
 	// Build enforcement data for enforcement tab
 	if tab == "enforcement" {
@@ -2423,6 +2425,31 @@ func (s *Server) handleRejectLLMRule(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprintf(w, `<span style="color:var(--text3);font-size:0.82rem">&#10003; Rejected</span>`)
+}
+
+func (s *Server) handleDeactivateLLMRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if s.ruleGen == nil {
+		http.Error(w, "rule generator not configured", http.StatusInternalServerError)
+		return
+	}
+	if err := s.ruleGen.DeactivateRule(id); err != nil {
+		s.logger.Error("deactivate llm rule failed", "id", id, "error", err)
+		http.Error(w, "failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if s.scanner != nil {
+		s.scanner.InvalidateCache()
+		s.ruleCatMu.Lock()
+		s.ruleCatMap = nil
+		s.ruleCatMu.Unlock()
+	}
+	w.Header().Set("Content-Type", "text/html")
+	fmt.Fprintf(w, `<span style="color:var(--text3);font-size:0.82rem">&#10003; Deactivated</span>`)
 }
 
 // --- Settings section handlers ---

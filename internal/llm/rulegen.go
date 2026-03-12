@@ -142,6 +142,11 @@ func (g *RuleGenerator) RejectRule(ruleID string) error {
 	return g.setRuleStatus(ruleID, "rejected")
 }
 
+// DeactivateRule disables an active rule without deleting it.
+func (g *RuleGenerator) DeactivateRule(ruleID string) error {
+	return g.setRuleStatus(ruleID, "disabled")
+}
+
 func (g *RuleGenerator) setRuleStatus(ruleID, status string) error {
 	filename := strings.ToLower(ruleID) + ".yaml"
 	path := filepath.Join(g.outputDir, filename)
@@ -173,6 +178,11 @@ func (g *RuleGenerator) ListPending() ([]GeneratedRule, error) {
 // ListActive returns all approved LLM-generated rules.
 func (g *RuleGenerator) ListActive() ([]GeneratedRule, error) {
 	return g.listByStatus("active")
+}
+
+// ListDisabled returns all disabled LLM-generated rules.
+func (g *RuleGenerator) ListDisabled() ([]GeneratedRule, error) {
+	return g.listByStatus("disabled")
 }
 
 func (g *RuleGenerator) listByStatus(status string) ([]GeneratedRule, error) {
