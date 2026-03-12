@@ -84,6 +84,10 @@ func NewRoot() *cobra.Command {
 	)
 
 	// Internal/advanced commands — hidden from help
+	hookCmd := newHookCmd()
+	hookCmd.Hidden = true
+	root.AddCommand(hookCmd)
+
 	gatewayCmd := newGatewayCmd()
 	gatewayCmd.Hidden = true
 	root.AddCommand(gatewayCmd)

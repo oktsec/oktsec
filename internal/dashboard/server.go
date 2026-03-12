@@ -299,6 +299,7 @@ func (s *Server) routes() {
 	// LLM-generated rules
 	s.mux.HandleFunc("POST /dashboard/api/rules/llm/{id}/approve", s.handleApproveLLMRule)
 	s.mux.HandleFunc("POST /dashboard/api/rules/llm/{id}/reject", s.handleRejectLLMRule)
+	s.mux.HandleFunc("POST /dashboard/api/rules/llm/{id}/deactivate", s.handleDeactivateLLMRule)
 
 	// Quarantine queue API
 	s.mux.HandleFunc("GET /dashboard/api/quarantine/{id}", s.handleQuarantineDetail)

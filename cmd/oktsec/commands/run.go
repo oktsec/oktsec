@@ -350,20 +350,20 @@ func configureClaudeCodeHooks(gatewayPort int) error {
 		settings = make(map[string]any)
 	}
 
-	hooksURL := fmt.Sprintf("http://127.0.0.1:%d/hooks/event", gatewayPort)
+	// Use a command hook instead of HTTP so that if oktsec is not running,
+	// the hook exits silently with code 0 — no error shown to the user.
+	exe, _ := os.Executable()
+	if exe == "" {
+		exe = "oktsec" // fallback to PATH lookup
+	}
 
 	hookEntry := []any{
 		map[string]any{
 			"matcher": ".*",
 			"hooks": []any{
 				map[string]any{
-					"type": "http",
-					"url":  hooksURL,
-					"headers": map[string]string{
-						"X-Oktsec-Agent":  "claude-code",
-						"X-Oktsec-Client": "claude-code",
-					},
-					"timeout": 5,
+					"type":    "command",
+					"command": fmt.Sprintf("%s hook --port %d", exe, gatewayPort),
 				},
 			},
 		},
