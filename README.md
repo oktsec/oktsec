@@ -1,5 +1,5 @@
 <p align="center">
-  <strong>Oktsec</strong> — Security layer for AI agent-to-agent communication
+  <strong>Oktsec</strong> — Runtime security for AI agent tool calls
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 
 ---
 
-Identity verification, policy enforcement, content scanning, and audit trail for AI agent messaging. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline — no LLM required. Optional async threat analysis with any provider. Single binary. **188 detection rules.** Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+See everything your AI agents execute. Monitors MCP tool calls and CLI operations in real-time - intercept, detect, block, audit. **188 detection rules** across 15 categories. Tamper-evident audit trail. Optional LLM threat intelligence. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline. Single binary. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 

@@ -936,7 +936,7 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
 {{if and (eq .Stats.TotalMessages 0) (eq .AgentCount 0)}}
 <div class="card" style="text-align:center;padding:40px 24px">
   <div style="font-size:1.4rem;font-weight:600;margin-bottom:8px">Welcome to oktsec</div>
-  <p style="color:var(--text2);margin-bottom:16px;max-width:480px;margin-left:auto;margin-right:auto">No agents configured yet. Run <code style="background:var(--bg2);padding:2px 6px;border-radius:4px">oktsec setup</code> to discover your MCP servers and start scanning.</p>
+  <p style="color:var(--text2);margin-bottom:16px;max-width:480px;margin-left:auto;margin-right:auto">No agent activity yet. Run <code style="background:var(--bg2);padding:2px 6px;border-radius:4px">oktsec run</code> to auto-discover your MCP servers, connect clients, and start monitoring.</p>
 </div>
 {{else}}
 
