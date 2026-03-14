@@ -70,6 +70,16 @@ func printBanner(cfg *config.Config, dashCode string) {
 		fmt.Println("  No agents configured. Run 'oktsec run' to get started.")
 	}
 	fmt.Println()
+	if cfg.ForwardProxy.Enabled {
+		fpBind := cfg.ForwardProxy.Bind
+		if fpBind == "" {
+			fpBind = bindAddr
+		}
+		proxyURL := fmt.Sprintf("http://%s:%d", fpBind, cfg.ForwardProxy.Port)
+		fmt.Println("  To monitor agent egress traffic, start Claude Code with:")
+		fmt.Printf("    HTTP_PROXY=%s HTTPS_PROXY=%s claude\n", proxyURL, proxyURL)
+		fmt.Println()
+	}
 }
 
 // openDashboard opens the dashboard URL in the default browser.

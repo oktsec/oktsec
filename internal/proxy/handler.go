@@ -53,9 +53,10 @@ type Handler struct {
 	webhooks    *WebhookNotifier
 	rateLimiter *RateLimiter
 	window      *MessageWindow
-	llmQueue       *llm.Queue          // nil if LLM disabled
-	signalDetector *llm.SignalDetector // nil if triage disabled
-	logger         *slog.Logger
+	llmQueue            *llm.Queue              // nil if LLM disabled
+	signalDetector      *llm.SignalDetector     // nil if triage disabled
+	escalationTracker   *llm.EscalationTracker  // nil if LLM escalation disabled
+	logger              *slog.Logger
 }
 
 // NewHandler creates a message handler with all dependencies.
@@ -87,6 +88,11 @@ func (h *Handler) SetLLMQueue(q *llm.Queue) {
 // SetSignalDetector attaches the pre-LLM triage filter.
 func (h *Handler) SetSignalDetector(d *llm.SignalDetector) {
 	h.signalDetector = d
+}
+
+// SetEscalationTracker attaches the LLM-driven verdict escalation tracker.
+func (h *Handler) SetEscalationTracker(t *llm.EscalationTracker) {
+	h.escalationTracker = t
 }
 
 // ServeHTTP handles POST /v1/message.
@@ -207,6 +213,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Step 7: Multi-message verdict escalation
 	h.escalateByHistory(req.From, outcome)
+
+	// Step 7b: LLM-driven agent escalation (async feedback loop)
+	if h.escalationTracker != nil && h.escalationTracker.IsEscalated(req.From) {
+		outcome.Verdict = verdict.EscalateOneLevel(outcome.Verdict)
+	}
 
 	// Step 8: Apply verdict
 	status, policyDecision, httpStatus := verdictToResponse(outcome.Verdict)

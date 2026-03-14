@@ -126,13 +126,14 @@ type Config struct {
 // internal/config to keep YAML tags in one place. Using aliases (not
 // type definitions) makes the types fully interchangeable.
 type (
-	AnalyzeConfig  = config.LLMAnalyzeConfig
-	RuleGenConfig  = config.LLMRuleGenConfig
-	IntentConfig   = config.LLMIntentConfig
-	WebhookConfig  = config.LLMWebhookConfig
-	FallbackConfig = config.LLMFallbackConfig
-	TriageConfig   = config.LLMTriageConfig
-	BudgetConfig   = config.LLMBudgetConfig
+	AnalyzeConfig    = config.LLMAnalyzeConfig
+	RuleGenConfig    = config.LLMRuleGenConfig
+	IntentConfig     = config.LLMIntentConfig
+	WebhookConfig    = config.LLMWebhookConfig
+	FallbackConfig   = config.LLMFallbackConfig
+	TriageConfig     = config.LLMTriageConfig
+	BudgetConfig     = config.LLMBudgetConfig
+	EscalationConfig = config.LLMEscalationConfig
 )
 
 // ParseTimeout returns the configured timeout as a time.Duration.
