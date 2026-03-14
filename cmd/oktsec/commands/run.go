@@ -221,6 +221,11 @@ func autoSetup(configPath string, opts runOpts) error {
 			"check_interval": 60,
 			"min_messages":   10,
 		},
+		"forward_proxy": map[string]any{
+			"enabled":        true,
+			"scan_requests":  true,
+			"scan_responses": false,
+		},
 	}
 
 	data, err := yaml.Marshal(cfgMap)

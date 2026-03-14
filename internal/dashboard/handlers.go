@@ -918,7 +918,7 @@ func (s *Server) handleAPIGraphTables(w http.ResponseWriter, r *http.Request) {
 		rangeStr = "24h"
 	}
 	since := parseSinceRange(rangeStr)
-	g := s.buildGraph(since)
+	g := s.cachedBuildGraph(since)
 	s.renderTemplate(w, graphTablesTmpl, g)
 }
 
@@ -2926,19 +2926,9 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		}
 	}
 
-	// Collect agents from config + discover from audit traffic.
-	agentSet := make(map[string]graph.AgentMeta)
-	for name, a := range s.cfg.Agents {
-		agentSet[name] = graph.AgentMeta{
-			Name:        name,
-			Description: a.Description,
-			Location:    a.Location,
-			Tags:        a.Tags,
-			CanMessage:  a.CanMessage,
-		}
-	}
-	// Auto-discover agents from edge stats (handles post-reset scenario).
-	// Skip slugified descriptions that didn't match config (> 25 chars = junk).
+	// Only include agents with activity in the selected time range.
+	// First pass: collect agent names that appear in edge stats.
+	activeNames := make(map[string]bool)
 	for _, es := range edgeStats {
 		for _, n := range []string{es.From, es.To} {
 			if n == "" || strings.Contains(n, ":") || strings.Count(n, ".") >= 2 {
@@ -2950,9 +2940,23 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 			if len(n) > 25 {
 				continue
 			}
-			if _, ok := agentSet[n]; !ok {
-				agentSet[n] = graph.AgentMeta{Name: n}
+			activeNames[n] = true
+		}
+	}
+
+	// Build agent metadata only for active agents.
+	agentSet := make(map[string]graph.AgentMeta)
+	for name := range activeNames {
+		if a, ok := s.cfg.Agents[name]; ok {
+			agentSet[name] = graph.AgentMeta{
+				Name:        name,
+				Description: a.Description,
+				Location:    a.Location,
+				Tags:        a.Tags,
+				CanMessage:  a.CanMessage,
 			}
+		} else {
+			agentSet[name] = graph.AgentMeta{Name: name}
 		}
 	}
 	names := make([]string, 0, len(agentSet))
@@ -3138,6 +3142,21 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 	return g
 }
 
+// cachedBuildGraph returns a cached graph if the same range was requested
+// within the last 10 seconds, otherwise rebuilds and caches the result.
+func (s *Server) cachedBuildGraph(since string) *graph.AgentGraph {
+	s.graphMu.Lock()
+	defer s.graphMu.Unlock()
+	if s.graphCache != nil && s.graphCacheRange == since && time.Since(s.graphCacheTime) < 10*time.Second {
+		return s.graphCache
+	}
+	g := s.buildGraph(since)
+	s.graphCache = g
+	s.graphCacheRange = since
+	s.graphCacheTime = time.Now()
+	return g
+}
+
 // dateOnly extracts the YYYY-MM-DD portion from an RFC3339 timestamp
 // for use in <input type="date"> value attributes.
 func dateOnly(ts string) string {
@@ -3172,7 +3191,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		rangeStr = "24h"
 	}
 	since := parseSinceRange(rangeStr)
-	g := s.buildGraph(since)
+	g := s.cachedBuildGraph(since)
 	data := map[string]any{
 		"Active":     "graph",
 		"Graph":      g,
@@ -3186,7 +3205,7 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 	rangeStr := r.URL.Query().Get("range")
 	since := parseSinceRange(rangeStr)
-	g := s.buildGraph(since)
+	g := s.cachedBuildGraph(since)
 	s.renderJSON(w, g)
 }
 

@@ -39,9 +39,10 @@ type Server struct {
 	audit         *audit.Store
 	webhooks      *WebhookNotifier
 	dashboard     *dashboard.Server
-	llmQueue      *llm.Queue // nil if LLM disabled
-	handler       *Handler
-	logger        *slog.Logger
+	llmQueue           *llm.Queue              // nil if LLM disabled
+	escalationTracker  *llm.EscalationTracker  // nil if LLM escalation disabled
+	handler            *Handler
+	logger             *slog.Logger
 	anomalyCancel context.CancelFunc
 	fwdSrv        *http.Server   // forward proxy (nil if disabled)
 	fwdLn         net.Listener   // forward proxy listener
@@ -123,6 +124,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	// LLM analysis queue (async, optional)
 	var llmQueue *llm.Queue
 	var ruleGen *llm.RuleGenerator
+	var escalationTracker *llm.EscalationTracker
 	if cfg.LLM.Enabled {
 		var sd *llm.SignalDetector
 		llmQueue, sd = llm.SetupQueue(cfg.LLM, logger)
@@ -140,6 +142,10 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 					})
 				}
 			}
+
+			// Wire LLM-driven escalation tracker (created before OnResult so
+			// it can be referenced in the closure)
+			escalationTracker = llm.SetupEscalation(cfg.LLM.Escalation, llmQueue, logger)
 
 			llmQueue.OnResult(func(result llm.AnalysisResult) {
 				// Store in audit database
@@ -173,9 +179,15 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 						Timestamp: time.Now().UTC().Format(time.RFC3339),
 					})
 				}
+
+				// Feed escalation tracker
+				if escalationTracker != nil {
+					escalationTracker.HandleResult(result)
+				}
 			})
 
 			handler.SetLLMQueue(llmQueue)
+			handler.SetEscalationTracker(escalationTracker)
 			if sd != nil {
 				handler.SetSignalDetector(sd)
 			}
@@ -305,18 +317,19 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	}
 
 	s := &Server{
-		cfg:       cfg,
-		cfgPath:   cfgPath,
-		srv:       srv,
-		ln:        ln,
-		keys:      keys,
-		scanner:   scanner,
-		audit:     auditStore,
-		webhooks:  webhooks,
-		handler:   handler,
-		dashboard: dash,
-		llmQueue:  llmQueue,
-		logger:    logger,
+		cfg:               cfg,
+		cfgPath:           cfgPath,
+		srv:               srv,
+		ln:                ln,
+		keys:              keys,
+		scanner:           scanner,
+		audit:             auditStore,
+		webhooks:          webhooks,
+		handler:           handler,
+		dashboard:         dash,
+		llmQueue:          llmQueue,
+		escalationTracker: escalationTracker,
+		logger:            logger,
 	}
 
 	// Forward proxy on dedicated port (separate from dashboard/API)
@@ -502,6 +515,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Debug("shutting down")
 	if s.llmQueue != nil {
 		s.llmQueue.Stop()
+	}
+	if s.escalationTracker != nil {
+		s.escalationTracker.Stop()
 	}
 	if s.anomalyCancel != nil {
 		s.anomalyCancel()

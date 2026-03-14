@@ -69,4 +69,18 @@ var (
 		Name:      "fallback_total",
 		Help:      "Number of times the fallback LLM provider was used.",
 	})
+
+	escalationsActive = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "oktsec",
+		Subsystem: "llm",
+		Name:      "escalations_active",
+		Help:      "Number of agents currently under LLM-driven verdict escalation.",
+	})
+
+	escalationsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "oktsec",
+		Subsystem: "llm",
+		Name:      "escalations_total",
+		Help:      "Total LLM-driven verdict escalations applied.",
+	})
 )

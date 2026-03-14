@@ -10,7 +10,7 @@ Docker Sandboxes provide isolated micro VMs for AI agents. Oktsec provides conte
 | Filesystem isolation | Yes | No |
 | Network filtering | Proxy-level allow/deny | No |
 | Credential proxying | Yes (API keys never in sandbox) | No |
-| Message content scanning | No | Yes (151 rules) |
+| Message content scanning | No | Yes (188 rules) |
 | Identity verification | No | Yes (Ed25519) |
 | Agent-to-agent ACLs | No | Yes |
 | Audit trail | No | Yes (SQLite) |
@@ -46,7 +46,7 @@ Oktsec operates in two modes:
 │  │                                               │      │
 │  │  rate limit → verify → ACL → scan → verdict   │      │
 │  │                                               │      │
-│  │  151 rules · Ed25519 · audit trail            │      │
+│  │  188 rules · Ed25519 · audit trail            │      │
 │  └──────────────────────────────────────────────┘      │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
@@ -182,7 +182,7 @@ Oktsec does not intercept NanoClaw's WhatsApp traffic or API calls. It only insp
 | 2. Docker credential proxy | API key theft from inside the sandbox | Docker |
 | 3. Identity verification | Agent impersonation | Oktsec (Ed25519) |
 | 4. Policy enforcement | Unauthorized agent-to-agent communication | Oktsec (ACLs) |
-| 5. Content scanning | Prompt injection, credential leaks, PII, exfiltration | Oktsec (151 rules) |
+| 5. Content scanning | Prompt injection, credential leaks, PII, exfiltration | Oktsec (188 rules) |
 | 6. Audit trail | Post-incident forensics | Oktsec (SQLite) |
 
 No single layer is sufficient. Docker Sandboxes without content inspection miss prompt injection. Oktsec without sandboxing can't prevent filesystem access. Use both.

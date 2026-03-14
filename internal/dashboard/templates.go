@@ -213,6 +213,26 @@ var tmplFuncs = template.FuncMap{
 			return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 		}
 	},
+	"fullThreatSummary": func(threatsJSON string, riskScore float64) string {
+		if threatsJSON == "" || threatsJSON == "null" || threatsJSON == "[]" {
+			if riskScore > 10 {
+				return "Elevated risk — review recommended"
+			}
+			return "No threats detected"
+		}
+		var threats []map[string]any
+		if err := json.Unmarshal([]byte(threatsJSON), &threats); err != nil || len(threats) == 0 {
+			return "Threat detected"
+		}
+		t := threats[0]
+		if desc, _ := t["description"].(string); desc != "" {
+			return desc
+		}
+		if typ, _ := t["type"].(string); typ != "" {
+			return snakeToTitle(typ)
+		}
+		return "Threat detected"
+	},
 	"firstThreatSummary": func(threatsJSON string, riskScore float64) string {
 		if threatsJSON == "" || threatsJSON == "null" || threatsJSON == "[]" {
 			if riskScore > 10 {
@@ -1081,15 +1101,26 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
   {{if .AgentRisks}}
   <div class="ov-card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
-    {{range .AgentRisks}}
-    <div class="ov-metric clickable" style="cursor:pointer" onclick="window.location='/dashboard/agents/{{.Agent}}'">
-      <span class="k">{{.Agent}}<br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.Total}} msgs</span></span>
+    <div id="ar-list">
+    {{range $i, $a := .AgentRisks}}
+    <div class="ov-metric clickable ar-item" style="cursor:pointer" onclick="window.location='/dashboard/agents/{{$a.Agent}}'">
+      <span class="k">{{$a.Agent}}<br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{$a.Total}} msgs</span></span>
       <span class="v">
-        <span style="display:inline-block;width:60px;height:6px;background:var(--bg2);border-radius:3px;vertical-align:middle;margin-right:6px"><span style="display:block;height:100%;width:{{printf "%.0f" .RiskScore}}%;border-radius:3px;background:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}"></span></span>
-        <span style="font-size:0.78rem">{{printf "%.0f" .RiskScore}}</span>
+        <span style="display:inline-block;width:60px;height:6px;background:var(--bg2);border-radius:3px;vertical-align:middle;margin-right:6px"><span style="display:block;height:100%;width:{{printf "%.0f" $a.RiskScore}}%;border-radius:3px;background:{{if gt $a.RiskScore 60.0}}var(--danger){{else if gt $a.RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}"></span></span>
+        <span style="font-size:0.78rem">{{printf "%.0f" $a.RiskScore}}</span>
       </span>
     </div>
     {{end}}
+    </div>
+    <div id="ar-pager" style="display:none;padding-top:10px;border-top:1px solid var(--border);margin-top:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span id="ar-info" style="font-size:0.72rem;color:var(--text3)"></span>
+        <span style="display:flex;gap:6px">
+          <button id="ar-prev" onclick="arPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:3px 10px;border-radius:6px;cursor:pointer;font-size:0.72rem">&lsaquo; Prev</button>
+          <button id="ar-next" onclick="arPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:3px 10px;border-radius:6px;cursor:pointer;font-size:0.72rem">Next &rsaquo;</button>
+        </span>
+      </div>
+    </div>
   </div>
   {{end}}
 </div>
@@ -1098,6 +1129,25 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
 
 
 <script>
+// Agent Risk pagination
+(function(){
+  var items=document.querySelectorAll('.ar-item');
+  if(!items.length)return;
+  var sz=15,cur=1,total=items.length,pages=Math.ceil(total/sz);
+  var pager=document.getElementById('ar-pager');
+  var info=document.getElementById('ar-info');
+  if(pages>1&&pager)pager.style.display='block';
+  function render(){
+    var s=(cur-1)*sz,e=Math.min(s+sz,total);
+    items.forEach(function(r,i){r.style.display=(i>=s&&i<e)?'':'none'});
+    if(info)info.textContent='Showing '+(s+1)+'\u2013'+e+' of '+total;
+    var p=document.getElementById('ar-prev'),n=document.getElementById('ar-next');
+    if(p)p.disabled=cur<=1;
+    if(n)n.disabled=cur>=pages;
+  }
+  window.arPage=function(d){cur=Math.max(1,Math.min(pages,cur+d));render()};
+  render();
+})();
 (function() {
   var dot = document.getElementById('sse-dot');
   var label = document.getElementById('sse-label');
@@ -3820,184 +3870,256 @@ var llmDetailTmpl = template.Must(template.New("llm-detail").Funcs(tmplFuncs).Pa
 
 var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>` + ciCSS + `
-.ci-conf{display:inline-flex;align-items:center;gap:4px;font-size:0.68rem;color:var(--warn);font-weight:500;margin-left:6px}
-.ci-action-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px;margin-bottom:16px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
-.ci-dbtn{display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;font-size:0.78rem;font-weight:500;cursor:pointer;border:1px solid;transition:background 0.15s,border-color 0.15s,color 0.15s}
-.ci-dbtn-confirm{background:rgba(239,68,68,0.08);color:#ef4444;border-color:rgba(239,68,68,0.2)}
-.ci-dbtn-confirm:hover{background:rgba(239,68,68,0.15);border-color:#ef4444}
-.ci-dbtn-dismiss{background:transparent;color:var(--text2);border-color:var(--border)}
-.ci-dbtn-dismiss:hover{background:var(--bg2);border-color:var(--text3)}
-.ci-action-div{width:1px;height:24px;background:var(--border);margin:0 4px;flex-shrink:0}
-.ci-nav{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:6px;font-size:0.72rem;font-weight:500;text-decoration:none;color:var(--text3);transition:color 0.15s}
-.ci-nav:hover{color:var(--accent)}
-.ci-nav svg{width:14px;height:14px}
-.ci-reviewed{display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border-radius:6px;font-size:0.75rem;font-weight:600}
-.ci-hist{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:20px}
-.ci-hist-lbl{font-size:0.68rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}
-.ci-ctx-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:7px;border:1px solid var(--border);font-size:0.72rem;text-decoration:none;color:var(--text2);transition:border-color 0.15s,background 0.15s}
-.ci-ctx-pill:hover{border-color:var(--accent);background:rgba(99,102,241,0.04)}
-.ci-ctx-score{font-family:var(--mono);font-weight:700;font-size:0.68rem}
-.ci-lbl{font-size:0.66rem;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px;font-weight:600;text-transform:uppercase}
-.ci-int-diff{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden}
-.ci-int-side{padding:10px 14px}
-.ci-int-side-decl{background:transparent;border-right:1px solid var(--border)}
-.ci-int-side-act{background:transparent}
-.ci-int-side-act.ci-int-hi{background:rgba(239,68,68,0.04)}
-.ci-int-tag{display:inline-flex;align-items:center;gap:5px;font-size:0.6rem;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;color:var(--text3);margin-bottom:6px}
-.ci-int-tag-act{color:var(--text2)}
-.ci-int-tag-act.ci-int-warn{color:#ef4444}
-.ci-int-txt{font-size:0.8125rem;line-height:1.5;color:var(--text)}
-.ci-int-side-act .ci-int-txt{font-weight:500}
-.ci-int-side-act.ci-int-hi .ci-int-txt{color:#ef4444}
-.ci-int-align{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:0.72rem;font-weight:600;padding:2px 8px;border-radius:100px}
-.ci-int-align-ok{background:rgba(34,197,94,0.1);color:#22c55e}
-.ci-int-align-bad{background:rgba(239,68,68,0.1);color:#ef4444}
-.ci-reason{font-size:0.75rem;line-height:1.5;color:var(--text3);margin-top:8px}
-.ci-thr-fix{display:flex;align-items:center;gap:6px;margin-top:6px}
-.ci-thr-fix code{font-family:var(--mono);font-size:0.75rem;color:var(--text2)}
-.ci-thr-cp{background:transparent;border:1px solid var(--border);color:var(--text3);border-radius:4px;padding:2px 8px;font-size:0.6875rem;cursor:pointer;transition:all 0.12s;font-family:var(--mono);white-space:nowrap}
-.ci-thr-cp:hover{border-color:var(--border-hover);color:var(--text2);background:var(--surface2)}
-@media(max-width:960px){.ci-int-diff{grid-template-columns:1fr}.ci-int-side-decl{border-right:none;border-bottom:1px solid var(--border)}.ci-action-bar{padding:12px 14px}}
+/* Case page overrides */
+.cs-layout{display:grid;grid-template-columns:1fr 340px;gap:24px;align-items:start}
+.cs-main{min-width:0}
+.cs-side{display:flex;flex-direction:column;gap:16px}
+
+/* Verdict banner */
+.cs-banner{display:flex;align-items:stretch;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px}
+.cs-banner-score{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:90px;padding:20px 16px;flex-shrink:0}
+.cs-banner-score .n{font-size:2rem;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:-0.03em}
+.cs-banner-score .l{font-size:0.56rem;letter-spacing:0.8px;margin-top:5px;font-weight:600;text-transform:uppercase}
+.cs-banner-body{flex:1;padding:18px 22px;display:flex;flex-direction:column;justify-content:center;border-left:1px solid var(--border);min-width:0}
+.cs-banner-title{font-size:1rem;font-weight:600;margin:0 0 8px;line-height:1.45;color:var(--text);text-wrap:pretty}
+.cs-banner-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.75rem;color:var(--text3)}
+.cs-banner-meta .sep{color:var(--border)}
+.cs-banner-action{display:flex;align-items:center;padding:0 22px;flex-shrink:0;border-left:1px solid var(--border)}
+
+/* Action buttons */
+.cs-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.cs-abtn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:0.78rem;font-weight:500;cursor:pointer;border:1px solid;transition:all 0.15s;text-decoration:none}
+.cs-abtn-danger{background:rgba(239,68,68,0.08);color:#ef4444;border-color:rgba(239,68,68,0.2)}
+.cs-abtn-danger:hover{background:rgba(239,68,68,0.15);border-color:#ef4444}
+.cs-abtn-ghost{background:transparent;color:var(--text2);border-color:var(--border)}
+.cs-abtn-ghost:hover{background:var(--bg2);border-color:var(--text3)}
+.cs-abtn svg{width:14px;height:14px}
+.cs-reviewed{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:0.78rem;font-weight:600}
+.cs-reviewed-ok{background:rgba(34,197,94,0.08);color:#22c55e}
+.cs-reviewed-bad{background:rgba(239,68,68,0.08);color:#ef4444}
+
+/* Side panel cards */
+.cs-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.cs-card-hdr{padding:12px 16px;border-bottom:1px solid var(--border);font-size:0.68rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px}
+.cs-card-body{padding:14px 16px}
+.cs-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.78rem}
+.cs-row:last-child{border-bottom:none}
+.cs-row .k{color:var(--text3);font-size:0.75rem}
+.cs-row .v{font-family:var(--mono);font-size:0.72rem;color:var(--text2);text-align:right}
+.cs-conf-bar{height:4px;background:var(--bg2);border-radius:2px;margin-top:4px}
+.cs-conf-fill{height:100%;border-radius:2px;transition:width 0.3s}
+
+/* History pills in sidebar */
+.cs-hist-grid{display:flex;flex-wrap:wrap;gap:4px;padding:4px 0}
+.cs-hist-pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:0.68rem;text-decoration:none;color:var(--text3);background:var(--bg2);transition:all 0.12s}
+.cs-hist-pill:hover{color:var(--text);background:var(--bg3)}
+.cs-hist-score{font-family:var(--mono);font-weight:700;font-size:0.65rem}
+
+/* Threat cards */
+.cs-thr-card{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:12px}
+.cs-thr-card:last-child{margin-bottom:0}
+.cs-thr-top{display:flex;align-items:flex-start;gap:12px;padding:14px 18px}
+.cs-thr-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:700;font-family:var(--mono);flex-shrink:0;margin-top:1px}
+.cs-thr-num-c{background:rgba(239,68,68,0.12);color:#ef4444}
+.cs-thr-num-h{background:rgba(251,146,60,0.12);color:#fb923c}
+.cs-thr-num-m{background:rgba(251,191,36,0.1);color:#fbbf24}
+.cs-thr-num-l{background:rgba(34,197,94,0.08);color:#22c55e}
+.cs-thr-info{flex:1;min-width:0}
+.cs-thr-type{font-family:var(--mono);font-size:0.72rem;font-weight:600;color:var(--text2);text-transform:uppercase;margin-bottom:3px}
+.cs-thr-desc{font-size:0.82rem;color:var(--text);font-weight:500;line-height:1.5}
+.cs-thr-ev{padding:10px 18px 14px;background:rgba(255,255,255,0.015);border-top:1px solid var(--border);font-size:0.75rem;color:var(--text3);line-height:1.6}
+.cs-thr-rule{padding:8px 18px 12px;border-top:1px solid var(--border);font-size:0.72rem}
+
+/* Intent diff */
+.cs-intent{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.cs-intent-side{padding:14px 18px}
+.cs-intent-decl{border-right:1px solid var(--border)}
+.cs-intent-act.cs-intent-warn{background:rgba(239,68,68,0.03)}
+.cs-intent-lbl{font-size:0.58rem;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:var(--text3);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.cs-intent-lbl-warn{color:#ef4444}
+.cs-intent-txt{font-size:0.82rem;line-height:1.55;color:var(--text)}
+.cs-intent-act .cs-intent-txt{font-weight:500}
+.cs-intent-act.cs-intent-warn .cs-intent-txt{color:#ef4444}
+
+/* Evidence block */
+.cs-evidence{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto}
+
+/* Generated rule */
+.cs-rule-block{background:var(--bg2);border:1px solid rgba(99,102,241,0.15);border-radius:10px;padding:14px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap}
+
+@media(max-width:960px){.cs-layout{grid-template-columns:1fr}.cs-banner{flex-direction:column}.cs-banner-score{min-width:unset;padding:14px}.cs-banner-body{border-left:none;border-top:1px solid var(--border)}.cs-banner-action{border-left:none;border-top:1px solid var(--border);padding:14px 22px}.cs-intent{grid-template-columns:1fr}.cs-intent-decl{border-right:none;border-bottom:1px solid var(--border)}}
 </style>
 
-<p style="margin-bottom:16px"><a href="/dashboard/llm" class="ci-back">&larr; Threat Intel</a></p>
+<p style="margin-bottom:18px"><a href="/dashboard/llm" class="ci-back">&larr; Threat Intel</a></p>
 
 {{with .Analysis}}
-<!-- 1. Verdict header -->
-<div class="ci-hdr">
-  <div class="ci-score" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.12);color:#ef4444{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.12);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(251,191,36,0.1);color:#fbbf24{{else if gt .RiskScore 10.0}}background:rgba(34,197,94,0.08);color:#22c55e{{else}}background:var(--bg2);color:var(--text3){{end}}">
+<!-- Verdict banner -->
+<div class="cs-banner">
+  <div class="cs-banner-score" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#ef4444{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(251,191,36,0.06);color:#fbbf24{{else if gt .RiskScore 10.0}}background:rgba(34,197,94,0.06);color:#22c55e{{else}}background:var(--bg2);color:var(--text3){{end}}">
     <div class="n">{{printf "%.0f" .RiskScore}}</div>
     <div class="l">{{if ge .RiskScore 76.0}}CRITICAL{{else if ge .RiskScore 51.0}}HIGH{{else if ge .RiskScore 31.0}}MEDIUM{{else if gt .RiskScore 10.0}}LOW{{else}}BENIGN{{end}}</div>
   </div>
-  <div class="ci-hdr-body">
-    <h2 class="ci-title">{{firstThreatSummary .ThreatsJSON .RiskScore}}{{if and (gt .Confidence 0.0) (lt .Confidence 30.0)}}<span class="ci-conf">&#9888; Low confidence</span>{{end}}</h2>
-    <div class="ci-hdr-row">
-      {{if .FromAgent}}<a href="/dashboard/agents/{{.FromAgent}}" style="color:var(--accent-light);text-decoration:none;font-weight:500">{{.FromAgent}}</a> <span>&rarr;</span> <a href="/dashboard/agents/{{.ToAgent}}" style="color:var(--text2);text-decoration:none">{{.ToAgent}}</a><span class="sep">&middot;</span>{{end}}
+  <div class="cs-banner-body">
+    <h2 class="cs-banner-title">{{fullThreatSummary .ThreatsJSON .RiskScore}}{{if and (gt .Confidence 0.0) (lt .Confidence 30.0)}} <span style="font-size:0.68rem;color:var(--warn);font-weight:500">&#9888; Low confidence</span>{{end}}</h2>
+    <div class="cs-banner-meta">
+      {{if .FromAgent}}<a href="/dashboard/agents/{{.FromAgent}}" style="color:var(--accent-light);text-decoration:none;font-weight:500">{{.FromAgent}}</a> <span style="opacity:0.5">&rarr;</span> <a href="/dashboard/agents/{{.ToAgent}}" style="color:var(--text2);text-decoration:none">{{.ToAgent}}</a><span class="sep">&middot;</span>{{end}}
       <span>{{relativeTime .Timestamp}}</span>
       <span class="sep">&middot;</span>
-      <span>Confidence {{printf "%.0f" .Confidence}}%</span>
+      <span>{{printf "%.0f" .Confidence}}% confidence</span>
     </div>
   </div>
-  <span class="ci-badge {{if eq .RecommendedAction "block"}}ci-badge-blk{{else if eq .RecommendedAction "investigate"}}ci-badge-inv{{else if eq .RecommendedAction "quarantine"}}ci-badge-qua{{else}}ci-badge-ok{{end}}">{{.RecommendedAction}}</span>
+  <div class="cs-banner-action">
+    <span class="ci-badge {{if eq .RecommendedAction "block"}}ci-badge-blk{{else if eq .RecommendedAction "investigate"}}ci-badge-inv{{else if eq .RecommendedAction "quarantine"}}ci-badge-qua{{else}}ci-badge-ok{{end}}" style="font-size:0.75rem;padding:6px 18px">{{.RecommendedAction}}</span>
+  </div>
 </div>
 
-<!-- 2. Decision bar -->
-<div class="ci-action-bar">
+<!-- Action buttons -->
+<div class="cs-actions">
   {{if or (eq .ReviewedStatus "false_positive") (eq .ReviewedStatus "confirmed")}}
-    {{if eq .ReviewedStatus "false_positive"}}<span class="ci-reviewed" style="background:rgba(34,197,94,0.1);color:#22c55e">&#10003; Dismissed as false positive</span>
-    {{else}}<span class="ci-reviewed" style="background:rgba(239,68,68,0.1);color:#ef4444">&#10003; Confirmed as real threat</span>{{end}}
+    {{if eq .ReviewedStatus "false_positive"}}<span class="cs-reviewed cs-reviewed-ok">&#10003; Dismissed as false positive</span>
+    {{else}}<span class="cs-reviewed cs-reviewed-bad">&#10003; Confirmed as real threat</span>{{end}}
   {{else}}
-    <button class="ci-dbtn ci-dbtn-confirm" hx-post="/dashboard/api/llm/{{.ID}}/confirm" hx-target="closest .ci-action-bar" hx-swap="innerHTML" hx-confirm="Confirm this as a real threat?">Confirm threat</button>
-    <button class="ci-dbtn ci-dbtn-dismiss" hx-post="/dashboard/api/llm/{{.ID}}/dismiss" hx-target="closest .ci-action-bar" hx-swap="innerHTML" hx-confirm="Dismiss as false positive?">False positive</button>
-    <div class="ci-action-div"></div>
-    {{if .FromAgent}}<a class="ci-nav" href="/dashboard/agents/{{.FromAgent}}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> {{.FromAgent}}</a>{{end}}
-    <a class="ci-nav" href="/dashboard/events?q={{.MessageID}}"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> Event log</a>
-    {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="ci-nav" style="color:#ef4444" onclick="return confirm('Suspend agent {{.FromAgent}}?')"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend</button></form>{{end}}
-    {{if $.AgentSuspended}}<span class="ci-nav" style="color:#ef4444;cursor:default">Agent suspended</span>{{end}}
+    <button class="cs-abtn cs-abtn-danger" hx-post="/dashboard/api/llm/{{.ID}}/confirm" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Confirm this as a real threat?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Confirm threat</button>
+    <button class="cs-abtn cs-abtn-ghost" hx-post="/dashboard/api/llm/{{.ID}}/dismiss" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Dismiss as false positive?">False positive</button>
+    {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="cs-abtn cs-abtn-ghost" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="return confirm('Suspend agent {{.FromAgent}}?')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend agent</button></form>{{end}}
+    {{if $.AgentSuspended}}<span class="cs-abtn" style="color:#ef4444;cursor:default;border-color:rgba(239,68,68,0.2)">Agent suspended</span>{{end}}
   {{end}}
 </div>
 
-<!-- 3. Agent history — inline pills -->
-{{if $.AgentHistory}}
-<div class="ci-hist">
-  <span class="ci-hist-lbl">History ({{.FromAgent}})</span>
-  {{range $.AgentHistory}}
-  <a href="/dashboard/llm/case/{{.ID}}" class="ci-ctx-pill">
-    <span class="ci-ctx-score" style="{{if ge .RiskScore 76.0}}color:#ef4444{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#fbbf24{{else}}color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
-    <span style="color:var(--text3)">&rarr; {{.ToAgent}}</span>
-    <span style="color:var(--text3);font-size:0.66rem">{{relativeTime .Timestamp}}</span>
-  </a>
-  {{end}}
-</div>
-{{end}}
+<!-- Two-column layout -->
+<div class="cs-layout">
+  <!-- LEFT: Main content -->
+  <div class="cs-main">
 
-<!-- 4. Original content that triggered the alert -->
-{{if $.ToolArgs}}
-<div class="ci-s" style="border-color:rgba(251,191,36,0.2);background:rgba(251,191,36,0.02)">
-  <h3 style="color:#fbbf24">Intercepted content</h3>
-  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-family:var(--mono);font-size:0.75rem;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto">{{$.ToolArgs}}</div>
-</div>
-{{end}}
-
-<!-- 5. Intent Analysis + Technical Details (side by side) -->
-{{$intent := parseJSONMap .IntentJSON}}
-<div class="ci-context-row">
-  {{if $intent}}
-  <div class="ci-s" style="margin-bottom:0">
-    <h3>Intent analysis {{with index $intent "alignment"}}{{$a := toString .}}<span class="ci-int-align {{if lt $a "0.5"}}ci-int-align-bad{{else}}ci-int-align-ok{{end}}">{{if lt $a "0.5"}}&#10007;{{else}}&#10003;{{end}} {{$a}}</span>{{end}}</h3>
-    <div class="ci-int-diff">
-      <div class="ci-int-side ci-int-side-decl">
-        <div class="ci-int-tag">Declared</div>
-        <div class="ci-int-txt">{{with index $intent "declared_intent"}}{{.}}{{else}}-{{end}}</div>
+    <!-- Findings -->
+    {{$threats := parseJSONArray .ThreatsJSON}}
+    <div class="ci-s">
+      <h3>Findings <span class="cnt">({{countJSONArray .ThreatsJSON}})</span></h3>
+      {{if $threats}}
+        {{range $i, $t := $threats}}
+          {{$m := toMap $t}}
+          {{if $m}}
+          <div class="cs-thr-card">
+            <div class="cs-thr-top">
+              <span class="cs-thr-num {{with index $m "severity"}}cs-thr-num-{{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}{{end}}">{{inc $i}}</span>
+              <div class="cs-thr-info">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                  <span class="cs-thr-type">{{with index $m "type"}}{{upper (toString .)}}{{else}}THREAT-{{inc $i}}{{end}}</span>
+                  {{with index $m "severity"}}<span class="ci-sev ci-sev-{{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}">{{upper (toString .)}}</span>{{end}}
+                </div>
+                <div class="cs-thr-desc">{{with index $m "description"}}{{.}}{{end}}</div>
+              </div>
+            </div>
+            {{with index $m "evidence"}}<div class="cs-thr-ev">{{.}}</div>{{end}}
+            {{with index $m "suggestion"}}{{$s := toMap .}}{{if $s}}
+            <div class="cs-thr-rule">
+              <span style="color:var(--text3)">Rule:</span>
+              <code style="font-family:var(--mono);color:var(--text2);margin-left:4px">{{with index $s "name"}}{{.}}{{end}}</code>
+              {{with index $s "pattern"}}<code style="font-family:var(--mono);color:var(--text3);margin-left:4px;font-size:0.68rem">{{.}}</code>{{end}}
+              <button class="ci-thr-cp" style="margin-left:8px" onclick="ciCopyText(this.closest('.cs-thr-rule').querySelector('code').textContent,this)">copy</button>
+            </div>
+            {{end}}{{end}}
+          </div>
+          {{else}}
+          <div class="cs-thr-card"><div class="cs-thr-top"><span class="cs-thr-num cs-thr-num-m">{{inc $i}}</span><div class="cs-thr-info"><div class="cs-thr-desc">{{$t}}</div></div></div></div>
+          {{end}}
+        {{end}}
+      {{else}}
+      <div class="ci-benign">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        No threats detected - message assessed as benign.
       </div>
-      <div class="ci-int-side ci-int-side-act{{if ge $.Analysis.RiskScore 50.0}} ci-int-hi{{end}}">
-        <div class="ci-int-tag ci-int-tag-act{{if ge $.Analysis.RiskScore 50.0}} ci-int-warn{{end}}">Actual</div>
-        <div class="ci-int-txt">{{with index $intent "actual_intent"}}{{.}}{{else}}-{{end}}</div>
-      </div>
+      {{end}}
     </div>
-    {{with index $intent "reason"}}
-    <div class="ci-reason">{{.}}</div>
-    {{end}}
-  </div>
-  {{else}}
-  <div></div>
-  {{end}}
 
-  <div class="ci-s" style="margin-bottom:0">
-    <h3>Technical details</h3>
-    <div class="ci-meta-row"><span class="mk">Model</span><span class="mv">{{.Model}}</span></div>
-    <div class="ci-meta-row"><span class="mk">Latency</span><span class="mv">{{latencySec .LatencyMs}}s</span></div>
-    <div class="ci-meta-row"><span class="mk">Tokens</span><span class="mv">{{.TokensUsed}}</span></div>
-    <div class="ci-meta-row"><span class="mk">Message</span><span class="mv"><a href="/dashboard/events?q={{.MessageID}}" style="color:var(--accent);text-decoration:none;word-break:break-all">{{.MessageID}}</a></span></div>
-    <div class="ci-meta-row"><span class="mk">Confidence</span><span class="mv">{{printf "%.0f" .Confidence}}%</span></div>
-    <div class="ci-meta-row"><span class="mk">Risk score</span><span class="mv">{{printf "%.0f" .RiskScore}} / 100</span></div>
-  </div>
-</div>
-
-<!-- 5. Threats — full width, can grow -->
-{{$threats := parseJSONArray .ThreatsJSON}}
-<div class="ci-s">
-  <h3>Threats <span class="cnt">({{countJSONArray .ThreatsJSON}})</span></h3>
-  {{if $threats}}
-    {{range $i, $t := $threats}}
-      {{$m := toMap $t}}
-      {{if $m}}
-      <div class="ci-thr">
-        <span class="ci-thr-sev">{{with index $m "severity"}}<span class="ci-sev ci-sev-{{if eq (toString .) "critical"}}c{{else if eq (toString .) "high"}}h{{else if eq (toString .) "medium"}}m{{else}}l{{end}}">{{upper (toString .)}}</span>{{end}}</span>
-        <div class="ci-thr-body">
-          <div class="ci-thr-head">
-            <span class="ci-thr-id">{{with index $m "type"}}{{upper (toString .)}}{{else}}THREAT-{{inc $i}}{{end}}</span>
-            <span class="ci-thr-name">{{with index $m "description"}}{{.}}{{end}}</span>
-          </div>
-          {{with index $m "evidence"}}<div class="ci-thr-detail">{{.}}</div>{{end}}
-          {{with index $m "suggestion"}}{{$s := toMap .}}{{if $s}}
-          <div class="ci-thr-fix">
-            <code>{{with index $s "name"}}{{.}}{{end}}{{with index $s "pattern"}} &#8212; {{.}}{{end}}</code>
-            <button class="ci-thr-cp" onclick="ciCopyText(this.previousElementSibling.textContent,this)">copy</button>
-          </div>
-          {{end}}{{end}}
+    <!-- Intent Analysis -->
+    {{$intent := parseJSONMap .IntentJSON}}
+    {{if $intent}}
+    <div class="ci-s">
+      <h3>Intent Analysis {{with index $intent "alignment"}}{{$a := toString .}}<span style="display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:0.72rem;font-weight:600;padding:2px 10px;border-radius:100px;{{if lt $a "0.5"}}background:rgba(239,68,68,0.1);color:#ef4444{{else}}background:rgba(34,197,94,0.1);color:#22c55e{{end}}">{{if lt $a "0.5"}}&#10007;{{else}}&#10003;{{end}} {{$a}}</span>{{end}}</h3>
+      <div class="cs-intent">
+        <div class="cs-intent-side cs-intent-decl">
+          <div class="cs-intent-lbl">Declared intent</div>
+          <div class="cs-intent-txt">{{with index $intent "declared_intent"}}{{.}}{{else}}-{{end}}</div>
+        </div>
+        <div class="cs-intent-side cs-intent-act{{if ge $.Analysis.RiskScore 50.0}} cs-intent-warn{{end}}">
+          <div class="cs-intent-lbl{{if ge $.Analysis.RiskScore 50.0}} cs-intent-lbl-warn{{end}}">Actual behavior</div>
+          <div class="cs-intent-txt">{{with index $intent "actual_intent"}}{{.}}{{else}}-{{end}}</div>
         </div>
       </div>
-      {{else}}
-      <div class="ci-thr"><span class="ci-thr-sev"></span><div class="ci-thr-body"><div class="ci-thr-head"><span class="ci-thr-name">{{$t}}</span></div></div></div>
+      {{with index $intent "reason"}}
+      <p style="font-size:0.75rem;line-height:1.55;color:var(--text3);margin-top:10px">{{.}}</p>
       {{end}}
+    </div>
     {{end}}
-  {{else}}
-  <div class="ci-benign">
-    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-    No threats detected &#8212; message assessed as benign.
-  </div>
-  {{end}}
-</div>
 
-<!-- 6. Generated Rule -->
-{{if .RuleGenerated}}
-<div class="ci-s" style="border-color:rgba(99,102,241,0.2);background:rgba(99,102,241,0.02)">
-  <h3 style="color:var(--accent-light)">Generated rule</h3>
-  <p style="font-size:0.78rem;color:var(--text2);margin-bottom:10px">Deterministic rule created from this analysis. Catches future matches in &lt;1ms.</p>
-  <div style="background:var(--bg2);border:1px solid rgba(99,102,241,0.15);border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap">{{.RuleGenerated}}</div>
+    <!-- Intercepted content -->
+    {{if $.ToolArgs}}
+    <div class="ci-s">
+      <h3>Intercepted Content</h3>
+      <div class="cs-evidence">{{$.ToolArgs}}</div>
+    </div>
+    {{end}}
+
+    <!-- Generated Rule -->
+    {{if .RuleGenerated}}
+    <div class="ci-s" style="border-color:rgba(99,102,241,0.15)">
+      <h3 style="color:var(--accent-light)">Generated Rule</h3>
+      <p style="font-size:0.78rem;color:var(--text2);margin-bottom:10px">Deterministic rule created from this analysis. Catches future matches in &lt;1ms.</p>
+      <div class="cs-rule-block">{{.RuleGenerated}}</div>
+    </div>
+    {{end}}
+
+  </div>
+
+  <!-- RIGHT: Sidebar -->
+  <div class="cs-side">
+
+    <!-- Assessment card -->
+    <div class="cs-card">
+      <div class="cs-card-hdr">Assessment</div>
+      <div class="cs-card-body">
+        <div class="cs-row"><span class="k">Risk score</span><span class="v" style="font-weight:700;font-size:0.82rem;{{if ge .RiskScore 76.0}}color:#ef4444{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#fbbf24{{else}}color:#22c55e{{end}}">{{printf "%.0f" .RiskScore}}</span></div>
+        <div class="cs-row">
+          <span class="k">Confidence</span>
+          <span class="v">{{printf "%.0f" .Confidence}}%</span>
+        </div>
+        <div class="cs-conf-bar"><div class="cs-conf-fill" style="width:{{printf "%.0f" .Confidence}}%;background:{{if ge .Confidence 80.0}}#22c55e{{else if ge .Confidence 50.0}}#fbbf24{{else}}#ef4444{{end}}"></div></div>
+        <div class="cs-row" style="margin-top:6px"><span class="k">Latency</span><span class="v">{{latencySec .LatencyMs}}s</span></div>
+        <div class="cs-row"><span class="k">Model</span><span class="v" style="font-size:0.68rem">{{.Model}}</span></div>
+        <div class="cs-row"><span class="k">Tokens</span><span class="v">{{.TokensUsed}}</span></div>
+      </div>
+    </div>
+
+    <!-- Quick links -->
+    <div class="cs-card">
+      <div class="cs-card-hdr">Related</div>
+      <div class="cs-card-body" style="display:flex;flex-direction:column;gap:2px">
+        {{if .FromAgent}}<a href="/dashboard/agents/{{.FromAgent}}" class="cs-row" style="text-decoration:none;color:inherit;border-radius:6px;padding:8px 10px;margin:-4px -10px;transition:background 0.1s"><span class="k">Agent</span><span class="v" style="color:var(--accent-light)">{{.FromAgent}}</span></a>{{end}}
+        <a href="/dashboard/events?q={{.MessageID}}" class="cs-row" style="text-decoration:none;color:inherit;border-radius:6px;padding:8px 10px;margin:-4px -10px;transition:background 0.1s"><span class="k">Event</span><span class="v" style="color:var(--accent-light)">View &rarr;</span></a>
+        <div class="cs-row"><span class="k">Message ID</span><span class="v" style="font-size:0.58rem;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.MessageID}}">{{.MessageID}}</span></div>
+      </div>
+    </div>
+
+    <!-- Agent history -->
+    {{if $.AgentHistory}}
+    <div class="cs-card">
+      <div class="cs-card-hdr">Agent History ({{.FromAgent}})</div>
+      <div class="cs-card-body">
+        <div class="cs-hist-grid">
+          {{range $.AgentHistory}}
+          <a href="/dashboard/llm/case/{{.ID}}" class="cs-hist-pill">
+            <span class="cs-hist-score" style="{{if ge .RiskScore 76.0}}color:#ef4444{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#fbbf24{{else}}color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
+            <span>{{relativeTime .Timestamp}}</span>
+          </a>
+          {{end}}
+        </div>
+      </div>
+    </div>
+    {{end}}
+
+  </div>
 </div>
-{{end}}
 
 <script>
 function ciCopyText(text, btn) {
@@ -4676,8 +4798,14 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     }
     updateEdges();
 
-    // Particle animation
+    // Particle animation (pauses when tab hidden to save CPU)
+    var tabVisible=true, animId=null;
+    document.addEventListener('visibilitychange',function(){
+      tabVisible=!document.hidden;
+      if(tabVisible&&!animId) animId=requestAnimationFrame(animParticles);
+    });
     function animParticles(){
+      if(!tabVisible){animId=null;return;}
       particles.forEach(function(p){
         p.t+=p.speed; if(p.t>1) p.t-=1;
         var s=nodes[p.link.from],t=nodes[p.link.to];
@@ -4692,9 +4820,9 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         } else { x=s.x+(ex-s.x)*tt; y=s.y+(ey-s.y)*tt; }
         p.dot.setAttribute('cx',x); p.dot.setAttribute('cy',y);
       });
-      requestAnimationFrame(animParticles);
+      animId=requestAnimationFrame(animParticles);
     }
-    requestAnimationFrame(animParticles);
+    animId=requestAnimationFrame(animParticles);
 
     // ── Focus/Dim state ──
     var focusedNode=null;
@@ -4933,7 +5061,16 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     }).catch(function(){});
   }
   pollGraph();
-  setInterval(pollGraph,5000);
+  function schedulePoll(){
+    setTimeout(function(){
+      if(!document.hidden) pollGraph();
+      schedulePoll();
+    },15000);
+  }
+  schedulePoll();
+  document.addEventListener('visibilitychange',function(){
+    if(!document.hidden) pollGraph();
+  });
 })();
 </script>
 ` + layoutFoot))

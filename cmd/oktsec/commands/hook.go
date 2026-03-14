@@ -49,6 +49,14 @@ func runHook(port int) error {
 	req.Header.Set("X-Oktsec-Agent", "claude-code")
 	req.Header.Set("X-Oktsec-Client", "claude-code")
 
+	// Forward session_id from the hook payload as a header.
+	var hookPayload struct {
+		SessionID string `json:"session_id"`
+	}
+	if json.Unmarshal(body, &hookPayload) == nil && hookPayload.SessionID != "" {
+		req.Header.Set("X-Oktsec-Session", hookPayload.SessionID)
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		// Gateway not running — silently allow.

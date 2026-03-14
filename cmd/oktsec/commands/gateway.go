@@ -72,8 +72,9 @@ func newGatewayCmd() *cobra.Command {
 
 			// Wire LLM analysis queue (async, optional)
 			var llmQueue *llm.Queue
+			var escalationTracker *llm.EscalationTracker
 			if cfg.LLM.Enabled {
-				llmQueue = setupGatewayLLM(cfg, gw, logger)
+				llmQueue, escalationTracker = setupGatewayLLM(cfg, gw, logger)
 			}
 
 			printGatewayBanner(cfg)
@@ -102,12 +103,17 @@ func newGatewayCmd() *cobra.Command {
 					if llmQueue != nil {
 						llmQueue.Stop()
 					}
+					if escalationTracker != nil {
+						escalationTracker.Stop()
+					}
 					llmQueue = nil
+					escalationTracker = nil
 					gw.SetLLMQueue(nil)
 					gw.SetSignalDetector(nil)
+					gw.SetEscalationTracker(nil)
 
 					if newCfg.LLM.Enabled {
-						llmQueue = setupGatewayLLM(newCfg, gw, logger)
+						llmQueue, escalationTracker = setupGatewayLLM(newCfg, gw, logger)
 						if llmQueue != nil {
 							llmQueue.Start(ctx)
 						}
@@ -126,10 +132,16 @@ func newGatewayCmd() *cobra.Command {
 				if llmQueue != nil {
 					llmQueue.Stop()
 				}
+				if escalationTracker != nil {
+					escalationTracker.Stop()
+				}
 				return err
 			case <-ctx.Done():
 				if llmQueue != nil {
 					llmQueue.Stop()
+				}
+				if escalationTracker != nil {
+					escalationTracker.Stop()
 				}
 				shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
@@ -143,25 +155,32 @@ func newGatewayCmd() *cobra.Command {
 	return cmd
 }
 
-// setupGatewayLLM creates and wires the LLM analysis queue for the gateway.
-// Returns the queue so the caller can start/stop it.
-func setupGatewayLLM(cfg *config.Config, gw *gateway.Gateway, logger *slog.Logger) *llm.Queue {
+// setupGatewayLLM creates and wires the LLM analysis queue and optional
+// escalation tracker for the gateway. Returns (queue, tracker); either may be nil.
+func setupGatewayLLM(cfg *config.Config, gw *gateway.Gateway, logger *slog.Logger) (*llm.Queue, *llm.EscalationTracker) {
 	queue, sd := llm.SetupQueue(cfg.LLM, logger)
 	if queue == nil {
-		return nil
+		return nil, nil
 	}
 
-	// Store LLM results in audit database
+	// Create escalation tracker before OnResult so the closure can reference it
+	tracker := llm.SetupEscalation(cfg.LLM.Escalation, queue, logger)
+
+	// Store LLM results in audit database + feed escalation tracker
 	auditStore := gw.AuditStore()
 	queue.OnResult(func(result llm.AnalysisResult) {
 		_ = llm.StoreResult(auditStore, result)
+		if tracker != nil {
+			tracker.HandleResult(result)
+		}
 	})
 
 	gw.SetLLMQueue(queue)
+	gw.SetEscalationTracker(tracker)
 	if sd != nil {
 		gw.SetSignalDetector(sd)
 	}
-	return queue
+	return queue, tracker
 }
 
 func printGatewayBanner(cfg *config.Config) {

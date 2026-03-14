@@ -140,7 +140,16 @@ func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error
 		}
 	}
 
+	// Prefer IPv4 addresses to avoid IPv6 connectivity issues
+	connectIP := ips[0].IP
+	for _, ip := range ips {
+		if ip.IP.To4() != nil {
+			connectIP = ip.IP
+			break
+		}
+	}
+
 	// Connect directly to validated IP (prevents re-resolution TOCTOU)
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
-	return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+	return dialer.DialContext(ctx, network, net.JoinHostPort(connectIP.String(), port))
 }

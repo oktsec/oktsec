@@ -1,12 +1,15 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -20,18 +23,30 @@ import (
 // ForwardProxy implements an HTTP forward proxy that scans traffic with Aguara.
 // It handles CONNECT tunneling (HTTPS) and plain HTTP forwarding.
 type ForwardProxy struct {
-	cfg           *config.ForwardProxyConfig
-	scanner       *engine.Scanner
-	audit         *audit.Store
-	rateLimiter   *RateLimiter
-	egressEval    *EgressEvaluator
-	agentLimiters map[string]*RateLimiter
-	logger        *slog.Logger
-	transport     *http.Transport
+	cfg             *config.ForwardProxyConfig
+	scanner         *engine.Scanner
+	audit           *audit.Store
+	rateLimiter     *RateLimiter
+	egressEval      *EgressEvaluator
+	agentLimiters   map[string]*RateLimiter
+	logger          *slog.Logger
+	transport       *http.Transport
+	upstreamProxy   bool // true when HTTP_PROXY/HTTPS_PROXY is set
 }
 
 // NewForwardProxy creates a forward proxy with scanning and audit capabilities.
 func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter *RateLimiter, agents map[string]config.Agent, logger *slog.Logger) *ForwardProxy {
+	// When an upstream proxy is configured (e.g., inside Docker Sandbox),
+	// the transport dials the proxy, not the target. Use standard dialer
+	// for proxy connections; SSRF checks are applied at handler level.
+	upstream := hasUpstreamProxy()
+	dialFn := safeDialContext
+	if upstream {
+		d := &net.Dialer{Timeout: 5 * time.Second}
+		dialFn = d.DialContext
+		logger.Info("forward proxy: upstream proxy detected, SSRF checks at handler level")
+	}
+
 	fp := &ForwardProxy{
 		cfg:           cfg,
 		scanner:       scanner,
@@ -40,8 +55,10 @@ func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, au
 		egressEval:    NewEgressEvaluator(cfg, agents),
 		agentLimiters: make(map[string]*RateLimiter),
 		logger:        logger,
+		upstreamProxy: upstream,
 		transport: &http.Transport{
-			DialContext:           safeDialContext,
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           dialFn,
 			TLSHandshakeTimeout:  5 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 			MaxIdleConns:          100,
@@ -86,16 +103,24 @@ func extractAgent(r *http.Request) string {
 	return strings.TrimSpace(agent)
 }
 
+// extractSession reads and strips the X-Oktsec-Session header.
+func extractSession(r *http.Request) string {
+	session := r.Header.Get("X-Oktsec-Session")
+	r.Header.Del("X-Oktsec-Session")
+	return strings.TrimSpace(session)
+}
+
 // handleConnect handles HTTPS tunneling via the CONNECT method.
 func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	host := r.Host
 	agent := extractAgent(r)
+	session := extractSession(r)
 
 	policy := fp.resolvePolicy(agent)
 	if !policy.DomainAllowed(host) {
 		fp.logger.Warn("forward proxy: blocked CONNECT domain", "host", host, "agent", agent, "remote", r.RemoteAddr)
-		fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, audit.StatusBlocked, "proxy_blocked_domain", "", 0, start)
+		fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, audit.StatusBlocked, "proxy_blocked_domain", "", session, 0, start)
 		http.Error(w, "Forbidden: domain blocked by proxy policy", http.StatusForbidden)
 		return
 	}
@@ -112,13 +137,13 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := ValidateHost(connectHost); err != nil {
 		fp.logger.Warn("forward proxy: SSRF blocked CONNECT", "host", host, "error", err)
-		fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, audit.StatusBlocked, "proxy_ssrf_blocked", "", 0, start)
+		fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, audit.StatusBlocked, "proxy_ssrf_blocked", "", session, 0, start)
 		http.Error(w, "Forbidden: SSRF protection", http.StatusForbidden)
 		return
 	}
 
-	// Dial the target using SSRF-safe dialer
-	targetConn, err := safeDialContext(r.Context(), "tcp", host)
+	// Dial the target — chain through upstream proxy if configured
+	targetConn, err := fp.dialTarget(r.Context(), host)
 	if err != nil {
 		fp.logger.Error("forward proxy: CONNECT dial failed", "host", host, "error", err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
@@ -163,7 +188,7 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Wait for either direction to finish
 	<-done
 
-	fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, "tunneled", "proxy_allowed", "", clientBytes+targetBytes, start)
+	fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, "tunneled", "proxy_allowed", "", session, clientBytes+targetBytes, start)
 }
 
 // handleHTTP handles plain HTTP forward proxying with content scanning.
@@ -174,12 +199,13 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		host = r.Host
 	}
 	agent := extractAgent(r)
+	session := extractSession(r)
 	logAgent := fp.logAgent(agent, r.RemoteAddr)
 
 	policy := fp.resolvePolicy(agent)
 	if !policy.DomainAllowed(host) {
 		fp.logger.Warn("forward proxy: blocked HTTP domain", "host", host, "agent", agent, "remote", r.RemoteAddr)
-		fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_domain", "", 0, start)
+		fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_domain", "", session, 0, start)
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "domain blocked by proxy policy"})
 		return
 	}
@@ -187,6 +213,22 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if !fp.allowRate(agent, r.RemoteAddr) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "rate limit exceeded"})
 		return
+	}
+
+	// SSRF: validate target host when using upstream proxy (safeDialContext
+	// handles this for direct connections, but with an upstream proxy the
+	// transport dials the proxy, not the target).
+	if fp.upstreamProxy {
+		ssrfHost := host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			ssrfHost = h
+		}
+		if err := ValidateHost(ssrfHost); err != nil {
+			fp.logger.Warn("forward proxy: SSRF blocked HTTP", "host", host, "error", err)
+			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_ssrf_blocked", "", session, 0, start)
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: SSRF protection"})
+			return
+		}
 	}
 
 	maxBody := fp.cfg.MaxBodySize
@@ -216,7 +258,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			rulesJSON := verdict.EncodeFindings(outcome.Findings)
 			fp.logger.Warn("forward proxy: blocked request content",
 				"host", host, "agent", agent, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
-			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_content", rulesJSON, 0, start)
+			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_content", rulesJSON, session, 0, start)
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "request blocked by content scan",
 				"detail": fmt.Sprintf("%d security finding(s) detected", len(outcome.Findings)),
@@ -261,7 +303,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			rulesJSON := verdict.EncodeFindings(outcome.Findings)
 			fp.logger.Warn("forward proxy: blocked response content",
 				"host", host, "agent", agent, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
-			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_response", rulesJSON, 0, start)
+			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_response", rulesJSON, session, 0, start)
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "response blocked by content scan",
 				"detail": fmt.Sprintf("%d security finding(s) detected", len(outcome.Findings)),
@@ -275,7 +317,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
 
-	fp.logProxyEntry(logAgent, r.Method, host, "forwarded", "proxy_allowed", "", int64(len(bodyBytes)+len(respBody)), start)
+	fp.logProxyEntry(logAgent, r.Method, host, "forwarded", "proxy_allowed", "", session, int64(len(bodyBytes)+len(respBody)), start)
 }
 
 // resolvePolicy returns the merged egress policy for an agent.
@@ -326,7 +368,7 @@ func (fp *ForwardProxy) hasCategoryBlock(outcome *engine.ScanOutcome, policy *Re
 }
 
 // logProxyEntry writes an audit log entry for proxy traffic.
-func (fp *ForwardProxy) logProxyEntry(remoteAddr, method, host, status, policyDecision, rulesTriggered string, bytesTransferred int64, start time.Time) {
+func (fp *ForwardProxy) logProxyEntry(remoteAddr, method, host, status, policyDecision, rulesTriggered, sessionID string, bytesTransferred int64, start time.Time) {
 	entry := audit.Entry{
 		ID:             uuid.New().String(),
 		Timestamp:      time.Now().UTC().Format(time.RFC3339),
@@ -336,9 +378,73 @@ func (fp *ForwardProxy) logProxyEntry(remoteAddr, method, host, status, policyDe
 		Status:         status,
 		PolicyDecision: policyDecision,
 		RulesTriggered: rulesTriggered,
+		SessionID:      sessionID,
 		LatencyMs:      time.Since(start).Milliseconds(),
 	}
 	fp.audit.Log(entry)
+}
+
+// dialTarget connects to the target host, chaining through the upstream proxy
+// when one is configured (e.g., inside Docker Sandbox). Without an upstream
+// proxy, it dials the target directly using the SSRF-safe dialer.
+func (fp *ForwardProxy) dialTarget(ctx context.Context, host string) (net.Conn, error) {
+	if !fp.upstreamProxy {
+		return safeDialContext(ctx, "tcp", host)
+	}
+
+	// Chain through upstream proxy via CONNECT
+	proxyURL := upstreamProxyURL()
+	if proxyURL == nil {
+		return safeDialContext(ctx, "tcp", host)
+	}
+
+	d := &net.Dialer{Timeout: 5 * time.Second}
+	proxyConn, err := d.DialContext(ctx, "tcp", proxyURL.Host)
+	if err != nil {
+		return nil, fmt.Errorf("dial upstream proxy %s: %w", proxyURL.Host, err)
+	}
+
+	connectReq := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", host, host)
+	if _, err := proxyConn.Write([]byte(connectReq)); err != nil {
+		_ = proxyConn.Close()
+		return nil, fmt.Errorf("CONNECT to upstream proxy: %w", err)
+	}
+
+	br := bufio.NewReader(proxyConn)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		_ = proxyConn.Close()
+		return nil, fmt.Errorf("read CONNECT response from upstream proxy: %w", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		_ = proxyConn.Close()
+		return nil, fmt.Errorf("upstream proxy CONNECT returned %d", resp.StatusCode)
+	}
+
+	return proxyConn, nil
+}
+
+// upstreamProxyURL returns the configured upstream proxy URL, if any.
+func upstreamProxyURL() *url.URL {
+	for _, key := range []string{"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
+		if v := os.Getenv(key); v != "" {
+			if u, err := url.Parse(v); err == nil {
+				return u
+			}
+		}
+	}
+	return nil
+}
+
+// hasUpstreamProxy checks if an upstream HTTP proxy is configured via environment.
+func hasUpstreamProxy() bool {
+	for _, key := range []string{"HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy"} {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // copyHeaders copies HTTP headers, skipping hop-by-hop headers.

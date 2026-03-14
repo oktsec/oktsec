@@ -15,6 +15,7 @@ import (
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/dashboard/static"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/graph"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
 )
@@ -48,6 +49,12 @@ type Server struct {
 	checkDetected  []string
 	checkProducts  map[string]auditcheck.ProductInfo
 	checkCacheTime time.Time
+
+	// Cached buildGraph results (expires after 10s)
+	graphMu         sync.Mutex
+	graphCache      *graph.AgentGraph
+	graphCacheRange string
+	graphCacheTime  time.Time
 }
 
 // NewServer creates a dashboard server with access-code authentication.

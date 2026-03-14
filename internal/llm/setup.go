@@ -2,6 +2,7 @@ package llm
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
 )
@@ -69,4 +70,32 @@ func SetupQueue(cfg config.LLMConfig, logger *slog.Logger) (*Queue, *SignalDetec
 		"model", cfg.Model,
 	)
 	return queue, sd
+}
+
+// SetupEscalation creates an EscalationTracker from config. Returns nil if
+// escalation is disabled. The caller is responsible for calling
+// tracker.HandleResult(result) inside their OnResult callback chain,
+// and calling tracker.Stop() on shutdown.
+func SetupEscalation(cfg config.LLMEscalationConfig, queue *Queue, logger *slog.Logger) *EscalationTracker {
+	if !cfg.Enabled || queue == nil {
+		return nil
+	}
+
+	threshold := cfg.RiskThreshold
+	if threshold <= 0 {
+		threshold = 80
+	}
+	ttlMin := cfg.TTLMinutes
+	if ttlMin <= 0 {
+		ttlMin = 30
+	}
+	ttl := time.Duration(ttlMin) * time.Minute
+
+	tracker := NewEscalationTracker(threshold, ttl, logger)
+
+	logger.Info("llm escalation enabled",
+		"risk_threshold", threshold,
+		"ttl_minutes", ttlMin,
+	)
+	return tracker
 }

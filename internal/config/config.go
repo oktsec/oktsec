@@ -55,11 +55,21 @@ type LLMConfig struct {
 	Triage           LLMTriageConfig   `yaml:"triage,omitempty"`
 	MinContentLength int              `yaml:"min_content_length,omitempty"` // skip short messages
 
-	Budget   LLMBudgetConfig   `yaml:"budget,omitempty"`
-	Fallback LLMFallbackConfig `yaml:"fallback,omitempty"`
-	RuleGen  LLMRuleGenConfig  `yaml:"rulegen,omitempty"`
-	Intent   LLMIntentConfig   `yaml:"intent,omitempty"`
-	Webhook  LLMWebhookConfig  `yaml:"webhook,omitempty"`
+	Budget     LLMBudgetConfig     `yaml:"budget,omitempty"`
+	Fallback   LLMFallbackConfig   `yaml:"fallback,omitempty"`
+	RuleGen    LLMRuleGenConfig    `yaml:"rulegen,omitempty"`
+	Intent     LLMIntentConfig     `yaml:"intent,omitempty"`
+	Webhook    LLMWebhookConfig    `yaml:"webhook,omitempty"`
+	Escalation LLMEscalationConfig `yaml:"escalation,omitempty"`
+}
+
+// LLMEscalationConfig controls automatic verdict escalation driven by LLM
+// threat analysis. When the LLM detects a high-risk threat for an agent,
+// all future verdicts for that agent are escalated one level for a TTL window.
+type LLMEscalationConfig struct {
+	Enabled       bool    `yaml:"enabled"`
+	RiskThreshold float64 `yaml:"risk_threshold,omitempty"` // min risk score to trigger (default: 80)
+	TTLMinutes    int     `yaml:"ttl_minutes,omitempty"`    // escalation duration (default: 30)
 }
 
 // LLMFallbackConfig configures a secondary LLM provider used when the

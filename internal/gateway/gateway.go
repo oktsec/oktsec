@@ -53,6 +53,7 @@ type Gateway struct {
 	constraintChecker *ConstraintChecker
 	llmQueue          *llm.Queue
 	signalDetector    *llm.SignalDetector
+	escalationTracker *llm.EscalationTracker
 	hooksHandler      http.Handler
 	logger            *slog.Logger
 	registeredAgents  map[string]bool
@@ -438,6 +439,11 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			verdict.ApplyBlockedContent(agentCfg, outcome)
 		}
 
+		// 7b. LLM-driven agent escalation (async feedback loop)
+		if g.escalationTracker != nil && g.escalationTracker.IsEscalated(agent) {
+			outcome.Verdict = verdict.EscalateOneLevel(outcome.Verdict)
+		}
+
 		// 8. Determine verdict
 		findingsJSON := verdict.EncodeFindings(outcome.Findings)
 		status, decision := verdictToGateway(outcome.Verdict)
@@ -638,6 +644,11 @@ func (g *Gateway) SetLLMQueue(q *llm.Queue) {
 // SetSignalDetector sets the triage pre-filter for LLM analysis.
 func (g *Gateway) SetSignalDetector(sd *llm.SignalDetector) {
 	g.signalDetector = sd
+}
+
+// SetEscalationTracker sets the LLM-driven verdict escalation tracker.
+func (g *Gateway) SetEscalationTracker(t *llm.EscalationTracker) {
+	g.escalationTracker = t
 }
 
 // SetHooksHandler sets the handler for /hooks/event (tool-call telemetry).
