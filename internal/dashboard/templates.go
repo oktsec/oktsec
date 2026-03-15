@@ -659,6 +659,16 @@ a.ov-metric:hover{background:var(--surface2)}
 .empty-step{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);font-size:var(--text-sm);color:var(--text2);text-align:left}
 .empty-step .step-num{width:24px;height:24px;border-radius:50%;background:var(--accent-glow);border:1px solid var(--accent-border);color:var(--accent-light);font-size:var(--text-xs);font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .empty-step code{background:var(--surface2);padding:1px 6px;border-radius:var(--radius-sm);font-family:var(--mono);font-size:var(--text-xs);color:var(--accent-light)}
+.score-ring{position:relative;display:inline-flex;align-items:center;justify-content:center}
+.score-ring svg{display:block}
+.score-ring-fill{transition:stroke-dashoffset 0.8s ease-out}
+.score-ring-fill.success{stroke:var(--success)}
+.score-ring-fill.warn{stroke:var(--warn)}
+.score-ring-fill.danger{stroke:var(--danger)}
+.score-ring-val{position:absolute;font-size:var(--text-md);font-weight:700;font-family:var(--sans);letter-spacing:-0.02em}
+.score-ring-val.success{color:var(--success)}
+.score-ring-val.warn{color:var(--warn)}
+.score-ring-val.danger{color:var(--danger)}
 @media(max-width:768px){.hero-stats{grid-template-columns:repeat(2,1fr)}.ov-grid{grid-template-columns:1fr}}
 </style>
 
@@ -692,7 +702,19 @@ a.ov-metric:hover{background:var(--surface2)}
     <div class="lbl">Agents Secured</div>
   </a>
   <a href="/dashboard/audit" class="hero-stat">
-    <div class="num {{gradeColor .Grade}}" id="stat-score">{{.Score}}</div>
+    <div class="score-ring" id="score-ring">
+      <svg viewBox="0 0 48 48" width="48" height="48">
+        <circle cx="24" cy="24" r="20" fill="none" stroke="var(--border)" stroke-width="3"/>
+        <circle id="score-ring-arc" cx="24" cy="24" r="20" fill="none" stroke-width="3" stroke-linecap="round"
+          class="score-ring-fill {{gradeColor .Grade}}"
+          stroke-dasharray="125.66" stroke-dashoffset="125.66"
+          transform="rotate(-90 24 24)"/>
+      </svg>
+      <span class="score-ring-val {{gradeColor .Grade}}">{{.Score}}</span>
+    </div>
+    <script>
+    (function(){var arc=document.getElementById('score-ring-arc');if(!arc)return;var score={{.Score}};var offset=125.66*(1-score/100);setTimeout(function(){arc.style.strokeDashoffset=offset},50)})();
+    </script>
     <div class="lbl">Posture Score</div>
   </a>
 </div>
