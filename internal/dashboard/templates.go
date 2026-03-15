@@ -4162,7 +4162,7 @@ updateExportLinks();
   updateExpiry();
   </script>
   {{else}}
-  <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.{{if not .RequireSig}} Quarantine is active in enforce mode.{{end}}</div>
+  <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.{{if not .RequireSig}} Currently in observe mode - messages are scanned but not held. Switch to enforce mode to enable quarantine.{{end}}</div>
   {{end}}
 </div>
 

@@ -1437,16 +1437,21 @@ func (s *Server) resolveRuleCategories(rules []triggeredRule) {
 }
 
 var decisionLabels = map[string]string{
-	"allow":               "Message delivered normally",
-	"content_blocked":     "Blocked — dangerous content detected",
-	"content_quarantined": "Held for review — suspicious content detected",
-	"quarantine_approved": "Reviewed and approved for delivery",
-	"quarantine_rejected": "Reviewed and rejected",
-	"signature_required":  "Rejected — message was not signed",
-	"acl_denied":          "Rejected — agent not authorized for this destination",
-	"agent_suspended":     "Rejected — sender agent is suspended",
-	"recipient_suspended": "Rejected — recipient agent is suspended",
-	"identity_rejected":   "Rejected — identity verification failed",
+	"allow":                  "Message delivered normally",
+	"allowed":                "Message delivered normally",
+	"content_blocked":        "Blocked — dangerous content detected",
+	"content_flagged":        "Delivered with warning — content flagged",
+	"content_quarantined":    "Held for review — suspicious content detected",
+	"quarantine_approved":    "Reviewed and approved for delivery",
+	"quarantine_rejected":    "Reviewed and rejected",
+	"signature_required":     "Rejected — message was not signed",
+	"acl_denied":             "Rejected — agent not authorized for this destination",
+	"agent_suspended":        "Rejected — sender agent is suspended",
+	"recipient_suspended":    "Rejected — recipient agent is suspended",
+	"identity_rejected":      "Rejected — identity verification failed",
+	"proxy_blocked_content":  "Blocked — proxy content filter",
+	"proxy_blocked_domain":   "Blocked — restricted domain",
+	"rate_limited":           "Rejected — rate limit exceeded",
 }
 
 func humanReadableDecision(decision string) string {
