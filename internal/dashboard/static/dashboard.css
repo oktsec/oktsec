@@ -66,8 +66,18 @@
 html{scroll-behavior:smooth}
 
 /* --- Skeleton loading --- */
-@keyframes skeleton-pulse{0%,100%{opacity:0.05}50%{opacity:0.1}}
-.skeleton{background:var(--text3);border-radius:var(--radius-sm);animation:skeleton-pulse 1.5s ease-in-out infinite}
+@keyframes skeleton-pulse{0%,100%{opacity:0.04}50%{opacity:0.08}}
+.skeleton{background:var(--border);border-radius:var(--radius-sm);animation:skeleton-pulse 1.5s ease-in-out infinite}
+.skeleton-text{height:12px;margin-bottom:var(--sp-2);border-radius:var(--radius-sm)}
+.skeleton-text:last-child{width:60%}
+.skeleton-row{display:flex;gap:var(--sp-4);padding:var(--sp-3) 0;border-bottom:1px solid var(--border)}
+.skeleton-row .skeleton{height:14px;flex:1}
+.skeleton-row .skeleton:first-child{flex:0.3}
+.skeleton-row .skeleton:last-child{flex:0.2}
+
+/* --- Fade-in for loaded content --- */
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.htmx-added{animation:fadeIn 0.2s ease-out}
 
 /* --- Focus ring --- */
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -116,7 +126,8 @@ a{color:inherit;text-decoration:none}
 /* ==========================================================================
    Main content
    ========================================================================== */
-main{margin-left:240px;padding:72px var(--sp-8) var(--sp-8);background:var(--bg);min-height:100vh}
+@keyframes pageIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+main{margin-left:240px;padding:72px var(--sp-8) var(--sp-8);background:var(--bg);min-height:100vh;animation:pageIn 0.25s ease-out}
 h1{font-size:var(--text-xl);font-weight:600;margin-bottom:var(--sp-1);letter-spacing:var(--ls-tight);color:var(--text)}
 h1 span{color:var(--text2);font-weight:400}
 .page-desc{color:var(--text3);font-size:var(--text-sm);margin-bottom:var(--sp-6)}
@@ -143,7 +154,7 @@ h1 span{color:var(--text2);font-weight:400}
 /* ==========================================================================
    Card
    ========================================================================== */
-.card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5);margin-bottom:var(--sp-4);transition:all var(--ease-smooth)}
+.card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5);margin-bottom:var(--sp-4);transition:border-color var(--ease-smooth),box-shadow var(--ease-smooth)}
 .card:hover{box-shadow:var(--shadow-md);border-color:var(--border-hover)}
 .card h2{font-size:var(--text-md);font-weight:600;margin-bottom:var(--sp-4);display:flex;align-items:center;gap:var(--sp-2);padding-bottom:var(--sp-3);border-bottom:1px solid var(--border);letter-spacing:var(--ls-tight);color:var(--text)}
 .card h2 .dot{width:6px;height:6px;border-radius:50%;background:var(--success);animation:pulse 2s infinite}

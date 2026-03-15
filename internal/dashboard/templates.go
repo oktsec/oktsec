@@ -930,6 +930,25 @@ a.ov-metric:hover{background:var(--surface2)}
     }).catch(function(){});
   }
   setInterval(pollHeroStats,4000);
+
+  // Count-up animation on page load
+  function animateNum(el){
+    var text=el.textContent.replace(/,/g,'');
+    var target=parseInt(text,10);
+    if(isNaN(target)||target===0)return;
+    var duration=600,start=0,startTime=null;
+    function step(ts){
+      if(!startTime)startTime=ts;
+      var p=Math.min((ts-startTime)/duration,1);
+      var ease=1-Math.pow(1-p,3); // easeOutCubic
+      var val=Math.round(ease*target);
+      el.textContent=val.toLocaleString();
+      if(p<1)requestAnimationFrame(step);
+    }
+    el.textContent='0';
+    requestAnimationFrame(step);
+  }
+  document.querySelectorAll('.hero-stat .num').forEach(animateNum);
 })();
 </script>
 ` + layoutFoot))
