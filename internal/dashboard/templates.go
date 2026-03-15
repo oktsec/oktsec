@@ -840,8 +840,8 @@ a.ov-metric:hover{background:var(--surface2)}
       <span class="k">Threat rate</span>
       <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{end}}">{{if gt .DetectionRate 0}}{{.DetectionRate}}%{{else}}<span style="color:var(--success)">&lt; 1%</span>{{end}}</span>
     </a>
-    <div class="ov-metric" data-tooltip="Median latency scanning {{.RuleCount}} detection rules per message">
-      <span class="k">Scan latency (p50)</span>
+    <div class="ov-metric">
+      <span class="k">Scan latency</span>
       <span class="v {{if ge .AvgLatency 500}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
     </div>
     <a href="/dashboard/settings?tab=identity" class="ov-metric">
