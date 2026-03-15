@@ -2745,7 +2745,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   <a href="/dashboard/settings?tab=security" class="tab {{if eq .Tab "security"}}active{{end}}">Security</a>
   <a href="/dashboard/settings?tab=identity" class="tab {{if eq .Tab "identity"}}active{{end}}">Identity</a>
   <a href="/dashboard/settings?tab=pipeline" class="tab {{if eq .Tab "pipeline"}}active{{end}}">Pipeline</a>
-  <a href="/dashboard/settings?tab=infra" class="tab {{if eq .Tab "infra"}}active{{end}}">Infrastructure</a>
+  <a href="/dashboard/settings?tab=infra" class="tab {{if eq .Tab "infra"}}active{{end}}">Notifications</a>
 </div>
 
 <!-- Security -->

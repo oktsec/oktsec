@@ -46,7 +46,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
 @media(max-width:768px){.alert-stats{grid-template-columns:repeat(2,1fr)}.alert-table{font-size:0.75rem}}
 </style>
 
-<p class="page-desc">Webhook notifications for security events. Configure channels in <a href="/dashboard/settings" style="color:var(--accent-light)">Settings</a>.</p>
+<p class="page-desc">Webhook notifications for security events. <a href="/dashboard/settings?tab=infra" style="color:var(--accent-light)">Configure channels</a></p>
 
 <!-- Stats -->
 <div class="alert-stats">
@@ -106,7 +106,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
 <div class="card" style="padding:0;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
     <h3 style="margin:0;font-size:0.82rem;font-weight:600">Alert History</h3>
-    <a href="/dashboard/settings" class="btn btn-sm" style="font-size:0.72rem">Configure Webhooks</a>
+    <a href="/dashboard/settings?tab=infra" class="btn btn-sm" style="font-size:0.72rem">Configure Webhooks</a>
   </div>
   {{if .Alerts}}
   <div style="overflow-x:auto">
@@ -141,7 +141,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
   <div class="empty-state">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
     <p>No alerts yet</p>
-    <p style="font-size:0.75rem;color:var(--text3);margin-top:6px">Configure webhook channels in <a href="/dashboard/settings" style="color:var(--accent)">Settings</a> to start receiving alerts</p>
+    <p style="font-size:0.75rem;color:var(--text3);margin-top:6px">Configure webhook channels in <a href="/dashboard/settings?tab=infra" style="color:var(--accent)">Settings</a> to start receiving alerts</p>
   </div>
   {{end}}
 </div>
