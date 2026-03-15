@@ -614,6 +614,89 @@ function agentAvatar(name,sz){
   return '<svg class="avatar" width="'+sz+'" height="'+sz+'" viewBox="0 0 40 40">'+b+'</svg>';
 }
 function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">'+agentAvatar(name,20)+' '+name+'</span>';}
+
+// Custom confirm modal (replaces ALL confirm dialogs)
+(function(){
+  var overlay=document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.innerHTML='<div class="modal"><div class="modal-title">Confirm</div><div class="modal-msg" id="modal-msg"></div><div class="modal-actions"><button class="btn btn-outline" id="modal-cancel">Cancel</button><button class="btn" id="modal-ok">Confirm</button></div></div>';
+  document.body.appendChild(overlay);
+  var pendingResolve=null;
+  function closeModal(result){overlay.classList.remove('open');if(pendingResolve){pendingResolve(result);pendingResolve=null;}}
+  document.getElementById('modal-cancel').onclick=function(){closeModal(false)};
+  overlay.onclick=function(e){if(e.target===overlay)closeModal(false)};
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&overlay.classList.contains('open'))closeModal(false)});
+  document.getElementById('modal-ok').onclick=function(){closeModal(true)};
+  function showModal(msg){
+    document.getElementById('modal-msg').textContent=msg;
+    var isDestructive=msg.toLowerCase().indexOf('delete')>-1||msg.toLowerCase().indexOf('suspend')>-1||msg.toLowerCase().indexOf('revoke')>-1;
+    var okBtn=document.getElementById('modal-ok');
+    okBtn.className=isDestructive?'btn btn-danger':'btn';
+    okBtn.textContent=isDestructive?'Confirm':'OK';
+    overlay.classList.add('open');
+    return new Promise(function(resolve){pendingResolve=resolve});
+  }
+  // Override native window.confirm
+  window.confirm=function(msg){
+    // For sync callers (onclick="return confirm()"), we can't use Promise.
+    // Instead, prevent the default form submit and re-submit after confirmation.
+    return false; // block by default; the click handler below handles it
+  };
+  // Intercept clicks on elements with onclick="return confirm(...)"
+  document.addEventListener('click',function(e){
+    var btn=e.target.closest('[onclick*="confirm("]');
+    if(!btn)return;
+    var match=btn.getAttribute('onclick').match(/confirm\(['"](.+?)['"]\)/);
+    if(!match)return;
+    e.preventDefault();e.stopPropagation();
+    showModal(match[1]).then(function(ok){
+      if(!ok)return;
+      // Remove the confirm onclick and re-click
+      var orig=btn.getAttribute('onclick');
+      btn.setAttribute('onclick','');
+      btn.click();
+      btn.setAttribute('onclick',orig);
+    });
+  },true);
+  // HTMX confirm intercept
+  document.body.addEventListener('htmx:confirm',function(e){
+    var msg=e.detail.question;
+    if(!msg)return;
+    e.preventDefault();
+    showModal(msg).then(function(ok){
+      if(ok){e.detail.issueRequest=true;htmx.trigger(e.detail.elt,'confirmed');}
+    });
+  });
+})();
+
+// Toast notification system
+(function(){
+  var container=document.createElement('div');
+  container.className='toast-container';
+  document.body.appendChild(container);
+  window.showToast=function(msg,type){
+    type=type||'success';
+    var t=document.createElement('div');
+    t.className='toast '+type;
+    var icon=type==='success'?'&#10003;':'&#10007;';
+    t.innerHTML='<span class="toast-icon">'+icon+'</span><span class="toast-msg">'+msg+'</span>';
+    container.appendChild(t);
+    setTimeout(function(){t.classList.add('hiding');setTimeout(function(){t.remove()},200)},3000);
+  };
+  // Auto-show toast on HTMX successful actions
+  document.body.addEventListener('htmx:afterRequest',function(e){
+    var t=e.detail.target;
+    if(e.detail.successful&&e.detail.requestConfig&&e.detail.requestConfig.verb==='post'){
+      var path=e.detail.requestConfig.path||'';
+      if(path.indexOf('/approve')>-1)showToast('Approved successfully');
+      else if(path.indexOf('/reject')>-1)showToast('Rejected');
+      else if(path.indexOf('/dismiss')>-1)showToast('Dismissed as false positive');
+      else if(path.indexOf('/confirm')>-1)showToast('Confirmed as threat','error');
+      else if(path.indexOf('/toggle')>-1)showToast('Updated');
+      else if(path.indexOf('/suspend')>-1)showToast('Agent status updated');
+    }
+  });
+})();
 </script>
 </body>
 </html>`
@@ -929,7 +1012,7 @@ a.ov-metric:hover{background:var(--surface2)}
       }
 
       var row = document.createElement('tr');
-      row.className = 'clickable';
+      row.className = 'clickable new-event';
       row.setAttribute('hx-get', '/dashboard/api/event/' + entry.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
@@ -4141,7 +4224,7 @@ updateExportLinks();
       }
       var hasRules = ev.rules_triggered && ev.rules_triggered !== '[]' && ev.rules_triggered !== 'null';
       var row = document.createElement('tr');
-      row.className = 'ev-row clickable' + (hasRules ? ' has-rules' : '');
+      row.className = 'ev-row clickable new-event' + (hasRules ? ' has-rules' : '');
       row.setAttribute('hx-get', '/dashboard/api/event/' + ev.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
