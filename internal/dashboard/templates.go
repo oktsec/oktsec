@@ -4170,13 +4170,14 @@ updateExportLinks();
 <div class="tab-content {{if eq .Tab "blocked"}}active{{end}}" data-tab-content="events" data-tab-name="blocked">
   {{if .BlockedEntries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Reason</th><th>Status</th></tr></thead>
     <tbody>
     {{range .BlockedEntries}}
     <tr class="blk-row clickable has-rules" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
+      <td style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text2);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{humanDecision .PolicyDecision}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
     </tr>
     {{end}}
