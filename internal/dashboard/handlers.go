@@ -2598,9 +2598,9 @@ func (s *Server) handleToggleLLM(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html")
 	if s.cfg.LLM.Enabled {
-		fmt.Fprintf(w, `<button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Disable</button>`)
+		fmt.Fprintf(w, `<button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap" hx-confirm="Disable AI analysis? Threat detection will rely on rules only.">Disable</button>`)
 	} else {
-		fmt.Fprintf(w, `<button class="btn btn-sm" style="background:var(--success);color:#fff;font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Enable</button>`)
+		fmt.Fprintf(w, `<button class="btn btn-sm btn-success" style="font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Enable</button>`)
 	}
 }
 

@@ -3263,7 +3263,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
   </div>
   {{end}}
   <div id="llm-toggle-wrap" style="margin-left:{{if not .BudgetStatus}}auto{{else}}0{{end}}">
-    <button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Disable</button>
+    <button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap" hx-confirm="Disable AI analysis? Threat detection will rely on rules only.">Disable</button>
   </div>
 </div>
 
