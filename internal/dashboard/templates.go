@@ -97,7 +97,7 @@ var tmplFuncs = template.FuncMap{
 		titles := map[string]string{
 			"events":    "Events",
 			"audit":     "Security Posture",
-			"llm":       "Threat Intel",
+			"llm":       "AI Analysis",
 			"discovery": "Discovery",
 			"overview":  "Overview",
 			"agents":    "Agents",
@@ -105,7 +105,7 @@ var tmplFuncs = template.FuncMap{
 			"graph":     "Graph",
 			"gateway":   "Gateway",
 			"settings":  "Settings",
-			"alerts":    "Alerts",
+			"alerts":    "Webhooks",
 		}
 		if t, ok := titles[active]; ok {
 			return strings.ToUpper(t)
@@ -469,7 +469,7 @@ const layoutHead = `<!DOCTYPE html>
     </a>
     <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-      Alerts
+      Webhooks
     </a>
   </div>
   <div class="sidebar-section">
@@ -491,7 +491,7 @@ const layoutHead = `<!DOCTYPE html>
     <div class="sidebar-section-label">Analyze</div>
     <a href="/dashboard/llm" class="sidebar-item {{if eq .Active "llm"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><circle cx="12" cy="6" r="1"/><path d="M9 22v-2"/><path d="M15 22v-2"/></svg>
-      Threat Intel
+      AI Analysis
     </a>
     <a href="/dashboard/graph" class="sidebar-item {{if eq .Active "graph"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -517,7 +517,7 @@ const layoutHead = `<!DOCTYPE html>
   </button>
   <span class="page-title">{{pageTitle .Active}}</span>
   <div class="spacer"></div>
-  <span class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
+  <a href="/dashboard/settings?tab=security" class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Enforce mode — signatures required, unsigned messages rejected{{else}}Observe mode — scanning active, signatures optional. Click to configure.{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</a>
   <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" class="topbar-logout">Logout</button></form>
 </div>
 <main>`
@@ -762,7 +762,7 @@ a.ov-metric:hover{background:var(--surface2)}
 @media(max-width:768px){.hero-stats{grid-template-columns:repeat(2,1fr)}.ov-grid{grid-template-columns:1fr}}
 </style>
 
-<p class="page-desc"><span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<p class="page-desc">Real-time security overview across all agents and tools. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 {{if and (eq .Stats.TotalMessages 0) (eq .AgentCount 0)}}
 <div class="empty-state">
@@ -831,6 +831,7 @@ a.ov-metric:hover{background:var(--surface2)}
     </div>
     <div class="pipeline-summary">
       {{.RuleCount}} rules &middot; {{if .RequireSig}}enforce{{else}}observe{{end}} mode &middot; chain {{if .ChainValid}}verified{{else}}broken{{end}} ({{formatNum .ChainCount}})
+      <br><span style="font-size:var(--text-xs);opacity:0.7">Green = active stage &middot; Gray = not configured or not triggered</span>
     </div>
   </div>
   <div class="ov-card">
@@ -853,8 +854,8 @@ a.ov-metric:hover{background:var(--surface2)}
     </a>
     {{if .LLMEnabled}}
     <a href="/dashboard/llm" class="ov-metric">
-      <span class="k">LLM findings</span>
-      <span class="v {{if gt .LLMThreats 5}}warn{{else if gt .LLMThreats 0}}text-secondary{{end}}">{{.LLMThreats}} <span style="color:var(--text3);font-size:var(--text-xs);font-weight:400">detected</span></span>
+      <span class="k">AI analysis</span>
+      <span class="v {{if gt .LLMThreats 5}}warn{{else if gt .LLMThreats 0}}text-secondary{{end}}">{{.LLMThreats}} <span style="color:var(--text3);font-size:var(--text-xs);font-weight:400">findings</span></span>
     </a>
     {{end}}
   </div>
