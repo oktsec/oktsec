@@ -46,7 +46,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
 @media(max-width:768px){.alert-stats{grid-template-columns:repeat(2,1fr)}.alert-table{font-size:0.75rem}}
 </style>
 
-<p class="page-desc">Webhook notification history and alerting configuration</p>
+<p class="page-desc">Webhook notifications for security events. Configure channels in <a href="/dashboard/settings" style="color:var(--accent-light)">Settings</a>.</p>
 
 <!-- Stats -->
 <div class="alert-stats">

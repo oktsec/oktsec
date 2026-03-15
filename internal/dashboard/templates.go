@@ -919,7 +919,7 @@ a.ov-metric:hover{background:var(--surface2)}
 
   {{if .AgentRisks}}
   <div class="ov-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0" data-tooltip="Risk score based on blocked and flagged messages per agent in the last 24 hours">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
     <div id="ar-list">
     {{range $i, $a := .AgentRisks}}{{if not (contains $a.Agent ":")}}
     <div class="ov-metric clickable ar-item" style="cursor:pointer" onclick="window.location='/dashboard/agents/{{$a.Agent}}'">
@@ -1183,7 +1183,7 @@ var searchResultsTmpl = template.Must(template.New("search-results").Funcs(tmplF
 {{end}}`))
 
 var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Each agent can only message destinations listed in its ACL. Manage agents, generate keypairs, and view message history.</p>
+<p class="page-desc">Registered agents with identity keys, message history, and risk scoring. Unregistered agents appear in Discovered below.</p>
 
 <div class="card">
   {{if .AgentRows}}
@@ -1219,10 +1219,10 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 
 {{if .DiscoveredAgents}}
 <div class="card">
-  <h2 style="color:var(--warn)">Discovered from Traffic</h2>
-  <p class="desc">These agent identifiers appeared as message destinations in scanned traffic. They may be tool names, subagents, or external endpoints. Register them to apply identity verification and ACL policies.</p>
+  <h2 style="color:var(--warn)">Discovered from Traffic <span style="font-size:var(--text-xs);font-weight:400;color:var(--text3);margin-left:var(--sp-2)">{{len .DiscoveredAgents}} unregistered</span></h2>
+  <p class="desc">These identifiers appeared as message destinations but aren't registered agents. They may be tool names, subagents, or external endpoints. Register to enforce identity and ACL policies.</p>
   <table>
-    <thead><tr><th>Agent</th><th>Action</th></tr></thead>
+    <thead><tr><th>Identifier</th><th></th></tr></thead>
     <tbody>
     {{range .DiscoveredAgents}}
     <tr>
@@ -1625,7 +1625,7 @@ function stagePolicy() {
 ` + layoutFoot))
 
 var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Manage built-in detection rules and create custom rules for your organization.</p>
+<p class="page-desc">{{if .RuleCount}}{{.RuleCount}} detection rules active{{if .Categories}} across {{len .Categories}} categories{{end}}. Toggle rules on/off.{{else}}Manage detection rules and create custom rules for your organization.{{end}}</p>
 
 <style>
 .rules-tabs{display:flex;gap:0;margin-bottom:var(--sp-6);border-bottom:1px solid var(--border)}
@@ -1672,7 +1672,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 <div style="display:flex;align-items:center;gap:16px;padding:14px 20px;margin-bottom:20px;background:var(--surface);border:1px solid rgba(99,102,241,0.2);border-radius:10px">
   <div style="flex:1;min-width:0">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-      <span style="font-weight:600;font-size:0.85rem">Threat Intel</span>
+      <span style="font-weight:600;font-size:0.85rem">AI-Generated Rules</span>
       {{if .LLMPendingCount}}<span style="font-size:0.68rem;padding:2px 8px;border-radius:4px;background:rgba(251,146,60,0.12);color:#fb923c;font-weight:600">{{.LLMPendingCount}} pending review</span>{{end}}
     </div>
     <span style="font-size:0.75rem;color:var(--text3)">{{.LLMActiveCount}} LLM-generated rules active{{if .LLMPendingCount}} &middot; {{.LLMPendingCount}} awaiting approval{{end}}</span>
@@ -3973,7 +3973,7 @@ function ciCopyText(text, btn) {
 // --- Events page (merged audit log + quarantine) ---
 
 var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Quarantined messages need human review. Blocked messages were stopped automatically. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<p class="page-desc">All intercepted messages. Click any row for full details. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 <div class="filter-bar">
   <select id="filter-agent">
