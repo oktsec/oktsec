@@ -3625,7 +3625,7 @@ tqApply();
 
 <div style="display:flex;justify-content:space-between;align-items:center;padding-top:4px;padding-bottom:16px">
   <button type="submit" class="btn">Save Configuration</button>
-  <button type="button" class="btn btn-sm" style="background:transparent;color:var(--text3);border:1px solid var(--border);font-size:0.75rem" onclick="if(confirm('Disable LLM analysis?')){document.getElementById('llm-disable-form').submit()}">Disable LLM</button>
+  <button type="submit" form="llm-disable-form" class="btn btn-sm btn-outline" style="font-size:0.75rem" onclick="return confirm('Disable AI analysis? Threat detection will rely on rules only.')">Disable AI Analysis</button>
 </div>
 </form>
 <form method="POST" action="/dashboard/settings/llm" id="llm-disable-form" style="display:none">
