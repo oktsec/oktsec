@@ -5,9 +5,9 @@ import "html/template"
 var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
 .alert-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
-.alert-stat{background:var(--surface);padding:24px 20px;text-align:center}
-.alert-stat .num{font-size:2rem;font-weight:800;letter-spacing:-0.04em;font-family:var(--mono);line-height:1}
-.alert-stat .lbl{font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-top:6px;font-weight:500}
+.alert-stat{background:var(--surface);padding:var(--sp-5) var(--sp-5);text-align:center}
+.alert-stat .num{font-size:var(--text-3xl);font-weight:800;letter-spacing:-0.04em;font-family:var(--sans);line-height:1;color:var(--text)}
+.alert-stat .lbl{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-top:var(--sp-2);font-weight:500}
 .alert-config{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:24px}
 .alert-config h3{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:14px;font-weight:500}
 .config-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
@@ -23,21 +23,21 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
 .alert-table tr:last-child td{border-bottom:none}
 .alert-table tr:hover td{background:var(--surface2)}
 .event-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:5px;font-size:0.72rem;font-weight:600;font-family:var(--mono)}
-.event-badge.blocked{background:rgba(255,59,48,0.12);color:#ff3b30}
-.event-badge.quarantined{background:rgba(255,149,0,0.12);color:#ff9500}
-.event-badge.llm_threat{background:rgba(175,82,222,0.12);color:#af52de}
-.event-badge.anomaly,.event-badge.agent_risk_elevated{background:rgba(255,204,0,0.12);color:#cc9900}
-.event-badge.agent_suspended{background:rgba(255,59,48,0.15);color:#ff3b30}
-.event-badge.rule_triggered{background:rgba(0,122,255,0.12);color:#007aff}
+.event-badge.blocked{background:rgba(248,81,73,0.12);color:#f85149}
+.event-badge.quarantined{background:rgba(210,153,34,0.12);color:#d29922}
+.event-badge.llm_threat{background:rgba(137,87,229,0.12);color:#8957e5}
+.event-badge.anomaly,.event-badge.agent_risk_elevated{background:rgba(210,153,34,0.12);color:#d29922}
+.event-badge.agent_suspended{background:rgba(248,81,73,0.15);color:#f85149}
+.event-badge.rule_triggered{background:rgba(99,102,241,0.12);color:var(--accent-light)}
 .sev-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
-.sev-dot.critical{background:#ff3b30}
-.sev-dot.high{background:#ff9500}
-.sev-dot.medium{background:#ffcc00}
-.sev-dot.low{background:#34c759}
+.sev-dot.critical{background:#f85149}
+.sev-dot.high{background:#db6d28}
+.sev-dot.medium{background:#d29922}
+.sev-dot.low{background:#3fb950}
 .sev-dot.info{background:var(--text3)}
 .status-pill{font-size:0.68rem;padding:2px 7px;border-radius:4px;font-weight:600;font-family:var(--mono)}
-.status-pill.sent{background:rgba(52,199,89,0.12);color:#34c759}
-.status-pill.failed{background:rgba(255,59,48,0.12);color:#ff3b30}
+.status-pill.sent{background:rgba(63,185,80,0.12);color:#3fb950}
+.status-pill.failed{background:rgba(248,81,73,0.12);color:#f85149}
 .empty-state{text-align:center;padding:60px 24px;color:var(--text3)}
 .empty-state svg{width:48px;height:48px;stroke:var(--text3);opacity:0.3;margin-bottom:12px}
 .empty-state p{font-size:0.88rem;margin:0}

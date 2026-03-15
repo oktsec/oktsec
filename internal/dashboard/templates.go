@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -65,13 +66,27 @@ var tmplFuncs = template.FuncMap{
 		}
 	},
 	"upper": strings.ToUpper,
+	"formatNum": func(n int) string {
+		if n < 1000 {
+			return strconv.Itoa(n)
+		}
+		s := strconv.Itoa(n)
+		var b strings.Builder
+		for i, c := range s {
+			if i > 0 && (len(s)-i)%3 == 0 {
+				b.WriteByte(',')
+			}
+			b.WriteRune(c)
+		}
+		return b.String()
+	},
 	"toolDot": func(toolName string) template.HTML {
 		colors := map[string]string{
-			"Bash": "#fbbf24", "Write": "#c084fc", "Edit": "#818cf8",
+			"Bash": "#d29922", "Write": "#c084fc", "Edit": "#818cf8",
 			"Read": "#22d3ee", "Glob": "#2dd4bf", "Grep": "#2dd4bf",
 			"WebFetch": "#f472b6", "WebSearch": "#f472b6", "Agent": "#a78bfa",
 		}
-		c := "#71717a"
+		c := "#6e7681"
 		if v, ok := colors[toolName]; ok {
 			c = v
 		}
@@ -270,20 +285,21 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#09090b;--surface:#18181b;--surface2:#27272a;--border:#3f3f46;
-  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
+  --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --danger:#f87171;--success:#34d399;--warn:#fbbf24;
+  --danger:#f85149;--success:#3fb950;--warn:#d29922;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
-  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
+  --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
+@font-face{font-family:'Inter';src:url('/dashboard/static/fonts/Inter.woff2') format('woff2');font-weight:100 900;font-style:normal;font-display:swap}
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
 .backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%);pointer-events:none;z-index:0}
-.login-card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2);animation:fadeIn 0.4s ease-out}
+.login-card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.4);animation:fadeIn 0.4s ease-out}
 .icon{margin-bottom:20px}
 .icon svg{width:48px;height:48px;color:var(--accent)}
-.logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.3px;margin-bottom:8px}
+.logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.3px;margin-bottom:8px;color:var(--text)}
 .subtitle{color:var(--text2);font-size:0.85rem;margin-bottom:32px}
 .help{color:var(--text3);font-size:0.78rem;margin-bottom:24px;line-height:1.6}
 .help code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)}
@@ -299,9 +315,9 @@ button{
   border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;
   transition:background 0.2s,transform 0.1s,box-shadow 0.2s;
 }
-button:hover{background:var(--accent-dim);box-shadow:0 4px 16px rgba(99,102,241,0.35)}
+button:hover{background:var(--accent-light);box-shadow:0 0 24px rgba(99,102,241,0.35)}
 button:active{transform:scale(0.98)}
-.error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.15);border-radius:8px;color:var(--danger);font-size:0.82rem}
+.error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.2);border-radius:8px;color:var(--danger);font-size:0.82rem}
 .error svg{flex-shrink:0;width:16px;height:16px}
 .footer{margin-top:32px;color:var(--text3);font-size:0.72rem}
 </style>
@@ -334,11 +350,11 @@ var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#09090b;--surface:#18181b;--border:#3f3f46;
-  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
+  --bg:#0d1117;--surface:#161b22;--border:#30363d;
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
-  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
+  --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:0.15}50%{opacity:0.25}}
@@ -387,11 +403,11 @@ var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#09090b;--surface:#18181b;--surface2:#27272a;--border:#3f3f46;
-  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
+  --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
-  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
+  --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
@@ -429,332 +445,7 @@ const layoutHead = `<!DOCTYPE html>
 <title>oktsec — {{.Active}}</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E">
 <script src="/dashboard/static/htmx.min.js"></script>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#09090b;--surface:#18181b;--surface2:#27272a;--surface-hover:#303033;
-  --border:#3f3f46;--border-hover:#52525b;--border-subtle:rgba(255,255,255,0.06);
-  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
-  --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --accent-glow:rgba(99,102,241,0.08);--accent-glow-md:rgba(99,102,241,0.15);--accent-border:rgba(99,102,241,0.2);
-  --danger:#f87171;--success:#34d399;--warn:#fbbf24;
-  --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
-  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
-}
-body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;font-size:0.88rem;line-height:1.5;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-
-/* Sidebar */
-.sidebar{position:fixed;top:0;left:0;width:240px;height:100vh;background:var(--bg);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;overflow-y:auto}
-.sidebar .brand{padding:20px 20px 24px;font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:-0.3px;color:var(--text);text-decoration:none;display:block}
-.sidebar-section{padding:0 12px;margin-bottom:16px}
-.sidebar-section+.sidebar-section{border-top:1px solid var(--border);padding-top:8px}
-.sidebar-section-label{font-size:0.65rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);font-weight:500;padding:8px 12px 6px;user-select:none}
-.sidebar-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;color:var(--text3);font-size:0.82rem;font-weight:500;text-decoration:none;transition:all 0.15s;border-left:2px solid transparent;margin-bottom:1px}
-.sidebar-item:hover{background:var(--surface-hover);color:var(--text2)}
-.sidebar-item.active{color:var(--accent);background:var(--accent-glow);border-left-color:var(--accent)}
-.sidebar-item svg{width:18px;height:18px;flex-shrink:0;opacity:0.7}
-.sidebar-item.active svg{opacity:1}
-
-/* Top bar */
-.topbar{position:fixed;top:0;left:240px;right:0;height:48px;background:rgba(24,24,27,0.85);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;z-index:99;backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px)}
-.topbar .page-title{font-size:0.9rem;font-weight:600;color:var(--text)}
-.topbar .spacer{flex:1}
-.topbar .mode-pill{display:inline-flex;align-items:center;gap:6px;background:var(--accent-glow);border:1px solid var(--accent-border);padding:4px 14px 4px 10px;border-radius:100px;font-size:0.72rem;font-weight:500;color:var(--accent-light);font-family:var(--mono);transition:all 0.2s}
-.topbar .mode-pill .dot{width:5px;height:5px;border-radius:50%;animation:pulse 2s infinite}
-.topbar .mode-pill.enforce .dot{background:var(--success)}
-.topbar .mode-pill.enforce{background:rgba(52,211,153,0.08);border-color:rgba(52,211,153,0.2);color:var(--success)}
-.topbar .mode-pill.observe .dot{background:var(--warn)}
-.topbar .mode-pill.observe{background:rgba(251,191,36,0.08);border-color:rgba(251,191,36,0.2);color:var(--warn)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-
-/* Main */
-main{margin-left:240px;padding:80px 32px 32px;background:var(--surface);min-height:100vh}
-h1{font-size:1.3rem;font-weight:600;margin-bottom:6px;letter-spacing:-0.2px}
-h1 span{color:var(--text2);font-weight:400}
-.page-desc{color:var(--text3);font-size:0.82rem;margin-bottom:28px}
-
-/* Grid utility classes */
-.grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
-.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-
-/* Stats */
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
-.stat{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:18px 20px;transition:all 0.2s;position:relative;overflow:hidden}
-.stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent-dim),var(--accent-light));opacity:0;transition:opacity 0.2s}
-.stat:hover{background:var(--surface-hover);border-color:var(--border-hover);transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,0.15)}
-.stat:hover::before{opacity:1}
-.stat .label{color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:500;margin-bottom:6px}
-.stat .value{font-family:var(--mono);font-size:1.7rem;font-weight:700}
-.stat .value.success{color:var(--success)}
-.stat .value.danger{color:var(--danger)}
-.stat .value.warn{color:var(--warn)}
-
-/* Card */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:16px;transition:all 0.2s}
-.card:hover{box-shadow:0 2px 8px rgba(0,0,0,0.1)}
-.card:hover{border-color:var(--border-hover)}
-.card h2{font-size:0.92rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-.card h2 .dot{width:6px;height:6px;border-radius:50%;background:var(--success);animation:pulse 2s infinite}
-
-/* Table */
-table{width:100%;border-collapse:collapse;font-size:0.82rem}
-th{text-align:left;color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;font-weight:500;padding:8px 12px;border-bottom:1px solid var(--border)}
-td{padding:10px 12px;border-bottom:1px solid rgba(63,63,70,0.6);color:var(--text2);font-family:var(--mono);font-size:0.78rem;transition:background 0.15s}
-tr:hover td{background:rgba(99,102,241,0.04)}
-
-/* Status badges */
-.badge-delivered{background:rgba(74,222,128,0.09);color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-blocked{background:rgba(248,113,113,0.09);color:#f87171;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600;animation:badgePulse 3s ease-in-out infinite}
-@keyframes badgePulse{0%,100%{box-shadow:none}50%{box-shadow:0 0 6px rgba(248,113,113,0.2)}}
-.badge-rejected{background:rgba(251,146,60,0.09);color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-quarantined{background:#a855f718;color:#c084fc;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-verified{color:var(--success)}
-.badge-unsigned{color:var(--text3)}
-.badge-invalid{color:var(--danger)}
-
-/* Agent list */
-.agent-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
-.agent-row:last-child{border-bottom:none}
-.agent-name{font-family:var(--mono);font-weight:600;min-width:160px}
-.agent-name a{color:var(--text);text-decoration:none;transition:color 0.2s}
-.agent-name a:hover{color:var(--accent-light)}
-.agent-targets{color:var(--text3);font-size:0.78rem}
-
-/* Severity labels */
-.sev-critical{background:rgba(248,113,113,0.15);color:#f87171;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-high{background:rgba(251,146,60,0.15);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:600;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-medium{background:rgba(96,165,250,0.12);color:#60a5fa;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-low{background:rgba(113,113,122,0.12);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-.sev-info{color:var(--text3);font-size:0.68rem;font-weight:500;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.3px}
-
-/* Action badges */
-.act-block{background:rgba(248,113,113,0.09);color:#f87171;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.act-quarantine{background:rgba(168,85,247,0.09);color:#c084fc;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.act-allow-and-flag{background:rgba(251,146,60,0.09);color:#fb923c;padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.act-ignore{background:var(--surface2);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:0.7rem;font-weight:600}
-
-/* Chart */
-.chart{display:flex;align-items:flex-end;gap:3px;height:80px;padding:8px 0}
-.chart-bar{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-width:4px;transition:background 0.2s;position:relative}
-.chart-bar:hover{background:var(--accent-light)}
-.chart-labels{display:flex;justify-content:space-between;color:var(--text3);font-size:0.65rem;font-family:var(--mono);padding-top:4px}
-
-/* Toggle */
-.toggle-btn{display:inline-block;padding:6px 14px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:8px;font-size:0.78rem;cursor:pointer;text-decoration:none;transition:all 0.2s}
-.toggle-btn:hover{background:var(--accent-dim);color:#fff;border-color:var(--accent)}
-
-/* HTMX loading indicator */
-.htmx-indicator{display:none}
-.htmx-request .htmx-indicator,
-.htmx-request.htmx-indicator{display:inline-block}
-.loading-spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.6s linear infinite;display:inline-block;vertical-align:middle;margin-left:6px}
-@keyframes spin{to{transform:rotate(360deg)}}
-.htmx-request td,.htmx-request .stat{opacity:0.5;transition:opacity 0.2s}
-
-/* Key table */
-.fp{color:var(--text3);font-size:0.72rem}
-
-/* Empty state */
-.empty{color:var(--text3);text-align:center;padding:40px 0;font-size:0.85rem}
-
-/* Search bar */
-.search-bar{position:relative;margin-bottom:16px}
-.search-bar input{
-  width:100%;padding:10px 16px 10px 36px;background:var(--bg);border:1px solid var(--border);
-  border-radius:8px;color:var(--text);font-family:var(--mono);font-size:0.82rem;outline:none;transition:border-color 0.2s;
-}
-.search-bar input:focus{border-color:var(--accent)}
-.search-bar input::placeholder{color:var(--text3)}
-.search-bar .search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:0.82rem;pointer-events:none}
-
-/* Slide-in panel */
-.panel-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:199;opacity:0;pointer-events:none;transition:opacity 0.3s ease}
-.panel-overlay.open{opacity:1;pointer-events:auto}
-.panel{position:fixed;top:0;right:0;width:480px;max-width:90vw;height:100%;background:var(--surface);border-left:1px solid var(--border);z-index:200;transform:translateX(100%);transition:transform 0.3s ease;overflow-y:auto;padding:0}
-.panel.open{transform:translateX(0)}
-.panel-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:1}
-.panel-header h3{font-size:0.95rem;font-weight:600}
-.panel-close{background:none;border:none;color:var(--text3);font-size:1.2rem;cursor:pointer;padding:4px 8px;border-radius:4px;transition:all 0.2s;width:auto;margin:0}
-.panel-close:hover{color:var(--text);background:var(--surface2)}
-.panel-body{padding:24px}
-.panel-body .field{margin-bottom:16px}
-.panel-body .field-label{color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
-.panel-body .field-value{font-family:var(--mono);font-size:0.82rem;color:var(--text);word-break:break-all}
-.panel-body .field-value.hash{font-size:0.72rem;color:var(--text2)}
-
-/* Tabs */
-.tabs{display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border)}
-.tab{padding:10px 20px;color:var(--text3);font-size:0.82rem;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;background:none;border-top:none;border-left:none;border-right:none;width:auto}
-.tab:hover{color:var(--text)}
-.tab.active{color:var(--accent-light);border-bottom-color:var(--accent-light)}
-.tab-content{display:none}
-.tab-content.active{display:block}
-
-/* Form elements */
-.form-row{display:flex;gap:12px;margin-bottom:12px;align-items:flex-end}
-.form-group{flex:1}
-.form-group label{display:block;color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
-.form-group input,.form-group select,.form-group textarea{
-  width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);
-  border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.82rem;outline:none;transition:border-color 0.2s;
-}
-.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
-.form-group select{cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23555570' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
-.form-group textarea{resize:vertical;min-height:80px}
-.btn{display:inline-block;padding:8px 18px;background:linear-gradient(135deg,var(--accent),var(--accent-dim));color:#fff;border:none;border-radius:6px;font-size:0.82rem;font-weight:600;cursor:pointer;transition:all 0.2s;width:auto;margin:0;box-shadow:0 1px 3px rgba(99,102,241,0.2)}
-.btn:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(99,102,241,0.3)}
-.btn:hover{background:var(--accent-light)}
-.btn-sm{padding:4px 12px;font-size:0.72rem}
-.btn-danger{background:var(--danger)}
-.btn-danger:hover{background:#ef4444}
-
-/* Clickable rows */
-tr.clickable{cursor:pointer}
-tr.clickable:hover td{background:var(--surface2)}
-tr.has-rules>td:first-child{border-left:3px solid var(--warn);padding-left:11px}
-
-/* Rule card in list */
-.rule-list-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.2s}
-.rule-list-item:last-child{border-bottom:none}
-.rule-list-item:hover{background:var(--surface2);margin:0 -20px;padding:10px 20px}
-.rule-id-col{font-family:var(--mono);font-weight:600;min-width:200px;font-size:0.78rem;color:var(--text)}
-.rule-name-col{flex:1;color:var(--text2);font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rule-cat-col{color:var(--text3);font-size:0.72rem;min-width:100px}
-
-/* SSE indicator */
-.sse-indicator{display:inline-flex;align-items:center;gap:6px;font-size:0.72rem;color:var(--text3)}
-.sse-dot{width:6px;height:6px;border-radius:50%;background:var(--text3)}
-.sse-dot.connected{background:var(--success);animation:pulse 2s infinite}
-
-/* Pattern display */
-.pattern-item{font-family:var(--mono);font-size:0.72rem;color:var(--text2);background:var(--bg);padding:6px 10px;border-radius:4px;margin-bottom:4px;word-break:break-all}
-
-/* Quarantine */
-.q-preview{font-family:var(--mono);font-size:0.75rem;color:var(--text2);background:var(--bg);padding:8px 12px;border-radius:6px;max-height:60px;overflow:hidden;white-space:pre-wrap;word-break:break-all}
-.q-content{font-family:var(--mono);font-size:0.78rem;color:var(--text);background:var(--bg);padding:12px 16px;border-radius:6px;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;border:1px solid var(--border)}
-.q-actions{display:flex;gap:8px;margin-top:8px}
-.pending-badge{background:#fb923c;color:#000;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:8px;margin-left:6px}
-.badge-pending{background:rgba(251,146,60,0.09);color:#fb923c;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-approved{background:rgba(74,222,128,0.09);color:#4ade80;padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-.badge-expired{background:var(--surface2);color:var(--text3);padding:3px 10px;border-radius:4px;font-size:0.7rem;font-weight:600}
-
-/* Agent tags */
-.agent-tag{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:4px;font-size:0.7rem;color:var(--text2);font-family:var(--sans);background:transparent}
-.avatar{border-radius:50%;vertical-align:middle;flex-shrink:0}
-.agent-cell{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-
-/* ACL target pills */
-.acl-target{display:inline-block;padding:2px 8px;background:rgba(99,102,241,0.1);border-radius:4px;font-size:0.72rem;color:var(--accent-light);font-family:var(--mono)}
-
-/* Risk bar */
-.risk-bar{height:8px;border-radius:4px;background:var(--surface2);position:relative;min-width:60px}
-.risk-bar-fill{height:100%;border-radius:4px;transition:width 0.3s}
-.risk-low{background:var(--success)}
-.risk-med{background:var(--warn)}
-.risk-high{background:var(--danger)}
-
-/* Horizontal bar chart */
-.hbar{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.hbar-label{min-width:80px;font-family:var(--mono);font-size:0.75rem;color:var(--text2);text-align:right}
-.hbar-track{flex:1;height:20px;background:var(--surface2);border-radius:4px;overflow:hidden}
-.hbar-fill{height:100%;border-radius:4px;transition:width 0.3s}
-.hbar-count{min-width:40px;font-family:var(--mono);font-size:0.75rem;color:var(--text3)}
-
-/* Alert banner */
-.alert-banner{padding:14px 20px;border-radius:10px;margin-bottom:20px;display:flex;align-items:center;gap:12px;font-size:0.88rem}
-.alert-banner.warn{background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);color:var(--warn)}
-.alert-banner strong{font-weight:600}
-.alert-banner .btn{margin-left:auto;white-space:nowrap}
-
-/* Rule categories accordion */
-.rule-category{border-bottom:1px solid var(--border)}
-.rule-category:last-child{border-bottom:none}
-.rule-cat-header{display:flex;align-items:center;gap:12px;padding:14px 4px;cursor:pointer;list-style:none;user-select:none;transition:background 0.15s}
-.rule-cat-header:hover{background:var(--surface2)}
-.rule-cat-header::-webkit-details-marker{display:none}
-.rule-cat-header::before{content:'\25B8';color:var(--text3);font-size:0.75rem;transition:transform 0.2s;width:14px;text-align:center}
-details[open] > .rule-cat-header::before{transform:rotate(90deg)}
-.rule-cat-name{font-weight:600;font-size:0.85rem;min-width:180px}
-.rule-cat-count{color:var(--text3);font-size:0.72rem;font-family:var(--mono)}
-.rule-cat-badges{display:flex;gap:4px;margin-left:auto}
-.rule-cat-body{padding:0 0 8px 26px}
-
-/* Toggle switch */
-.toggle{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0}
-.toggle input{opacity:0;width:0;height:0}
-.toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--surface2);border:1px solid var(--border);border-radius:20px;transition:all 0.2s}
-.toggle-slider::before{content:'';position:absolute;height:14px;width:14px;left:2px;bottom:2px;background:var(--text3);border-radius:50%;transition:all 0.2s}
-input:checked + .toggle-slider{background:var(--accent-dim);border-color:var(--accent)}
-input:checked + .toggle-slider::before{transform:translateX(16px);background:var(--accent-light)}
-
-/* Rule row with toggle */
-.rule-list-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);transition:background 0.2s}
-.rule-list-item:last-child{border-bottom:none}
-.rule-list-item:hover{background:var(--surface2);margin:0 -20px;padding:10px 20px}
-.rule-list-item.disabled{opacity:0.45}
-.rule-desc{color:var(--text3);font-size:0.72rem;font-family:var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:350px}
-.rule-info{flex:1;min-width:0;cursor:pointer}
-.rule-info .rule-id-col{font-family:var(--mono);font-weight:600;font-size:0.78rem;color:var(--text)}
-.rule-info .rule-name-col{color:var(--text2);font-size:0.75rem;font-family:var(--sans);margin-top:1px}
-
-/* Category header with toggle */
-.rule-cat-header{display:flex;align-items:center;gap:12px;padding:16px 4px;cursor:pointer;list-style:none;user-select:none;transition:background 0.15s}
-.rule-cat-desc{color:var(--text3);font-size:0.72rem;font-family:var(--sans);margin-top:2px}
-.cat-disabled-label{color:var(--text3);font-size:0.7rem;font-style:italic}
-
-/* Inline add form */
-.inline-add{display:flex;gap:8px;align-items:flex-end;padding:16px 0;border-top:1px solid var(--border);margin-top:8px}
-.inline-add .form-group{margin:0}
-.inline-add .form-group label{margin-bottom:2px}
-
-/* Tooltip */
-[data-tooltip]{position:relative;cursor:help;border-bottom:1px dotted var(--text3)}
-[data-tooltip]::after{content:attr(data-tooltip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:6px;font-size:0.72rem;white-space:normal;z-index:300;opacity:0;pointer-events:none;transition:opacity 0.15s;font-family:var(--sans);font-weight:400;line-height:1.4;max-width:260px;text-align:center}
-[data-tooltip]:hover::after{opacity:1}
-
-/* Stat sub-description */
-.stat .sub{color:var(--text3);font-size:0.68rem;margin-top:4px;font-family:var(--sans)}
-
-/* Hamburger menu */
-.hamburger{display:none;background:none;border:none;color:var(--text2);cursor:pointer;padding:4px;margin-right:10px;width:auto;line-height:0}
-.hamburger:hover{color:var(--text)}
-
-/* Sidebar overlay */
-.sidebar-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:99;opacity:0;pointer-events:none;transition:opacity 0.3s}
-.sidebar-overlay.open{opacity:1;pointer-events:auto}
-
-/* Responsive — tablet */
-@media(max-width:768px){
-  .hamburger{display:block}
-  .sidebar{transform:translateX(-100%);transition:transform 0.3s ease}
-  .sidebar.mobile-open{transform:translateX(0)}
-  .topbar{left:0}
-  main{margin-left:0;padding:64px 16px 16px}
-  .stats{grid-template-columns:repeat(2,1fr)}
-  .grid-4{grid-template-columns:repeat(2,1fr)}
-  .grid-3{grid-template-columns:repeat(2,1fr)}
-  .grid-2{grid-template-columns:1fr}
-  .cat-grid{grid-template-columns:1fr}
-  .panel{width:100%;max-width:100%}
-  .form-row{flex-direction:column}
-  .inline-add{flex-direction:column;align-items:stretch}
-  table{display:block;overflow-x:auto}
-  .agent-name{min-width:auto}
-  .rule-id-col,.rule-cat-name{min-width:auto}
-}
-
-/* Responsive — phone */
-@media(max-width:480px){
-  main{padding:60px 12px 12px}
-  h1{font-size:1.1rem}
-  .stats,.grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
-  .stat .value{font-size:1.3rem}
-  .tabs{flex-wrap:wrap}
-  .tab{padding:8px 14px;font-size:0.78rem}
-  .rules-tab{padding:10px 16px;font-size:0.82rem}
-}
-</style>
+<link rel="stylesheet" href="/dashboard/static/dashboard.css">
 </head>
 <body>
 <aside class="sidebar">
@@ -820,7 +511,7 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
   <span class="page-title">{{pageTitle .Active}}</span>
   <div class="spacer"></div>
   <span class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
-  <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" style="background:transparent;border:1px solid var(--border);color:var(--text3);padding:5px 12px;border-radius:6px;font-size:0.72rem;cursor:pointer;font-family:var(--sans);transition:all 0.15s" onmouseover="this.style.color='var(--text2)';this.style.borderColor='var(--border-hover)';this.style.background='var(--surface2)'" onmouseout="this.style.color='var(--text3)';this.style.borderColor='var(--border)';this.style.background='transparent'">Logout</button></form>
+  <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" class="topbar-logout">Logout</button></form>
 </div>
 <main>`
 
@@ -929,121 +620,136 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 
 var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
-.hero-stat{background:var(--surface);padding:24px 20px;text-align:center;transition:background 0.15s}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
+.hero-stat{background:var(--surface);padding:var(--sp-6) var(--sp-5);text-align:center;transition:background var(--ease-smooth);position:relative}
+.hero-stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent-dim),var(--accent-light));opacity:0;transition:opacity var(--ease-smooth)}
 .hero-stat:hover{background:var(--surface2)}
-.hero-stat .num{font-size:2rem;font-weight:800;letter-spacing:-0.04em;font-family:var(--mono);line-height:1}
-.hero-stat .lbl{font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;color:var(--text3);margin-top:6px;font-weight:500}
-.ov-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
-.ov-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
-.ov-card h3{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:14px;font-weight:500}
+.hero-stat:hover::before{opacity:1}
+.hero-stat .num{font-size:var(--text-3xl);font-weight:800;letter-spacing:-0.04em;font-family:var(--sans);line-height:1}
+.hero-stat .lbl{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-top:var(--sp-2);font-weight:500}
+.ov-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);margin-bottom:var(--sp-4)}
+.ov-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5);transition:all var(--ease-smooth)}
+.ov-card:hover{border-color:var(--border-hover);box-shadow:var(--shadow-md)}
+.ov-card h3{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:14px;font-weight:500}
 .ov-metric{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--border)}
 .ov-metric:last-child{border-bottom:none}
-.ov-metric .k{font-size:0.82rem;color:var(--text2)}
-.ov-metric .v{font-family:var(--mono);font-weight:600;font-size:0.88rem}
-a.ov-metric{display:flex;border-radius:4px;margin:0 -6px;padding:7px 6px;transition:background 0.15s}
+.ov-metric .k{font-size:var(--text-base);color:var(--text2)}
+.ov-metric .v{font-family:var(--mono);font-weight:600;font-size:var(--text-md)}
+a.ov-metric{display:flex;border-radius:var(--radius-sm);margin:0 -6px;padding:7px 6px;transition:background var(--ease-default);text-decoration:none;color:inherit}
 a.ov-metric:hover{background:var(--surface2)}
-a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
-.ov-feed-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.ov-feed-hdr h2{font-size:0.82rem;margin:0}
-.ov-feed-hdr a{font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500}
+.ov-feed-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--sp-3)}
+.ov-feed-hdr h2{font-size:var(--text-base);margin:0;border:none;padding:0}
+.ov-feed-hdr a{font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500}
 .ov-feed-hdr a:hover{text-decoration:underline}
+.pipeline-stages{display:flex;flex-wrap:wrap;gap:var(--sp-2) var(--sp-4);margin-bottom:var(--sp-4)}
+.pipeline-stage{display:flex;align-items:center;gap:6px;font-size:var(--text-sm);color:var(--text2)}
+.pipeline-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pipeline-dot.active{background:var(--success)}
+.pipeline-dot.inactive{background:var(--text3);opacity:0.4}
+.pipeline-summary{font-size:var(--text-sm);color:var(--text3);padding-top:var(--sp-3);border-top:1px solid var(--border)}
+.sparkline-wrap{padding:var(--sp-2) 0}
+.sparkline-chart{display:flex;align-items:flex-end;gap:2px;height:48px}
+.sparkline-bar{flex:1;background:var(--accent);border-radius:1px 1px 0 0;min-width:3px;transition:background var(--ease-smooth)}
+.sparkline-bar:hover{background:var(--accent-light)}
+.empty-state{text-align:center;padding:var(--sp-16) var(--sp-6)}
+.empty-state svg{width:48px;height:48px;color:var(--accent);opacity:0.6;margin-bottom:var(--sp-5)}
+.empty-state h2{font-size:var(--text-xl);font-weight:600;margin-bottom:var(--sp-2);letter-spacing:var(--ls-tight)}
+.empty-state p{color:var(--text2);font-size:var(--text-md);margin-bottom:var(--sp-8);max-width:420px;margin-left:auto;margin-right:auto;line-height:1.6}
+.empty-steps{display:flex;flex-direction:column;gap:var(--sp-3);max-width:320px;margin:0 auto}
+.empty-step{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);font-size:var(--text-sm);color:var(--text2);text-align:left}
+.empty-step .step-num{width:24px;height:24px;border-radius:50%;background:var(--accent-glow);border:1px solid var(--accent-border);color:var(--accent-light);font-size:var(--text-xs);font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.empty-step code{background:var(--surface2);padding:1px 6px;border-radius:var(--radius-sm);font-family:var(--mono);font-size:var(--text-xs);color:var(--accent-light)}
 @media(max-width:768px){.hero-stats{grid-template-columns:repeat(2,1fr)}.ov-grid{grid-template-columns:1fr}}
 </style>
 
 <p class="page-desc"><span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 {{if and (eq .Stats.TotalMessages 0) (eq .AgentCount 0)}}
-<div class="card" style="text-align:center;padding:40px 24px">
-  <div style="font-size:1.4rem;font-weight:600;margin-bottom:8px">Welcome to oktsec</div>
-  <p style="color:var(--text2);margin-bottom:16px;max-width:480px;margin-left:auto;margin-right:auto">No agent activity yet. Run <code style="background:var(--bg2);padding:2px 6px;border-radius:4px">oktsec run</code> to auto-discover your MCP servers, connect clients, and start monitoring.</p>
+<div class="empty-state">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+  <h2>Welcome to oktsec</h2>
+  <p>Your security pipeline is ready. No agent activity yet.</p>
+  <div class="empty-steps">
+    <div class="empty-step"><span class="step-num">1</span> Run <code>oktsec run</code></div>
+    <div class="empty-step"><span class="step-num">2</span> Use your MCP clients normally</div>
+    <div class="empty-step"><span class="step-num">3</span> Watch threats get caught here</div>
+  </div>
 </div>
 {{else}}
 
-<!-- Hero: the 3 numbers that tell the story -->
+<!-- Hero: the 4 numbers that tell the story -->
 <div class="hero-stats" id="hero-stats">
-  <a href="/dashboard/events" class="hero-stat" style="text-decoration:none;color:inherit">
-    <div class="num success" id="stat-total">{{.Stats.TotalMessages}}</div>
+  <a href="/dashboard/events" class="hero-stat">
+    <div class="num success" id="stat-total">{{formatNum .Stats.TotalMessages}}</div>
     <div class="lbl">Messages Protected</div>
   </a>
-  <a href="/dashboard/events?tab=blocked" class="hero-stat" style="text-decoration:none;color:inherit">
-    <div class="num danger" id="stat-blocked">{{add .Stats.Blocked .Stats.Rejected}}</div>
+  <a href="/dashboard/events?tab=blocked" class="hero-stat">
+    <div class="num danger" id="stat-blocked">{{formatNum (add .Stats.Blocked .Stats.Rejected)}}</div>
     <div class="lbl">Threats Blocked</div>
   </a>
-  <a href="/dashboard/agents" class="hero-stat" style="text-decoration:none;color:inherit">
+  <a href="/dashboard/agents" class="hero-stat">
     <div class="num" style="color:var(--accent-light)" id="stat-agents">{{.AgentCount}}</div>
     <div class="lbl">Agents Secured</div>
   </a>
-  <a href="/dashboard/audit" class="hero-stat" style="text-decoration:none;color:inherit">
+  <a href="/dashboard/audit" class="hero-stat">
     <div class="num {{gradeColor .Grade}}" id="stat-score">{{.Score}}</div>
     <div class="lbl">Posture Score</div>
   </a>
 </div>
 
 {{if .PendingReview}}
-<div class="alert-banner warn" style="margin-bottom:16px">
+<div class="alert-banner warn">
   <strong>{{.PendingReview}} message{{if gt .PendingReview 1}}s{{end}} pending review</strong>
-  <span style="color:var(--text2);font-size:0.78rem">Quarantined content awaiting human decision</span>
+  <span style="color:var(--text2);font-size:var(--text-sm)">Quarantined content awaiting human decision</span>
   <a href="/dashboard/events?tab=quarantine" class="btn btn-sm" style="background:var(--warn);color:#000">Review Now</a>
 </div>
 {{end}}
 
-<!-- Security Status + Active Threats — above the fold -->
+<!-- Pipeline Health + Security Status -->
 <div class="ov-grid">
   <div class="ov-card">
+    <h3>Pipeline Health</h3>
+    <div class="pipeline-stages">
+      {{range .PipelineStages}}
+      <div class="pipeline-stage">
+        <span class="pipeline-dot {{if .Active}}active{{else}}inactive{{end}}"></span>
+        {{.Name}}
+      </div>
+      {{end}}
+    </div>
+    <div class="pipeline-summary">
+      {{.RuleCount}} rules &middot; {{if .RequireSig}}enforce{{else}}observe{{end}} mode &middot; chain {{if .ChainValid}}verified{{else}}broken{{end}} ({{formatNum .ChainCount}})
+    </div>
+  </div>
+  <div class="ov-card">
     <h3>Security Status</h3>
-    <a href="/dashboard/rules" class="ov-metric" style="text-decoration:none;color:inherit">
-      <span class="k">Detection rules</span>
-      <span class="v">175 active</span>
-    </a>
-    <a href="/dashboard/settings" class="ov-metric" style="text-decoration:none;color:inherit">
-      <span class="k">Identity mode</span>
-      <span class="v">{{if .RequireSig}}<span style="color:var(--success)">enforce</span>{{else}}<span style="color:var(--warn)">observe</span>{{end}}</span>
-    </a>
-    <a href="/dashboard/audit" class="ov-metric" style="text-decoration:none;color:inherit">
-      <span class="k">Audit chain</span>
-      <span class="v">{{if .ChainValid}}<span style="color:var(--success)">verified</span>{{else}}<span style="color:var(--danger)">broken</span>{{end}} <span style="color:var(--text3);font-size:0.78rem">({{.ChainCount}})</span>{{if and (not .ChainValid) .ChainReason}}<br><span style="font-size:0.68rem;color:var(--text3);font-weight:400">{{.ChainReason}}</span>{{end}}</span>
+    <a href="/dashboard/events" class="ov-metric">
+      <span class="k">Detection rate</span>
+      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</span>
     </a>
     <div class="ov-metric">
       <span class="k">Avg latency</span>
       <span class="v {{if ge .AvgLatency 200}}danger{{else if ge .AvgLatency 50}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
     </div>
-    {{if .LLMEnabled}}
-    <a href="/dashboard/llm?tab=config" class="ov-metric" style="text-decoration:none;color:inherit">
-      <span class="k">LLM model</span>
-      <span class="v" style="color:var(--accent-light)">{{.LLMProvider}}</span>
+    <a href="/dashboard/settings?tab=identity" class="ov-metric">
+      <span class="k">Unsigned messages</span>
+      <span class="v {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}} <span style="color:var(--text3);font-size:var(--text-sm)">({{.UnsignedPct}}%)</span></span>
     </a>
-    {{end}}
-  </div>
-  <div class="ov-card">
-    <h3>Active Threats</h3>
-    <a href="/dashboard/events" class="ov-metric" style="text-decoration:none;color:inherit">
-      <span class="k">Detection rate</span>
-      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</span>
+    <a href="/dashboard/events?tab=quarantine" class="ov-metric">
+      <span class="k">Quarantine queue</span>
+      <span class="v">{{if .PendingReview}}<span style="color:var(--warn)">{{.PendingReview}} pending</span>{{else}}<span style="color:var(--success)">clear</span>{{end}}</span>
     </a>
     {{if .LLMEnabled}}
-    <a href="/dashboard/llm" class="ov-metric" style="text-decoration:none;color:inherit">
+    <a href="/dashboard/llm" class="ov-metric">
       <span class="k">LLM threats</span>
       <span class="v {{if gt .LLMThreats 0}}danger{{else}}success{{end}}">{{.LLMThreats}}</span>
     </a>
     {{end}}
-    <a href="/dashboard/graph" class="ov-metric" style="text-decoration:none;color:inherit">
-      <span class="k">Risk agents</span>
-      <span class="v">{{len .AgentRisks}}</span>
-    </a>
-    <a href="/dashboard/settings?tab=identity" class="ov-metric" style="text-decoration:none;color:inherit">
-      <span class="k">Unsigned messages</span>
-      <span class="v {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}} <span style="color:var(--text3);font-size:0.78rem">({{.UnsignedPct}}%)</span></span>
-    </a>
-    <a href="/dashboard/events?tab=quarantine" class="ov-metric" style="text-decoration:none;color:inherit">
-      <span class="k">Quarantine queue</span>
-      <span class="v">{{if .PendingReview}}<span style="color:var(--warn)">{{.PendingReview}} pending</span>{{else}}<span style="color:var(--success)">clear</span>{{end}}</span>
-    </a>
   </div>
 </div>
 
-<!-- Live Feed (compact) -->
-<div class="card" style="margin-bottom:16px">
+<!-- Live Feed -->
+<div class="card">
   <div class="ov-feed-hdr">
     <h2><span class="dot"></span> Live Feed</h2>
     <a href="/dashboard/events">View all &rarr;</a>
@@ -1076,10 +782,10 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
 </div>
 
 {{if .Chart}}
-<div class="card" style="margin-bottom:16px">
-  <h2 style="font-size:0.82rem;margin-bottom:8px">Activity (24h)</h2>
-  <div class="chart" style="height:40px">
-    {{range .Chart}}<div class="chart-bar" style="height:{{.Percent}}%" title="{{.Label}}: {{.Count}} msgs"></div>{{end}}
+<!-- Activity sparkline -->
+<div class="sparkline-wrap">
+  <div class="sparkline-chart">
+    {{range .Chart}}<div class="sparkline-bar" style="height:{{.Percent}}%" title="{{.Label}}: {{.Count}} msgs"></div>{{end}}
   </div>
 </div>
 {{end}}
@@ -1088,10 +794,10 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
 <div class="ov-grid">
   {{if .TopRules}}
   <div class="ov-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Top Threats (24h)</h3><a href="/dashboard/rules" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Top Threats (24h)</h3><a href="/dashboard/rules" style="font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
     {{range .TopRules}}
     <div class="ov-metric clickable" style="cursor:pointer" hx-get="/dashboard/api/rule/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
-      <span class="k">{{.Name}}<br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{.RuleID}}</span></span>
+      <span class="k">{{.Name}}<br><span style="color:var(--text3);font-size:var(--text-xs);font-family:var(--mono)">{{.RuleID}}</span></span>
       <span class="v">{{if eq .Severity "critical"}}<span style="color:var(--danger)">{{.Count}}</span>{{else if eq .Severity "high"}}<span style="color:#fb923c">{{.Count}}</span>{{else}}<span>{{.Count}}</span>{{end}}</span>
     </div>
     {{end}}
@@ -1100,24 +806,24 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
 
   {{if .AgentRisks}}
   <div class="ov-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
     <div id="ar-list">
-    {{range $i, $a := .AgentRisks}}
+    {{range $i, $a := .AgentRisks}}{{if not (contains $a.Agent ":")}}
     <div class="ov-metric clickable ar-item" style="cursor:pointer" onclick="window.location='/dashboard/agents/{{$a.Agent}}'">
-      <span class="k">{{$a.Agent}}<br><span style="color:var(--text3);font-size:0.68rem;font-family:var(--mono)">{{$a.Total}} msgs</span></span>
+      <span class="k">{{if eq $a.Agent "unknown"}}<span style="color:var(--text3)">Unidentified</span>{{else}}{{$a.Agent}}{{end}}<br><span style="color:var(--text3);font-size:var(--text-xs);font-family:var(--mono)">{{$a.Total}} msgs</span></span>
       <span class="v">
-        <span style="display:inline-block;width:60px;height:6px;background:var(--bg2);border-radius:3px;vertical-align:middle;margin-right:6px"><span style="display:block;height:100%;width:{{printf "%.0f" $a.RiskScore}}%;border-radius:3px;background:{{if gt $a.RiskScore 60.0}}var(--danger){{else if gt $a.RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}"></span></span>
-        <span style="font-size:0.78rem">{{printf "%.0f" $a.RiskScore}}</span>
+        <div class="risk-bar" style="width:60px;display:inline-block;vertical-align:middle;margin-right:6px"><div class="risk-bar-fill {{if gt $a.RiskScore 60.0}}risk-high{{else if gt $a.RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" $a.RiskScore}}%"></div></div>
+        <span style="font-size:var(--text-sm)">{{printf "%.0f" $a.RiskScore}}</span>
       </span>
     </div>
-    {{end}}
+    {{end}}{{end}}
     </div>
-    <div id="ar-pager" style="display:none;padding-top:10px;border-top:1px solid var(--border);margin-top:4px">
+    <div id="ar-pager" style="display:none;padding-top:10px;border-top:1px solid var(--border);margin-top:var(--sp-1)">
       <div style="display:flex;align-items:center;justify-content:space-between">
-        <span id="ar-info" style="font-size:0.72rem;color:var(--text3)"></span>
+        <span id="ar-info" style="font-size:var(--text-sm);color:var(--text3)"></span>
         <span style="display:flex;gap:6px">
-          <button id="ar-prev" onclick="arPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:3px 10px;border-radius:6px;cursor:pointer;font-size:0.72rem">&lsaquo; Prev</button>
-          <button id="ar-next" onclick="arPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:3px 10px;border-radius:6px;cursor:pointer;font-size:0.72rem">Next &rsaquo;</button>
+          <button id="ar-prev" class="pager-btn" onclick="arPage(-1)">&lsaquo; Prev</button>
+          <button id="ar-next" class="pager-btn" onclick="arPage(1)">Next &rsaquo;</button>
         </span>
       </div>
     </div>
@@ -1126,7 +832,6 @@ a.ov-metric+.ov-metric,a.ov-metric+a.ov-metric,.ov-metric+a.ov-metric{}
 </div>
 
 {{end}}
-
 
 <script>
 // Agent Risk pagination
@@ -1309,10 +1014,10 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
 
 var graphEventsTmpl = template.Must(template.New("graph-events").Funcs(tmplFuncs).Parse(`
 {{range .}}
-<div style="padding:6px 0;border-left:3px solid {{if eq .Status "blocked"}}#f87171{{else if eq .Status "quarantined"}}#fbbf24{{else}}var(--border){{end}};padding-left:10px;margin-bottom:6px">
+<div style="padding:6px 0;border-left:3px solid {{if eq .Status "blocked"}}#f85149{{else if eq .Status "quarantined"}}#d29922{{else}}var(--border){{end}};padding-left:10px;margin-bottom:6px">
   <div style="color:var(--text3);font-size:0.68rem" data-ts="{{.Timestamp}}">{{.Timestamp}}</div>
   {{if .ToolName}}<div style="display:flex;align-items:center;gap:5px">{{toolDot .ToolName}} <span style="color:var(--text3);font-size:0.7rem">{{if eq .Status "blocked"}}blocked{{else if eq .Status "quarantined"}}quarantined{{else}}processed{{end}}</span></div>
-  {{else}}<span style="color:{{if eq .Status "blocked"}}#f87171{{else if eq .Status "quarantined"}}#fbbf24{{else}}var(--text2){{end}};font-weight:{{if ne .Status "delivered"}}600{{else}}400{{end}}">{{.FromAgent}} &rarr; {{.ToAgent}}</span>{{end}}
+  {{else}}<span style="color:{{if eq .Status "blocked"}}#f85149{{else if eq .Status "quarantined"}}#d29922{{else}}var(--text2){{end}};font-weight:{{if ne .Status "delivered"}}600{{else}}400{{end}}">{{.FromAgent}} &rarr; {{.ToAgent}}</span>{{end}}
 </div>
 {{else}}
 <div style="color:var(--text3);padding:20px 0;text-align:center">No events yet</div>
@@ -1422,21 +1127,21 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 
 var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+.ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-5);align-items:start}
 .ad-grid>div{min-width:0}
 .ad-grid table{width:100%}
 .ad-grid .fp{word-break:break-all;overflow-wrap:break-word}
-.ad-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
-.ad-tab{padding:10px 20px;font-size:0.82rem;font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color 0.15s,border-color 0.15s}
+.ad-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:var(--sp-5)}
+.ad-tab{padding:10px var(--sp-5);font-size:var(--text-sm);font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color var(--ease-default),border-color var(--ease-default)}
 .ad-tab:hover{color:var(--text2)}
 .ad-tab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
 .ad-panel{display:none}
 .ad-panel.active{display:block}
-.ad-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.ad-kv{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ad-slbl{font-size:var(--text-xs);font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:var(--ls-caps);margin-bottom:var(--sp-3);display:flex;align-items:center;gap:var(--sp-2)}
+.ad-kv{display:flex;justify-content:space-between;align-items:baseline;padding:var(--sp-2) 0;font-size:var(--text-base);border-bottom:1px solid var(--border-subtle)}
 .ad-kv:last-child{border-bottom:none}
-.ad-kv .k{color:var(--text3);font-size:0.75rem}
-.ad-kv .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ad-kv .k{color:var(--text3);font-size:var(--text-sm)}
+.ad-kv .v{font-family:var(--mono);font-size:var(--text-sm);color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ad-rule{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);position:relative}
 .ad-rule:last-child{border-bottom:none}
 .ad-rule-bar{position:absolute;left:0;top:0;bottom:0;border-radius:4px;opacity:0.07;pointer-events:none}
@@ -1450,32 +1155,32 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
 </style>
 
 <!-- Breadcrumb -->
-<div style="font-size:0.72rem;color:var(--text3);margin-bottom:16px;font-family:var(--mono)">
-  <a href="/dashboard/agents" style="color:var(--text3);text-decoration:none">AGENTS</a>
-  <span style="margin:0 6px">/</span>
+<div class="breadcrumb">
+  <a href="/dashboard/agents">AGENTS</a>
+  <span class="sep">/</span>
   <span style="color:var(--accent-light)">{{.Name}}</span>
 </div>
 
 <!-- Header: avatar + name + actions -->
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+<div class="page-header">
   {{avatar .Name 48}}
-  <div style="min-width:0;flex:1">
-    <h1 style="margin:0;font-size:1.3rem;font-weight:700">{{.Name}}</h1>
-    <p style="color:var(--text3);font-size:0.82rem;margin:2px 0 0">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Agent detail{{end}}</p>
+  <div class="page-header-info">
+    <h1>{{.Name}}</h1>
+    <div class="subtitle">{{if .Agent.Description}}{{.Agent.Description}}{{else}}Agent detail{{end}}</div>
   </div>
-  <div style="display:flex;gap:8px;flex-shrink:0">
-    <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm" style="border-color:var(--success);color:var(--success);background:transparent" onclick="return confirm('Generate new keypair for {{.Name}}?')">Generate Keypair</button></form>
-    <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm" style="border-color:var(--success);color:var(--success);background:transparent">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm" style="border-color:var(--warn);color:var(--warn);background:transparent">Suspend</button>{{end}}</form>
-    <button class="btn btn-sm" style="border-color:var(--danger);color:var(--danger);background:transparent" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete</button>
+  <div class="page-header-actions">
+    <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm btn-outline success" onclick="return confirm('Generate new keypair for {{.Name}}?')">Generate Keypair</button></form>
+    <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm btn-outline success">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm btn-outline warn">Suspend</button>{{end}}</form>
+    <button class="btn btn-sm btn-outline danger" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete</button>
   </div>
 </div>
 
 <!-- Stats -->
-<div class="stats" style="margin-bottom:16px">
-  <div class="stat"><div class="label">Total Messages</div><div class="value">{{.TotalMsgs}}</div></div>
-  <div class="stat"><div class="label">Delivered</div><div class="value success">{{.Delivered}}</div></div>
-  <div class="stat"><div class="label">Blocked</div><div class="value danger">{{.Blocked}}</div></div>
-  <div class="stat"><div class="label">Quarantined</div><div class="value" style="color:var(--accent-light)">{{.Quarantined}}</div></div>
+<div class="stats">
+  <div class="stat"><div class="label">Total Messages</div><div class="value">{{formatNum .TotalMsgs}}</div></div>
+  <div class="stat"><div class="label">Delivered</div><div class="value success">{{formatNum .Delivered}}</div></div>
+  <div class="stat"><div class="label">Blocked</div><div class="value danger">{{formatNum .Blocked}}</div></div>
+  <div class="stat"><div class="label">Quarantined</div><div class="value" style="color:var(--accent-light)">{{formatNum .Quarantined}}</div></div>
 </div>
 
 <!-- Risk Score + Tool Distribution -->
@@ -1510,7 +1215,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     <script>
     (function(){
       var partners={{if .CommPartners}}[{{range .CommPartners}}{to:"{{.To}}",total:{{.Total}}},{{end}}]{{else}}[]{{end}};
-      var toolColors={'Bash':'#fbbf24','Read':'#22d3ee','Edit':'#818cf8','Grep':'#f472b6','Write':'#c084fc','Glob':'#2dd4bf','Agent':'#a78bfa'};
+      var toolColors={'Bash':'#d29922','Read':'#22d3ee','Edit':'#818cf8','Grep':'#f472b6','Write':'#c084fc','Glob':'#2dd4bf','Agent':'#a78bfa'};
       var tools={},total=0;
       partners.forEach(function(p){
         var parts=p.to.split('/');
@@ -1526,10 +1231,10 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
         var pct=(tools[t]/total*100).toFixed(0);
         if(pct<1)return;
         var seg=document.createElement('div');
-        seg.style.cssText='width:'+pct+'%;background:'+(toolColors[t]||'#71717a');
+        seg.style.cssText='width:'+pct+'%;background:'+(toolColors[t]||'#6e7681');
         bar.appendChild(seg);
         var l=document.createElement('span');
-        l.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+(toolColors[t]||'#71717a')+';vertical-align:middle;margin-right:3px"></span>'+t+' '+pct+'%';
+        l.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+(toolColors[t]||'#6e7681')+';vertical-align:middle;margin-right:3px"></span>'+t+' '+pct+'%';
         legend.appendChild(l);
       });
     })();
@@ -1562,7 +1267,7 @@ function adTab(name){
       {{if .TopRules}}
       {{range .TopRules}}
       <div class="ad-rule" style="padding-left:8px">
-        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f87171{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
+        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
         <div style="flex:1;min-width:0;position:relative">
           <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
@@ -1657,7 +1362,7 @@ function adTab(name){
           <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Blocked Content (space-separated categories)</label><input type="text" name="blocked_content" value="{{range $i, $c := .Agent.BlockedContent}}{{if $i}} {{end}}{{$c}}{{end}}"></div>
           <div class="form-group"><label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Allowed Tools (space-separated, empty = all)</label><input type="text" name="allowed_tools" value="{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}{{$t}}{{end}}"></div>
         </div>
-        <button type="submit" class="btn btn-sm" style="background:var(--success)">Save</button>
+        <button type="submit" class="btn btn-sm btn-success">Save</button>
       </form>
     </div>
   </div>
@@ -1762,8 +1467,8 @@ function stagePolicy() {
     <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
       <span id="ad-pager-info"></span>
       <div style="display:flex;gap:4px">
-        <button id="ad-prev" onclick="adPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
-        <button id="ad-next" onclick="adPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+        <button id="ad-prev" class="pager-btn" onclick="adPage(-1)" disabled>&larr; Prev</button>
+        <button id="ad-next" class="pager-btn" onclick="adPage(1)">Next &rarr;</button>
       </div>
     </div>
     <script>
@@ -1791,23 +1496,23 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 <p class="page-desc">Manage built-in detection rules and create custom rules for your organization.</p>
 
 <style>
-.rules-tabs{display:flex;gap:0;margin-bottom:24px;border-bottom:1px solid var(--border)}
-.rules-tab{padding:12px 24px;color:var(--text3);font-size:0.88rem;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+.rules-tabs{display:flex;gap:0;margin-bottom:var(--sp-6);border-bottom:1px solid var(--border)}
+.rules-tab{padding:var(--sp-3) var(--sp-6);color:var(--text3);font-size:var(--text-sm);font-weight:500;cursor:pointer;border-bottom:2px solid transparent;transition:all var(--ease-smooth);text-decoration:none;display:inline-flex;align-items:center;gap:var(--sp-2)}
 .rules-tab:hover{color:var(--text)}
-.rules-tab.active{color:var(--accent-light);border-bottom-color:var(--accent-light)}
-.rules-tab .count{font-size:0.68rem;font-family:var(--mono);background:var(--surface2);padding:2px 8px;border-radius:10px;color:var(--text3)}
+.rules-tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.rules-tab .count{font-size:var(--text-xs);font-family:var(--mono);background:var(--surface2);padding:2px var(--sp-2);border-radius:10px;color:var(--text3)}
 .rules-tab.active .count{background:rgba(99,102,241,0.15);color:var(--accent-light)}
-.cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
+.cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
 @media(max-width:768px){.cat-grid{grid-template-columns:1fr}}
-.cat-card{background:var(--surface);padding:18px 20px;cursor:pointer;transition:background 0.15s;text-decoration:none;color:inherit;display:block}
+.cat-card{background:var(--surface);padding:var(--sp-5) var(--sp-5);cursor:pointer;transition:background var(--ease-default);text-decoration:none;color:inherit;display:block}
 .cat-card:hover{background:var(--surface2)}
-.cat-card-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
-.cat-card-name{font-weight:600;font-size:0.88rem;letter-spacing:-0.01em}
-.cat-card-count{color:var(--text3);font-size:0.72rem;font-family:var(--mono);white-space:nowrap}
-.cat-card-desc{color:var(--text3);font-size:0.75rem;line-height:1.5;margin-bottom:10px}
+.cat-card-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--sp-2)}
+.cat-card-name{font-weight:600;font-size:var(--text-md);letter-spacing:var(--ls-tight);color:var(--text)}
+.cat-card-count{color:var(--text3);font-size:var(--text-sm);font-family:var(--mono);white-space:nowrap}
+.cat-card-desc{color:var(--text3);font-size:var(--text-sm);line-height:1.5;margin-bottom:10px}
 .cat-card-footer{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .cat-card-sev{display:inline-flex;align-items:center;gap:4px;font-size:0.65rem;font-family:var(--mono);padding:2px 7px;border-radius:4px}
-.cat-card-sev.critical{background:rgba(248,113,113,0.08);color:#f87171}
+.cat-card-sev.critical{background:rgba(248,81,73,0.08);color:#f85149}
 .cat-card-sev.high{background:rgba(251,146,60,0.08);color:#fb923c}
 .cat-card-sev.medium{background:rgba(96,165,250,0.06);color:#60a5fa}
 .cat-card-sev.low{background:var(--surface2);color:var(--text3)}
@@ -1887,9 +1592,9 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .lr-fi-title{font-size:0.8125rem;color:var(--text);font-weight:500}
 .lr-fi-detail{font-size:0.75rem;color:var(--text3);margin-top:4px;line-height:1.5}
 .lr-fi-meta{display:flex;align-items:center;gap:10px;margin-top:6px;font-size:0.72rem;color:var(--text3);flex-wrap:wrap}
-.lr-fi-meta code{font-family:var(--mono);font-size:0.72rem;color:var(--accent-light);background:var(--bg);padding:2px 6px;border-radius:4px}
+.lr-fi-meta code{font-family:var(--mono);font-size:var(--text-sm);color:var(--accent-light);background:var(--surface);padding:2px 6px;border-radius:var(--radius-sm)}
 .lr-fi-actions{display:flex;gap:8px;margin-top:8px}
-.lr-sec{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px}
+.lr-sec{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-5)}
 .lr-sec-title{font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;padding:14px 20px;border-bottom:1px solid var(--border)}
 </style>
 
@@ -1913,7 +1618,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
         {{range .Patterns}}<code>{{.Value}}</code>{{end}}
       </div>
       <div class="lr-fi-actions" id="lr-act-{{.ID}}">
-        <button class="btn btn-sm" style="background:var(--success)" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Approve &amp; Activate</button>
+        <button class="btn btn-sm btn-success" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Approve &amp; Activate</button>
         <button class="btn btn-sm" style="background:var(--surface2);color:var(--text3)" hx-post="/dashboard/api/rules/llm/{{.ID}}/reject" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Reject</button>
       </div>
     </div>
@@ -1967,7 +1672,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
       </div>
     </div>
     <div class="lr-fi-actions" id="lr-act-{{.ID}}">
-      <button class="btn btn-sm" style="background:var(--success)" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Re-activate</button>
+      <button class="btn btn-sm btn-success" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Re-activate</button>
     </div>
   </div>
   {{end}}
@@ -1987,16 +1692,16 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .enf-id{font-family:var(--mono);font-weight:600;font-size:0.85rem;color:var(--text)}
 .enf-name{color:var(--text2);font-size:0.78rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .enf-badge{font-size:0.68rem;font-family:var(--mono);padding:3px 10px;border-radius:4px;font-weight:600;text-transform:uppercase;white-space:nowrap}
-.enf-badge.block{background:rgba(248,113,113,0.08);color:#f87171}
+.enf-badge.block{background:rgba(248,81,73,0.08);color:#f85149}
 .enf-badge.quarantine{background:rgba(251,146,60,0.08);color:#fb923c}
 .enf-badge.allow-and-flag{background:rgba(96,165,250,0.08);color:#60a5fa}
 .enf-badge.ignore{background:var(--surface2);color:var(--text3)}
 .enf-meta{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
 .enf-tag{font-size:0.68rem;font-family:var(--mono);padding:2px 8px;border-radius:4px;background:var(--surface2);color:var(--text3)}
-.enf-tag.sev-critical{background:rgba(248,113,113,0.06);color:#f87171}
+.enf-tag.sev-critical{background:rgba(248,81,73,0.06);color:#f85149}
 .enf-tag.sev-high{background:rgba(251,146,60,0.06);color:#fb923c}
 .enf-tag.sev-medium{background:rgba(96,165,250,0.06);color:#60a5fa}
-.enf-urls{margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:6px;font-family:var(--mono);font-size:0.72rem;color:var(--text3);line-height:1.8;word-break:break-all}
+.enf-urls{margin-top:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--surface);border-radius:var(--radius-md);font-family:var(--mono);font-size:var(--text-sm);color:var(--text3);line-height:1.8;word-break:break-all}
 .enf-btns{display:flex;gap:6px}
 /* Combobox */
 .combo-wrap{position:relative}
@@ -2009,7 +1714,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .combo-item .cid{font-family:var(--mono);font-weight:600;font-size:0.78rem;color:var(--text);min-width:120px}
 .combo-item .cnm{color:var(--text2);font-size:0.75rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .combo-item .csv{font-size:0.65rem;font-family:var(--mono);padding:2px 6px;border-radius:3px}
-.csv.critical{background:rgba(248,113,113,0.08);color:#f87171}
+.csv.critical{background:rgba(248,81,73,0.08);color:#f85149}
 .csv.high{background:rgba(251,146,60,0.08);color:#fb923c}
 .csv.medium{background:rgba(96,165,250,0.08);color:#60a5fa}
 .csv.low{background:var(--surface2);color:var(--text3)}
@@ -2200,7 +1905,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 
   // Validate: require a selected rule
   document.getElementById('enf-form').addEventListener('submit', function(e){
-    if(!hidden.value){e.preventDefault();search.focus();search.style.outline='2px solid #f87171';setTimeout(function(){search.style.outline='';},1500);}
+    if(!hidden.value){e.preventDefault();search.focus();search.style.outline='2px solid #f85149';setTimeout(function(){search.style.outline='';},1500);}
   });
 
   // Edit: populate form from card data attributes
@@ -2332,20 +2037,20 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 
 var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.breadcrumb{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:0.82rem}
-.breadcrumb a{color:var(--accent-light);text-decoration:none}
-.breadcrumb a:hover{text-decoration:underline}
-.breadcrumb .sep{color:var(--text3)}
-.cat-header{display:flex;align-items:center;gap:16px;margin-bottom:8px}
+.breadcrumb{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-5);font-size:var(--text-sm);font-family:var(--mono);color:var(--text3)}
+.breadcrumb a{color:var(--text3);text-decoration:none;transition:color var(--ease-default)}
+.breadcrumb a:hover{color:var(--accent-light)}
+.breadcrumb .sep{opacity:0.5}
+.cat-header{display:flex;align-items:center;gap:var(--sp-4);margin-bottom:var(--sp-2)}
 .cat-header h1{margin:0}
-.cat-toggle{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:0.78rem;color:var(--text2)}
+.cat-toggle{margin-left:auto;display:flex;align-items:center;gap:var(--sp-2);font-size:var(--text-sm);color:var(--text2)}
 .rule-table{width:100%;border-collapse:collapse;table-layout:fixed}
-.rule-table th{text-align:left;color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;padding:10px 12px;border-bottom:1px solid var(--border)}
-.rule-table td{padding:12px;border-bottom:1px solid var(--border);font-size:0.82rem;vertical-align:top}
-.rule-table tr:hover td{background:var(--surface2)}
-.rule-table .rule-name{font-weight:600;font-family:var(--mono);font-size:0.78rem;color:var(--text);cursor:pointer;display:inline}
+.rule-table th{text-align:left;color:var(--text3);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);padding:10px var(--sp-3);border-bottom:1px solid var(--border)}
+.rule-table td{padding:var(--sp-3);border-bottom:1px solid var(--border);font-size:var(--text-sm);vertical-align:top}
+.rule-table tr:hover td{background:var(--surface-hover)}
+.rule-table .rule-name{font-weight:600;font-family:var(--mono);font-size:var(--text-sm);color:var(--text);cursor:pointer;display:inline}
 .rule-table .rule-name:hover{color:var(--accent-light)}
-.rule-table .rule-desc{color:var(--text3);font-size:0.75rem;display:inline;margin-left:6px}
+.rule-table .rule-desc{color:var(--text3);font-size:var(--text-sm);display:inline;margin-left:6px}
 </style>
 
 <div class="breadcrumb">
@@ -2433,18 +2138,18 @@ var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmp
 
 var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs).Parse(`
 <style>
-.ed-hdr{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--border)}
-.ed-close{background:none;border:none;color:var(--text3);font-size:1.2rem;cursor:pointer;padding:4px 8px;border-radius:4px;line-height:1}
-.ed-close:hover{background:var(--surface2);color:var(--text)}
+.ed-hdr{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4) var(--sp-5);border-bottom:1px solid var(--border)}
+.ed-close{background:none;border:none;color:var(--text3);font-size:1.2rem;cursor:pointer;padding:var(--sp-1) var(--sp-2);border-radius:var(--radius-sm);line-height:1}
+.ed-close:hover{background:var(--surface-hover);color:var(--text)}
 .ed-body{padding:0}
-.ed-section{border-bottom:1px solid var(--border);padding:18px 20px}
+.ed-section{border-bottom:1px solid var(--border);padding:var(--sp-5) var(--sp-5)}
 .ed-section:last-child{border-bottom:none}
-.ed-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
-.ed-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ed-slbl{font-size:var(--text-xs);font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:var(--ls-caps);margin-bottom:var(--sp-3)}
+.ed-row{display:flex;justify-content:space-between;align-items:baseline;padding:var(--sp-2) 0;border-bottom:1px solid var(--border-subtle)}
 .ed-row:last-child{border-bottom:none}
-.ed-row .k{color:var(--text3);font-size:0.75rem}
-.ed-row .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ed-row .v a{color:var(--accent-light);text-decoration:none}
+.ed-row .k{color:var(--text3);font-size:var(--text-sm)}
+.ed-row .v{font-family:var(--mono);font-size:var(--text-sm);color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ed-row .v a{color:var(--accent-light)}
 </style>
 <div class="ed-hdr">
   <div style="display:flex;align-items:center;gap:8px">
@@ -2454,11 +2159,11 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     {{else if eq .Entry.Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
     {{else}}<span style="color:var(--text2);font-size:0.75rem">{{.Entry.Status}}</span>{{end}}
   </div>
-  <span style="flex:1;font-family:var(--mono);font-size:0.75rem;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Entry.FromAgent}} &rarr; {{.Entry.ToAgent}}</span>
-  <a href="/dashboard/events/{{.Entry.ID}}" style="font-size:0.68rem;color:var(--accent-light);text-decoration:none;white-space:nowrap;padding:3px 8px;border-radius:4px;border:1px solid rgba(99,102,241,0.2);transition:background 0.15s" onmouseover="this.style.background='rgba(99,102,241,0.08)'" onmouseout="this.style.background='transparent'">Detail &rarr;</a>
+  <span style="flex:1;font-family:var(--mono);font-size:var(--text-sm);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Entry.FromAgent}} &rarr; {{.Entry.ToAgent}}</span>
+  <a href="/dashboard/events/{{.Entry.ID}}" class="btn btn-sm btn-outline" style="font-size:var(--text-xs);white-space:nowrap;border-color:var(--accent-border);color:var(--accent-light)">Detail &rarr;</a>
   <button class="ed-close" onclick="closePanel()">&times;</button>
 </div>
-<div style="font-size:0.72rem;color:var(--text3);padding:6px 20px;border-bottom:1px solid var(--border);font-family:var(--mono)" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</div>
+<div style="font-size:var(--text-sm);color:var(--text3);padding:var(--sp-2) var(--sp-5);border-bottom:1px solid var(--border);font-family:var(--mono)" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</div>
 <div class="ed-body">
 
   <!-- Message received -->
@@ -2477,7 +2182,7 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     <div class="ed-row"><span class="k">Identity</span><span class="v">{{if eq .Entry.SignatureVerified 1}}<span style="color:var(--success)">Verified</span>{{else if eq .Entry.SignatureVerified -1}}<span style="color:var(--danger)">Invalid</span>{{else}}{{if .RequireSig}}<span style="color:var(--danger)">Missing</span>{{else}}<span style="color:var(--text3)">Not required</span>{{end}}{{end}}</span></div>
     <div class="ed-row"><span class="k">Content scan</span><span class="v">{{if .Rules}}<span style="color:var(--warn);font-weight:600">{{len .Rules}} {{if eq (len .Rules) 1}}rule{{else}}rules{{end}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.62rem">({{.RuleCount}})</span></span></div>
     <div class="ed-row"><span class="k">Verdict</span><span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger);font-weight:600">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn);font-weight:600">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span></div>
-    {{if ge .LLMRiskScore 0.0}}<div class="ed-row"><span class="k">LLM risk</span><span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#ef4444{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#fbbf24{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}} / 100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span></div>{{end}}
+    {{if ge .LLMRiskScore 0.0}}<div class="ed-row"><span class="k">LLM risk</span><span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#f85149{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}} / 100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span></div>{{end}}
   </div>
 
   <!-- Rules triggered -->
@@ -2485,15 +2190,15 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
   <div class="ed-section">
     <div class="ed-slbl">Rules triggered ({{len .Rules}})</div>
     {{range .Rules}}
-    <div style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:0.75rem;border-bottom:1px solid rgba(255,255,255,0.04)">
+    <div style="display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) 0;font-size:var(--text-sm);border-bottom:1px solid var(--border-subtle)">
       {{if eq .Severity "CRITICAL"}}<span class="sev-critical">critical</span>
       {{else if eq .Severity "HIGH"}}<span class="sev-high">high</span>
       {{else if eq .Severity "MEDIUM"}}<span class="sev-medium">medium</span>
       {{else}}<span class="sev-low">{{.Severity}}</span>{{end}}
-      <span style="font-family:var(--mono);font-weight:600;color:var(--text);font-size:0.72rem">{{.RuleID}}</span>
-      <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.72rem">{{.Name}}</span>
+      <span style="font-family:var(--mono);font-weight:600;color:var(--text);font-size:var(--text-sm)">{{.RuleID}}</span>
+      <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-sm)">{{.Name}}</span>
     </div>
-    {{if .Match}}<div style="font-family:var(--mono);font-size:0.65rem;color:var(--text3);padding:2px 0 4px;margin-left:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.7" title="{{.Match}}">{{truncate .Match 60}}</div>{{end}}
+    {{if .Match}}<div style="font-family:var(--mono);font-size:var(--text-xs);color:var(--text3);padding:2px 0 var(--sp-1);margin-left:var(--sp-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.7" title="{{.Match}}">{{truncate .Match 80}}</div>{{end}}
     {{end}}
   </div>
   {{end}}
@@ -2518,66 +2223,66 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
 
 // ciCSS is the shared CSS for "case investigation" style pages (Threat Intel, Event Detail).
 const ciCSS = `
-.ci-back{color:var(--text3);text-decoration:none;font-size:0.78rem;display:inline-flex;align-items:center;gap:6px;transition:color 0.15s;touch-action:manipulation}
-.ci-back:hover{color:var(--accent)}
-.ci-hdr{display:flex;align-items:flex-start;gap:20px;margin-bottom:16px}
-.ci-score{display:flex;flex-direction:column;align-items:center;justify-content:center;width:72px;height:72px;border-radius:14px;flex-shrink:0}
-.ci-score .n{font-size:1.6rem;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:-0.02em}
-.ci-score .l{font-size:0.52rem;letter-spacing:0.6px;margin-top:4px;opacity:0.7;font-weight:500}
+.ci-back{color:var(--text3);text-decoration:none;font-size:var(--text-sm);display:inline-flex;align-items:center;gap:6px;transition:color var(--ease-default);touch-action:manipulation}
+.ci-back:hover{color:var(--accent-light)}
+.ci-hdr{display:flex;align-items:flex-start;gap:var(--sp-5);margin-bottom:var(--sp-5)}
+.ci-score{display:flex;flex-direction:column;align-items:center;justify-content:center;width:72px;height:72px;border-radius:var(--radius-xl);flex-shrink:0}
+.ci-score .n{font-size:var(--text-2xl);font-weight:700;font-family:var(--sans);line-height:1;letter-spacing:-0.02em}
+.ci-score .l{font-size:0.52rem;letter-spacing:0.6px;margin-top:var(--sp-1);opacity:0.7;font-weight:500}
 .ci-hdr-body{flex:1;min-width:0}
-.ci-title{font-size:1rem;font-weight:600;margin:0 0 6px;line-height:1.4;color:var(--text);text-wrap:pretty}
-.ci-hdr-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:0.78rem;color:var(--text3)}
+.ci-title{font-size:var(--text-lg);font-weight:600;margin:0 0 var(--sp-2);line-height:1.4;color:var(--text);text-wrap:pretty}
+.ci-hdr-row{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;font-size:var(--text-sm);color:var(--text3)}
 .ci-hdr-row .sep{color:var(--border)}
-.ci-badge{display:inline-block;padding:4px 14px;border-radius:100px;font-size:0.72rem;font-weight:500;flex-shrink:0;align-self:flex-start;margin-top:2px;letter-spacing:0.2px}
-.ci-badge-blk{background:rgba(239,68,68,0.15);color:#ef4444}
-.ci-badge-inv{background:rgba(251,191,36,0.15);color:#fbbf24}
+.ci-badge{display:inline-block;padding:var(--sp-1) 14px;border-radius:100px;font-size:var(--text-sm);font-weight:500;flex-shrink:0;align-self:flex-start;margin-top:2px;letter-spacing:0.2px}
+.ci-badge-blk{background:rgba(248,81,73,0.15);color:#f85149}
+.ci-badge-inv{background:rgba(210,153,34,0.15);color:#d29922}
 .ci-badge-qua{background:rgba(251,146,60,0.15);color:#fb923c}
-.ci-badge-ok{background:var(--bg2);color:var(--text3)}
-.ci-s{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin-bottom:20px}
-.ci-s h3{font-size:0.72rem;font-weight:600;color:var(--text3);margin:0 0 14px;text-transform:uppercase;letter-spacing:0.8px;display:flex;align-items:center;gap:8px}
+.ci-badge-ok{background:var(--surface2);color:var(--text3)}
+.ci-s{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5) var(--sp-6);margin-bottom:var(--sp-5)}
+.ci-s h3{font-size:var(--text-xs);font-weight:600;color:var(--text3);margin:0 0 var(--sp-4);text-transform:uppercase;letter-spacing:var(--ls-caps);display:flex;align-items:center;gap:var(--sp-2)}
 .ci-s h3 .cnt{font-weight:500;font-family:var(--mono);text-transform:none}
-.ci-context-row{display:grid;grid-template-columns:3fr 2fr;gap:20px;align-items:start;margin-bottom:20px}
-.ci-sev{display:inline-block;padding:2px 8px;border-radius:100px;font-size:0.6rem;font-weight:600;letter-spacing:0.3px}
-.ci-sev-c{background:rgba(239,68,68,0.18);color:#ef4444}
+.ci-context-row{display:grid;grid-template-columns:3fr 2fr;gap:var(--sp-5);align-items:start;margin-bottom:var(--sp-5)}
+.ci-sev{display:inline-block;padding:2px var(--sp-2);border-radius:100px;font-size:0.6rem;font-weight:600;letter-spacing:0.3px}
+.ci-sev-c{background:rgba(248,81,73,0.18);color:#f85149}
 .ci-sev-h{background:rgba(251,146,60,0.18);color:#fb923c}
-.ci-sev-m{background:rgba(251,191,36,0.18);color:#fbbf24}
-.ci-sev-l{background:rgba(34,197,94,0.15);color:#22c55e}
-.ci-thr{display:flex;align-items:flex-start;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border)}
+.ci-sev-m{background:rgba(210,153,34,0.18);color:#d29922}
+.ci-sev-l{background:rgba(63,185,80,0.15);color:#3fb950}
+.ci-thr{display:flex;align-items:flex-start;gap:var(--sp-3);padding:14px var(--sp-5);border-bottom:1px solid var(--border)}
 .ci-thr:last-child{border-bottom:none}
 .ci-thr-sev{flex-shrink:0;padding-top:2px}
 .ci-thr-body{flex:1;min-width:0}
-.ci-thr-head{display:flex;flex-direction:column;gap:4px}
-.ci-thr-id{font-family:var(--mono);font-size:0.78rem;font-weight:600;color:var(--text2);text-transform:uppercase}
-.ci-thr-name{font-size:0.82rem;color:var(--text);font-weight:500;line-height:1.55}
-.ci-thr-detail{font-size:0.75rem;color:var(--text3);margin-top:6px;line-height:1.6}
-.ci-benign{display:flex;align-items:center;gap:10px;color:var(--success);font-size:0.88rem;padding:12px 20px}
-.ci-meta-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--border);font-size:0.75rem}
+.ci-thr-head{display:flex;flex-direction:column;gap:var(--sp-1)}
+.ci-thr-id{font-family:var(--mono);font-size:var(--text-sm);font-weight:600;color:var(--text2);text-transform:uppercase}
+.ci-thr-name{font-size:var(--text-base);color:var(--text);font-weight:500;line-height:1.55}
+.ci-thr-detail{font-size:var(--text-sm);color:var(--text3);margin-top:var(--sp-2);line-height:1.6}
+.ci-benign{display:flex;align-items:center;gap:10px;color:var(--success);font-size:var(--text-md);padding:var(--sp-3) var(--sp-5)}
+.ci-meta-row{display:flex;justify-content:space-between;align-items:baseline;padding:var(--sp-2) 0;border-bottom:1px solid var(--border-subtle);font-size:var(--text-sm)}
 .ci-meta-row:last-child{border-bottom:none}
 .ci-meta-row .mk{color:var(--text3);font-weight:500}
-.ci-meta-row .mv{font-family:var(--mono);color:var(--text2);font-size:0.72rem;text-align:right;word-break:break-all}
-@media(max-width:960px){.ci-context-row{grid-template-columns:1fr}.ci-hdr{flex-direction:column;gap:14px}.ci-s{padding:16px 14px}}
+.ci-meta-row .mv{font-family:var(--mono);color:var(--text2);font-size:var(--text-sm);text-align:right;word-break:break-all}
+@media(max-width:960px){.ci-context-row{grid-template-columns:1fr}.ci-hdr{flex-direction:column;gap:14px}.ci-s{padding:var(--sp-4) var(--sp-4)}}
 `
 
 var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.ep-back{color:var(--text3);text-decoration:none;font-size:0.78rem;display:inline-flex;align-items:center;gap:6px;transition:color 0.15s}
-.ep-back:hover{color:var(--accent)}
-.ep-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
-.ep-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-.ep-sec{border-bottom:1px solid var(--border);padding:18px 20px}
+.ep-back{color:var(--text3);text-decoration:none;font-size:var(--text-sm);display:inline-flex;align-items:center;gap:6px;transition:color var(--ease-default)}
+.ep-back:hover{color:var(--accent-light)}
+.ep-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-5);align-items:start}
+.ep-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden}
+.ep-sec{border-bottom:1px solid var(--border);padding:var(--sp-5) var(--sp-6)}
 .ep-sec:last-child{border-bottom:none}
-.ep-slbl{font-size:0.62rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.ep-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;font-size:0.78rem;border-bottom:1px solid rgba(255,255,255,0.04)}
+.ep-slbl{font-size:var(--text-xs);font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:var(--ls-caps);margin-bottom:var(--sp-3);display:flex;align-items:center;gap:var(--sp-2)}
+.ep-row{display:flex;justify-content:space-between;align-items:baseline;padding:var(--sp-2) 0;font-size:var(--text-base);border-bottom:1px solid var(--border-subtle)}
 .ep-row:last-child{border-bottom:none}
-.ep-row .k{color:var(--text3);flex-shrink:0;font-size:0.75rem}
-.ep-row .v{font-family:var(--mono);font-size:0.72rem;color:var(--text);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:12px}
-.ep-row .v a{color:var(--accent-light);text-decoration:none}
-.ep-rule{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:0.75rem;border-bottom:1px solid var(--border)}
+.ep-row .k{color:var(--text3);flex-shrink:0;font-size:var(--text-sm)}
+.ep-row .v{font-family:var(--mono);font-size:var(--text-sm);color:var(--text);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:var(--sp-3)}
+.ep-row .v a{color:var(--accent-light)}
+.ep-rule{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) 0;font-size:var(--text-sm);border-bottom:1px solid var(--border)}
 .ep-rule:last-child{border-bottom:none}
-.ep-rule-id{font-family:var(--mono);font-weight:600;color:var(--text);font-size:0.75rem}
-.ep-rule-name{color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.72rem}
-.ep-rule-match{font-family:var(--mono);font-size:0.68rem;color:var(--text3);padding:2px 0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ep-content{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto}
+.ep-rule-id{font-family:var(--mono);font-weight:600;color:var(--text);font-size:var(--text-sm)}
+.ep-rule-name{color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-sm)}
+.ep-rule-match{font-family:var(--mono);font-size:var(--text-xs);color:var(--text3);padding:2px 0 var(--sp-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ep-content{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--sp-4) var(--sp-5);font-family:var(--mono);font-size:var(--text-sm);line-height:1.7;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto}
 @media(max-width:960px){.ep-grid{grid-template-columns:1fr}}
 </style>
 
@@ -2614,7 +2319,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
         <div class="ep-row"><span class="k">Identity</span><span class="v">{{if eq .Entry.SignatureVerified 1}}<span style="color:var(--success)">Verified</span>{{else if eq .Entry.SignatureVerified -1}}<span style="color:var(--danger)">Invalid</span>{{else}}{{if .RequireSig}}<span style="color:var(--danger)">Missing</span>{{else}}<span style="color:var(--text3)">Not required</span>{{end}}{{end}}</span></div>
         <div class="ep-row"><span class="k">Content scan</span><span class="v">{{if .Rules}}<span style="color:var(--warn)">{{len .Rules}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.62rem">/{{.RuleCount}}</span></span></div>
         <div class="ep-row"><span class="k">Verdict</span><span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger)">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn)">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span></div>
-        {{if ge .LLMRiskScore 0.0}}<div class="ep-row"><span class="k">LLM risk</span><span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#ef4444{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#fbbf24{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span></div>{{end}}
+        {{if ge .LLMRiskScore 0.0}}<div class="ep-row"><span class="k">LLM risk</span><span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#f85149{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span></div>{{end}}
       </div>
 
       <!-- Rules -->
@@ -2677,7 +2382,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
     <div class="ep-card">
       <div class="ep-sec">
         <div class="ep-slbl">LLM Analysis <a href="/dashboard/llm/{{.LLMAnalysis.ID}}" style="margin-left:auto;font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">Full analysis &rarr;</a></div>
-        <div class="ep-row"><span class="k">Risk</span><span class="v" style="{{if ge .LLMAnalysis.RiskScore 76.0}}color:#ef4444{{else if ge .LLMAnalysis.RiskScore 51.0}}color:#fb923c{{else if ge .LLMAnalysis.RiskScore 31.0}}color:#fbbf24{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMAnalysis.RiskScore}} / 100</span></div>
+        <div class="ep-row"><span class="k">Risk</span><span class="v" style="{{if ge .LLMAnalysis.RiskScore 76.0}}color:#f85149{{else if ge .LLMAnalysis.RiskScore 51.0}}color:#fb923c{{else if ge .LLMAnalysis.RiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMAnalysis.RiskScore}} / 100</span></div>
         <div class="ep-row"><span class="k">Confidence</span><span class="v">{{printf "%.0f" .LLMAnalysis.Confidence}}%</span></div>
         <div class="ep-row"><span class="k">Action</span><span class="v" style="font-family:var(--sans)">{{.LLMAnalysis.RecommendedAction}}</span></div>
         <div class="ep-row"><span class="k">Model</span><span class="v">{{.LLMAnalysis.Model}}</span></div>
@@ -2800,9 +2505,9 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs
 
   <!-- Status banner -->
   <div style="padding:12px 16px;border-radius:8px;margin-bottom:20px;font-size:0.85rem;line-height:1.5;
-    {{if eq .Item.Status "pending"}}background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:var(--warn)
-    {{else if eq .Item.Status "approved"}}background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);color:var(--success)
-    {{else if eq .Item.Status "rejected"}}background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.2);color:var(--danger)
+    {{if eq .Item.Status "pending"}}background:rgba(210,153,34,0.08);border:1px solid rgba(210,153,34,0.2);color:var(--warn)
+    {{else if eq .Item.Status "approved"}}background:rgba(63,185,80,0.08);border:1px solid rgba(63,185,80,0.2);color:var(--success)
+    {{else if eq .Item.Status "rejected"}}background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.2);color:var(--danger)
     {{else}}background:var(--surface2);border:1px solid var(--border);color:var(--text3){{end}}">
     {{if eq .Item.Status "pending"}}This message is held for review. Approve to deliver or reject to discard.
     {{else if eq .Item.Status "approved"}}Approved by {{.Item.ReviewedBy}} — message was delivered.
@@ -2829,8 +2534,7 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs
   <div style="margin-bottom:20px">
     <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">Why it was quarantined</div>
     {{range .Rules}}
-    <a href="/dashboard/rules/{{.Category}}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;text-decoration:none;color:inherit;transition:border-color 0.2s"
-       onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+    <a href="/dashboard/rules/{{.Category}}" class="q-rule-link">
       <div style="flex:1;min-width:0">
         <div style="font-family:var(--mono);font-weight:600;font-size:0.78rem;color:var(--text)">{{.RuleID}}</div>
         <div style="font-size:0.75rem;color:var(--text2);margin-top:2px">{{.Name}}</div>
@@ -2859,7 +2563,7 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs
 
   {{if eq .Item.Status "pending"}}
   <div class="q-actions" style="margin-top:20px">
-    <button class="btn" style="background:var(--success)" hx-post="/dashboard/api/quarantine/{{.Item.ID}}/approve" hx-target="#q-row-{{.Item.ID}}" hx-swap="outerHTML" onclick="closePanel()">Approve &amp; Deliver</button>
+    <button class="btn btn-success" hx-post="/dashboard/api/quarantine/{{.Item.ID}}/approve" hx-target="#q-row-{{.Item.ID}}" hx-swap="outerHTML" onclick="closePanel()">Approve &amp; Deliver</button>
     <button class="btn btn-danger" hx-post="/dashboard/api/quarantine/{{.Item.ID}}/reject" hx-target="#q-row-{{.Item.ID}}" hx-swap="outerHTML" onclick="closePanel()">Reject</button>
   </div>
   {{end}}
@@ -2898,7 +2602,7 @@ var ruleToggleTmpl = template.Must(template.New("rule-toggle").Parse(`<span id="
 
 var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.st-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+.st-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);align-items:start}
 .st-grid .card{margin-bottom:0}
 .st-span{grid-column:1 / -1}
 @media(max-width:960px){.st-grid{grid-template-columns:1fr}.st-span{grid-column:auto}}
@@ -2929,7 +2633,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         Every message must be signed. Unsigned or tampered messages are <strong style="color:var(--danger)">rejected</strong>. Recommended for production.
       </p>
     </div>
-    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if not .RequireSig}}var(--warn){{else}}var(--border){{end}};background:{{if not .RequireSig}}rgba(251,191,36,0.06){{else}}var(--surface){{end}}">
+    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if not .RequireSig}}var(--warn){{else}}var(--border){{end}};background:{{if not .RequireSig}}rgba(210,153,34,0.06){{else}}var(--surface){{end}}">
       <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if not .RequireSig}}var(--warn){{else}}var(--text2){{end}}">
         {{if not .RequireSig}}&#x2713; {{end}}Observe Mode
       </div>
@@ -2959,7 +2663,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
         Agents can only communicate with explicitly allowed targets. Recommended for <strong style="color:var(--accent-light)">production</strong>.
       </p>
     </div>
-    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--border){{end}};background:{{if ne .DefaultPolicy "deny"}}rgba(251,191,36,0.06){{else}}var(--surface){{end}}">
+    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--border){{end}};background:{{if ne .DefaultPolicy "deny"}}rgba(210,153,34,0.06){{else}}var(--surface){{end}}">
       <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--text2){{end}}">
         {{if ne .DefaultPolicy "deny"}}&#x2713; {{end}}Default Allow
       </div>
@@ -2987,7 +2691,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     Each agent has a signing key to prove its identity. Public keys are stored here; agents hold their private keys. Revoke a key to immediately block an agent.
   </p>
   <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
-    <strong>Keys directory:</strong> <code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">{{.KeysDir}}</code>
+    <strong>Keys directory:</strong> <code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">{{.KeysDir}}</code>
   </div>
   {{if .Keys}}
   <table>
@@ -3269,13 +2973,13 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
 /* ── Triage bar ── */
-.tq-bar{display:flex;align-items:center;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 28px;margin-bottom:24px}
+.tq-bar{display:flex;align-items:center;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5) var(--sp-6);margin-bottom:var(--sp-6)}
 .tq-seg{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 .tq-num{font-size:1.4rem;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:-0.02em;font-variant-numeric:tabular-nums}
 .tq-label{font-size:0.72rem;color:var(--text3);font-weight:500;white-space:nowrap}
 .tq-pill{font-size:0.62rem;padding:2px 8px;border-radius:100px;font-weight:500;white-space:nowrap}
-.tq-pill-c{background:rgba(239,68,68,0.1);color:#ef4444}
-.tq-pill-m{background:rgba(251,191,36,0.08);color:#fbbf24}
+.tq-pill-c{background:rgba(248,81,73,0.1);color:#f85149}
+.tq-pill-m{background:rgba(210,153,34,0.08);color:#d29922}
 .tq-div{width:1px;height:36px;background:var(--border);margin:0 20px;flex-shrink:0}
 
 /* ── Triage table ── */
@@ -3285,23 +2989,23 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 .tq-table th{font-size:0.68rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;text-align:left;padding:8px 12px;border-bottom:2px solid var(--border)}
 .tq-table td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:0.82rem}
 .tq-table tr.tq-row{cursor:pointer;transition:background 0.1s}
-.tq-table tr.tq-row:hover{background:var(--bg2)}
+.tq-table tr.tq-row:hover{background:var(--surface-hover)}
 .tq-table tr.tq-dismissed{opacity:0.5}
 .tq-table tr.tq-dismissed:hover{opacity:0.8}
 .tq-risk{display:inline-flex;align-items:center;justify-content:center;width:36px;height:28px;border-radius:6px;font-family:var(--mono);font-weight:700;font-size:0.82rem}
 .tq-pager{display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)}
-.tq-pager button{background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem}
-.tq-pager button:hover:not(:disabled){background:var(--bg2)}
+.tq-pager button{background:var(--bg);border:1px solid var(--border);color:var(--text2);padding:var(--sp-1) var(--sp-3);border-radius:var(--radius-md);cursor:pointer;font-size:var(--text-sm);font-family:var(--sans);transition:all var(--ease-smooth)}
+.tq-pager button:hover:not(:disabled){background:var(--surface-hover)}
 .tq-pager button:disabled{opacity:0.3;cursor:default}
 .tq-action{padding:2px 10px;border-radius:100px;font-size:0.68rem;font-weight:500;text-transform:uppercase;letter-spacing:0.3px}
-.tq-action.block{background:rgba(239,68,68,0.12);color:#ef4444}
-.tq-action.investigate{background:rgba(251,191,36,0.12);color:#fbbf24}
+.tq-action.block{background:rgba(248,81,73,0.12);color:#f85149}
+.tq-action.investigate{background:rgba(210,153,34,0.12);color:#d29922}
 .tq-action.quarantine{background:rgba(251,146,60,0.12);color:#fb923c}
-.tq-action.monitor,.tq-action.allow{background:var(--bg2);color:var(--text3)}
+.tq-action.monitor,.tq-action.allow{background:var(--surface2);color:var(--text3)}
 .tq-status{padding:2px 8px;border-radius:100px;font-size:0.62rem;font-weight:500;text-transform:uppercase;letter-spacing:0.4px}
 .tq-status.new{background:rgba(99,102,241,0.12);color:var(--accent-light)}
-.tq-status.dismissed{background:rgba(34,197,94,0.08);color:#22c55e}
-.tq-status.confirmed{background:rgba(239,68,68,0.08);color:#ef4444}
+.tq-status.dismissed{background:rgba(63,185,80,0.08);color:#3fb950}
+.tq-status.confirmed{background:rgba(248,81,73,0.08);color:#f85149}
 @media(max-width:768px){.tq-bar{flex-direction:column;gap:12px;align-items:flex-start}.tq-div{width:100%;height:1px;margin:0}}
 .llm-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 .llm-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
@@ -3319,14 +3023,14 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 .fw-step{display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text2)}
 .fw-step .num{width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;flex-shrink:0}
 .fw-arrow{color:var(--text3);font-size:0.7rem;flex-shrink:0}
-.llm-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
-.llm-tab{padding:10px 20px;font-size:0.82rem;font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color 0.15s,border-color 0.15s}
+.llm-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:var(--sp-5)}
+.llm-tab{padding:10px var(--sp-5);font-size:var(--text-sm);font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color var(--ease-default),border-color var(--ease-default)}
 .llm-tab:hover{color:var(--text2)}
 .llm-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:2px}
 .llm-tab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
 .llm-tab-panel{display:none}
 .llm-tab-panel.active{display:block}
-.llm-status-bar{display:flex;align-items:center;gap:16px;padding:12px 20px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px;font-size:0.78rem;flex-wrap:wrap}
+.llm-status-bar{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-3) var(--sp-5);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);margin-bottom:var(--sp-5);font-size:var(--text-sm);flex-wrap:wrap}
 .llm-status-bar .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .llm-conn-adv{display:none}
 .llm-conn-adv.open{display:block}
@@ -3404,7 +3108,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 <!-- Active state: tabs -->
 
 <!-- Status bar (always visible above tabs) -->
-<div class="llm-status-bar" style="margin-bottom:0;border-radius:8px 8px 0 0">
+<div class="llm-status-bar" style="margin-bottom:var(--sp-5)">
   <div style="display:flex;align-items:center;gap:8px">
     <div class="dot" style="background:var(--success)"></div>
     <span style="font-weight:500">{{.Cfg.Model}}</span>
@@ -3510,7 +3214,7 @@ function llmSwitchTab(name){
   <tbody id="tq-tbody">
   {{range .Analyses}}
     <tr class="tq-row{{if eq .ReviewedStatus "false_positive"}} tq-dismissed{{end}}" data-risk="{{printf "%.0f" .RiskScore}}" data-status="{{.ReviewedStatus}}" data-agent="{{.FromAgent}} {{.ToAgent}}" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
-      <td><span class="tq-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#ef4444{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(251,191,36,0.07);color:#fbbf24{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#22c55e{{else}}background:var(--bg2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span></td>
+      <td><span class="tq-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.07);color:#d29922{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span></td>
       <td style="font-size:0.8rem;white-space:nowrap">{{.FromAgent}} <span style="color:var(--text3)">&rarr;</span> {{.ToAgent}}</td>
       <td style="font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{firstThreatSummary .ThreatsJSON .RiskScore}}</td>
       <td><span class="tq-action {{.RecommendedAction}}">{{.RecommendedAction}}</span></td>
@@ -3640,12 +3344,12 @@ tqApply();
     <script>
     var llmSvc={
       openrouter:{label:'OpenRouter',provider:'openai',url:'https://openrouter.ai/api/v1',bg:'rgba(168,85,247,0.15)',fg:'#a855f7',keyHint:'Set OPENROUTER_API_KEY in your environment',keyPh:'OPENROUTER_API_KEY',models:['deepseek/deepseek-chat-v3-0324','google/gemini-2.5-flash-preview','google/gemini-2.5-flash','anthropic/claude-sonnet-4','x-ai/grok-4-fast']},
-      ollama:{label:'Ollama',provider:'openai',url:'http://localhost:11434/v1',bg:'rgba(34,197,94,0.15)',fg:'#22c55e',keyHint:'No API key needed for local Ollama',keyPh:'',models:['qwen3.5:latest','llama3:latest','mistral:latest','deepseek-r1:latest']},
+      ollama:{label:'Ollama',provider:'openai',url:'http://localhost:11434/v1',bg:'rgba(34,197,94,0.15)',fg:'#3fb950',keyHint:'No API key needed for local Ollama',keyPh:'',models:['qwen3.5:latest','llama3:latest','mistral:latest','deepseek-r1:latest']},
       lmstudio:{label:'LM Studio',provider:'openai',url:'http://localhost:1234/v1',bg:'rgba(96,165,250,0.15)',fg:'#60a5fa',keyHint:'No API key needed for local LM Studio',keyPh:'',models:['loaded-model']},
       openai:{label:'OpenAI',provider:'openai',url:'https://api.openai.com/v1',bg:'rgba(168,162,158,0.15)',fg:'#a8a29e',keyHint:'Set OPENAI_API_KEY in your environment',keyPh:'OPENAI_API_KEY',models:['gpt-4o','gpt-4o-mini','gpt-4-turbo']},
-      groq:{label:'Groq',provider:'openai',url:'https://api.groq.com/openai/v1',bg:'rgba(251,191,36,0.15)',fg:'#fbbf24',keyHint:'Set GROQ_API_KEY in your environment',keyPh:'GROQ_API_KEY',models:['llama-3.3-70b-versatile','mixtral-8x7b-32768']},
+      groq:{label:'Groq',provider:'openai',url:'https://api.groq.com/openai/v1',bg:'rgba(210,153,34,0.15)',fg:'#d29922',keyHint:'Set GROQ_API_KEY in your environment',keyPh:'GROQ_API_KEY',models:['llama-3.3-70b-versatile','mixtral-8x7b-32768']},
       azure:{label:'Azure',provider:'openai',url:'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT',bg:'rgba(96,165,250,0.15)',fg:'#60a5fa',keyHint:'Set AZURE_OPENAI_API_KEY in your environment',keyPh:'AZURE_OPENAI_API_KEY',models:['gpt-4o']},
-      vllm:{label:'vLLM',provider:'openai',url:'http://localhost:8000/v1',bg:'rgba(34,197,94,0.15)',fg:'#22c55e',keyHint:'No API key needed for local vLLM',keyPh:'',models:[]},
+      vllm:{label:'vLLM',provider:'openai',url:'http://localhost:8000/v1',bg:'rgba(34,197,94,0.15)',fg:'#3fb950',keyHint:'No API key needed for local vLLM',keyPh:'',models:[]},
       claude:{label:'Claude',provider:'claude',url:'https://api.anthropic.com',bg:'rgba(217,119,87,0.15)',fg:'#d97756',keyHint:'Set ANTHROPIC_API_KEY in your environment',keyPh:'ANTHROPIC_API_KEY',models:['claude-sonnet-4-6','claude-haiku-4-5-20251001','claude-opus-4-6']},
       webhook:{label:'Webhook',provider:'webhook',url:'',bg:'rgba(168,162,158,0.15)',fg:'#a8a29e',keyHint:'',keyPh:'',models:[]}
     };
@@ -3700,7 +3404,7 @@ tqApply();
           document.getElementById('cfg-model').placeholder=s.models.length>0?s.models[0]:'model-name';
           s.models.forEach(function(m){
             var c=document.createElement('button');c.type='button';c.textContent=m;
-            c.style.cssText='font-size:0.68rem;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);color:var(--text3);cursor:pointer';
+            c.style.cssText='font-size:0.68rem;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text3);cursor:pointer';
             c.onclick=function(){document.getElementById('cfg-model').value=m};
             hintBox.appendChild(c)
           })
@@ -3733,7 +3437,7 @@ tqApply();
     </div>
     <div class="form-group" style="margin-bottom:0">
       <label>When limit reached</label>
-      <select name="budget_on_limit" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:0.85rem">
+      <select name="budget_on_limit" style="width:100%;padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:0.85rem">
         <option value="skip" {{if or (eq .Cfg.Budget.OnLimit "skip") (eq .Cfg.Budget.OnLimit "")}}selected{{end}}>Continue without LLM (deterministic only)</option>
         <option value="block" {{if eq .Cfg.Budget.OnLimit "block"}}selected{{end}}>Pause all analysis until reset</option>
       </select>
@@ -3747,7 +3451,7 @@ tqApply();
         <span class="toggle"><input type="checkbox" name="analyze_clean" value="true" {{if .Cfg.Analyze.Clean}}checked{{end}}><span class="toggle-slider"></span></span>
         <div><div style="font-size:0.82rem;font-weight:500">Clean</div></div>
       </label>
-      <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Flagged}}var(--warn){{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Flagged}}background:rgba(251,191,36,0.06){{end}}">
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Flagged}}var(--warn){{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Flagged}}background:rgba(210,153,34,0.06){{end}}">
         <span class="toggle"><input type="checkbox" name="analyze_flagged" value="true" {{if .Cfg.Analyze.Flagged}}checked{{end}}><span class="toggle-slider"></span></span>
         <div><div style="font-size:0.82rem;font-weight:500">Flagged</div></div>
       </label>
@@ -3809,28 +3513,28 @@ var llmDetailTmpl = template.Must(template.New("llm-detail").Funcs(tmplFuncs).Pa
 </div>
 <div style="padding:20px;font-size:0.85rem">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-    <span style="display:inline-block;min-width:48px;padding:6px 12px;border-radius:6px;font-family:var(--mono);font-weight:800;font-size:1.4rem;text-align:center;{{if ge .RiskScore 80.0}}background:rgba(239,68,68,0.15);color:var(--danger){{else if ge .RiskScore 50.0}}background:rgba(251,191,36,0.15);color:var(--warn){{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.1);color:var(--success){{else}}background:var(--bg2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
+    <span style="display:inline-block;min-width:48px;padding:6px 12px;border-radius:6px;font-family:var(--mono);font-weight:800;font-size:1.4rem;text-align:center;{{if ge .RiskScore 80.0}}background:rgba(239,68,68,0.15);color:var(--danger){{else if ge .RiskScore 50.0}}background:rgba(210,153,34,0.15);color:var(--warn){{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.1);color:var(--success){{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
     <div>
       <div style="font-weight:600;margin-bottom:2px">Risk Score</div>
       <div style="color:var(--text3);font-size:0.78rem">Confidence: {{printf "%.0f" .Confidence}}%</div>
     </div>
-    <span style="margin-left:auto;padding:4px 12px;border-radius:4px;font-size:0.78rem;font-weight:500;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(251,191,36,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:rgba(251,146,60,0.15);color:#fb923c{{else}}background:var(--bg2);color:var(--text3){{end}}">{{.RecommendedAction}}</span>
+    <span style="margin-left:auto;padding:4px 12px;border-radius:4px;font-size:0.78rem;font-weight:500;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(210,153,34,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:rgba(251,146,60,0.15);color:#fb923c{{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RecommendedAction}}</span>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
-    <div style="background:var(--bg2);border-radius:8px;padding:12px">
+    <div style="background:var(--surface2);border-radius:8px;padding:12px">
       <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Flow</div>
       <div><span style="color:var(--accent-light);font-weight:600">{{.FromAgent}}</span> <span style="color:var(--text3)">→</span> <span style="font-weight:500">{{.ToAgent}}</span></div>
     </div>
-    <div style="background:var(--bg2);border-radius:8px;padding:12px">
+    <div style="background:var(--surface2);border-radius:8px;padding:12px">
       <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Model</div>
       <div style="font-family:var(--mono);font-size:0.82rem">{{.Model}}</div>
     </div>
-    <div style="background:var(--bg2);border-radius:8px;padding:12px">
+    <div style="background:var(--surface2);border-radius:8px;padding:12px">
       <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Latency</div>
       <div style="font-family:var(--mono)">{{latencySec .LatencyMs}}s</div>
     </div>
-    <div style="background:var(--bg2);border-radius:8px;padding:12px">
+    <div style="background:var(--surface2);border-radius:8px;padding:12px">
       <div style="color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Tokens</div>
       <div style="font-family:var(--mono)">{{.TokensUsed}}</div>
     </div>
@@ -3889,14 +3593,14 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 /* Action buttons */
 .cs-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
 .cs-abtn{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:0.78rem;font-weight:500;cursor:pointer;border:1px solid;transition:all 0.15s;text-decoration:none}
-.cs-abtn-danger{background:rgba(239,68,68,0.08);color:#ef4444;border-color:rgba(239,68,68,0.2)}
-.cs-abtn-danger:hover{background:rgba(239,68,68,0.15);border-color:#ef4444}
+.cs-abtn-danger{background:rgba(239,68,68,0.08);color:#f85149;border-color:rgba(239,68,68,0.2)}
+.cs-abtn-danger:hover{background:rgba(239,68,68,0.15);border-color:#f85149}
 .cs-abtn-ghost{background:transparent;color:var(--text2);border-color:var(--border)}
-.cs-abtn-ghost:hover{background:var(--bg2);border-color:var(--text3)}
+.cs-abtn-ghost:hover{background:var(--surface2);border-color:var(--text3)}
 .cs-abtn svg{width:14px;height:14px}
 .cs-reviewed{display:inline-flex;align-items:center;gap:6px;padding:8px 18px;border-radius:8px;font-size:0.78rem;font-weight:600}
-.cs-reviewed-ok{background:rgba(34,197,94,0.08);color:#22c55e}
-.cs-reviewed-bad{background:rgba(239,68,68,0.08);color:#ef4444}
+.cs-reviewed-ok{background:rgba(34,197,94,0.08);color:#3fb950}
+.cs-reviewed-bad{background:rgba(239,68,68,0.08);color:#f85149}
 
 /* Side panel cards */
 .cs-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
@@ -3906,12 +3610,12 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-row:last-child{border-bottom:none}
 .cs-row .k{color:var(--text3);font-size:0.75rem}
 .cs-row .v{font-family:var(--mono);font-size:0.72rem;color:var(--text2);text-align:right}
-.cs-conf-bar{height:4px;background:var(--bg2);border-radius:2px;margin-top:4px}
+.cs-conf-bar{height:4px;background:var(--surface2);border-radius:2px;margin-top:4px}
 .cs-conf-fill{height:100%;border-radius:2px;transition:width 0.3s}
 
 /* History pills in sidebar */
 .cs-hist-grid{display:flex;flex-wrap:wrap;gap:4px;padding:4px 0}
-.cs-hist-pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:0.68rem;text-decoration:none;color:var(--text3);background:var(--bg2);transition:all 0.12s}
+.cs-hist-pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:0.68rem;text-decoration:none;color:var(--text3);background:var(--surface2);transition:all 0.12s}
 .cs-hist-pill:hover{color:var(--text);background:var(--bg3)}
 .cs-hist-score{font-family:var(--mono);font-weight:700;font-size:0.65rem}
 
@@ -3920,10 +3624,10 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-thr-card:last-child{margin-bottom:0}
 .cs-thr-top{display:flex;align-items:flex-start;gap:12px;padding:14px 18px}
 .cs-thr-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:700;font-family:var(--mono);flex-shrink:0;margin-top:1px}
-.cs-thr-num-c{background:rgba(239,68,68,0.12);color:#ef4444}
+.cs-thr-num-c{background:rgba(239,68,68,0.12);color:#f85149}
 .cs-thr-num-h{background:rgba(251,146,60,0.12);color:#fb923c}
-.cs-thr-num-m{background:rgba(251,191,36,0.1);color:#fbbf24}
-.cs-thr-num-l{background:rgba(34,197,94,0.08);color:#22c55e}
+.cs-thr-num-m{background:rgba(210,153,34,0.1);color:#d29922}
+.cs-thr-num-l{background:rgba(34,197,94,0.08);color:#3fb950}
 .cs-thr-info{flex:1;min-width:0}
 .cs-thr-type{font-family:var(--mono);font-size:0.72rem;font-weight:600;color:var(--text2);text-transform:uppercase;margin-bottom:3px}
 .cs-thr-desc{font-size:0.82rem;color:var(--text);font-weight:500;line-height:1.5}
@@ -3936,16 +3640,16 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-intent-decl{border-right:1px solid var(--border)}
 .cs-intent-act.cs-intent-warn{background:rgba(239,68,68,0.03)}
 .cs-intent-lbl{font-size:0.58rem;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:var(--text3);margin-bottom:8px;display:flex;align-items:center;gap:6px}
-.cs-intent-lbl-warn{color:#ef4444}
+.cs-intent-lbl-warn{color:#f85149}
 .cs-intent-txt{font-size:0.82rem;line-height:1.55;color:var(--text)}
 .cs-intent-act .cs-intent-txt{font-weight:500}
-.cs-intent-act.cs-intent-warn .cs-intent-txt{color:#ef4444}
+.cs-intent-act.cs-intent-warn .cs-intent-txt{color:#f85149}
 
 /* Evidence block */
-.cs-evidence{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto}
+.cs-evidence{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto}
 
 /* Generated rule */
-.cs-rule-block{background:var(--bg2);border:1px solid rgba(99,102,241,0.15);border-radius:10px;padding:14px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap}
+.cs-rule-block{background:var(--surface2);border:1px solid rgba(99,102,241,0.15);border-radius:10px;padding:14px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap}
 
 @media(max-width:960px){.cs-layout{grid-template-columns:1fr}.cs-banner{flex-direction:column}.cs-banner-score{min-width:unset;padding:14px}.cs-banner-body{border-left:none;border-top:1px solid var(--border)}.cs-banner-action{border-left:none;border-top:1px solid var(--border);padding:14px 22px}.cs-intent{grid-template-columns:1fr}.cs-intent-decl{border-right:none;border-bottom:1px solid var(--border)}}
 </style>
@@ -3955,7 +3659,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 {{with .Analysis}}
 <!-- Verdict banner -->
 <div class="cs-banner">
-  <div class="cs-banner-score" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#ef4444{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(251,191,36,0.06);color:#fbbf24{{else if gt .RiskScore 10.0}}background:rgba(34,197,94,0.06);color:#22c55e{{else}}background:var(--bg2);color:var(--text3){{end}}">
+  <div class="cs-banner-score" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.06);color:#d29922{{else if gt .RiskScore 10.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">
     <div class="n">{{printf "%.0f" .RiskScore}}</div>
     <div class="l">{{if ge .RiskScore 76.0}}CRITICAL{{else if ge .RiskScore 51.0}}HIGH{{else if ge .RiskScore 31.0}}MEDIUM{{else if gt .RiskScore 10.0}}LOW{{else}}BENIGN{{end}}</div>
   </div>
@@ -3981,8 +3685,8 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
   {{else}}
     <button class="cs-abtn cs-abtn-danger" hx-post="/dashboard/api/llm/{{.ID}}/confirm" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Confirm this as a real threat?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Confirm threat</button>
     <button class="cs-abtn cs-abtn-ghost" hx-post="/dashboard/api/llm/{{.ID}}/dismiss" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Dismiss as false positive?">False positive</button>
-    {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="cs-abtn cs-abtn-ghost" style="color:#ef4444;border-color:rgba(239,68,68,0.2)" onclick="return confirm('Suspend agent {{.FromAgent}}?')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend agent</button></form>{{end}}
-    {{if $.AgentSuspended}}<span class="cs-abtn" style="color:#ef4444;cursor:default;border-color:rgba(239,68,68,0.2)">Agent suspended</span>{{end}}
+    {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="cs-abtn cs-abtn-ghost" style="color:#f85149;border-color:rgba(239,68,68,0.2)" onclick="return confirm('Suspend agent {{.FromAgent}}?')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend agent</button></form>{{end}}
+    {{if $.AgentSuspended}}<span class="cs-abtn" style="color:#f85149;cursor:default;border-color:rgba(239,68,68,0.2)">Agent suspended</span>{{end}}
   {{end}}
 </div>
 
@@ -4036,7 +3740,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
     {{$intent := parseJSONMap .IntentJSON}}
     {{if $intent}}
     <div class="ci-s">
-      <h3>Intent Analysis {{with index $intent "alignment"}}{{$a := toString .}}<span style="display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:0.72rem;font-weight:600;padding:2px 10px;border-radius:100px;{{if lt $a "0.5"}}background:rgba(239,68,68,0.1);color:#ef4444{{else}}background:rgba(34,197,94,0.1);color:#22c55e{{end}}">{{if lt $a "0.5"}}&#10007;{{else}}&#10003;{{end}} {{$a}}</span>{{end}}</h3>
+      <h3>Intent Analysis {{with index $intent "alignment"}}{{$a := toString .}}<span style="display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:0.72rem;font-weight:600;padding:2px 10px;border-radius:100px;{{if lt $a "0.5"}}background:rgba(239,68,68,0.1);color:#f85149{{else}}background:rgba(34,197,94,0.1);color:#3fb950{{end}}">{{if lt $a "0.5"}}&#10007;{{else}}&#10003;{{end}} {{$a}}</span>{{end}}</h3>
       <div class="cs-intent">
         <div class="cs-intent-side cs-intent-decl">
           <div class="cs-intent-lbl">Declared intent</div>
@@ -4079,12 +3783,12 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
     <div class="cs-card">
       <div class="cs-card-hdr">Assessment</div>
       <div class="cs-card-body">
-        <div class="cs-row"><span class="k">Risk score</span><span class="v" style="font-weight:700;font-size:0.82rem;{{if ge .RiskScore 76.0}}color:#ef4444{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#fbbf24{{else}}color:#22c55e{{end}}">{{printf "%.0f" .RiskScore}}</span></div>
+        <div class="cs-row"><span class="k">Risk score</span><span class="v" style="font-weight:700;font-size:0.82rem;{{if ge .RiskScore 76.0}}color:#f85149{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#d29922{{else}}color:#3fb950{{end}}">{{printf "%.0f" .RiskScore}}</span></div>
         <div class="cs-row">
           <span class="k">Confidence</span>
           <span class="v">{{printf "%.0f" .Confidence}}%</span>
         </div>
-        <div class="cs-conf-bar"><div class="cs-conf-fill" style="width:{{printf "%.0f" .Confidence}}%;background:{{if ge .Confidence 80.0}}#22c55e{{else if ge .Confidence 50.0}}#fbbf24{{else}}#ef4444{{end}}"></div></div>
+        <div class="cs-conf-bar"><div class="cs-conf-fill" style="width:{{printf "%.0f" .Confidence}}%;background:{{if ge .Confidence 80.0}}#3fb950{{else if ge .Confidence 50.0}}#d29922{{else}}#f85149{{end}}"></div></div>
         <div class="cs-row" style="margin-top:6px"><span class="k">Latency</span><span class="v">{{latencySec .LatencyMs}}s</span></div>
         <div class="cs-row"><span class="k">Model</span><span class="v" style="font-size:0.68rem">{{.Model}}</span></div>
         <div class="cs-row"><span class="k">Tokens</span><span class="v">{{.TokensUsed}}</span></div>
@@ -4109,7 +3813,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
         <div class="cs-hist-grid">
           {{range $.AgentHistory}}
           <a href="/dashboard/llm/case/{{.ID}}" class="cs-hist-pill">
-            <span class="cs-hist-score" style="{{if ge .RiskScore 76.0}}color:#ef4444{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#fbbf24{{else}}color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
+            <span class="cs-hist-score" style="{{if ge .RiskScore 76.0}}color:#f85149{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#d29922{{else}}color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
             <span>{{relativeTime .Timestamp}}</span>
           </a>
           {{end}}
@@ -4139,23 +3843,23 @@ function ciCopyText(text, btn) {
 var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(layoutHead + `
 <p class="page-desc">Quarantined messages need human review. Blocked messages were stopped automatically. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
-<div style="display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
-  <select id="filter-agent" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem">
+<div class="filter-bar">
+  <select id="filter-agent">
     <option value="">All Agents</option>
     {{range .AgentNames}}<option value="{{.}}" {{if eq . $.FilterAgent}}selected{{end}}>{{.}}</option>{{end}}
   </select>
-  <input type="date" id="filter-since" value="{{.FilterSince}}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem" title="From date">
-  <span style="color:var(--text3);font-size:0.78rem">to</span>
-  <input type="date" id="filter-until" value="{{.FilterUntil}}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem" title="Until date">
-  <button class="btn btn-sm" onclick="clearEventFilters()" style="font-size:0.78rem">Clear</button>
-  <span style="flex:1"></span>
-  <select id="export-redaction" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.78rem" title="Redaction level" onchange="updateExportLinks()">
+  <input type="date" id="filter-since" value="{{.FilterSince}}" title="From date">
+  <span class="sep">to</span>
+  <input type="date" id="filter-until" value="{{.FilterUntil}}" title="Until date">
+  <button class="btn btn-sm" onclick="clearEventFilters()">Clear</button>
+  <span class="spacer"></span>
+  <select id="export-redaction" title="Redaction level" onchange="updateExportLinks()">
     <option value="">Full (admin)</option>
     <option value="analyst">Analyst (redacted matches)</option>
     <option value="external">External (metadata only)</option>
   </select>
-  <a id="export-csv" class="btn btn-sm" style="font-size:0.78rem;text-decoration:none" download>CSV</a>
-  <a id="export-json" class="btn btn-sm" style="font-size:0.78rem;text-decoration:none" download>JSON</a>
+  <a id="export-csv" class="btn btn-sm" download>CSV</a>
+  <a id="export-json" class="btn btn-sm" download>JSON</a>
 </div>
 <script>
 function buildExportURL(format) {
@@ -4226,11 +3930,11 @@ updateExportLinks();
     {{end}}
     </tbody>
   </table>
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
+  <div class="pager">
     <span id="ev-pager-info"></span>
-    <div style="display:flex;gap:4px">
-      <button id="ev-prev" onclick="evPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
-      <button id="ev-next" onclick="evPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+    <div class="pager-btns">
+      <button id="ev-prev" class="pager-btn" onclick="evPage(-1)" disabled>&larr; Prev</button>
+      <button id="ev-next" class="pager-btn" onclick="evPage(1)">Next &rarr;</button>
     </div>
   </div>
   <script>
@@ -4276,11 +3980,11 @@ updateExportLinks();
   </div>
   {{end}}
 
-  <div style="display:flex;gap:8px;margin-bottom:16px">
-    <a href="/dashboard/events?tab=quarantine&status=pending" class="toggle-btn {{if eq .QStatusFilter "pending"}}active{{end}}" style="{{if eq .QStatusFilter "pending"}}background:var(--accent-dim);color:#fff;border-color:var(--accent){{end}}">Pending</a>
-    <a href="/dashboard/events?tab=quarantine&status=approved" class="toggle-btn {{if eq .QStatusFilter "approved"}}active{{end}}" style="{{if eq .QStatusFilter "approved"}}background:var(--accent-dim);color:#fff;border-color:var(--accent){{end}}">Approved</a>
-    <a href="/dashboard/events?tab=quarantine&status=rejected" class="toggle-btn {{if eq .QStatusFilter "rejected"}}active{{end}}" style="{{if eq .QStatusFilter "rejected"}}background:var(--accent-dim);color:#fff;border-color:var(--accent){{end}}">Rejected</a>
-    <a href="/dashboard/events?tab=quarantine&status=" class="toggle-btn {{if eq .QStatusFilter ""}}active{{end}}" style="{{if eq .QStatusFilter ""}}background:var(--accent-dim);color:#fff;border-color:var(--accent){{end}}">All</a>
+  <div class="filter-bar">
+    <a href="/dashboard/events?tab=quarantine&status=pending" class="toggle-btn {{if eq .QStatusFilter "pending"}}active{{end}}">Pending</a>
+    <a href="/dashboard/events?tab=quarantine&status=approved" class="toggle-btn {{if eq .QStatusFilter "approved"}}active{{end}}">Approved</a>
+    <a href="/dashboard/events?tab=quarantine&status=rejected" class="toggle-btn {{if eq .QStatusFilter "rejected"}}active{{end}}">Rejected</a>
+    <a href="/dashboard/events?tab=quarantine&status=" class="toggle-btn {{if eq .QStatusFilter ""}}active{{end}}">All</a>
   </div>
 
   {{if .QItems}}
@@ -4298,7 +4002,7 @@ updateExportLinks();
       <td>
         {{if eq .Status "pending"}}
         <div class="q-actions">
-          <button class="btn btn-sm" style="background:var(--success)" hx-post="/dashboard/api/quarantine/{{.ID}}/approve" hx-target="#q-row-{{.ID}}" hx-swap="outerHTML">Approve</button>
+          <button class="btn btn-sm btn-success" hx-post="/dashboard/api/quarantine/{{.ID}}/approve" hx-target="#q-row-{{.ID}}" hx-swap="outerHTML">Approve</button>
           <button class="btn btn-sm btn-danger" hx-post="/dashboard/api/quarantine/{{.ID}}/reject" hx-target="#q-row-{{.ID}}" hx-swap="outerHTML">Reject</button>
         </div>
         {{else}}
@@ -4347,11 +4051,11 @@ updateExportLinks();
     {{end}}
     </tbody>
   </table>
-  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
+  <div class="pager">
     <span id="blk-pager-info"></span>
-    <div style="display:flex;gap:4px">
-      <button id="blk-prev" onclick="blkPage(-1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem" disabled>&larr; Prev</button>
-      <button id="blk-next" onclick="blkPage(1)" style="background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:4px 12px;border-radius:6px;cursor:pointer;font-size:0.78rem">Next &rarr;</button>
+    <div class="pager-btns">
+      <button id="blk-prev" class="pager-btn" onclick="blkPage(-1)" disabled>&larr; Prev</button>
+      <button id="blk-next" class="pager-btn" onclick="blkPage(1)">Next &rarr;</button>
     </div>
   </div>
   <script>
@@ -4386,10 +4090,10 @@ updateExportLinks();
       var ev = JSON.parse(e.data);
       var tbody = document.getElementById('events-body');
       if (!tbody) return;
-      var toolColors = {Bash:'#fbbf24',Write:'#c084fc',Edit:'#818cf8',Read:'#22d3ee',Glob:'#2dd4bf',Grep:'#2dd4bf',WebFetch:'#f472b6',WebSearch:'#f472b6',Agent:'#a78bfa'};
+      var toolColors = {Bash:'#d29922',Write:'#c084fc',Edit:'#818cf8',Read:'#22d3ee',Glob:'#2dd4bf',Grep:'#2dd4bf',WebFetch:'#f472b6',WebSearch:'#f472b6',Agent:'#a78bfa'};
       var toCell;
       if (ev.tool_name) {
-        var tc = toolColors[ev.tool_name] || '#71717a';
+        var tc = toolColors[ev.tool_name] || '#6e7681';
         toCell = '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:'+tc+';flex-shrink:0"></span>'+ev.tool_name+'</span>';
       } else {
         toCell = agentCellHTML(ev.to_agent||'');
@@ -4440,14 +4144,14 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.5"/></svg> Tool call</span>
       </div>
     </div>
-    <div style="width:340px;border-left:1px solid var(--border);background:var(--surface);flex-shrink:0;overflow-y:auto;font-size:0.8rem">
+    <div style="width:340px;border-left:1px solid var(--border);background:var(--surface2);flex-shrink:0;overflow-y:auto;font-size:0.8rem">
       <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
         <h3 style="font-size:0.95rem;font-weight:700;margin-bottom:14px">Overview</h3>
         <div id="gw-stats">
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Agents</span><span id="gs-agents" style="font-weight:700;font-family:var(--mono)">--</span></div>
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Tools</span><span id="gs-tools" style="font-weight:700;font-family:var(--mono)">--</span></div>
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Messages scanned</span><span id="gs-messages" style="font-weight:700;font-family:var(--mono)">--</span></div>
-          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Policy blocks</span><span id="gs-blocks" style="font-weight:700;font-family:var(--mono);color:#f87171">--</span></div>
+          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Policy blocks</span><span id="gs-blocks" style="font-weight:700;font-family:var(--mono);color:#f85149">--</span></div>
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Audit entries</span><span id="gs-audit" style="font-weight:700;font-family:var(--mono)">--</span></div>
         </div>
       </div>
@@ -4666,7 +4370,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     svg.style.width='100%'; svg.style.height='100%';
 
     var defs=document.createElementNS(NS,'defs');
-    var edgeColors={ok:'#5eead4',warn:'#fbbf24',bad:'#f87171'};
+    var edgeColors={ok:'#5eead4',warn:'#d29922',bad:'#f85149'};
     ['ok','warn','bad'].forEach(function(k){
       var m=document.createElementNS(NS,'marker');
       m.setAttribute('id','arr-'+k); m.setAttribute('viewBox','0 0 8 6');
@@ -4929,7 +4633,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         labelY=n.y+OR+16; textLen=nameLen*5.8+10;
 
       } else {
-        var ringColor=n.threat>60?'#f87171':(n.threat>30?'#fbbf24':'#4ade80');
+        var ringColor=n.threat>60?'#f85149':(n.threat>30?'#d29922':'#3fb950');
         shape=document.createElementNS(NS,'circle');
         shape.setAttribute('cx',n.x); shape.setAttribute('cy',n.y); shape.setAttribute('r',NR+2);
         shape.setAttribute('fill','none');
@@ -4948,7 +4652,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         statusDot.setAttribute('cx',n.x+NR-2); statusDot.setAttribute('cy',n.y-NR+2);
         statusDot.setAttribute('r','4');
         statusDot.setAttribute('fill',ringColor);
-        statusDot.setAttribute('stroke','#09090b'); statusDot.setAttribute('stroke-width','1.5');
+        statusDot.setAttribute('stroke','#0d1117'); statusDot.setAttribute('stroke-width','1.5');
         n._statusDot=statusDot;
       }
 
@@ -4957,7 +4661,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       labelBg.setAttribute('x',n.x-textLen/2); labelBg.setAttribute('y',labelY-9);
       labelBg.setAttribute('width',textLen); labelBg.setAttribute('height',n.isOrch?26:14);
       labelBg.setAttribute('rx','3');
-      labelBg.setAttribute('fill','#09090b'); labelBg.setAttribute('fill-opacity','0.85');
+      labelBg.setAttribute('fill','#0d1117'); labelBg.setAttribute('fill-opacity','0.9');
 
       var label=document.createElementNS(NS,'text');
       label.setAttribute('x',n.x); label.setAttribute('y',labelY);
@@ -4976,7 +4680,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         subLabel=document.createElementNS(NS,'text');
         subLabel.setAttribute('x',n.x); subLabel.setAttribute('y',labelY+12);
         subLabel.setAttribute('text-anchor','middle');
-        subLabel.setAttribute('fill','#71717a');
+        subLabel.setAttribute('fill','#6e7681');
         subLabel.setAttribute('font-size','9');
         subLabel.setAttribute('font-family','ui-monospace,SFMono-Regular,SF Mono,Menlo,monospace');
         subLabel.textContent='orchestrator';
@@ -5125,8 +4829,8 @@ var edgeDetailTmpl = template.Must(template.New("edge-detail").Funcs(tmplFuncs).
 
 var gatewayTmpl = template.Must(template.New("gateway").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.gw-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px}
-.gw-tab{padding:10px 20px;font-size:0.82rem;font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color 0.15s,border-color 0.15s}
+.gw-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:var(--sp-5)}
+.gw-tab{padding:10px var(--sp-5);font-size:var(--text-sm);font-weight:500;color:var(--text3);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color var(--ease-default),border-color var(--ease-default)}
 .gw-tab:hover{color:var(--text2)}
 .gw-tab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
 .gw-panel{display:none}
@@ -5153,7 +4857,7 @@ function gwTab(name){
 <div class="card">
   <h2>Gateway Status</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    The gateway runs as a separate process (<code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">oktsec gateway</code>). This dashboard manages its configuration.
+    The gateway runs as a separate process (<code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">oktsec gateway</code>). This dashboard manages its configuration.
   </p>
   <div style="display:flex;gap:24px;margin-bottom:12px">
     <div>
@@ -5180,7 +4884,7 @@ function gwTab(name){
 <div class="card">
   <h2>Configuration</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
-    Controls whether the gateway is active and how it processes MCP traffic. Changes are saved to <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:0.72rem;font-family:var(--mono);color:var(--accent-light)">oktsec.yaml</code> and take effect on next gateway start.
+    Controls whether the gateway is active and how it processes MCP traffic. Changes are saved to <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:var(--text-sm);font-family:var(--mono);color:var(--accent-light)">oktsec.yaml</code> and take effect on next gateway start.
   </p>
   <form method="POST" action="/dashboard/gateway/settings">
     <div style="display:flex;gap:32px;margin-bottom:20px">
@@ -5275,7 +4979,7 @@ function gwTab(name){
     <tr>
       <td><strong>{{.Name}}</strong></td>
       <td>{{.Client}}</td>
-      <td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{truncate .Command 80}}</code></td>
+      <td><code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{truncate .Command 80}}</code></td>
     </tr>
     {{end}}
     </tbody>
@@ -5288,7 +4992,11 @@ function gwTab(name){
 ` + layoutFoot))
 
 var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tmplFuncs).Parse(layoutHead + `
-<p style="margin-bottom:16px"><a href="/dashboard/gateway" style="color:var(--accent)">&larr; Back to Gateway</a></p>
+<div class="breadcrumb">
+  <a href="/dashboard/gateway">GATEWAY</a>
+  <span class="sep">/</span>
+  <span style="color:var(--accent-light)">{{.Name}}</span>
+</div>
 <h1>MCP Server: <span>{{.Name}}</span></h1>
 
 <div class="card">
@@ -5300,13 +5008,13 @@ var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tm
     <tbody>
     <tr><td style="color:var(--text3);font-weight:600;width:140px">Transport</td><td><span class="badge-{{if eq .Server.Transport "stdio"}}delivered{{else}}quarantined{{end}}" style="font-size:0.7rem">{{.Server.Transport}}</span></td></tr>
     {{if eq .Server.Transport "stdio"}}
-    <tr><td style="color:var(--text3);font-weight:600">Command</td><td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem;color:var(--accent-light)">{{.Server.Command}}</code></td></tr>
-    {{if .Server.Args}}<tr><td style="color:var(--text3);font-weight:600">Args</td><td>{{range $i, $a := .Server.Args}}{{if $i}} {{end}}<code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{$a}}</code>{{end}}</td></tr>{{end}}
+    <tr><td style="color:var(--text3);font-weight:600">Command</td><td><code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem;color:var(--accent-light)">{{.Server.Command}}</code></td></tr>
+    {{if .Server.Args}}<tr><td style="color:var(--text3);font-weight:600">Args</td><td>{{range $i, $a := .Server.Args}}{{if $i}} {{end}}<code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{$a}}</code>{{end}}</td></tr>{{end}}
     {{else}}
-    <tr><td style="color:var(--text3);font-weight:600">URL</td><td><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem;color:var(--accent-light)">{{.Server.URL}}</code></td></tr>
-    {{if .Server.Headers}}<tr><td style="color:var(--text3);font-weight:600">Headers</td><td>{{range $k, $v := .Server.Headers}}<code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.78rem">{{$k}}: {{$v}}</code><br>{{end}}</td></tr>{{end}}
+    <tr><td style="color:var(--text3);font-weight:600">URL</td><td><code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem;color:var(--accent-light)">{{.Server.URL}}</code></td></tr>
+    {{if .Server.Headers}}<tr><td style="color:var(--text3);font-weight:600">Headers</td><td>{{range $k, $v := .Server.Headers}}<code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.78rem">{{$k}}: {{$v}}</code><br>{{end}}</td></tr>{{end}}
     {{end}}
-    {{if .Server.Env}}<tr><td style="color:var(--text3);font-weight:600">Env vars</td><td>{{range $k, $v := .Server.Env}}<code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.78rem">{{$k}}={{$v}}</code><br>{{end}}</td></tr>{{end}}
+    {{if .Server.Env}}<tr><td style="color:var(--text3);font-weight:600">Env vars</td><td>{{range $k, $v := .Server.Env}}<code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.78rem">{{$k}}={{$v}}</code><br>{{end}}</td></tr>{{end}}
     </tbody>
   </table>
 </div>
@@ -5376,20 +5084,20 @@ var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tm
 
 var ruleDetailPageTmpl = template.Must(template.New("rule-detail-page").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.rd-breadcrumb{display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:0.82rem}
-.rd-breadcrumb a{color:var(--accent-light);text-decoration:none}
-.rd-breadcrumb a:hover{text-decoration:underline}
-.rd-breadcrumb .sep{color:var(--text3)}
-.rd-header{display:flex;align-items:center;gap:16px;margin-bottom:8px}
-.rd-header h1{margin:0;font-size:1.1rem}
-.rd-meta{display:flex;gap:16px;align-items:center;margin-bottom:24px}
+.rd-breadcrumb{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-5);font-size:var(--text-sm);font-family:var(--mono);color:var(--text3)}
+.rd-breadcrumb a{color:var(--text3);text-decoration:none;transition:color var(--ease-default)}
+.rd-breadcrumb a:hover{color:var(--accent-light)}
+.rd-breadcrumb .sep{opacity:0.5}
+.rd-header{display:flex;align-items:center;gap:var(--sp-4);margin-bottom:var(--sp-2)}
+.rd-header h1{margin:0;font-size:var(--text-xl)}
+.rd-meta{display:flex;gap:var(--sp-4);align-items:center;margin-bottom:var(--sp-6)}
 .rd-patterns{list-style:none;padding:0;margin:0}
-.rd-patterns li{font-family:var(--mono);font-size:0.78rem;color:var(--text2);padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:6px}
-.rd-examples{margin-top:8px}
-.rd-examples .ex{font-family:var(--mono);font-size:0.75rem;padding:6px 10px;background:var(--bg);border-radius:4px;margin-bottom:4px;border-left:3px solid var(--border)}
+.rd-patterns li{font-family:var(--mono);font-size:var(--text-sm);color:var(--text2);padding:var(--sp-2) var(--sp-3);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-md);margin-bottom:var(--sp-2)}
+.rd-examples{margin-top:var(--sp-2)}
+.rd-examples .ex{font-family:var(--mono);font-size:var(--text-sm);padding:var(--sp-2) var(--sp-3);background:var(--bg);border-radius:var(--radius-sm);margin-bottom:var(--sp-1);border-left:3px solid var(--border)}
 .rd-examples .ex.tp{border-left-color:var(--danger)}
 .rd-examples .ex.fp{border-left-color:var(--success)}
-.rd-test-result{margin-top:12px}
+.rd-test-result{margin-top:var(--sp-3)}
 </style>
 
 <div class="rd-breadcrumb">
@@ -5516,5 +5224,5 @@ var ruleDetailPageTmpl = template.Must(template.New("rule-detail-page").Funcs(tm
 </div>
 ` + layoutFoot))
 
-var ruleTestResultTmpl = template.Must(template.New("rule-test-result").Parse(`{{if .Matched}}<div style="padding:12px 16px;border-radius:8px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.15);color:var(--danger);font-size:0.82rem"><strong>Match found</strong> &mdash; rule <span style="font-family:var(--mono)">{{.RuleID}}</span> triggered.{{if .MatchText}}<div style="font-family:var(--mono);font-size:0.75rem;margin-top:6px;padding:6px 10px;background:rgba(0,0,0,0.2);border-radius:4px">{{.MatchText}}</div>{{end}}</div>{{else}}<div style="padding:12px 16px;border-radius:8px;background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.15);color:var(--success);font-size:0.82rem"><strong>Clean</strong> &mdash; rule <span style="font-family:var(--mono)">{{.RuleID}}</span> did not trigger.</div>{{end}}`))
+var ruleTestResultTmpl = template.Must(template.New("rule-test-result").Parse(`{{if .Matched}}<div style="padding:12px 16px;border-radius:8px;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.15);color:var(--danger);font-size:0.82rem"><strong>Match found</strong> &mdash; rule <span style="font-family:var(--mono)">{{.RuleID}}</span> triggered.{{if .MatchText}}<div style="font-family:var(--mono);font-size:0.75rem;margin-top:6px;padding:6px 10px;background:rgba(0,0,0,0.2);border-radius:4px">{{.MatchText}}</div>{{end}}</div>{{else}}<div style="padding:12px 16px;border-radius:8px;background:rgba(63,185,80,0.08);border:1px solid rgba(63,185,80,0.15);color:var(--success);font-size:0.82rem"><strong>Clean</strong> &mdash; rule <span style="font-family:var(--mono)">{{.RuleID}}</span> did not trigger.</div>{{end}}`))
 

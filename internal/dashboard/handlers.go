@@ -183,6 +183,36 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		unsignedPct = unsigned * 100 / totalRecent
 	}
 
+	// Build pipeline stage statuses from config.
+	type pipelineStage struct {
+		Name   string
+		Active bool
+	}
+	hasBlockedContent := false
+	for _, a := range s.cfg.Agents {
+		if len(a.BlockedContent) > 0 {
+			hasBlockedContent = true
+			break
+		}
+	}
+	pipelineStages := []pipelineStage{
+		{"Rate Limit", s.cfg.RateLimit.PerAgent > 0},
+		{"Identity", s.cfg.Identity.RequireSignature},
+		{"Suspension", true}, // always active
+		{"ACL", true},        // always active
+		{"Scan", s.scanner != nil},
+		{"Intent", s.cfg.Server.RequireIntent},
+		{"Blocked", hasBlockedContent},
+		{"Escalation", true}, // always active
+		{"Audit", true},      // always active
+		{"Anomaly", s.cfg.Anomaly.RiskThreshold > 0},
+	}
+
+	ruleCount := 0
+	if s.scanner != nil {
+		ruleCount = s.scanner.RulesCount(r.Context())
+	}
+
 	data := map[string]any{
 		"Active":        "overview",
 		"Stats":         stats,
@@ -203,6 +233,8 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"ChainValid":      chainResult.Valid,
 		"ChainCount":      chainResult.Entries,
 		"ChainReason":     chainResult.Reason,
+		"PipelineStages":  pipelineStages,
+		"RuleCount":       ruleCount,
 	}
 
 	s.populateLLMStats(data)
@@ -2365,7 +2397,7 @@ func (s *Server) handleLLMDismiss(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<span class="ci-reviewed" style="background:rgba(34,197,94,0.1);color:#22c55e">&#10003; Dismissed as false positive</span>`)
+	fmt.Fprintf(w, `<span class="ci-reviewed" style="background:rgba(63,185,80,0.1);color:#3fb950">&#10003; Dismissed as false positive</span>`)
 }
 
 func (s *Server) handleLLMConfirm(w http.ResponseWriter, r *http.Request) {
@@ -2379,7 +2411,7 @@ func (s *Server) handleLLMConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprintf(w, `<span class="ci-reviewed" style="background:rgba(239,68,68,0.1);color:#ef4444">&#10003; Confirmed as real threat</span>`)
+	fmt.Fprintf(w, `<span class="ci-reviewed" style="background:rgba(248,81,73,0.1);color:#f85149">&#10003; Confirmed as real threat</span>`)
 }
 
 func (s *Server) handleApproveLLMRule(w http.ResponseWriter, r *http.Request) {

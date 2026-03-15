@@ -8,18 +8,18 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 /* Stat strip */
 .a-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:24px}
-.a-stat{background:var(--surface2);padding:16px 18px}
-.a-stat-label{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;margin-bottom:8px}
-.a-stat-val{font-family:var(--mono);font-size:1.375rem;font-weight:700;color:var(--text);letter-spacing:-0.03em}
+.a-stat{background:var(--surface);padding:var(--sp-5) var(--sp-5)}
+.a-stat-label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);font-weight:500;margin-bottom:var(--sp-2)}
+.a-stat-val{font-family:var(--sans);font-size:1.375rem;font-weight:700;color:var(--text);letter-spacing:-0.03em}
 .a-stat-val.v-crit{color:var(--danger)}
-.a-stat-val.v-high{color:#fb923c}
+.a-stat-val.v-high{color:#db6d28}
 .a-stat-val.v-med{color:var(--text2)}
 .a-stat-val.v-dim{color:var(--text3)}
 .a-grade{display:block;font-size:0.6875rem;font-weight:500;color:var(--text3);font-family:var(--mono);margin-top:4px;letter-spacing:0.3px}
 
 /* Alert strip */
-.a-alert{display:flex;align-items:center;gap:10px;padding:12px 16px;border-left:3px solid var(--danger);background:rgba(248,113,113,0.04);margin-bottom:24px;font-size:0.8125rem;color:var(--text2);border-radius:0 10px 10px 0}
-.a-alert strong{color:#fca5a5;font-weight:600}
+.a-alert{display:flex;align-items:center;gap:10px;padding:12px 16px;border-left:3px solid var(--danger);background:rgba(248,81,73,0.04);margin-bottom:24px;font-size:0.8125rem;color:var(--text2);border-radius:0 10px 10px 0}
+.a-alert strong{color:#f85149;font-weight:600}
 .a-alert a{margin-left:auto;color:var(--text3);font-size:0.75rem;text-decoration:none;white-space:nowrap}
 .a-alert a:hover{color:var(--text2)}
 
@@ -124,26 +124,54 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 </div>
 
 {{if .ChainCount}}
-<div style="padding:14px 18px;border-left:3px solid {{if .ChainValid}}var(--success){{else}}var(--danger){{end}};background:{{if .ChainValid}}rgba(74,222,128,0.04){{else}}rgba(248,113,113,0.04){{end}};margin-bottom:24px;border-radius:0 10px 10px 0">
-  <div style="display:flex;align-items:center;gap:10px;font-size:0.8125rem;color:var(--text2)">
-    {{if .ChainValid}}&#x2713;{{else}}&#x2717;{{end}}
-    <span>Audit chain: <strong style="color:{{if .ChainValid}}var(--success){{else}}var(--danger){{end}}">{{if .ChainValid}}verified{{else}}broken{{end}}</strong> &middot; {{.ChainCount}} entries verified</span>
-  </div>
-  {{if and (not .ChainValid) .ChainReason}}
-  <div style="margin-top:10px;padding:10px 14px;background:rgba(248,113,113,0.06);border:1px solid rgba(248,113,113,0.12);border-radius:8px;font-size:0.78rem;line-height:1.6">
-    <div style="color:var(--danger);font-weight:600;margin-bottom:4px">Chain integrity failure</div>
-    <div style="color:var(--text2)"><strong>Reason:</strong> {{.ChainReason}}</div>
-    {{if .ChainBrokenID}}<div style="color:var(--text2)"><strong>Broken at entry:</strong> <code style="font-size:0.72rem;background:var(--bg3);padding:1px 6px;border-radius:3px">{{.ChainBrokenID}}</code> (position {{.ChainBrokenAt}} of {{.ChainCount}})</div>{{end}}
-    <div style="color:var(--text3);font-size:0.72rem;margin-top:6px">This typically occurs when the database is modified externally, entries are deleted, or the proxy restarts with a different signing key. Re-index the chain from the Settings page to resolve.</div>
-  </div>
-  {{end}}
+<div class="a-alert" style="border-left-color:{{if .ChainValid}}var(--success){{else}}var(--danger){{end}};background:{{if .ChainValid}}rgba(63,185,80,0.04){{else}}rgba(248,81,73,0.04){{end}}">
+  {{if .ChainValid}}&#x2713;{{else}}&#x2717;{{end}}
+  <span>Audit chain: <strong style="color:{{if .ChainValid}}var(--success){{else}}var(--danger){{end}}">{{if .ChainValid}}verified{{else}}broken{{end}}</strong> &middot; {{.ChainCount}} entries verified</span>
 </div>
+{{if and (not .ChainValid) .ChainReason}}
+<div class="card" style="border-color:rgba(248,81,73,0.2);margin-bottom:var(--sp-6)">
+  <div style="color:var(--danger);font-weight:600;margin-bottom:var(--sp-2);font-size:var(--text-md)">Chain integrity failure</div>
+  <div style="color:var(--text2);font-size:var(--text-sm);line-height:1.6;margin-bottom:var(--sp-2)"><strong>Reason:</strong> {{.ChainReason}}</div>
+  {{if .ChainBrokenID}}<div style="color:var(--text2);font-size:var(--text-sm)"><strong>Broken at entry:</strong> <code>{{.ChainBrokenID}}</code> (position {{.ChainBrokenAt}} of {{.ChainCount}})</div>{{end}}
+  <div style="color:var(--text3);font-size:var(--text-xs);margin-top:var(--sp-2)">This typically occurs when the database is modified externally, entries are deleted, or the proxy restarts with a different signing key.</div>
+</div>
+{{end}}
 {{end}}
 
 {{if .HasCritical}}
 <div class="a-alert">
   <strong>{{.Summary.Critical}} critical {{if eq .Summary.Critical 1}}finding{{else}}findings{{end}}</strong> require immediate action
-  {{if .TopFixes}}<a href="javascript:void(0)" onclick="document.getElementById('remediations').scrollIntoView({behavior:'smooth'})">View fixes &darr;</a>{{end}}
+</div>
+{{end}}
+
+{{if .TopFixes}}
+<div class="a-prod" id="remediations" style="border-color:var(--warn)">
+  <div class="a-prod-head" style="border-bottom:1px solid var(--border)">
+    <div class="a-prod-icon">&#x1F6E1;</div>
+    <div style="flex:1;min-width:0">
+      <div class="a-prod-name">Priority Remediations</div>
+      <div class="a-prod-desc">Top critical and high findings that need immediate attention.</div>
+    </div>
+    <div class="a-prod-counts"><span style="color:var(--warn)">{{len .TopFixes}} {{if eq (len .TopFixes) 1}}fix{{else}}fixes{{end}}</span></div>
+  </div>
+  {{range .TopFixes}}
+  <div class="a-fi">
+    <span class="a-fi-sev sev-{{lower (printf "%s" .Severity)}}">{{.Severity}}</span>
+    <div class="a-fi-body">
+      <div class="a-fi-head">
+        <span class="a-fi-id">{{.CheckID}}</span>
+        <span class="a-fi-title">{{.Title}}</span>
+      </div>
+      {{if .Remediation}}
+      <div class="a-fi-fix">
+        <code>{{.Remediation}}</code>
+        <button class="a-cp" onclick="copyText('{{.Remediation}}',this)">copy</button>
+        {{if .FixURL}}<a href="{{.FixURL}}" class="a-fi-link">Fix this &rarr;</a>{{end}}
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
 </div>
 {{end}}
 
@@ -164,7 +192,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
     </div>
     <div class="a-prod-counts">
       {{if .Summary.Critical}}<span style="color:var(--danger)">{{.Summary.Critical}} critical</span>{{end}}
-      {{if .Summary.High}}<span style="color:#fb923c">{{.Summary.High}} high</span>{{end}}
+      {{if .Summary.High}}<span style="color:#db6d28">{{.Summary.High}} high</span>{{end}}
       {{if .Summary.Medium}}<span style="color:var(--text2)">{{.Summary.Medium}} medium</span>{{end}}
       {{if .Summary.Info}}<span style="color:var(--text3)">{{.Summary.Info}} info</span>{{end}}
     </div>
@@ -192,30 +220,6 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
     </div>
     {{end}}
   </details>
-</div>
-{{end}}
-
-{{if .TopFixes}}
-<div class="a-sec" id="remediations">
-  <div class="a-sec-title">Priority Remediations</div>
-  {{range .TopFixes}}
-  <div class="a-fix">
-    <span class="a-fix-sev sev-{{lower (printf "%s" .Severity)}}">{{.Severity}}</span>
-    <div class="a-fix-body">
-      <div class="a-fix-head">
-        <span class="a-fix-id">{{.CheckID}}</span>
-        <span class="a-fix-title">{{.Title}}</span>
-      </div>
-      {{if .Remediation}}
-      <div class="a-fix-rem">
-        <code>{{.Remediation}}</code>
-        <button class="a-cp" onclick="copyText('{{.Remediation}}',this)">copy</button>
-        {{if .FixURL}}<a href="{{.FixURL}}" class="a-fi-link">Fix this →</a>{{end}}
-      </div>
-      {{end}}
-    </div>
-  </div>
-  {{end}}
 </div>
 {{end}}
 
