@@ -176,7 +176,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 
 	detectionRate := 0
 	if stats.TotalMessages > 0 {
-		detectionRate = (stats.Blocked + stats.Quarantined) * 100 / stats.TotalMessages
+		detectionRate = (stats.Blocked + stats.Rejected + stats.Quarantined) * 100 / stats.TotalMessages
 	}
 	unsignedPct := 0
 	if totalRecent > 0 {
@@ -1175,7 +1175,7 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 	detectionRate := 0
 	if stats.TotalMessages > 0 {
-		detectionRate = (stats.Blocked + stats.Quarantined) * 100 / stats.TotalMessages
+		detectionRate = (stats.Blocked + stats.Rejected + stats.Quarantined) * 100 / stats.TotalMessages
 	}
 	unsigned, totalRecent, _ := s.audit.QueryUnsignedRate()
 	unsignedPct := 0

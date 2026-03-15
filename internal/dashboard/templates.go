@@ -828,20 +828,20 @@ a.ov-metric:hover{background:var(--surface2)}
   </div>
   <div class="ov-card">
     <h3>Security Status</h3>
-    <a href="/dashboard/events" class="ov-metric">
-      <span class="k">Detection rate</span>
-      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</span>
+    <a href="/dashboard/events?tab=blocked" class="ov-metric">
+      <span class="k">Threat rate</span>
+      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{end}}">{{if gt .DetectionRate 0}}{{.DetectionRate}}%{{else}}<span style="color:var(--success)">&lt; 1%</span>{{end}}</span>
     </a>
     <div class="ov-metric">
-      <span class="k">Avg latency</span>
-      <span class="v {{if ge .AvgLatency 200}}danger{{else if ge .AvgLatency 50}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
+      <span class="k">Scan latency</span>
+      <span class="v {{if ge .AvgLatency 500}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
     </div>
     <a href="/dashboard/settings?tab=identity" class="ov-metric">
-      <span class="k">Unsigned messages</span>
-      <span class="v {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}} <span style="color:var(--text3);font-size:var(--text-sm)">({{.UnsignedPct}}%)</span></span>
+      <span class="k">Identity mode</span>
+      <span class="v">{{if .RequireSig}}<span style="color:var(--success)">enforced</span>{{else}}<span style="color:var(--text2)">observe</span>{{end}}</span>
     </a>
     <a href="/dashboard/events?tab=quarantine" class="ov-metric">
-      <span class="k">Quarantine queue</span>
+      <span class="k">Quarantine</span>
       <span class="v">{{if .PendingReview}}<span style="color:var(--warn)">{{.PendingReview}} pending</span>{{else}}<span style="color:var(--success)">clear</span>{{end}}</span>
     </a>
     {{if .LLMEnabled}}
