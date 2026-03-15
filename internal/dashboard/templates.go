@@ -621,14 +621,14 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
 .hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
-.hero-stat{background:var(--surface);padding:var(--sp-6) var(--sp-5);text-align:center;transition:background var(--ease-smooth);position:relative}
+.hero-stat{background:var(--surface2);padding:var(--sp-6) var(--sp-5);text-align:center;transition:background var(--ease-smooth);position:relative}
 .hero-stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent-dim),var(--accent-light));opacity:0;transition:opacity var(--ease-smooth)}
 .hero-stat:hover{background:var(--surface2)}
 .hero-stat:hover::before{opacity:1}
 .hero-stat .num{font-size:var(--text-3xl);font-weight:800;letter-spacing:-0.04em;font-family:var(--sans);line-height:1}
 .hero-stat .lbl{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-top:var(--sp-2);font-weight:500}
 .ov-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);margin-bottom:var(--sp-4)}
-.ov-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5);transition:all var(--ease-smooth)}
+.ov-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5);transition:all var(--ease-smooth)}
 .ov-card:hover{border-color:var(--border-hover);box-shadow:var(--shadow-md)}
 .ov-card h3{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:14px;font-weight:500}
 .ov-metric{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid var(--border)}
@@ -1505,7 +1505,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
 @media(max-width:768px){.cat-grid{grid-template-columns:1fr}}
 .cat-card{background:var(--surface);padding:var(--sp-5) var(--sp-5);cursor:pointer;transition:background var(--ease-default);text-decoration:none;color:inherit;display:block}
-.cat-card:hover{background:var(--surface2)}
+.cat-card:hover{background:var(--surface-hover)}
 .cat-card-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--sp-2)}
 .cat-card-name{font-weight:600;font-size:var(--text-md);letter-spacing:var(--ls-tight);color:var(--text)}
 .cat-card-count{color:var(--text3);font-size:var(--text-sm);font-family:var(--mono);white-space:nowrap}
@@ -1518,7 +1518,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .cat-card-sev.low{background:var(--surface2);color:var(--text3)}
 .cat-card-status{margin-left:auto;font-size:0.68rem;font-weight:500;color:var(--text3)}
 .cat-card-status.some-off{color:var(--warn)}
-.custom-rule-row{display:flex;align-items:center;gap:16px;padding:14px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:border-color 0.2s}
+.custom-rule-row{display:flex;align-items:center;gap:var(--sp-4);padding:14px var(--sp-5);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);margin-bottom:var(--sp-2);transition:border-color var(--ease-smooth)}
 .custom-rule-row:hover{border-color:var(--accent)}
 .custom-rule-id{font-family:var(--mono);font-weight:600;font-size:0.82rem;color:var(--text);min-width:200px}
 .custom-rule-file{color:var(--text3);font-size:0.75rem;font-family:var(--mono);flex:1}
@@ -1686,7 +1686,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 {{else if eq .Tab "enforcement"}}
 <!-- Enforcement Tab -->
 <style>
-.enf-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:10px;transition:border-color 0.2s}
+.enf-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-4) var(--sp-5);margin-bottom:10px;transition:border-color var(--ease-smooth)}
 .enf-card:hover{border-color:var(--accent)}
 .enf-card-top{display:flex;align-items:center;gap:12px}
 .enf-id{font-family:var(--mono);font-weight:600;font-size:0.85rem;color:var(--text)}
@@ -2233,12 +2233,12 @@ const ciCSS = `
 .ci-title{font-size:var(--text-lg);font-weight:600;margin:0 0 var(--sp-2);line-height:1.4;color:var(--text);text-wrap:pretty}
 .ci-hdr-row{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;font-size:var(--text-sm);color:var(--text3)}
 .ci-hdr-row .sep{color:var(--border)}
-.ci-badge{display:inline-block;padding:var(--sp-1) 14px;border-radius:100px;font-size:var(--text-sm);font-weight:500;flex-shrink:0;align-self:flex-start;margin-top:2px;letter-spacing:0.2px}
+.ci-badge{display:inline-block;padding:var(--sp-1) 14px;border-radius:100px;font-size:var(--text-sm);font-weight:500;flex-shrink:0;align-self:center;letter-spacing:0.2px}
 .ci-badge-blk{background:rgba(248,81,73,0.15);color:#f85149}
 .ci-badge-inv{background:rgba(210,153,34,0.15);color:#d29922}
 .ci-badge-qua{background:rgba(251,146,60,0.15);color:#fb923c}
 .ci-badge-ok{background:var(--surface2);color:var(--text3)}
-.ci-s{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5) var(--sp-6);margin-bottom:var(--sp-5)}
+.ci-s{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5) var(--sp-6);margin-bottom:var(--sp-5)}
 .ci-s h3{font-size:var(--text-xs);font-weight:600;color:var(--text3);margin:0 0 var(--sp-4);text-transform:uppercase;letter-spacing:var(--ls-caps);display:flex;align-items:center;gap:var(--sp-2)}
 .ci-s h3 .cnt{font-weight:500;font-family:var(--mono);text-transform:none}
 .ci-context-row{display:grid;grid-template-columns:3fr 2fr;gap:var(--sp-5);align-items:start;margin-bottom:var(--sp-5)}
@@ -2975,45 +2975,45 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 /* ── Triage bar ── */
 .tq-bar{display:flex;align-items:center;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5) var(--sp-6);margin-bottom:var(--sp-6)}
 .tq-seg{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
-.tq-num{font-size:1.4rem;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:-0.02em;font-variant-numeric:tabular-nums}
-.tq-label{font-size:0.72rem;color:var(--text3);font-weight:500;white-space:nowrap}
+.tq-num{font-size:var(--text-2xl);font-weight:700;font-family:var(--sans);line-height:1;letter-spacing:var(--ls-tight);font-variant-numeric:tabular-nums;color:var(--text)}
+.tq-label{font-size:var(--text-sm);color:var(--text3);font-weight:500;white-space:nowrap}
 .tq-pill{font-size:0.62rem;padding:2px 8px;border-radius:100px;font-weight:500;white-space:nowrap}
 .tq-pill-c{background:rgba(248,81,73,0.1);color:#f85149}
 .tq-pill-m{background:rgba(210,153,34,0.08);color:#d29922}
 .tq-div{width:1px;height:36px;background:var(--border);margin:0 20px;flex-shrink:0}
 
 /* ── Triage table ── */
-.tq-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
-.tq-filters select,.tq-filters input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:0.78rem;font-family:inherit}
+.tq-filters{display:flex;gap:var(--sp-2);margin-bottom:var(--sp-3);flex-wrap:wrap;align-items:center}
+.tq-filters select,.tq-filters input{background:var(--surface);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:var(--radius-md);font-size:var(--text-sm);font-family:var(--sans)}
 .tq-table{width:100%;border-collapse:collapse}
-.tq-table th{font-size:0.68rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;text-align:left;padding:8px 12px;border-bottom:2px solid var(--border)}
-.tq-table td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:0.82rem}
+.tq-table th{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);font-weight:500;text-align:left;padding:var(--sp-2) var(--sp-3);border-bottom:2px solid var(--border)}
+.tq-table td{padding:10px var(--sp-3);border-bottom:1px solid var(--border);font-size:var(--text-sm);font-family:var(--sans)}
 .tq-table tr.tq-row{cursor:pointer;transition:background 0.1s}
 .tq-table tr.tq-row:hover{background:var(--surface-hover)}
 .tq-table tr.tq-dismissed{opacity:0.5}
 .tq-table tr.tq-dismissed:hover{opacity:0.8}
-.tq-risk{display:inline-flex;align-items:center;justify-content:center;width:36px;height:28px;border-radius:6px;font-family:var(--mono);font-weight:700;font-size:0.82rem}
+.tq-risk{display:inline-flex;align-items:center;justify-content:center;width:36px;height:28px;border-radius:var(--radius-md);font-family:var(--sans);font-weight:700;font-size:var(--text-sm)}
 .tq-pager{display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)}
 .tq-pager button{background:var(--bg);border:1px solid var(--border);color:var(--text2);padding:var(--sp-1) var(--sp-3);border-radius:var(--radius-md);cursor:pointer;font-size:var(--text-sm);font-family:var(--sans);transition:all var(--ease-smooth)}
 .tq-pager button:hover:not(:disabled){background:var(--surface-hover)}
 .tq-pager button:disabled{opacity:0.3;cursor:default}
-.tq-action{padding:2px 10px;border-radius:100px;font-size:0.68rem;font-weight:500;text-transform:uppercase;letter-spacing:0.3px}
+.tq-action{padding:3px 10px;border-radius:100px;font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:0.3px}
 .tq-action.block{background:rgba(248,81,73,0.12);color:#f85149}
 .tq-action.investigate{background:rgba(210,153,34,0.12);color:#d29922}
 .tq-action.quarantine{background:rgba(251,146,60,0.12);color:#fb923c}
 .tq-action.monitor,.tq-action.allow{background:var(--surface2);color:var(--text3)}
-.tq-status{padding:2px 8px;border-radius:100px;font-size:0.62rem;font-weight:500;text-transform:uppercase;letter-spacing:0.4px}
+.tq-status{padding:3px 10px;border-radius:100px;font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:0.3px}
 .tq-status.new{background:rgba(99,102,241,0.12);color:var(--accent-light)}
 .tq-status.dismissed{background:rgba(63,185,80,0.08);color:#3fb950}
 .tq-status.confirmed{background:rgba(248,81,73,0.08);color:#f85149}
 @media(max-width:768px){.tq-bar{flex-direction:column;gap:12px;align-items:flex-start}.tq-div{width:100%;height:1px;margin:0}}
-.llm-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
-.llm-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px}
-.llm-card h3{font-size:0.78rem;letter-spacing:0.2px;color:var(--text2);margin-bottom:14px;font-weight:600}
-.llm-row{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--border)}
+.llm-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);margin-bottom:var(--sp-4)}
+.llm-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5)}
+.llm-card h3{font-size:var(--text-xs);letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:var(--sp-4);font-weight:600;text-transform:uppercase}
+.llm-row{display:flex;justify-content:space-between;align-items:baseline;padding:var(--sp-2) 0;border-bottom:1px solid var(--border)}
 .llm-row:last-child{border-bottom:none}
-.llm-row .k{font-size:0.82rem;color:var(--text2)}
-.llm-row .v{font-family:var(--mono);font-weight:600;font-size:0.88rem}
+.llm-row .k{font-size:var(--text-base);color:var(--text2)}
+.llm-row .v{font-family:var(--mono);font-weight:600;font-size:var(--text-md)}
 .prov-opt{position:relative;flex:1;padding:16px;border-radius:8px;border:2px solid var(--border);cursor:pointer;transition:border-color 0.15s,background 0.15s;text-align:center}
 .prov-opt:hover{border-color:var(--text3)}
 .prov-opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
@@ -3580,7 +3580,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-side{display:flex;flex-direction:column;gap:16px}
 
 /* Verdict banner */
-.cs-banner{display:flex;align-items:stretch;background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:24px}
+.cs-banner{display:flex;align-items:stretch;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
 .cs-banner-score{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:90px;padding:20px 16px;flex-shrink:0}
 .cs-banner-score .n{font-size:2rem;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:-0.03em}
 .cs-banner-score .l{font-size:0.56rem;letter-spacing:0.8px;margin-top:5px;font-weight:600;text-transform:uppercase}
@@ -3603,7 +3603,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-reviewed-bad{background:rgba(239,68,68,0.08);color:#f85149}
 
 /* Side panel cards */
-.cs-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.cs-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden}
 .cs-card-hdr{padding:12px 16px;border-bottom:1px solid var(--border);font-size:0.68rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px}
 .cs-card-body{padding:14px 16px}
 .cs-row{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.78rem}
@@ -3631,8 +3631,8 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-thr-info{flex:1;min-width:0}
 .cs-thr-type{font-family:var(--mono);font-size:0.72rem;font-weight:600;color:var(--text2);text-transform:uppercase;margin-bottom:3px}
 .cs-thr-desc{font-size:0.82rem;color:var(--text);font-weight:500;line-height:1.5}
-.cs-thr-ev{padding:10px 18px 14px;background:rgba(255,255,255,0.015);border-top:1px solid var(--border);font-size:0.75rem;color:var(--text3);line-height:1.6}
-.cs-thr-rule{padding:8px 18px 12px;border-top:1px solid var(--border);font-size:0.72rem}
+.cs-thr-ev{padding:var(--sp-3) var(--sp-5) var(--sp-4);background:rgba(255,255,255,0.015);border-top:1px solid var(--border);font-size:var(--text-sm);color:var(--text3);line-height:1.6;font-family:var(--mono)}
+.cs-thr-rule{padding:var(--sp-2) var(--sp-5) var(--sp-3);border-top:1px solid var(--border);font-size:var(--text-sm);display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
 
 /* Intent diff */
 .cs-intent{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden}
@@ -3664,7 +3664,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
     <div class="l">{{if ge .RiskScore 76.0}}CRITICAL{{else if ge .RiskScore 51.0}}HIGH{{else if ge .RiskScore 31.0}}MEDIUM{{else if gt .RiskScore 10.0}}LOW{{else}}BENIGN{{end}}</div>
   </div>
   <div class="cs-banner-body">
-    <h2 class="cs-banner-title">{{fullThreatSummary .ThreatsJSON .RiskScore}}{{if and (gt .Confidence 0.0) (lt .Confidence 30.0)}} <span style="font-size:0.68rem;color:var(--warn);font-weight:500">&#9888; Low confidence</span>{{end}}</h2>
+    <h2 class="cs-banner-title">{{firstThreatSummary .ThreatsJSON .RiskScore}}{{if and (gt .Confidence 0.0) (lt .Confidence 30.0)}} <span style="font-size:var(--text-xs);color:var(--warn);font-weight:500">&#9888; Low confidence</span>{{end}}</h2>
     <div class="cs-banner-meta">
       {{if .FromAgent}}<a href="/dashboard/agents/{{.FromAgent}}" style="color:var(--accent-light);text-decoration:none;font-weight:500">{{.FromAgent}}</a> <span style="opacity:0.5">&rarr;</span> <a href="/dashboard/agents/{{.ToAgent}}" style="color:var(--text2);text-decoration:none">{{.ToAgent}}</a><span class="sep">&middot;</span>{{end}}
       <span>{{relativeTime .Timestamp}}</span>
@@ -3717,10 +3717,10 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
             {{with index $m "evidence"}}<div class="cs-thr-ev">{{.}}</div>{{end}}
             {{with index $m "suggestion"}}{{$s := toMap .}}{{if $s}}
             <div class="cs-thr-rule">
-              <span style="color:var(--text3)">Rule:</span>
-              <code style="font-family:var(--mono);color:var(--text2);margin-left:4px">{{with index $s "name"}}{{.}}{{end}}</code>
-              {{with index $s "pattern"}}<code style="font-family:var(--mono);color:var(--text3);margin-left:4px;font-size:0.68rem">{{.}}</code>{{end}}
-              <button class="ci-thr-cp" style="margin-left:8px" onclick="ciCopyText(this.closest('.cs-thr-rule').querySelector('code').textContent,this)">copy</button>
+              <span style="color:var(--text3);font-size:var(--text-xs)">Suggested rule:</span>
+              <code>{{with index $s "name"}}{{.}}{{end}}</code>
+              {{with index $s "pattern"}}<code style="color:var(--text3);font-size:var(--text-xs)">{{.}}</code>{{end}}
+              <button class="a-cp" onclick="ciCopyText(this.closest('.cs-thr-rule').querySelector('code').textContent,this)">copy</button>
             </div>
             {{end}}{{end}}
           </div>
