@@ -1219,7 +1219,7 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 {{if .DiscoveredAgents}}
 <div class="card">
   <h2 style="color:var(--warn)">Discovered from Traffic</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">These agents appeared in traffic but are not registered. Unregistered agents bypass ACL checks.</p>
+  <p class="desc">These agent identifiers appeared as message destinations in scanned traffic. They may be tool names, subagents, or external endpoints. Register them to apply identity verification and ACL policies.</p>
   <table>
     <thead><tr><th>Agent</th><th>Action</th></tr></thead>
     <tbody>
@@ -4049,13 +4049,14 @@ updateExportLinks();
   <div id="search-results">
   {{if .Entries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Decision</th><th>Status</th></tr></thead>
     <tbody id="events-body">
     {{range .Entries}}
     <tr class="ev-row clickable{{if hasRules .RulesTriggered}} has-rules{{end}}" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
+      <td style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{humanDecision .PolicyDecision}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
     </tr>
     {{end}}
@@ -4162,7 +4163,7 @@ updateExportLinks();
   updateExpiry();
   </script>
   {{else}}
-  <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.</div>
+  <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.{{if not .RequireSig}} Quarantine is active in enforce mode.{{end}}</div>
   {{end}}
 </div>
 
@@ -4237,7 +4238,9 @@ updateExportLinks();
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
       row.ondblclick = function(evt){evt.preventDefault();evt.stopPropagation();window.location='/dashboard/events/'+ev.id;};
-      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td>';
+      var decision=ev.policy_decision||'';
+      var decLabel={'allowed':'Allowed','content_blocked':'Blocked — dangerous content','content_quarantined':'Quarantined for review','signature_required':'Rejected — unsigned'}[decision]||decision;
+      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + decLabel + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
