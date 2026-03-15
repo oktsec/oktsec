@@ -4049,15 +4049,14 @@ updateExportLinks();
   <div id="search-results">
   {{if .Entries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Decision</th><th>Status</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
     <tbody id="events-body">
     {{range .Entries}}
     <tr class="ev-row clickable{{if hasRules .RulesTriggered}} has-rules{{end}}" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
-      <td style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{humanDecision .PolicyDecision}}</td>
-      <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
+      <td><span class="badge-{{.Status}}">{{.Status}}</span>{{if ne .PolicyDecision "allowed"}} <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">{{humanDecision .PolicyDecision}}</span>{{end}}</td>
     </tr>
     {{end}}
     </tbody>
@@ -4171,15 +4170,14 @@ updateExportLinks();
 <div class="tab-content {{if eq .Tab "blocked"}}active{{end}}" data-tab-content="events" data-tab-name="blocked">
   {{if .BlockedEntries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Reason</th><th>Status</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
     <tbody>
     {{range .BlockedEntries}}
     <tr class="blk-row clickable has-rules" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
-      <td style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text2);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{humanDecision .PolicyDecision}}</td>
-      <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
+      <td><span class="badge-{{.Status}}">{{.Status}}</span> <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">{{humanDecision .PolicyDecision}}</span></td>
     </tr>
     {{end}}
     </tbody>
@@ -4238,9 +4236,12 @@ updateExportLinks();
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
       row.ondblclick = function(evt){evt.preventDefault();evt.stopPropagation();window.location='/dashboard/events/'+ev.id;};
-      var decision=ev.policy_decision||'';
-      var decLabel={'allowed':'Allowed','content_blocked':'Blocked — dangerous content','content_quarantined':'Quarantined for review','signature_required':'Rejected — unsigned'}[decision]||decision;
-      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + decLabel + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td>';
+      var decExtra='';
+      if(ev.policy_decision&&ev.policy_decision!=='allowed'){
+        var labels={'content_blocked':'Blocked — dangerous content','content_quarantined':'Quarantined','signature_required':'Rejected — unsigned','acl_denied':'Rejected — ACL denied'};
+        decExtra=' <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">'+(labels[ev.policy_decision]||ev.policy_decision)+'</span>';
+      }
+      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span>'+decExtra+'</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
