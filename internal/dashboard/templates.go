@@ -99,6 +99,13 @@ var tmplFuncs = template.FuncMap{
 			"audit":     "Security Posture",
 			"llm":       "Threat Intel",
 			"discovery": "Discovery",
+			"overview":  "Overview",
+			"agents":    "Agents",
+			"rules":     "Rules",
+			"graph":     "Graph",
+			"gateway":   "Gateway",
+			"settings":  "Settings",
+			"alerts":    "Alerts",
 		}
 		if t, ok := titles[active]; ok {
 			return strings.ToUpper(t)
@@ -846,8 +853,8 @@ a.ov-metric:hover{background:var(--surface2)}
     </a>
     {{if .LLMEnabled}}
     <a href="/dashboard/llm" class="ov-metric">
-      <span class="k">LLM threats</span>
-      <span class="v {{if gt .LLMThreats 0}}danger{{else}}success{{end}}">{{.LLMThreats}}</span>
+      <span class="k">LLM findings</span>
+      <span class="v {{if gt .LLMThreats 5}}warn{{else if gt .LLMThreats 0}}text-secondary{{end}}">{{.LLMThreats}} <span style="color:var(--text3);font-size:var(--text-xs);font-weight:400">detected</span></span>
     </a>
     {{end}}
   </div>
@@ -4076,7 +4083,7 @@ updateExportLinks();
   evRender();
   </script>
   {{else}}
-  <div class="empty">No events yet. Send a message through the proxy to see activity here.</div>
+  <div class="empty">No events in this view. Use your MCP tools normally and events will appear here in real-time.</div>
   {{end}}
   </div>
 </div>
