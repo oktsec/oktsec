@@ -456,6 +456,27 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
 .page-header-actions{display:flex;gap:var(--sp-2);flex-shrink:0}
 
 /* ==========================================================================
+   Utility classes
+   ========================================================================== */
+.text-muted{color:var(--text3)}
+.text-secondary{color:var(--text2)}
+.text-success{color:var(--success)}
+.text-danger{color:var(--danger)}
+.text-warn{color:var(--warn)}
+.text-accent{color:var(--accent-light)}
+.text-mono{font-family:var(--mono)}
+.text-sans{font-family:var(--sans)}
+.mb-0{margin-bottom:0}
+.mb-4{margin-bottom:var(--sp-4)}
+.mb-5{margin-bottom:var(--sp-5)}
+.desc{color:var(--text2);font-size:var(--text-sm);margin-bottom:var(--sp-4);line-height:1.6}
+.section-label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);font-weight:600;margin-bottom:var(--sp-3)}
+.flex-1{flex:1}
+.flex-center{display:flex;align-items:center}
+.gap-2{gap:var(--sp-2)}
+.gap-3{gap:var(--sp-3)}
+
+/* ==========================================================================
    Code blocks
    ========================================================================== */
 code{font-family:var(--mono);font-size:0.9em;background:var(--surface2);padding:2px 6px;border-radius:var(--radius-sm);color:var(--text)}

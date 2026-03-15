@@ -1291,7 +1291,7 @@ function adTab(name){
       <div class="ad-slbl">Communication partners (24h)</div>
       {{if .CommPartners}}
       <table style="font-size:0.78rem">
-        <thead><tr><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Partner</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Total</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Blocked</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Rate</th></tr></thead>
+        <thead><tr><th class="section-label">Partner</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Total</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Blocked</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Rate</th></tr></thead>
         <tbody>
         {{range .CommPartners}}
         <tr style="{{if eq .Total 0}}opacity:0.4{{end}}">
@@ -1372,7 +1372,7 @@ function adTab(name){
 <div id="ad-policies" class="ad-panel">
   <div class="card" style="padding:18px 20px">
     <div class="ad-slbl">Tool Policies</div>
-    <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.</p>
+    <p class="desc">Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.</p>
     {{if .Agent.ToolPolicies}}
     <table style="margin-bottom:16px">
       <thead><tr><th>Tool</th><th>Max/call</th><th>Daily limit</th><th>Approval above</th><th>Rate limit</th></tr></thead>
@@ -1446,7 +1446,7 @@ function stagePolicy() {
     <div class="ad-slbl">Recent Messages {{if .Entries}}<a href="/dashboard/events?agent={{.Name}}" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all in Event Log &rarr;</a>{{end}}</div>
     {{if .Entries}}
     <table style="font-size:0.78rem">
-      <thead><tr><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Time</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">To</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Status</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Latency</th></tr></thead>
+      <thead><tr><th class="section-label">Time</th><th class="section-label">To</th><th class="section-label">Status</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Latency</th></tr></thead>
       <tbody>
       {{range .Entries}}
       <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
@@ -1785,16 +1785,16 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 • *Message:* {{"{{MESSAGE_ID}}"}}
 • *Time:* {{"{{TIMESTAMP}}"}}</textarea>
       <div style="color:var(--text3);font-size:0.72rem;margin-top:4px;line-height:1.5">
-        Variables: <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{RULE}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{RULE_NAME}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{CATEGORY}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{MATCH}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{ACTION}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{SEVERITY}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{FROM}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{TO}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{MESSAGE_ID}}"}}</code>
-        <code style="background:var(--surface);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:0.7rem">{{"{{TIMESTAMP}}"}}</code>.
+        Variables: <code>{{"{{RULE}}"}}</code>
+        <code>{{"{{RULE_NAME}}"}}</code>
+        <code>{{"{{CATEGORY}}"}}</code>
+        <code>{{"{{MATCH}}"}}</code>
+        <code>{{"{{ACTION}}"}}</code>
+        <code>{{"{{SEVERITY}}"}}</code>
+        <code>{{"{{FROM}}"}}</code>
+        <code>{{"{{TO}}"}}</code>
+        <code>{{"{{MESSAGE_ID}}"}}</code>
+        <code>{{"{{TIMESTAMP}}"}}</code>.
         Write plain text — automatically formatted for Slack/Discord.
       </div>
     </div>
@@ -2490,7 +2490,7 @@ var customRulesTmpl = template.Must(template.New("custom-rules").Parse(`
 </table>
 {{else}}
 <div class="empty" style="padding:20px 0">
-  {{if .CustomRulesDir}}No custom rules in {{.CustomRulesDir}}.{{else}}Set <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">custom_rules_dir</code> in oktsec.yaml to enable custom rules.{{end}}
+  {{if .CustomRulesDir}}No custom rules in {{.CustomRulesDir}}.{{else}}Set <code style="color:var(--accent-light)">custom_rules_dir</code> in oktsec.yaml to enable custom rules.{{end}}
 </div>
 {{end}}`))
 
@@ -2621,7 +2621,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Security Mode</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     The most important setting. Determines whether agents must prove their identity before sending messages.
   </p>
   <div style="display:flex;gap:16px;margin-bottom:16px">
@@ -2651,7 +2651,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Default Policy</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Who can talk to whom. When set to <strong>deny</strong>, agents can only message targets you've explicitly allowed.
   </p>
   <div style="display:flex;gap:16px;margin-bottom:16px">
@@ -2687,7 +2687,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Agent Keys</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Each agent has a signing key to prove its identity. Public keys are stored here; agents hold their private keys. Revoke a key to immediately block an agent.
   </p>
   <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
@@ -2746,7 +2746,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Quarantine</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Hold suspicious messages for human review before they reach the destination agent.
   </p>
   <form method="POST" action="/dashboard/settings/quarantine">
@@ -2773,7 +2773,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Behavior Monitoring</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Track agent behavior over time and flag unusual patterns like sudden traffic spikes or new communication pairs.
   </p>
   <form method="POST" action="/dashboard/settings/anomaly">
@@ -2805,7 +2805,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Message Limits</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Prevent agents from flooding the system. Each agent gets a maximum number of messages per time window.
   </p>
   <form method="POST" action="/dashboard/settings/rate-limit">
@@ -2825,7 +2825,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Intent Checks</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Agents declare what they're doing (e.g. "code review", "deploy"). oktsec checks that the message content matches.
   </p>
   <form method="POST" action="/dashboard/settings/intent">
@@ -2854,7 +2854,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Notifications</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Get notified when oktsec blocks or quarantines a message. Add webhook URLs for Slack, email, or any HTTP endpoint.
   </p>
 
@@ -2894,7 +2894,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card">
   <h2>Outbound Traffic</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Control which external services agents can reach and scan their HTTP traffic for data leaks.
   </p>
   <form method="POST" action="/dashboard/settings/forward-proxy">
@@ -2934,7 +2934,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
 <div class="card st-span">
   <h2>Server Info</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Current proxy configuration. Changes to these settings require a restart.
   </p>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
@@ -4856,7 +4856,7 @@ function gwTab(name){
 <div id="gw-config" class="gw-panel {{if ne .Tab "discovery"}}active{{end}}">
 <div class="card">
   <h2>Gateway Status</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     The gateway runs as a separate process (<code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">oktsec gateway</code>). This dashboard manages its configuration.
   </p>
   <div style="display:flex;gap:24px;margin-bottom:12px">
@@ -4883,7 +4883,7 @@ function gwTab(name){
 
 <div class="card">
   <h2>Configuration</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Controls whether the gateway is active and how it processes MCP traffic. Changes are saved to <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:var(--text-sm);font-family:var(--mono);color:var(--accent-light)">oktsec.yaml</code> and take effect on next gateway start.
   </p>
   <form method="POST" action="/dashboard/gateway/settings">
@@ -4917,7 +4917,7 @@ function gwTab(name){
 
 <div class="card">
   <h2>Backend MCP Servers</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Each backend server exposes MCP tools that agents can call through the gateway. The gateway auto-discovers tools from each server and applies security policies.
   </p>
   {{if .Servers}}
@@ -4967,7 +4967,7 @@ function gwTab(name){
 <div id="gw-discovery" class="gw-panel {{if eq .Tab "discovery"}}active{{end}}">
 <div class="card">
   <h2>Discovered MCP Servers</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Servers found in local AI client configurations (Claude Desktop, Cursor, VS Code, Cline, Windsurf, etc.).
   </p>
   {{if .Discovered}}
@@ -5001,7 +5001,7 @@ var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tm
 
 <div class="card">
   <h2>Server Configuration</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Current settings for this backend MCP server. The gateway connects to this server to discover and proxy tool calls.
   </p>
   <table>
@@ -5062,7 +5062,7 @@ var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tm
 {{if .RelatedAgents}}
 <div class="card">
   <h2>Related Agents</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">
+  <p class="desc">
     Agents that have tool allowlists configured. These restrictions apply when agents call tools through the gateway.
   </p>
   <table>
@@ -5128,7 +5128,7 @@ var ruleDetailPageTmpl = template.Must(template.New("rule-detail-page").Funcs(tm
 <!-- Details Card -->
 <div class="card">
   <h2>Details</h2>
-  {{if .Detail.Description}}<p style="color:var(--text2);font-size:0.82rem;margin-bottom:16px;line-height:1.6">{{.Detail.Description}}</p>{{end}}
+  {{if .Detail.Description}}<p class="desc">{{.Detail.Description}}</p>{{end}}
 
   {{if .Detail.Patterns}}
   <div style="margin-bottom:16px">
