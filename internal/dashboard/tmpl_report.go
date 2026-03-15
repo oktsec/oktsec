@@ -11,13 +11,13 @@ var reportTmpl = template.Must(template.New("report").Funcs(tmplFuncs).Parse(`<!
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#09090b;--surface:#18181b;--surface2:#27272a;
-  --border:#3f3f46;--border-subtle:rgba(255,255,255,0.06);
-  --text:#fafafa;--text2:#a1a1aa;--text3:#71717a;
+  --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;
+  --border:#30363d;--border-subtle:#21262d;
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
   --accent:#6366f1;--accent-light:#818cf8;
-  --danger:#f87171;--success:#34d399;--warn:#fbbf24;
+  --danger:#f85149;--success:#3fb950;--warn:#d29922;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
-  --sans:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
 }
 body{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:0.88rem;line-height:1.5;-webkit-font-smoothing:antialiased}
 .report{max-width:900px;margin:0 auto;padding:40px 32px}
@@ -31,7 +31,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:0.
 /* Grade hero */
 .grade-hero{display:flex;align-items:center;gap:32px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px 32px;margin-bottom:28px}
 .grade-circle{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:2rem;font-weight:800;flex-shrink:0}
-.grade-A{background:rgba(52,211,153,0.12);color:var(--success);border:2px solid rgba(52,211,153,0.3)}
+.grade-A{background:rgba(63,185,80,0.12);color:var(--success);border:2px solid rgba(63,185,80,0.3)}
 .grade-B{background:rgba(96,165,250,0.12);color:#60a5fa;border:2px solid rgba(96,165,250,0.3)}
 .grade-C{background:rgba(251,191,36,0.12);color:var(--warn);border:2px solid rgba(251,191,36,0.3)}
 .grade-D{background:rgba(251,146,60,0.12);color:#fb923c;border:2px solid rgba(251,146,60,0.3)}
@@ -56,7 +56,7 @@ th{text-align:left;color:var(--text3);font-size:0.68rem;text-transform:uppercase
 td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);color:var(--text2);font-family:var(--mono);font-size:0.78rem}
 
 /* Severity */
-.sev-critical{color:#f87171;font-weight:600}.sev-high{color:#fb923c;font-weight:600}.sev-medium{color:#60a5fa}.sev-low{color:var(--text3)}
+.sev-critical{color:#f85149;font-weight:600}.sev-high{color:#fb923c;font-weight:600}.sev-medium{color:#60a5fa}.sev-low{color:var(--text3)}
 
 /* Risk bar */
 .risk-bar{height:6px;border-radius:3px;background:var(--surface2);min-width:60px;display:inline-block;vertical-align:middle}
@@ -65,12 +65,12 @@ td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);color:var(--te
 
 /* Chain */
 .chain-status{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:6px;font-size:0.82rem;font-weight:600;font-family:var(--mono)}
-.chain-valid{background:rgba(52,211,153,0.08);color:var(--success);border:1px solid rgba(52,211,153,0.2)}
+.chain-valid{background:rgba(63,185,80,0.08);color:var(--success);border:1px solid rgba(63,185,80,0.2)}
 .chain-broken{background:rgba(248,113,113,0.08);color:var(--danger);border:1px solid rgba(248,113,113,0.2)}
 
 /* Finding */
 .finding{padding:10px 14px;border-left:3px solid var(--border);margin-bottom:8px;background:var(--surface);border-radius:0 6px 6px 0}
-.finding.critical{border-left-color:#f87171}.finding.high{border-left-color:#fb923c}.finding.medium{border-left-color:#60a5fa}.finding.low{border-left-color:var(--text3)}
+.finding.critical{border-left-color:#f85149}.finding.high{border-left-color:#fb923c}.finding.medium{border-left-color:#60a5fa}.finding.low{border-left-color:var(--text3)}
 .finding .f-title{font-weight:600;font-size:0.82rem;margin-bottom:2px}
 .finding .f-detail{color:var(--text3);font-size:0.78rem}
 .finding .f-id{font-family:var(--mono);font-size:0.68rem;color:var(--text3)}
