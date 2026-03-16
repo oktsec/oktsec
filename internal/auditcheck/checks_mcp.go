@@ -89,7 +89,7 @@ func auditMCPServersFromResult(result *discover.Result) []Finding {
 					fmt.Sprintf("MCP server with bare command: %s", srv.Name),
 					fmt.Sprintf("Server %q in %s runs %q with no arguments — may be a wrapper hiding the real command.",
 						srv.Name, discover.ClientDisplayName(cr.Client), srv.Command),
-					"Verify the command is a trusted MCP server binary")
+					fmt.Sprintf("Run 'which %s' to verify the binary path, then check it's not a wrapper: 'file %s'", srv.Command, srv.Command))
 			}
 		}
 	}

@@ -555,7 +555,7 @@ func TestServer_LegacyRedirects(t *testing.T) {
 		{"/dashboard/logs", "/dashboard/events"},
 		{"/dashboard/quarantine", "/dashboard/events?tab=quarantine"},
 		{"/dashboard/analytics", "/dashboard"},
-		{"/dashboard/identity", "/dashboard/settings"},
+		{"/dashboard/identity", "/dashboard/settings?tab=security"},
 	}
 
 	for _, r := range redirects {
@@ -1033,38 +1033,9 @@ func TestServer_EnforcementDelete(t *testing.T) {
 	}
 }
 
-// --- Settings tab tests ---
+// --- Settings page tests ---
 
-func TestServer_SettingsTabsRender(t *testing.T) {
-	srv := newTestServer(t)
-	handler := srv.Handler()
-	cookie := loginSession(t, srv, handler)
-
-	tabs := []struct {
-		tab      string
-		contains string
-	}{
-		{"security", "Security Mode"},
-		{"identity", "Agent Keys"},
-		{"pipeline", "Quarantine"},
-		{"infra", "Notifications"},
-	}
-	for _, tc := range tabs {
-		req := httptest.NewRequest("GET", "/dashboard/settings?tab="+tc.tab, nil)
-		req.AddCookie(cookie)
-		w := httptest.NewRecorder()
-		handler.ServeHTTP(w, req)
-
-		if w.Code != http.StatusOK {
-			t.Fatalf("settings tab=%s: status = %d, want 200", tc.tab, w.Code)
-		}
-		if !strings.Contains(w.Body.String(), tc.contains) {
-			t.Errorf("settings tab=%s: body missing %q", tc.tab, tc.contains)
-		}
-	}
-}
-
-func TestServer_SettingsDefaultTab(t *testing.T) {
+func TestServer_SettingsPageRender(t *testing.T) {
 	srv := newTestServer(t)
 	handler := srv.Handler()
 	cookie := loginSession(t, srv, handler)
@@ -1075,10 +1046,30 @@ func TestServer_SettingsDefaultTab(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("settings default: status = %d, want 200", w.Code)
+		t.Fatalf("settings: status = %d, want 200", w.Code)
 	}
-	if !strings.Contains(w.Body.String(), "Security Mode") {
-		t.Error("settings with no tab param should show Security tab content")
+	body := w.Body.String()
+	for _, want := range []string{"Security Mode", "Quarantine", "Egress Proxy"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings page missing section %q", want)
+		}
+	}
+}
+
+func TestServer_SettingsOldTabParamsStillWork(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Old tab params should still return 200 (single page now)
+	for _, tab := range []string{"security", "protection", "infra", "pipeline", "identity"} {
+		req := httptest.NewRequest("GET", "/dashboard/settings?tab="+tab, nil)
+		req.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("settings?tab=%s: status = %d, want 200", tab, w.Code)
+		}
 	}
 }
 
@@ -1639,8 +1630,8 @@ func TestServer_ModeToggleRedirectsToSecurityTab(t *testing.T) {
 		t.Fatalf("mode toggle: status = %d, want 302", w.Code)
 	}
 	loc := w.Header().Get("Location")
-	if loc != "/dashboard/settings?tab=security" {
-		t.Errorf("redirect = %q, want /dashboard/settings?tab=security", loc)
+	if loc != "/dashboard/settings" {
+		t.Errorf("redirect = %q, want /dashboard/settings", loc)
 	}
 }
 

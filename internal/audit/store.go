@@ -1374,16 +1374,24 @@ func (s *Store) QueryChainEntries(limit int) ([]ChainEntry, error) {
 
 // QueryAvgLatency returns the average message latency in milliseconds for the last 24 hours.
 func (s *Store) QueryAvgLatency() (int, error) {
-	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
-	var avgMs int
+	// Use median (p50) of the most recent 1000 requests for a more representative
+	// latency figure that isn't skewed by cold-start outliers.
+	var medianMs int
 	err := s.db.QueryRow(
-		`SELECT COALESCE(CAST(AVG(latency_ms) AS INTEGER), 0) FROM audit_log WHERE timestamp >= ?`,
-		cutoff,
-	).Scan(&avgMs)
+		`SELECT COALESCE(latency_ms, 0) FROM (
+			SELECT latency_ms FROM audit_log WHERE latency_ms > 0
+			ORDER BY rowid DESC LIMIT 1000
+		) ORDER BY latency_ms LIMIT 1 OFFSET 500`,
+	).Scan(&medianMs)
 	if err != nil {
-		return 0, fmt.Errorf("query avg latency: %w", err)
+		// Fallback to simple average of last 24h
+		cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+		_ = s.db.QueryRow(
+			`SELECT COALESCE(CAST(AVG(latency_ms) AS INTEGER), 0) FROM audit_log WHERE timestamp >= ?`,
+			cutoff,
+		).Scan(&medianMs)
 	}
-	return avgMs, nil
+	return medianMs, nil
 }
 
 // PurgeOldEntries deletes audit log entries older than the given number of days.

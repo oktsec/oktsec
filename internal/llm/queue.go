@@ -240,6 +240,16 @@ func (q *Queue) Stats() QueueStats {
 	}
 }
 
+// TestConnection sends a minimal analysis request to verify the LLM provider is reachable.
+func (q *Queue) TestConnection(ctx context.Context) (*AnalysisResult, error) {
+	return q.analyzer.Analyze(ctx, AnalysisRequest{
+		MessageID: "test-connection",
+		FromAgent: "test-agent",
+		ToAgent:   "test-target",
+		Content:   "Hello, this is a connectivity test.",
+	})
+}
+
 func nextMidnight() time.Time {
 	now := time.Now()
 	return time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())

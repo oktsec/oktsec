@@ -97,8 +97,15 @@ var tmplFuncs = template.FuncMap{
 		titles := map[string]string{
 			"events":    "Events",
 			"audit":     "Security Posture",
-			"llm":       "Threat Intel",
+			"llm":       "AI Analysis",
 			"discovery": "Discovery",
+			"overview":  "Overview",
+			"agents":    "Agents",
+			"rules":     "Rules",
+			"graph":     "Graph",
+			"gateway":   "Gateway",
+			"settings":  "Settings",
+			"alerts":    "Notifications",
 		}
 		if t, ok := titles[active]; ok {
 			return strings.ToUpper(t)
@@ -462,7 +469,7 @@ const layoutHead = `<!DOCTYPE html>
     </a>
     <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-      Alerts
+      Notifications
     </a>
   </div>
   <div class="sidebar-section">
@@ -484,7 +491,7 @@ const layoutHead = `<!DOCTYPE html>
     <div class="sidebar-section-label">Analyze</div>
     <a href="/dashboard/llm" class="sidebar-item {{if eq .Active "llm"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><circle cx="12" cy="6" r="1"/><path d="M9 22v-2"/><path d="M15 22v-2"/></svg>
-      Threat Intel
+      AI Analysis
     </a>
     <a href="/dashboard/graph" class="sidebar-item {{if eq .Active "graph"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
@@ -510,7 +517,7 @@ const layoutHead = `<!DOCTYPE html>
   </button>
   <span class="page-title">{{pageTitle .Active}}</span>
   <div class="spacer"></div>
-  <span class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Signatures required — unsigned messages are rejected{{else}}Signatures optional — content scanning only{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
+  <a href="/dashboard/settings" class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Enforce mode — signatures required, unsigned messages rejected{{else}}Observe mode — scanning active, signatures optional. Click to configure.{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</a>
   <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" class="topbar-logout">Logout</button></form>
 </div>
 <main>`
@@ -664,7 +671,7 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
     if(!msg)return;
     e.preventDefault();
     showModal(msg).then(function(ok){
-      if(ok){e.detail.issueRequest=true;htmx.trigger(e.detail.elt,'confirmed');}
+      if(ok){if(typeof e.detail.issueRequest==='function'){e.detail.issueRequest(true)}else{e.detail.issueRequest=true;htmx.trigger(e.detail.elt,'confirmed')}}
     });
   });
 })();
@@ -724,8 +731,8 @@ a.ov-metric:hover{background:var(--surface2)}
 .ov-feed-hdr h2{font-size:var(--text-base);margin:0;border:none;padding:0}
 .ov-feed-hdr a{font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500}
 .ov-feed-hdr a:hover{text-decoration:underline}
-.pipeline-stages{display:flex;flex-wrap:wrap;gap:var(--sp-2) var(--sp-4);margin-bottom:var(--sp-4)}
-.pipeline-stage{display:flex;align-items:center;gap:6px;font-size:var(--text-sm);color:var(--text2)}
+.pipeline-stages{display:flex;gap:var(--sp-3);margin-bottom:var(--sp-4);overflow-x:auto}
+.pipeline-stage{display:flex;align-items:center;gap:5px;font-size:0.72rem;color:var(--text2);white-space:nowrap}
 .pipeline-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .pipeline-dot.active{background:var(--success)}
 .pipeline-dot.inactive{background:var(--text3);opacity:0.4}
@@ -755,7 +762,7 @@ a.ov-metric:hover{background:var(--surface2)}
 @media(max-width:768px){.hero-stats{grid-template-columns:repeat(2,1fr)}.ov-grid{grid-template-columns:1fr}}
 </style>
 
-<p class="page-desc"><span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<p class="page-desc">Real-time security overview across all agents and tools. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 {{if and (eq .Stats.TotalMessages 0) (eq .AgentCount 0)}}
 <div class="empty-state">
@@ -810,11 +817,11 @@ a.ov-metric:hover{background:var(--surface2)}
 </div>
 {{end}}
 
-<!-- Pipeline Health + Security Status -->
-<div class="ov-grid">
-  <div class="ov-card">
-    <h3>Pipeline Health</h3>
-    <div class="pipeline-stages">
+<!-- Pipeline Health (horizontal bar) -->
+<div class="ov-card" style="margin-bottom:var(--sp-4)">
+  <div style="display:flex;align-items:center;gap:var(--sp-5);flex-wrap:wrap">
+    <h3 style="margin:0;white-space:nowrap">Pipeline Health</h3>
+    <div class="pipeline-stages" style="margin-bottom:0;flex:1">
       {{range .PipelineStages}}
       <div class="pipeline-stage">
         <span class="pipeline-dot {{if .Active}}active{{else}}inactive{{end}}"></span>
@@ -822,66 +829,69 @@ a.ov-metric:hover{background:var(--surface2)}
       </div>
       {{end}}
     </div>
-    <div class="pipeline-summary">
+    <div style="font-size:var(--text-sm);color:var(--text3);white-space:nowrap;margin-left:auto">
       {{.RuleCount}} rules &middot; {{if .RequireSig}}enforce{{else}}observe{{end}} mode &middot; chain {{if .ChainValid}}verified{{else}}broken{{end}} ({{formatNum .ChainCount}})
+      {{if .AvgLatency}}&middot; <span style="color:var(--success);font-weight:600">{{.AvgLatency}}ms</span> median{{end}}
+    </div>
+  </div>
+</div>
+
+<!-- Live Feed + Security Status -->
+<div class="ov-grid">
+  <div class="card" style="margin-bottom:0">
+    <div class="ov-feed-hdr">
+      <h2><span class="dot"></span> Live Feed</h2>
+      <a href="/dashboard/events">View all &rarr;</a>
+    </div>
+    <div id="recent-events">
+      {{if .Recent}}
+      <table>
+        <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
+        <tbody id="events-tbody">
+        {{range .Recent}}
+        <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+          <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+          <td>{{agentCell .FromAgent}}</td>
+          <td>{{agentCell .ToAgent}}</td>
+          <td>
+            {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
+            {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
+            {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
+            {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
+            {{else}}{{.Status}}{{end}}
+          </td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <div class="empty" id="empty-msg">Waiting for agent traffic...</div>
+      {{end}}
     </div>
   </div>
   <div class="ov-card">
     <h3>Security Status</h3>
-    <a href="/dashboard/events" class="ov-metric">
-      <span class="k">Detection rate</span>
-      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{else}}success{{end}}">{{.DetectionRate}}%</span>
+    <a href="/dashboard/events?tab=blocked" class="ov-metric">
+      <span class="k">Threat rate</span>
+      <span class="v {{if gt .DetectionRate 20}}danger{{else if gt .DetectionRate 5}}warn{{end}}">{{if gt .DetectionRate 0}}{{.DetectionRate}}%{{else}}<span style="color:var(--success)">&lt; 1%</span>{{end}}</span>
     </a>
     <div class="ov-metric">
-      <span class="k">Avg latency</span>
-      <span class="v {{if ge .AvgLatency 200}}danger{{else if ge .AvgLatency 50}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
+      <span class="k">Scan latency</span>
+      <span class="v {{if ge .AvgLatency 500}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
     </div>
-    <a href="/dashboard/settings?tab=identity" class="ov-metric">
-      <span class="k">Unsigned messages</span>
-      <span class="v {{if gt .UnsignedPct 50}}danger{{else if gt .UnsignedPct 20}}warn{{else}}success{{end}}">{{.UnsignedCount}} <span style="color:var(--text3);font-size:var(--text-sm)">({{.UnsignedPct}}%)</span></span>
+    <a href="/dashboard/settings" class="ov-metric">
+      <span class="k">Identity mode</span>
+      <span class="v">{{if .RequireSig}}<span style="color:var(--success)">enforced</span>{{else}}<span style="color:var(--text2)">observe</span>{{end}}</span>
     </a>
     <a href="/dashboard/events?tab=quarantine" class="ov-metric">
-      <span class="k">Quarantine queue</span>
+      <span class="k">Quarantine</span>
       <span class="v">{{if .PendingReview}}<span style="color:var(--warn)">{{.PendingReview}} pending</span>{{else}}<span style="color:var(--success)">clear</span>{{end}}</span>
     </a>
     {{if .LLMEnabled}}
     <a href="/dashboard/llm" class="ov-metric">
-      <span class="k">LLM threats</span>
-      <span class="v {{if gt .LLMThreats 0}}danger{{else}}success{{end}}">{{.LLMThreats}}</span>
+      <span class="k">AI analysis</span>
+      <span class="v {{if gt .LLMThreats 5}}warn{{else if gt .LLMThreats 0}}text-secondary{{end}}">{{.LLMThreats}} <span style="color:var(--text3);font-size:var(--text-xs);font-weight:400">findings</span></span>
     </a>
-    {{end}}
-  </div>
-</div>
-
-<!-- Live Feed -->
-<div class="card">
-  <div class="ov-feed-hdr">
-    <h2><span class="dot"></span> Live Feed</h2>
-    <a href="/dashboard/events">View all &rarr;</a>
-  </div>
-  <div id="recent-events">
-    {{if .Recent}}
-    <table>
-      <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
-      <tbody id="events-tbody">
-      {{range .Recent}}
-      <tr class="clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-        <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-        <td>{{agentCell .FromAgent}}</td>
-        <td>{{agentCell .ToAgent}}</td>
-        <td>
-          {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
-          {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
-          {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
-          {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
-          {{else}}{{.Status}}{{end}}
-        </td>
-      </tr>
-      {{end}}
-      </tbody>
-    </table>
-    {{else}}
-    <div class="empty" id="empty-msg">Waiting for agent traffic...</div>
     {{end}}
   </div>
 </div>
@@ -911,7 +921,7 @@ a.ov-metric:hover{background:var(--surface2)}
 
   {{if .AgentRisks}}
   <div class="ov-card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0" data-tooltip="Risk score based on blocked and flagged messages per agent in the last 24 hours">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
     <div id="ar-list">
     {{range $i, $a := .AgentRisks}}{{if not (contains $a.Agent ":")}}
     <div class="ov-metric clickable ar-item" style="cursor:pointer" onclick="window.location='/dashboard/agents/{{$a.Agent}}'">
@@ -1175,46 +1185,68 @@ var searchResultsTmpl = template.Must(template.New("search-results").Funcs(tmplF
 {{end}}`))
 
 var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Each agent can only message destinations listed in its ACL. Manage agents, generate keypairs, and view message history.</p>
+<style>
+.ag-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.ag-card{background:var(--surface);padding:16px 20px;cursor:pointer;transition:background var(--ease-default);text-decoration:none;color:inherit;display:block}
+.ag-card:hover{background:var(--surface-hover)}
+.ag-card-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.ag-card-name{font-weight:600;font-size:0.88rem}
+.ag-card-desc{color:var(--text3);font-size:0.78rem;margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-card-stats{display:flex;gap:16px;font-size:0.75rem;color:var(--text3)}
+.ag-card-stats .num{font-family:var(--mono);font-weight:600;color:var(--text2)}
+@media(max-width:768px){.ag-grid{grid-template-columns:1fr}}
+</style>
 
-<div class="card">
-  {{if .AgentRows}}
-  <div style="overflow-x:auto">
-  <table>
-    <thead><tr><th>Agent</th><th>Description</th><th>Messages</th><th>Blocked</th><th>Risk</th><th>Key</th><th>Last Active</th></tr></thead>
-    <tbody>
-    {{range .AgentRows}}
-    <tr class="clickable" onclick="window.location='/dashboard/agents/{{.Name}}'">
-      <td style="font-weight:600">{{agentCell .Name}}{{if .Suspended}} <span class="badge-blocked" style="font-size:0.6rem;padding:2px 6px">SUSPENDED</span>{{end}}</td>
-      <td style="color:var(--text2);font-family:var(--sans);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Description}}</td>
-      <td style="font-family:var(--mono)">{{.Total}}</td>
-      <td>{{if .Total}}<span style="font-family:var(--mono);{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{else}}color:var(--text2){{end}}">{{.BlockedPct}}%</span>{{else}}<span style="color:var(--text3)">--</span>{{end}}</td>
-      <td style="min-width:100px">
-        <div style="display:flex;align-items:center;gap:6px">
-          <div class="risk-bar" style="flex:1">
-            <div class="risk-bar-fill {{if gt .RiskScore 60.0}}risk-high{{else if gt .RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .RiskScore}}%"></div>
-          </div>
-          <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text3)">{{printf "%.0f" .RiskScore}}</span>{{if gt .LLMThreatCount 0}}<span title="{{.LLMThreatCount}} LLM threats" style="font-size:0.6rem;color:var(--danger);margin-left:2px">&#x26A0;</span>{{end}}
-        </div>
-      </td>
-      <td style="text-align:center">{{if .HasKey}}<span title="Key registered" style="color:var(--success)">&#x1f512;</span>{{else}}<span title="No key" style="color:var(--text3)">&#x1f513;</span>{{end}}</td>
-      <td style="color:var(--text2);font-size:0.78rem" {{if .LastSeen}}data-ts="{{.LastSeen}}"{{end}}>{{if .LastSeen}}{{.LastSeen}}{{else}}<span style="color:var(--text3)">never</span>{{end}}</td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  </div>
-  {{else}}
-  <div class="empty">No agents configured.</div>
-  {{end}}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+  <p class="page-desc" style="margin:0">Registered agents with identity keys, message history, and risk scoring.</p>
 </div>
 
+<!-- Add Agent -->
+<div class="card" style="margin-bottom:20px;padding:16px 20px">
+  <form method="POST" action="/dashboard/agents" class="inline-add" style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+    <div class="form-group" style="min-width:180px;margin-bottom:0">
+      <label>Name</label>
+      <input type="text" name="name" placeholder="e.g. research-agent" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*">
+    </div>
+    <div class="form-group" style="flex:2;margin-bottom:0">
+      <label>Can Message (comma-separated)</label>
+      <input type="text" name="can_message" placeholder="e.g. target-agent, helper-agent">
+    </div>
+    <button type="submit" class="btn">Add Agent</button>
+  </form>
+</div>
+
+{{if .AgentRows}}
+<div class="ag-grid">
+  {{range .AgentRows}}
+  <a href="/dashboard/agents/{{.Name}}" class="ag-card">
+    <div class="ag-card-head">
+      {{avatar .Name 28}}
+      <span class="ag-card-name">{{.Name}}</span>
+      {{if .Suspended}}<span class="badge-blocked" style="font-size:0.6rem;padding:2px 6px">SUSPENDED</span>{{end}}
+      {{if .HasKey}}<span title="Key registered" style="color:var(--success);font-size:0.7rem;margin-left:auto">&#x1f512;</span>{{else}}<span title="No key" style="color:var(--text3);font-size:0.7rem;margin-left:auto">&#x1f513;</span>{{end}}
+    </div>
+    <div class="ag-card-desc">{{if .Description}}{{.Description}}{{else}}No description{{end}}</div>
+    <div class="ag-card-stats">
+      <span><span class="num">{{formatNum .Total}}</span> msgs</span>
+      <span>blocked <span class="num" style="{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{end}}">{{.BlockedPct}}%</span></span>
+      <span>risk <span class="num" style="{{if gt .RiskScore 60.0}}color:var(--danger){{else if gt .RiskScore 30.0}}color:var(--warn){{end}}">{{printf "%.0f" .RiskScore}}</span></span>
+      {{if gt .LLMThreatCount 0}}<span style="color:var(--danger)">&#x26A0; {{.LLMThreatCount}} threats</span>{{end}}
+      {{if .LastSeen}}<span style="margin-left:auto" data-ts="{{.LastSeen}}">{{.LastSeen}}</span>{{end}}
+    </div>
+  </a>
+  {{end}}
+</div>
+{{else}}
+<div class="card"><div class="empty">No agents configured.</div></div>
+{{end}}
+
 {{if .DiscoveredAgents}}
-<div class="card">
-  <h2 style="color:var(--warn)">Discovered from Traffic</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">These agents appeared in traffic but are not registered. Unregistered agents bypass ACL checks.</p>
+<div class="card" style="margin-top:20px">
+  <h2 style="color:var(--warn)">Discovered from Traffic <span style="font-size:var(--text-xs);font-weight:400;color:var(--text3);margin-left:var(--sp-2)">{{len .DiscoveredAgents}} unregistered</span></h2>
+  <p class="desc">These identifiers appeared as message destinations but aren't registered agents. Register to enforce identity and ACL policies.</p>
   <table>
-    <thead><tr><th>Agent</th><th>Action</th></tr></thead>
+    <thead><tr><th>Identifier</th><th></th></tr></thead>
     <tbody>
     {{range .DiscoveredAgents}}
     <tr>
@@ -1231,27 +1263,11 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
   </table>
 </div>
 {{end}}
-
-<div class="card">
-  <h2>Add Agent</h2>
-  <form method="POST" action="/dashboard/agents" class="inline-add">
-    <div class="form-group" style="min-width:180px">
-      <label>Name</label>
-      <input type="text" name="name" placeholder="e.g. research-agent" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*">
-    </div>
-    <div class="form-group" style="flex:2">
-      <label>Can Message (comma-separated)</label>
-      <input type="text" name="can_message" placeholder="e.g. target-agent, helper-agent">
-    </div>
-    <button type="submit" class="btn">Add</button>
-  </form>
-  <p style="color:var(--text3);font-size:0.72rem;margin-top:8px">Add description, tags, and other metadata from the agent detail page.</p>
-</div>
 ` + layoutFoot))
 
 var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-5);align-items:start}
+.ad-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-5);align-items:stretch}
 .ad-grid>div{min-width:0}
 .ad-grid table{width:100%}
 .ad-grid .fp{word-break:break-all;overflow-wrap:break-word}
@@ -1294,6 +1310,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   </div>
   <div class="page-header-actions">
     <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm btn-outline success" onclick="return confirm('Generate new keypair for {{.Name}}?')">Generate Keypair</button></form>
+    {{if and .KeyFP (not .KeyRevoked)}}<form method="POST" action="/dashboard/identity/revoke" style="display:inline"><input type="hidden" name="agent" value="{{.Name}}"><button type="submit" class="btn btn-sm btn-outline danger" onclick="return confirm('Revoke key for {{.Name}}? This agent will not be able to send signed messages.')">Revoke Key</button></form>{{end}}
     <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm btn-outline success">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm btn-outline warn">Suspend</button>{{end}}</form>
     <button class="btn btn-sm btn-outline danger" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete</button>
   </div>
@@ -1371,7 +1388,6 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   <button class="ad-tab active" onclick="adTab('overview')">Overview</button>
   <button class="ad-tab" onclick="adTab('config')">Configuration</button>
   <button class="ad-tab" onclick="adTab('policies')">Tool Policies</button>
-  <button class="ad-tab" onclick="adTab('messages')">Recent Messages</button>
 </div>
 <script>
 function adTab(name){
@@ -1384,32 +1400,83 @@ function adTab(name){
 
 <!-- Overview Tab -->
 <div id="ad-overview" class="ad-panel active">
-  <div class="ad-grid">
-    <!-- Top Triggered Rules -->
-    <div class="card" style="padding:18px 20px">
-      <div class="ad-slbl">Top triggered rules (24h) {{if .TopRules}}<a href="/dashboard/rules" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a>{{end}}</div>
-      {{if .TopRules}}
-      {{range .TopRules}}
-      <div class="ad-rule" style="padding-left:8px">
-        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
-        <div style="flex:1;min-width:0;position:relative">
-          <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
-          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
-            <span style="font-family:var(--mono);font-size:0.68rem;color:var(--text3)">{{.RuleID}}</span>
-            {{if eq .Severity "critical"}}<span class="sev-critical">critical</span>
-            {{else if eq .Severity "high"}}<span class="sev-high">high</span>
-            {{else if eq .Severity "medium"}}<span class="sev-medium">medium</span>
-            {{else}}<span class="sev-low">low</span>{{end}}
-          </div>
+  <!-- Top Triggered Rules (full width) -->
+  <div class="card" style="padding:18px 20px">
+    <div class="ad-slbl">Top triggered rules (24h) {{if .TopRules}}<a href="/dashboard/rules" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a>{{end}}</div>
+    {{if .TopRules}}
+    <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap">
+    {{range .TopRules}}
+    <div class="ad-rule" style="padding-left:8px;flex:1;min-width:200px">
+      <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
+      <div style="flex:1;min-width:0;position:relative">
+        <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+          <span style="font-family:var(--mono);font-size:0.68rem;color:var(--text3)">{{.RuleID}}</span>
+          {{if eq .Severity "critical"}}<span class="sev-critical">critical</span>
+          {{else if eq .Severity "high"}}<span class="sev-high">high</span>
+          {{else if eq .Severity "medium"}}<span class="sev-medium">medium</span>
+          {{else}}<span class="sev-low">low</span>{{end}}
         </div>
-        <span style="font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--text);flex-shrink:0">{{.Count}}</span>
       </div>
-      {{end}}
-      {{else}}
-      <div class="empty" style="padding:20px 0">No rules triggered for this agent.</div>
-      {{end}}
+      <span style="font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--text);flex-shrink:0">{{.Count}}</span>
     </div>
+    {{end}}
+    </div>
+    {{else}}
+    <div class="empty" style="padding:20px 0">No rules triggered for this agent.</div>
+    {{end}}
+  </div>
 
+  <!-- LLM Threat Intelligence (full width, only if data exists) -->
+  {{if and .LLMEnabled .LLMHistory}}
+  <div class="card" style="padding:0;overflow:hidden;margin-bottom:var(--sp-5)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div class="ad-slbl" style="margin-bottom:0">LLM Threat Intelligence</div>
+      <a href="/dashboard/llm" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a>
+    </div>
+    {{if gt .AgentRisk.LLMThreatCount 0}}
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border-bottom:1px solid var(--border)">
+      <div style="background:var(--surface);padding:14px 20px;text-align:center">
+        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div>
+        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Threats</div>
+      </div>
+      <div style="background:var(--surface);padding:14px 20px;text-align:center">
+        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMConfirmed 0}}var(--danger){{else}}var(--success){{end}}">{{.AgentRisk.LLMConfirmed}}</div>
+        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Confirmed</div>
+      </div>
+      <div style="background:var(--surface);padding:14px 20px;text-align:center">
+        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div>
+        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Avg Risk</div>
+      </div>
+    </div>
+    {{end}}
+    <div style="overflow-x:auto">
+    <table style="font-size:0.82rem;width:100%;border-collapse:collapse;table-layout:fixed">
+      <colgroup><col style="width:25%"><col style="width:15%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
+      <thead><tr>
+        <th style="text-align:left;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Time</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Risk</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Action</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Status</th>
+        <th style="text-align:right;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)"></th>
+      </tr></thead>
+      <tbody>
+      {{range .LLMHistory}}
+      <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'" style="transition:background 0.1s">
+        <td style="padding:10px 20px;border-bottom:1px solid var(--border)" data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border);font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3)">dismissed</span>{{else}}<span style="color:var(--warn)">pending</span>{{end}}</td>
+        <td style="text-align:right;padding:10px 20px;border-bottom:1px solid var(--border);font-size:0.72rem;color:var(--text3)">view &rarr;</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {{end}}
+
+  <div class="ad-grid">
     <!-- Communication Partners -->
     <div class="card" style="padding:18px 20px">
       <div class="ad-slbl">Communication partners (24h)</div>
@@ -1431,34 +1498,56 @@ function adTab(name){
       <div class="empty" style="padding:20px 0">No communication partners.</div>
       {{end}}
     </div>
-  </div>
 
-  {{if and .LLMEnabled .LLMHistory}}
-  <div class="card" style="padding:18px 20px;margin-top:20px">
-    <div class="ad-slbl">LLM Threat Intelligence</div>
-    {{if gt .AgentRisk.LLMThreatCount 0}}
-    <div style="display:flex;gap:16px;margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:0.82rem">
-      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div><div style="font-size:0.65rem;color:var(--text3)">Threats</div></div>
-      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:var(--danger)">{{.AgentRisk.LLMConfirmed}}</div><div style="font-size:0.65rem;color:var(--text3)">Confirmed</div></div>
-      <div style="text-align:center;flex:1"><div style="font-size:1.1rem;font-weight:700;color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div><div style="font-size:0.65rem;color:var(--text3)">Avg Risk</div></div>
-    </div>
-    {{end}}
-    <table style="font-size:0.82rem">
-      <thead><tr><th>Time</th><th style="text-align:right">Risk</th><th>Action</th><th>Status</th></tr></thead>
-      <tbody>
-      {{range .LLMHistory}}
-      <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
-        <td data-ts="{{.Timestamp}}" style="font-size:0.75rem">{{.Timestamp}}</td>
-        <td style="text-align:right;font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
-        <td>{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
-        <td>{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-size:0.72rem;font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3);font-size:0.72rem">dismissed</span>{{else}}<span style="color:var(--warn);font-size:0.72rem">pending</span>{{end}}</td>
-      </tr>
+    <!-- Recent Messages -->
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Recent Messages {{if .Entries}}<a href="/dashboard/events?agent={{.Name}}" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all in Event Log &rarr;</a>{{end}}</div>
+      {{if .Entries}}
+      <table style="font-size:0.78rem">
+        <thead><tr><th class="section-label">Time</th><th class="section-label">To</th><th class="section-label">Status</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Latency</th></tr></thead>
+        <tbody>
+        {{range .Entries}}
+        <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
+          <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+          <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
+          <td>
+            {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
+            {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
+            {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
+            {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
+            {{else}}{{.Status}}{{end}}
+          </td>
+          <td style="text-align:right;font-family:var(--mono);color:var(--text3)">{{.LatencyMs}}ms</td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
+        <span id="ad-pager-info"></span>
+        <div style="display:flex;gap:4px">
+          <button id="ad-prev" class="pager-btn" onclick="adPage(-1)" disabled>&larr; Prev</button>
+          <button id="ad-next" class="pager-btn" onclick="adPage(1)">Next &rarr;</button>
+        </div>
+      </div>
+      <script>
+      var adCur=1,adSize=10;
+      function adRender(){
+        var rows=document.querySelectorAll('.ad-msg');
+        var total=rows.length;
+        var start=(adCur-1)*adSize,end=Math.min(start+adSize,total);
+        rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
+        document.getElementById('ad-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
+        document.getElementById('ad-prev').disabled=adCur<=1;
+        document.getElementById('ad-next').disabled=end>=total;
+      }
+      function adPage(d){adCur+=d;adRender();}
+      adRender();
+      </script>
+      {{else}}
+      <div class="empty">No messages for this agent yet.</div>
       {{end}}
-      </tbody>
-    </table>
-    <div style="margin-top:8px;text-align:right"><a href="/dashboard/llm" style="color:var(--accent);font-size:0.75rem">View all &rarr;</a></div>
+    </div>
   </div>
-  {{end}}
 </div>
 
 <!-- Configuration Tab -->
@@ -1564,60 +1653,10 @@ function stagePolicy() {
 }
 </script>
 
-<!-- Recent Messages Tab -->
-<div id="ad-messages" class="ad-panel">
-  <div class="card" style="padding:18px 20px">
-    <div class="ad-slbl">Recent Messages {{if .Entries}}<a href="/dashboard/events?agent={{.Name}}" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all in Event Log &rarr;</a>{{end}}</div>
-    {{if .Entries}}
-    <table style="font-size:0.78rem">
-      <thead><tr><th class="section-label">Time</th><th class="section-label">To</th><th class="section-label">Status</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Latency</th></tr></thead>
-      <tbody>
-      {{range .Entries}}
-      <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
-        <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-        <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
-        <td>
-          {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
-          {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
-          {{else if eq .Status "rejected"}}<span class="badge-rejected">rejected</span>
-          {{else if eq .Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
-          {{else}}{{.Status}}{{end}}
-        </td>
-        <td style="text-align:right;font-family:var(--mono);color:var(--text3)">{{.LatencyMs}}ms</td>
-      </tr>
-      {{end}}
-      </tbody>
-    </table>
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;font-size:0.78rem;color:var(--text3)">
-      <span id="ad-pager-info"></span>
-      <div style="display:flex;gap:4px">
-        <button id="ad-prev" class="pager-btn" onclick="adPage(-1)" disabled>&larr; Prev</button>
-        <button id="ad-next" class="pager-btn" onclick="adPage(1)">Next &rarr;</button>
-      </div>
-    </div>
-    <script>
-    var adCur=1,adSize=15;
-    function adRender(){
-      var rows=document.querySelectorAll('.ad-msg');
-      var total=rows.length;
-      var start=(adCur-1)*adSize,end=Math.min(start+adSize,total);
-      rows.forEach(function(r,i){r.style.display=(i>=start&&i<end)?'':'none';});
-      document.getElementById('ad-pager-info').textContent=total?'Showing '+(start+1)+'\u2013'+end+' of '+total:'';
-      document.getElementById('ad-prev').disabled=adCur<=1;
-      document.getElementById('ad-next').disabled=end>=total;
-    }
-    function adPage(d){adCur+=d;adRender();}
-    adRender();
-    </script>
-    {{else}}
-    <div class="empty">No messages for this agent yet.</div>
-    {{end}}
-  </div>
-</div>
 ` + layoutFoot))
 
 var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Manage built-in detection rules and create custom rules for your organization.</p>
+<p class="page-desc">{{if .RuleCount}}{{.RuleCount}} detection rules active{{if .Categories}} across {{len .Categories}} categories{{end}}. Toggle rules on/off.{{else}}Manage detection rules and create custom rules for your organization.{{end}}</p>
 
 <style>
 .rules-tabs{display:flex;gap:0;margin-bottom:var(--sp-6);border-bottom:1px solid var(--border)}
@@ -1664,7 +1703,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 <div style="display:flex;align-items:center;gap:16px;padding:14px 20px;margin-bottom:20px;background:var(--surface);border:1px solid rgba(99,102,241,0.2);border-radius:10px">
   <div style="flex:1;min-width:0">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
-      <span style="font-weight:600;font-size:0.85rem">Threat Intel</span>
+      <span style="font-weight:600;font-size:0.85rem">AI-Generated Rules</span>
       {{if .LLMPendingCount}}<span style="font-size:0.68rem;padding:2px 8px;border-radius:4px;background:rgba(251,146,60,0.12);color:#fb923c;font-weight:600">{{.LLMPendingCount}} pending review</span>{{end}}
     </div>
     <span style="font-size:0.75rem;color:var(--text3)">{{.LLMActiveCount}} LLM-generated rules active{{if .LLMPendingCount}} &middot; {{.LLMPendingCount}} awaiting approval{{end}}</span>
@@ -1890,7 +1929,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
           <span class="ch-name">{{.Name}}</span>
         </label>
         {{end}}{{end}}
-        <a href="/dashboard/settings" style="color:var(--text3);font-size:0.7rem;margin-left:4px;text-decoration:none;opacity:0.7" title="Manage channels in Settings">+ manage</a>
+        <a href="/dashboard/alerts" style="color:var(--text3);font-size:0.7rem;margin-left:4px;text-decoration:none;opacity:0.7" title="Manage channels in Notifications">+ manage</a>
       </div>
     </div>
     {{end}}
@@ -2197,6 +2236,24 @@ var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmp
 </div>
 {{if .Category.Description}}<p class="page-desc">{{.Category.Description}}</p>{{end}}
 
+{{if .Webhooks}}
+<div class="card" style="margin-bottom:20px;padding:16px 20px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <h3 style="margin:0;font-size:0.82rem;font-weight:600">Notify on trigger</h3>
+    <span style="font-size:0.68rem;color:var(--text3)">Alert when any rule in this category fires</span>
+  </div>
+  <form method="POST" action="/dashboard/rules/{{.Category.Name}}/webhooks" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    {{range .Webhooks}}
+    <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;cursor:pointer">
+      <input type="checkbox" name="notify_channel" value="{{.Name}}" {{if $.CategoryWebhook}}{{if inSlice .Name $.CategoryWebhook.Notify}}checked{{end}}{{end}}>
+      <span style="font-family:var(--mono);color:var(--text)">{{.Name}}</span>
+    </label>
+    {{end}}
+    <button type="submit" class="btn btn-sm">Save</button>
+  </form>
+</div>
+{{end}}
+
 <div class="card" style="padding:0;overflow:hidden">
   {{if .Category.Rules}}
   <table class="rule-table">
@@ -2238,26 +2295,6 @@ var categoryDetailTmpl = template.Must(template.New("category-detail").Funcs(tmp
   {{end}}
 </div>
 
-{{if .Webhooks}}
-<div class="card" style="margin-top:20px">
-  <h2>Category Webhooks</h2>
-  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:16px">Notifications sent when any rule in this category triggers, unless the rule has its own webhook override.</p>
-  <form method="POST" action="/dashboard/rules/{{.Category.Name}}/webhooks">
-    {{range .Webhooks}}
-    <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:0.82rem;cursor:pointer">
-      <input type="checkbox" name="notify_channel" value="{{.Name}}" {{if $.CategoryWebhook}}{{if inSlice .Name $.CategoryWebhook.Notify}}checked{{end}}{{end}}>
-      <span style="font-family:var(--mono);color:var(--text)">{{.Name}}</span>
-    </label>
-    {{end}}
-    <div style="margin-top:12px">
-      <label style="display:block;color:var(--text3);font-size:0.7rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Additional URLs (one per line)</label>
-      <textarea name="notify_urls" rows="2" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.78rem;padding:8px;resize:vertical">{{if .CategoryWebhook}}{{range .CategoryWebhook.Notify}}{{if contains . "://"}}{{.}}
-{{end}}{{end}}{{end}}</textarea>
-    </div>
-    <button type="submit" class="btn" style="margin-top:12px">Save Category Webhooks</button>
-  </form>
-</div>
-{{end}}
 ` + layoutFoot))
 
 var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs).Parse(`
@@ -2302,11 +2339,25 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
 
   <!-- Pipeline -->
   <div class="ed-section">
-    <div class="ed-slbl">Pipeline</div>
-    <div class="ed-row"><span class="k">Identity</span><span class="v">{{if eq .Entry.SignatureVerified 1}}<span style="color:var(--success)">Verified</span>{{else if eq .Entry.SignatureVerified -1}}<span style="color:var(--danger)">Invalid</span>{{else}}{{if .RequireSig}}<span style="color:var(--danger)">Missing</span>{{else}}<span style="color:var(--text3)">Not required</span>{{end}}{{end}}</span></div>
-    <div class="ed-row"><span class="k">Content scan</span><span class="v">{{if .Rules}}<span style="color:var(--warn);font-weight:600">{{len .Rules}} {{if eq (len .Rules) 1}}rule{{else}}rules{{end}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.62rem">({{.RuleCount}})</span></span></div>
-    <div class="ed-row"><span class="k">Verdict</span><span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger);font-weight:600">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn);font-weight:600">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span></div>
-    {{if ge .LLMRiskScore 0.0}}<div class="ed-row"><span class="k">LLM risk</span><span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#f85149{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}} / 100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span></div>{{end}}
+    <div class="ed-slbl">Security pipeline</div>
+    <div class="ed-row">
+      <span class="k" style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{if eq .Entry.SignatureVerified 1}}var(--success){{else if eq .Entry.SignatureVerified -1}}var(--danger){{else}}var(--text3){{end}};flex-shrink:0"></span>Identity</span>
+      <span class="v">{{if eq .Entry.SignatureVerified 1}}<span style="color:var(--success)">Verified</span>{{else if eq .Entry.SignatureVerified -1}}<span style="color:var(--danger)">Invalid</span>{{else}}{{if .RequireSig}}<span style="color:var(--danger)">Missing</span>{{else}}<span style="color:var(--text3)">Not required</span>{{end}}{{end}}</span>
+    </div>
+    <div class="ed-row">
+      <span class="k" style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{if .Rules}}var(--warn){{else}}var(--success){{end}};flex-shrink:0"></span>Content scan</span>
+      <span class="v">{{if .Rules}}<span style="color:var(--warn);font-weight:600">{{len .Rules}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.62rem">({{.RuleCount}})</span></span>
+    </div>
+    <div class="ed-row">
+      <span class="k" style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}};flex-shrink:0"></span>Verdict</span>
+      <span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger);font-weight:600">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn);font-weight:600">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span>
+    </div>
+    {{if ge .LLMRiskScore 0.0}}
+    <div class="ed-row">
+      <span class="k" style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{if ge .LLMRiskScore 51.0}}var(--danger){{else if ge .LLMRiskScore 31.0}}var(--warn){{else}}var(--success){{end}};flex-shrink:0"></span>LLM analysis</span>
+      <span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#f85149{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span>
+    </div>
+    {{end}}
   </div>
 
   <!-- Rules triggered -->
@@ -2327,12 +2378,43 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
   </div>
   {{end}}
 
+  <!-- Intercepted content -->
+  {{if .Entry.Intent}}
+  <div class="ed-section">
+    <div class="ed-slbl">Intercepted content{{if .Entry.ToolName}} <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3);font-family:var(--mono)">{{.Entry.ToolName}}</span>{{end}}</div>
+    <div id="ed-content-raw" style="display:none">{{.Entry.Intent}}</div>
+    <pre id="ed-content-pretty" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:var(--text-xs);line-height:1.6;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0"></pre>
+    <script>
+    (function(){
+      var raw=document.getElementById('ed-content-raw').textContent.trim();
+      var el=document.getElementById('ed-content-pretty');
+      try{
+        var obj=JSON.parse(raw);
+        el.innerHTML=syntaxHL(JSON.stringify(obj,null,2));
+      }catch(e){
+        el.textContent=raw;
+      }
+      function syntaxHL(json){
+        return json.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"([^"]*)"(\s*:)/g,'<span style="color:#79c0ff">"$1"</span>$2')
+          .replace(/"([^"]*)"/g,'<span style="color:#a5d6ff">"$1"</span>')
+          .replace(/\b(true|false|null)\b/g,'<span style="color:#ff7b72">$1</span>')
+          .replace(/\b(-?\d+\.?\d*)\b/g,'<span style="color:#d2a8ff">$1</span>');
+      }
+    })();
+    </script>
+  </div>
+  {{end}}
+
   <!-- Forensics -->
   <div class="ed-section">
     <div class="ed-slbl">Forensics</div>
-    {{if .Entry.ContentHash}}<div class="ed-row"><span class="k">Content hash</span><span class="v" title="{{.Entry.ContentHash}}">{{.Entry.ContentHash}}</span></div>{{end}}
-    {{if .Entry.EntryHash}}<div class="ed-row"><span class="k">Chain hash</span><span class="v" title="{{.Entry.EntryHash}}">{{.Entry.EntryHash}}</span></div>{{end}}
-    {{if .Entry.PubkeyFingerprint}}<div class="ed-row"><span class="k">Key fingerprint</span><span class="v" title="{{.Entry.PubkeyFingerprint}}">{{.Entry.PubkeyFingerprint}}</span></div>{{end}}
+    <div class="ed-row"><span class="k">Event ID</span><span class="v" title="{{.Entry.ID}}" style="font-size:0.68rem">{{truncate .Entry.ID 28}}</span></div>
+    {{if .Entry.ContentHash}}<div class="ed-row"><span class="k">Content hash</span><span class="v" title="{{.Entry.ContentHash}}" style="font-size:0.68rem">{{truncate .Entry.ContentHash 28}}</span></div>{{end}}
+    {{if .Entry.EntryHash}}<div class="ed-row"><span class="k">Chain hash</span><span class="v" title="{{.Entry.EntryHash}}" style="font-size:0.68rem">{{truncate .Entry.EntryHash 28}}</span></div>{{end}}
+    {{if .Entry.PrevHash}}<div class="ed-row"><span class="k">Prev hash</span><span class="v" title="{{.Entry.PrevHash}}" style="font-size:0.68rem">{{truncate .Entry.PrevHash 28}}</span></div>{{end}}
+    {{if .Entry.PubkeyFingerprint}}<div class="ed-row"><span class="k">Key fingerprint</span><span class="v" title="{{.Entry.PubkeyFingerprint}}" style="font-size:0.68rem">{{truncate .Entry.PubkeyFingerprint 28}}</span></div>{{end}}
+    {{if .Entry.ProxySignature}}<div class="ed-row"><span class="k">Proxy signature</span><span class="v" style="color:var(--success);font-size:0.68rem" title="{{.Entry.ProxySignature}}">signed</span></div>{{end}}
   </div>
 
   <!-- Agent -->
@@ -2340,6 +2422,7 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     <div class="ed-slbl">Agent</div>
     <div class="ed-row"><span class="k">Name</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
     {{if .AgentDesc}}<div class="ed-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{truncate .AgentDesc 40}}</span></div>{{end}}
+    {{if .AgentLocation}}<div class="ed-row"><span class="k">Location</span><span class="v">{{.AgentLocation}}</span></div>{{end}}
     {{if .ToolConstraintCount}}<div class="ed-row"><span class="k">Constraints</span><span class="v"><span style="color:var(--warn)">{{.ToolConstraintCount}} rules</span></span></div>{{end}}
     {{if .AgentSuspended}}<div class="ed-row"><span class="k">Status</span><span class="v"><span style="color:var(--danger);font-weight:600">Suspended</span></span></div>{{end}}
   </div>
@@ -2392,121 +2475,232 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
 .ep-back{color:var(--text3);text-decoration:none;font-size:var(--text-sm);display:inline-flex;align-items:center;gap:6px;transition:color var(--ease-default)}
 .ep-back:hover{color:var(--accent-light)}
 .ep-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-5);align-items:start}
-.ep-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden}
-.ep-sec{border-bottom:1px solid var(--border);padding:var(--sp-5) var(--sp-6)}
-.ep-sec:last-child{border-bottom:none}
-.ep-slbl{font-size:var(--text-xs);font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:var(--ls-caps);margin-bottom:var(--sp-3);display:flex;align-items:center;gap:var(--sp-2)}
-.ep-row{display:flex;justify-content:space-between;align-items:baseline;padding:var(--sp-2) 0;font-size:var(--text-base);border-bottom:1px solid var(--border-subtle)}
+.ep-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:var(--sp-5)}
+.ep-card-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border)}
+.ep-card-hdr h3{margin:0;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500}
+.ep-card-body{padding:16px 20px}
+.ep-row{display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--border-subtle)}
 .ep-row:last-child{border-bottom:none}
 .ep-row .k{color:var(--text3);flex-shrink:0;font-size:var(--text-sm)}
 .ep-row .v{font-family:var(--mono);font-size:var(--text-sm);color:var(--text);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:var(--sp-3)}
 .ep-row .v a{color:var(--accent-light)}
-.ep-rule{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) 0;font-size:var(--text-sm);border-bottom:1px solid var(--border)}
+.ep-rule{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:var(--text-sm);border-bottom:1px solid var(--border-subtle)}
 .ep-rule:last-child{border-bottom:none}
-.ep-rule-id{font-family:var(--mono);font-weight:600;color:var(--text);font-size:var(--text-sm)}
-.ep-rule-name{color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-sm)}
-.ep-rule-match{font-family:var(--mono);font-size:var(--text-xs);color:var(--text3);padding:2px 0 var(--sp-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ep-content{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--sp-4) var(--sp-5);font-family:var(--mono);font-size:var(--text-sm);line-height:1.7;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto}
+.ep-content{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-family:var(--mono);font-size:0.78rem;line-height:1.7;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto}
+.ep-pipe-step{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
+.ep-pipe-step:last-child{border-bottom:none}
+.ep-pipe-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.ep-pipe-name{font-size:var(--text-sm);color:var(--text2);flex:1}
+.ep-pipe-val{font-family:var(--mono);font-size:var(--text-sm);font-weight:600}
+.ep-hash{font-family:var(--mono);font-size:0.72rem;color:var(--text2);word-break:break-all;line-height:1.5;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-top:4px}
 @media(max-width:960px){.ep-grid{grid-template-columns:1fr}}
 </style>
 
 <p style="margin-bottom:16px"><a href="/dashboard/events" class="ep-back">&larr; Event Log</a></p>
 
-<!-- Header -->
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+<!-- Header bar -->
+<div style="display:flex;align-items:center;gap:14px;margin-bottom:var(--sp-5);padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
   {{if eq .Entry.Status "delivered"}}<span class="badge-delivered" style="font-size:0.82rem;padding:4px 14px">delivered</span>
   {{else if eq .Entry.Status "blocked"}}<span class="badge-blocked" style="font-size:0.82rem;padding:4px 14px">blocked</span>
   {{else if eq .Entry.Status "rejected"}}<span class="badge-rejected" style="font-size:0.82rem;padding:4px 14px">rejected</span>
   {{else if eq .Entry.Status "quarantined"}}<span class="badge-quarantined" style="font-size:0.82rem;padding:4px 14px">quarantined</span>
   {{else}}<span style="color:var(--text2)">{{.Entry.Status}}</span>{{end}}
-  <span style="font-family:var(--mono);font-size:0.78rem;color:var(--text2)">{{.Entry.FromAgent}} &rarr; {{.Entry.ToAgent}}</span>
-  <span style="margin-left:auto;font-size:0.72rem;color:var(--text3);font-family:var(--mono)" data-ts="{{.Entry.Timestamp}}">{{relativeTime .Entry.Timestamp}}</span>
+  <div style="flex:1">
+    <div style="font-family:var(--mono);font-size:0.85rem;color:var(--text);font-weight:600">{{.Entry.FromAgent}} &rarr; {{if .Entry.ToolName}}{{.Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</div>
+    <div style="font-size:0.72rem;color:var(--text3);margin-top:2px">{{.Decision}}</div>
+  </div>
+  <div style="text-align:right">
+    <div style="font-family:var(--mono);font-size:0.82rem;color:var(--text2)" data-ts="{{.Entry.Timestamp}}">{{relativeTime .Entry.Timestamp}}</div>
+    <div style="font-family:var(--mono);font-size:0.72rem;color:var(--text3);margin-top:2px">{{.Entry.LatencyMs}}ms latency</div>
+  </div>
+</div>
+
+<!-- Pipeline summary bar -->
+<div style="display:flex;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:var(--sp-5)">
+  <div style="flex:1;background:var(--surface);padding:12px 16px;text-align:center">
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px">
+      <span class="ep-pipe-dot" style="background:{{if eq .Entry.SignatureVerified 1}}var(--success){{else if eq .Entry.SignatureVerified -1}}var(--danger){{else}}var(--text3){{end}}"></span>
+      <span style="font-size:0.72rem;color:var(--text2)">Identity</span>
+    </div>
+  </div>
+  <div style="flex:1;background:var(--surface);padding:12px 16px;text-align:center">
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px">
+      <span class="ep-pipe-dot" style="background:{{if .Rules}}var(--warn){{else}}var(--success){{end}}"></span>
+      <span style="font-size:0.72rem;color:var(--text2)">Scan{{if .Rules}} ({{len .Rules}}){{end}}</span>
+    </div>
+  </div>
+  <div style="flex:1;background:var(--surface);padding:12px 16px;text-align:center">
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px">
+      <span class="ep-pipe-dot" style="background:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}"></span>
+      <span style="font-size:0.72rem;color:var(--text2)">Verdict</span>
+    </div>
+  </div>
+  {{if ge .LLMRiskScore 0.0}}
+  <div style="flex:1;background:var(--surface);padding:12px 16px;text-align:center">
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px">
+      <span class="ep-pipe-dot" style="background:{{if ge .LLMRiskScore 51.0}}var(--danger){{else if ge .LLMRiskScore 31.0}}var(--warn){{else}}var(--success){{end}}"></span>
+      <span style="font-size:0.72rem;color:var(--text2)">LLM {{printf "%.0f" .LLMRiskScore}}</span>
+    </div>
+  </div>
+  {{end}}
+  <div style="flex:1;background:var(--surface);padding:12px 16px;text-align:center">
+    <div style="display:flex;align-items:center;justify-content:center;gap:6px">
+      <span class="ep-pipe-dot" style="background:{{if .Entry.EntryHash}}var(--success){{else}}var(--text3){{end}}"></span>
+      <span style="font-size:0.72rem;color:var(--text2)">Audit</span>
+    </div>
+  </div>
 </div>
 
 <div class="ep-grid">
   <!-- LEFT -->
   <div>
-    <div class="ep-card" style="margin-bottom:20px">
-      <!-- Message -->
-      <div class="ep-sec">
-        <div class="ep-slbl">Message</div>
+    <!-- Message Details -->
+    <div class="ep-card">
+      <div class="ep-card-hdr"><h3>Message Details</h3></div>
+      <div class="ep-card-body">
         <div class="ep-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a>{{if .AgentSuspended}} <span style="color:var(--danger);font-size:0.58rem;font-weight:600">SUSPENDED</span>{{end}}</span></div>
         <div class="ep-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
-        <div class="ep-row"><span class="k">Latency</span><span class="v" style="color:var(--warn)">{{.Entry.LatencyMs}}ms</span></div>
+        <div class="ep-row"><span class="k">Latency</span><span class="v" style="color:{{if ge .Entry.LatencyMs 500}}var(--danger){{else if ge .Entry.LatencyMs 100}}var(--warn){{else}}var(--success){{end}}">{{.Entry.LatencyMs}}ms</span></div>
         {{if .Entry.SessionID}}<div class="ep-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
-        <div class="ep-row"><span class="k">Decision</span><span class="v" style="color:var(--success);font-family:var(--sans)">{{.Decision}}</span></div>
+        <div class="ep-row"><span class="k">Decision</span><span class="v" style="font-family:var(--sans);color:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}">{{.Decision}}</span></div>
       </div>
+    </div>
 
-      <!-- Pipeline -->
-      <div class="ep-sec">
-        <div class="ep-slbl">Security pipeline</div>
-        <div class="ep-row"><span class="k">Identity</span><span class="v">{{if eq .Entry.SignatureVerified 1}}<span style="color:var(--success)">Verified</span>{{else if eq .Entry.SignatureVerified -1}}<span style="color:var(--danger)">Invalid</span>{{else}}{{if .RequireSig}}<span style="color:var(--danger)">Missing</span>{{else}}<span style="color:var(--text3)">Not required</span>{{end}}{{end}}</span></div>
-        <div class="ep-row"><span class="k">Content scan</span><span class="v">{{if .Rules}}<span style="color:var(--warn)">{{len .Rules}} triggered</span>{{else}}<span style="color:var(--success)">Clean</span>{{end}} <span style="color:var(--text3);font-size:0.62rem">/{{.RuleCount}}</span></span></div>
-        <div class="ep-row"><span class="k">Verdict</span><span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger)">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn)">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span></div>
-        {{if ge .LLMRiskScore 0.0}}<div class="ep-row"><span class="k">LLM risk</span><span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#f85149{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span></div>{{end}}
+    <!-- Security Pipeline -->
+    <div class="ep-card">
+      <div class="ep-card-hdr"><h3>Security Pipeline</h3><span style="font-size:0.68rem;color:var(--text3);font-family:var(--mono)">{{.RuleCount}} rules</span></div>
+      <div class="ep-card-body">
+        <div class="ep-pipe-step">
+          <span class="ep-pipe-dot" style="background:{{if eq .Entry.SignatureVerified 1}}var(--success){{else if eq .Entry.SignatureVerified -1}}var(--danger){{else}}var(--text3){{end}}"></span>
+          <span class="ep-pipe-name">Identity verification</span>
+          <span class="ep-pipe-val" style="color:{{if eq .Entry.SignatureVerified 1}}var(--success){{else if eq .Entry.SignatureVerified -1}}var(--danger){{else}}var(--text3){{end}}">{{if eq .Entry.SignatureVerified 1}}Verified{{else if eq .Entry.SignatureVerified -1}}Invalid{{else}}{{if .RequireSig}}Missing{{else}}Skipped{{end}}{{end}}</span>
+        </div>
+        <div class="ep-pipe-step">
+          <span class="ep-pipe-dot" style="background:{{if .Rules}}var(--warn){{else}}var(--success){{end}}"></span>
+          <span class="ep-pipe-name">Content scan</span>
+          <span class="ep-pipe-val" style="color:{{if .Rules}}var(--warn){{else}}var(--success){{end}}">{{if .Rules}}{{len .Rules}} triggered{{else}}Clean{{end}}</span>
+        </div>
+        <div class="ep-pipe-step">
+          <span class="ep-pipe-dot" style="background:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}"></span>
+          <span class="ep-pipe-name">Final verdict</span>
+          <span class="ep-pipe-val" style="color:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}">{{if eq .Entry.Status "delivered"}}Allowed{{else if eq .Entry.Status "blocked"}}Blocked{{else if eq .Entry.Status "quarantined"}}Quarantined{{else}}Rejected{{end}}</span>
+        </div>
+        {{if ge .LLMRiskScore 0.0}}
+        <div class="ep-pipe-step">
+          <span class="ep-pipe-dot" style="background:{{if ge .LLMRiskScore 51.0}}var(--danger){{else if ge .LLMRiskScore 31.0}}var(--warn){{else}}var(--success){{end}}"></span>
+          <span class="ep-pipe-name">LLM analysis</span>
+          <span class="ep-pipe-val" style="color:{{if ge .LLMRiskScore 76.0}}#f85149{{else if ge .LLMRiskScore 51.0}}#fb923c{{else if ge .LLMRiskScore 31.0}}#d29922{{else}}var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span>
+        </div>
+        {{end}}
       </div>
+    </div>
 
-      <!-- Rules -->
-      {{if .Rules}}
-      <div class="ep-sec">
-        <div class="ep-slbl">Rules triggered <span style="font-weight:500;font-family:var(--mono);text-transform:none;letter-spacing:0">({{len .Rules}})</span></div>
+    <!-- Rules Triggered -->
+    {{if .Rules}}
+    <div class="ep-card">
+      <div class="ep-card-hdr"><h3>Rules Triggered</h3><span style="font-size:0.72rem;font-family:var(--mono);color:var(--warn);font-weight:600">{{len .Rules}}</span></div>
+      <div class="ep-card-body">
         {{range .Rules}}
         <div class="ep-rule">
           {{if eq .Severity "CRITICAL"}}<span class="sev-critical" style="font-size:0.58rem">critical</span>
           {{else if eq .Severity "HIGH"}}<span class="sev-high" style="font-size:0.58rem">high</span>
           {{else if eq .Severity "MEDIUM"}}<span class="sev-medium" style="font-size:0.58rem">medium</span>
           {{else}}<span class="sev-low" style="font-size:0.58rem">{{.Severity}}</span>{{end}}
-          <span class="ep-rule-id">{{.RuleID}}</span>
-          <span class="ep-rule-name">{{.Name}}</span>
-          <a href="/dashboard/rules/{{.Category}}" style="color:var(--text3);text-decoration:none;font-size:0.82rem">&rsaquo;</a>
+          <span style="font-family:var(--mono);font-weight:600;font-size:0.78rem;color:var(--text)">{{.RuleID}}</span>
+          <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Name}}</span>
+          <a href="/dashboard/rules/{{.Category}}" style="color:var(--text3);text-decoration:none;font-size:0.75rem">&rsaquo;</a>
         </div>
-        {{if .Match}}<div class="ep-rule-match" title="{{.Match}}">{{.Match}}</div>{{end}}
+        {{if .Match}}<div style="font-family:var(--mono);font-size:0.68rem;color:var(--text3);padding:0 0 8px 28px;opacity:0.7;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{.Match}}">{{truncate .Match 80}}</div>{{end}}
         {{end}}
       </div>
-      {{end}}
     </div>
-
+    {{end}}
   </div>
 
   <!-- RIGHT -->
   <div>
     <!-- Intercepted content -->
-    {{if .Entry.Intent}}
-    <div class="ep-card" style="margin-bottom:20px">
-      <div class="ep-sec">
-        <div class="ep-slbl">Intercepted content</div>
-        <div class="ep-content">{{.Entry.Intent}}</div>
+    <div class="ep-card">
+      <div class="ep-card-hdr"><h3>Intercepted Content</h3>{{if .Entry.ToolName}}<span style="font-size:0.68rem;color:var(--text3);font-family:var(--mono)">{{.Entry.ToolName}}</span>{{end}}</div>
+      <div class="ep-card-body">
+        {{if .Entry.Intent}}
+        <div id="ep-content-raw" style="display:none">{{.Entry.Intent}}</div>
+        <pre id="ep-content-pretty" class="ep-content" style="margin:0"></pre>
+        <script>
+        (function(){
+          var raw=document.getElementById('ep-content-raw').textContent.trim();
+          var el=document.getElementById('ep-content-pretty');
+          try{
+            var obj=JSON.parse(raw);
+            el.innerHTML=syntaxHL(JSON.stringify(obj,null,2));
+          }catch(e){
+            el.textContent=raw;
+          }
+          function syntaxHL(json){
+            return json.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+              .replace(/"([^"]*)"(\s*:)/g,'<span style="color:#79c0ff">"$1"</span>$2')
+              .replace(/"([^"]*)"/g,'<span style="color:#a5d6ff">"$1"</span>')
+              .replace(/\b(true|false|null)\b/g,'<span style="color:#ff7b72">$1</span>')
+              .replace(/\b(-?\d+\.?\d*)\b/g,'<span style="color:#d2a8ff">$1</span>');
+          }
+        })();
+        </script>
+        {{else}}
+        <div style="text-align:center;padding:20px 0;color:var(--text3);font-size:0.82rem">
+          <div style="margin-bottom:6px">Content not stored in audit log</div>
+          <div style="font-family:var(--mono);font-size:0.68rem;opacity:0.6">SHA-256: {{if .Entry.ContentHash}}{{.Entry.ContentHash}}{{else}}n/a{{end}}</div>
+        </div>
+        {{end}}
       </div>
     </div>
-    {{end}}
 
-    <div class="ep-card" style="margin-bottom:20px">
-      <!-- Agent -->
-      <div class="ep-sec">
-        <div class="ep-slbl">Agent</div>
+    <!-- Agent -->
+    <div class="ep-card">
+      <div class="ep-card-hdr"><h3>Agent</h3><a href="/dashboard/agents/{{.Entry.FromAgent}}" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none">View agent &rarr;</a></div>
+      <div class="ep-card-body">
         <div class="ep-row"><span class="k">Name</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
-        {{if .AgentDesc}}<div class="ep-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{.AgentDesc}}</span></div>{{end}}
+        {{if .AgentDesc}}<div class="ep-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{truncate .AgentDesc 40}}</span></div>{{end}}
         {{if .AgentLocation}}<div class="ep-row"><span class="k">Location</span><span class="v">{{.AgentLocation}}</span></div>{{end}}
         {{if .AgentCreatedBy}}<div class="ep-row"><span class="k">Origin</span><span class="v" style="font-family:var(--sans)">{{.AgentCreatedBy}}</span></div>{{end}}
         {{if .ToolConstraintCount}}<div class="ep-row"><span class="k">Constraints</span><span class="v"><span style="color:var(--warn)">{{.ToolConstraintCount}} rules</span></span></div>{{end}}
       </div>
+    </div>
 
-      <!-- Forensics -->
-      <div class="ep-sec">
-        <div class="ep-slbl">Forensics</div>
-        <div class="ep-row"><span class="k">Event ID</span><span class="v" title="{{.Entry.ID}}">{{.Entry.ID}}</span></div>
-        {{if .Entry.ContentHash}}<div class="ep-row"><span class="k">Content hash</span><span class="v" title="{{.Entry.ContentHash}}">{{.Entry.ContentHash}}</span></div>{{end}}
-        {{if .Entry.EntryHash}}<div class="ep-row"><span class="k">Chain hash</span><span class="v" title="{{.Entry.EntryHash}}">{{.Entry.EntryHash}}</span></div>{{end}}
-        {{if .Entry.PubkeyFingerprint}}<div class="ep-row"><span class="k">Key</span><span class="v" title="{{.Entry.PubkeyFingerprint}}">{{.Entry.PubkeyFingerprint}}</span></div>{{end}}
+    <!-- Forensics / Audit Chain -->
+    <div class="ep-card">
+      <div class="ep-card-hdr"><h3>Audit Chain</h3>{{if .Entry.ProxySignature}}<span style="font-size:0.68rem;color:var(--success);font-weight:600">signed</span>{{end}}</div>
+      <div class="ep-card-body">
+        <div class="ep-row"><span class="k">Event ID</span></div>
+        <div class="ep-hash">{{.Entry.ID}}</div>
+        {{if .Entry.ContentHash}}
+        <div class="ep-row" style="margin-top:8px"><span class="k">Content hash (SHA-256)</span></div>
+        <div class="ep-hash">{{.Entry.ContentHash}}</div>
+        {{end}}
+        {{if .Entry.EntryHash}}
+        <div class="ep-row" style="margin-top:8px"><span class="k">Chain hash</span></div>
+        <div class="ep-hash">{{.Entry.EntryHash}}</div>
+        {{end}}
+        {{if .Entry.PrevHash}}
+        <div class="ep-row" style="margin-top:8px"><span class="k">Previous hash</span></div>
+        <div class="ep-hash">{{.Entry.PrevHash}}</div>
+        {{end}}
+        {{if .Entry.PubkeyFingerprint}}
+        <div class="ep-row" style="margin-top:8px"><span class="k">Key fingerprint</span></div>
+        <div class="ep-hash">{{.Entry.PubkeyFingerprint}}</div>
+        {{end}}
+        {{if .Entry.ProxySignature}}
+        <div class="ep-row" style="margin-top:8px"><span class="k">Proxy signature (Ed25519)</span></div>
+        <div class="ep-hash">{{.Entry.ProxySignature}}</div>
+        {{end}}
       </div>
     </div>
 
     <!-- LLM Analysis -->
     {{if .LLMAnalysis}}
     <div class="ep-card">
-      <div class="ep-sec">
-        <div class="ep-slbl">LLM Analysis <a href="/dashboard/llm/{{.LLMAnalysis.ID}}" style="margin-left:auto;font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">Full analysis &rarr;</a></div>
-        <div class="ep-row"><span class="k">Risk</span><span class="v" style="{{if ge .LLMAnalysis.RiskScore 76.0}}color:#f85149{{else if ge .LLMAnalysis.RiskScore 51.0}}color:#fb923c{{else if ge .LLMAnalysis.RiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMAnalysis.RiskScore}} / 100</span></div>
+      <div class="ep-card-hdr"><h3>LLM Analysis</h3><a href="/dashboard/llm/{{.LLMAnalysis.ID}}" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none">Full analysis &rarr;</a></div>
+      <div class="ep-card-body">
+        <div class="ep-row"><span class="k">Risk score</span><span class="v" style="{{if ge .LLMAnalysis.RiskScore 76.0}}color:#f85149{{else if ge .LLMAnalysis.RiskScore 51.0}}color:#fb923c{{else if ge .LLMAnalysis.RiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}};font-weight:700">{{printf "%.0f" .LLMAnalysis.RiskScore}} / 100</span></div>
         <div class="ep-row"><span class="k">Confidence</span><span class="v">{{printf "%.0f" .LLMAnalysis.Confidence}}%</span></div>
         <div class="ep-row"><span class="k">Action</span><span class="v" style="font-family:var(--sans)">{{.LLMAnalysis.RecommendedAction}}</span></div>
         <div class="ep-row"><span class="k">Model</span><span class="v">{{.LLMAnalysis.Model}}</span></div>
@@ -2726,369 +2920,141 @@ var ruleToggleTmpl = template.Must(template.New("rule-toggle").Parse(`<span id="
 
 var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.st-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);align-items:start}
-.st-grid .card{margin-bottom:0}
-.st-span{grid-column:1 / -1}
-@media(max-width:960px){.st-grid{grid-template-columns:1fr}.st-span{grid-column:auto}}
+.st-section{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px}
+.st-section-hdr{padding:12px 20px;border-bottom:1px solid var(--border);font-size:0.68rem;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);background:var(--surface2)}
+.st-item{display:flex;align-items:center;gap:16px;padding:14px 20px;border-bottom:1px solid var(--border)}
+.st-item:last-child{border-bottom:none}
+.st-item-info{flex:1;min-width:0}
+.st-item-name{font-size:0.85rem;font-weight:600;color:var(--text);margin-bottom:2px}
+.st-item-desc{font-size:0.72rem;color:var(--text3);line-height:1.4}
+.st-item-value{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.st-item-value .val{font-family:var(--mono);font-size:0.82rem;color:var(--text2);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;min-width:60px;text-align:center}
+.st-expand{display:none;padding:0 20px 14px;border-bottom:1px solid var(--border)}
+.st-expand.open{display:block}
+.st-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.st-row .form-group{flex:1;min-width:140px}
 </style>
-<p class="page-desc">How oktsec protects your agents, verifies their identity, and handles threats.</p>
-
-<div class="tabs" data-tab-group="settings">
-  <a href="/dashboard/settings?tab=security" class="tab {{if eq .Tab "security"}}active{{end}}">Security</a>
-  <a href="/dashboard/settings?tab=identity" class="tab {{if eq .Tab "identity"}}active{{end}}">Identity</a>
-  <a href="/dashboard/settings?tab=pipeline" class="tab {{if eq .Tab "pipeline"}}active{{end}}">Pipeline</a>
-  <a href="/dashboard/settings?tab=infra" class="tab {{if eq .Tab "infra"}}active{{end}}">Infrastructure</a>
-</div>
+<p class="page-desc">Security mode, protection settings, and advanced configuration.</p>
 
 <!-- Security -->
-<div class="tab-content {{if eq .Tab "security"}}active{{end}}" data-tab-content="settings" data-tab-name="security">
-
-<div class="card">
-  <h2>Security Mode</h2>
-  <p class="desc">
-    The most important setting. Determines whether agents must prove their identity before sending messages.
-  </p>
-  <div style="display:flex;gap:16px;margin-bottom:16px">
-    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if .RequireSig}}var(--accent){{else}}var(--border){{end}};background:{{if .RequireSig}}rgba(99,102,241,0.06){{else}}var(--surface){{end}}">
-      <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if .RequireSig}}var(--accent-light){{else}}var(--text2){{end}}">
-        {{if .RequireSig}}&#x2713; {{end}}Enforce Mode
-      </div>
-      <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-        Every message must be signed. Unsigned or tampered messages are <strong style="color:var(--danger)">rejected</strong>. Recommended for production.
-      </p>
+<div class="st-section">
+  <div class="st-section-hdr">Security</div>
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Security Mode</div>
+      <div class="st-item-desc">{{if .RequireSig}}Every message must be signed. Unsigned messages are rejected.{{else}}Messages are scanned but signatures are not required.{{end}}</div>
     </div>
-    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if not .RequireSig}}var(--warn){{else}}var(--border){{end}};background:{{if not .RequireSig}}rgba(210,153,34,0.06){{else}}var(--surface){{end}}">
-      <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if not .RequireSig}}var(--warn){{else}}var(--text2){{end}}">
-        {{if not .RequireSig}}&#x2713; {{end}}Observe Mode
-      </div>
-      <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-        Messages are scanned but signatures are <strong style="color:var(--warn)">not required</strong>. Good for getting started and onboarding agents.
-      </p>
+    <div class="st-item-value">
+      <span class="val" style="{{if .RequireSig}}color:var(--success){{else}}color:var(--warn){{end}}">{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
+      <form method="POST" action="/dashboard/mode/toggle"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to {{if .RequireSig}}observe{{else}}enforce{{end}} mode?')">Switch to {{if .RequireSig}}Observe{{else}}Enforce{{end}}</button></form>
     </div>
   </div>
-  <form method="POST" action="/dashboard/mode/toggle">
-    <button type="submit" class="btn" style="background:{{if .RequireSig}}var(--warn){{else}}var(--accent){{end}}">
-      Switch to {{if .RequireSig}}Observe{{else}}Enforce{{end}} Mode
-    </button>
-  </form>
-</div>
-
-<div class="card">
-  <h2>Default Policy</h2>
-  <p class="desc">
-    Who can talk to whom. When set to <strong>deny</strong>, agents can only message targets you've explicitly allowed.
-  </p>
-  <div style="display:flex;gap:16px;margin-bottom:16px">
-    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if eq .DefaultPolicy "deny"}}var(--accent){{else}}var(--border){{end}};background:{{if eq .DefaultPolicy "deny"}}rgba(99,102,241,0.06){{else}}var(--surface){{end}}">
-      <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if eq .DefaultPolicy "deny"}}var(--accent-light){{else}}var(--text2){{end}}">
-        {{if eq .DefaultPolicy "deny"}}&#x2713; {{end}}Default Deny
-      </div>
-      <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-        Agents can only communicate with explicitly allowed targets. Recommended for <strong style="color:var(--accent-light)">production</strong>.
-      </p>
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Default Policy</div>
+      <div class="st-item-desc">{{if eq .DefaultPolicy "deny"}}Agents can only message explicitly allowed targets.{{else}}All agents can message each other unless denied.{{end}}</div>
     </div>
-    <div style="flex:1;padding:16px;border-radius:8px;border:1px solid {{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--border){{end}};background:{{if ne .DefaultPolicy "deny"}}rgba(210,153,34,0.06){{else}}var(--surface){{end}}">
-      <div style="font-weight:600;font-size:0.88rem;margin-bottom:6px;color:{{if ne .DefaultPolicy "deny"}}var(--warn){{else}}var(--text2){{end}}">
-        {{if ne .DefaultPolicy "deny"}}&#x2713; {{end}}Default Allow
-      </div>
-      <p style="color:var(--text3);font-size:0.78rem;line-height:1.5">
-        All agents can message each other unless explicitly denied. <strong style="color:var(--warn)">Open</strong> — useful during onboarding.
-      </p>
+    <div class="st-item-value">
+      <span class="val" style="{{if eq .DefaultPolicy "deny"}}color:var(--success){{else}}color:var(--warn){{end}}">{{.DefaultPolicy}}</span>
+      <form method="POST" action="/dashboard/settings/default-policy"><input type="hidden" name="default_policy" value="{{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to default {{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}?')">Switch to {{if eq .DefaultPolicy "deny"}}Allow{{else}}Deny{{end}}</button></form>
     </div>
   </div>
-  <form method="POST" action="/dashboard/settings/default-policy">
-    <input type="hidden" name="default_policy" value="{{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}">
-    <button type="submit" class="btn" style="background:{{if eq .DefaultPolicy "deny"}}var(--warn){{else}}var(--accent){{end}}">
-      Switch to Default {{if eq .DefaultPolicy "deny"}}Allow{{else}}Deny{{end}}
-    </button>
-  </form>
-</div>
-
-</div>
-
-<!-- Identity -->
-<div class="tab-content {{if eq .Tab "identity"}}active{{end}}" data-tab-content="settings" data-tab-name="identity">
-
-<div class="card">
-  <h2>Agent Keys</h2>
-  <p class="desc">
-    Each agent has a signing key to prove its identity. Public keys are stored here; agents hold their private keys. Revoke a key to immediately block an agent.
-  </p>
-  <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
-    <strong>Keys directory:</strong> <code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">{{.KeysDir}}</code>
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Server</div>
+      <div class="st-item-desc">Port {{.ServerPort}} &middot; {{.ServerBind}} &middot; {{.LogLevel}} &middot; {{.WebhookCount}} notification channel{{if ne .WebhookCount 1}}s{{end}}</div>
+    </div>
+    <div class="st-item-value"><span style="font-size:0.68rem;color:var(--text3)">restart to change</span></div>
   </div>
-  {{if .Keys}}
-  <table>
-    <thead><tr><th>Agent</th><th>Fingerprint</th><th>Status</th><th></th></tr></thead>
-    <tbody>
-    {{range .Keys}}
-    <tr>
-      <td style="font-weight:600">{{.Name}}</td>
-      <td class="fp">{{.Fingerprint}}</td>
-      <td>{{if index $.RevokedFPs .Fingerprint}}<span class="badge-rejected">revoked</span>{{else}}<span class="badge-delivered">active</span>{{end}}</td>
-      <td>
-        {{if not (index $.RevokedFPs .Fingerprint)}}
-        <form method="POST" action="/dashboard/identity/revoke" style="display:inline">
-          <input type="hidden" name="agent" value="{{.Name}}">
-          <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Revoke key for {{.Name}}? This agent will not be able to send signed messages.')">Revoke</button>
-        </form>
-        {{end}}
-      </td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <div class="empty">No agent keys found. Generate keys from the <a href="/dashboard/agents" style="color:var(--accent-light)">Agents</a> page.</div>
-  {{end}}
-
-  {{if .Revoked}}
-  <div style="margin-top:16px">
-    <h3 style="font-size:0.82rem;color:var(--text3);margin-bottom:8px">Revoked Keys</h3>
-    <table>
-      <thead><tr><th>Agent</th><th>Fingerprint</th><th>Revoked</th></tr></thead>
-      <tbody>
-      {{range .Revoked}}
-      <tr>
-        <td>{{.AgentName}}</td>
-        <td class="fp">{{.Fingerprint}}</td>
-        <td style="color:var(--text3)">{{.RevokedAt}}</td>
-      </tr>
-      {{end}}
-      </tbody>
-    </table>
-  </div>
-  {{end}}
 </div>
 
-</div>
-
-<!-- Pipeline -->
-<div class="tab-content {{if eq .Tab "pipeline"}}active{{end}}" data-tab-content="settings" data-tab-name="pipeline">
-
-<div class="st-grid">
-
-<div class="card">
-  <h2>Quarantine</h2>
-  <p class="desc">
-    Hold suspicious messages for human review before they reach the destination agent.
-  </p>
+<!-- Protection -->
+<div class="st-section">
+  <div class="st-section-hdr">Protection</div>
   <form method="POST" action="/dashboard/settings/quarantine">
-    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Enable quarantine</span>
-      </label>
-      {{if .QPending}}<span style="font-family:var(--mono);font-size:0.82rem;color:var(--warn);font-weight:600">{{.QPending}} pending</span>{{end}}
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Quarantine{{if .QPending}} <span style="color:var(--warn);font-size:0.72rem;font-weight:400">{{.QPending}} pending</span>{{end}}</div>
+      <div class="st-item-desc">Hold suspicious messages for human review. Window: {{.QExpiryHours}}h, retain {{.QRetentionDays}}d</div>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Review window (hours)</label>
-        <input type="number" name="expiry_hours" value="{{.QExpiryHours}}" min="1">
-      </div>
-      <div class="form-group">
-        <label>Keep history (days)</label>
-        <input type="number" name="retention_days" value="{{.QRetentionDays}}" min="0">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2>Behavior Monitoring</h2>
-  <p class="desc">
-    Track agent behavior over time and flag unusual patterns like sudden traffic spikes or new communication pairs.
-  </p>
-  <form method="POST" action="/dashboard/settings/anomaly">
-    <div style="margin-bottom:20px">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Auto-suspend risky agents</span>
-      </label>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Check every (seconds)</label>
-        <input type="number" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}" min="1">
-      </div>
-      <div class="form-group">
-        <label>Risk threshold (0-100)</label>
-        <input type="number" name="risk_threshold" value="{{printf "%.1f" .AnomalyRiskThreshold}}" min="0" max="100" step="0.1">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Min messages before scoring</label>
-        <input type="number" name="min_messages" value="{{.AnomalyMinMessages}}" min="0">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2>Message Limits</h2>
-  <p class="desc">
-    Prevent agents from flooding the system. Each agent gets a maximum number of messages per time window.
-  </p>
-  <form method="POST" action="/dashboard/settings/rate-limit">
-    <div class="form-row">
-      <div class="form-group">
-        <label>Max messages per agent</label>
-        <input type="number" name="per_agent" value="{{.RateLimitPerAgent}}" min="0">
-      </div>
-      <div class="form-group">
-        <label>Time window (seconds)</label>
-        <input type="number" name="window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}" min="1">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2>Intent Checks</h2>
-  <p class="desc">
-    Agents declare what they're doing (e.g. "code review", "deploy"). oktsec checks that the message content matches.
-  </p>
-  <form method="POST" action="/dashboard/settings/intent">
-    <div style="margin-bottom:20px">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Require intent on every message</span>
-      </label>
-    </div>
-    <div style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">
-      <strong>Available:</strong>
-      <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text2)">code_review, deploy, data_query, monitoring, security, communication, file_ops, config</span>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
-
-</div><!-- /pipeline grid -->
-
-</div>
-
-<!-- Infrastructure -->
-<div class="tab-content {{if eq .Tab "infra"}}active{{end}}" data-tab-content="settings" data-tab-name="infra">
-
-<div class="st-grid">
-
-<div class="card">
-  <h2>Notifications</h2>
-  <p class="desc">
-    Get notified when oktsec blocks or quarantines a message. Add webhook URLs for Slack, email, or any HTTP endpoint.
-  </p>
-
-  <form method="POST" action="/dashboard/settings/webhooks" style="margin-bottom:20px">
-    <div class="form-row">
-      <div class="form-group" style="flex:1;min-width:140px">
-        <label>Channel name</label>
-        <input type="text" name="name" placeholder="e.g. slack-security" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*">
-      </div>
-      <div class="form-group" style="flex:3">
-        <label>Webhook URL</label>
-        <input type="url" name="url" placeholder="https://hooks.slack.com/services/..." required>
-      </div>
-      <div class="form-group" style="align-self:flex-end">
-        <button type="submit" class="btn">Add</button>
-      </div>
-    </div>
-  </form>
-
-  {{if .WebhookChannels}}
-  <table>
-    <thead><tr><th>Channel</th><th>URL</th><th></th></tr></thead>
-    <tbody>
-    {{range .WebhookChannels}}
-    <tr id="wh-row-{{.Name}}">
-      <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{.Name}}</td>
-      <td style="font-family:var(--mono);font-size:0.75rem;color:var(--text3);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.URL}}</td>
-      <td>{{if .Name}}<button class="btn btn-sm btn-danger" hx-delete="/dashboard/settings/webhooks/{{.Name}}" hx-confirm="Delete channel {{.Name}}?" hx-target="#wh-row-{{.Name}}" hx-swap="outerHTML swap:200ms">delete</button>{{end}}</td>
-    </tr>
-    {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <div class="empty">No notification channels yet. Add one above to receive alerts.</div>
-  {{end}}
-</div>
-
-<div class="card">
-  <h2>Outbound Traffic</h2>
-  <p class="desc">
-    Control which external services agents can reach and scan their HTTP traffic for data leaks.
-  </p>
-  <form method="POST" action="/dashboard/settings/forward-proxy">
-    <div style="display:flex;gap:32px;margin-bottom:20px;flex-wrap:wrap">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Enable proxy</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Scan outgoing</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Scan incoming</span>
-      </label>
-    </div>
-    <div class="form-row">
-      <div class="form-group" style="flex:1">
-        <label>Allowed domains (one per line)</label>
-        <textarea name="allowed_domains" rows="3" style="font-family:var(--mono);font-size:0.82rem" placeholder="api.example.com">{{.FPAllowedDomains}}</textarea>
-      </div>
-      <div class="form-group" style="flex:1">
-        <label>Blocked domains (one per line)</label>
-        <textarea name="blocked_domains" rows="3" style="font-family:var(--mono);font-size:0.82rem" placeholder="evil.com">{{.FPBlockedDomains}}</textarea>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Max body size (bytes)</label>
-        <input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0">
-      </div>
-    </div>
-    <button type="submit" class="btn btn-sm">Save</button>
-  </form>
-</div>
-
-<div class="card st-span">
-  <h2>Server Info</h2>
-  <p class="desc">
-    Current proxy configuration. Changes to these settings require a restart.
-  </p>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
-    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
-      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Port</span>
-      <span style="font-family:var(--mono);font-size:0.82rem">{{.ServerPort}}</span>
-    </div>
-    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
-      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Bind address</span>
-      <span style="font-family:var(--mono);font-size:0.82rem">{{.ServerBind}}</span>
-    </div>
-    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
-      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Log level</span>
-      <span style="font-family:var(--mono);font-size:0.82rem">{{.LogLevel}}</span>
-    </div>
-    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">
-      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Custom rules</span>
-      <span style="font-family:var(--mono);font-size:0.82rem">{{if .CustomRulesDir}}{{.CustomRulesDir}}{{else}}<span style="color:var(--text3)">default only</span>{{end}}</span>
-    </div>
-    <div style="display:flex;align-items:baseline;gap:8px;padding:10px 0">
-      <span style="color:var(--text3);font-weight:600;font-size:0.82rem;min-width:140px">Notifications</span>
-      <span style="font-family:var(--mono);font-size:0.82rem">{{.WebhookCount}} channel{{if ne .WebhookCount 1}}s{{end}}</span>
+    <div class="st-item-value">
+      <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
   </div>
+  <input type="hidden" name="expiry_hours" value="{{.QExpiryHours}}">
+  <input type="hidden" name="retention_days" value="{{.QRetentionDays}}">
+  </form>
+
+  <form method="POST" action="/dashboard/settings/anomaly">
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Behavior Monitoring</div>
+      <div class="st-item-desc">Auto-suspend risky agents. Check every {{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}s, threshold {{printf "%.0f" .AnomalyRiskThreshold}}, min {{.AnomalyMinMessages}} msgs</div>
+    </div>
+    <div class="st-item-value">
+      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+    </div>
+  </div>
+  <input type="hidden" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}">
+  <input type="hidden" name="risk_threshold" value="{{printf "%.1f" .AnomalyRiskThreshold}}">
+  <input type="hidden" name="min_messages" value="{{.AnomalyMinMessages}}">
+  </form>
+
+  <form method="POST" action="/dashboard/settings/rate-limit">
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Rate Limiting</div>
+      <div class="st-item-desc">Max {{.RateLimitPerAgent}} messages per agent per {{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}s window</div>
+    </div>
+    <div class="st-item-value">
+      <span class="val">{{.RateLimitPerAgent}}/{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}s</span>
+    </div>
+  </div>
+  <input type="hidden" name="per_agent" value="{{.RateLimitPerAgent}}">
+  <input type="hidden" name="window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}">
+  </form>
+
+  <form method="POST" action="/dashboard/settings/intent">
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Intent Validation</div>
+      <div class="st-item-desc">Agents must declare intent. oktsec validates content matches declared purpose.</div>
+    </div>
+    <div class="st-item-value">
+      <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+    </div>
+  </div>
+  </form>
 </div>
 
-</div><!-- /infra grid -->
-
-</div>
-
+<!-- Advanced -->
+<div class="st-section">
+  <div class="st-section-hdr">Advanced</div>
+  <form method="POST" action="/dashboard/settings/forward-proxy">
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Egress Proxy</div>
+      <div class="st-item-desc">Intercept and scan outbound HTTP traffic from agents</div>
+    </div>
+    <div class="st-item-value">
+      <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+    </div>
+  </div>
+  <div class="st-item" style="flex-wrap:wrap;gap:10px">
+    <div class="st-item-info" style="flex-basis:100%">
+      <div style="display:flex;gap:20px;margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}> Scan outgoing</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}> Scan incoming</label>
+      </div>
+      <div class="st-row">
+        <div class="form-group"><label>Allowed domains</label><textarea name="allowed_domains" rows="2" style="font-family:var(--mono);font-size:0.78rem" placeholder="api.example.com">{{.FPAllowedDomains}}</textarea></div>
+        <div class="form-group"><label>Blocked domains</label><textarea name="blocked_domains" rows="2" style="font-family:var(--mono);font-size:0.78rem" placeholder="evil.com">{{.FPBlockedDomains}}</textarea></div>
+        <div class="form-group" style="max-width:140px"><label>Max body (bytes)</label><input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0"></div>
+      </div>
+    </div>
+    <div style="width:100%;display:flex;justify-content:flex-end;padding-top:4px"><button type="submit" class="btn btn-sm">Save</button></div>
+  </div>
+  </form>
 </div>
 ` + layoutFoot))
 
@@ -3166,7 +3132,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 @media(max-width:768px){.llm-hero{grid-template-columns:repeat(2,1fr)}.llm-grid{grid-template-columns:1fr}}
 </style>
 
-<p class="page-desc">AI analysis catches threats that rules alone can't see. Runs async, never slows the pipeline.</p>
+<p class="page-desc">AI-powered threat analysis catches what rules alone can't see. Runs async, never blocks message delivery.</p>
 
 {{if not .Enabled}}
 <!-- Setup state -->
@@ -3255,7 +3221,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
   </div>
   {{end}}
   <div id="llm-toggle-wrap" style="margin-left:{{if not .BudgetStatus}}auto{{else}}0{{end}}">
-    <button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap">Disable</button>
+    <button class="btn btn-sm" style="background:var(--surface2);color:var(--text2);font-size:0.72rem;padding:4px 12px" hx-post="/dashboard/api/llm/toggle" hx-swap="innerHTML" hx-target="#llm-toggle-wrap" hx-confirm="Disable AI analysis? Threat detection will rely on rules only.">Disable</button>
   </div>
 </div>
 
@@ -3463,6 +3429,35 @@ tqApply();
         </div>
       </div>
     </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <button type="button" class="btn btn-sm btn-outline" id="llm-test-btn" onclick="llmTest()">Test Connection</button>
+        <span id="llm-test-result" style="font-size:0.72rem;font-family:var(--mono);line-height:1.4;flex:1;overflow:hidden;text-overflow:ellipsis"></span>
+      </div>
+    </div>
+    <script>
+    function llmTest(){
+      var btn=document.getElementById('llm-test-btn');
+      var res=document.getElementById('llm-test-result');
+      btn.disabled=true;btn.textContent='Testing...';
+      res.textContent='';res.style.color='var(--text3)';
+      fetch('/dashboard/api/llm/test',{method:'POST',credentials:'same-origin'})
+        .then(function(r){return r.json()})
+        .then(function(d){
+          if(d.ok){
+            res.style.color='var(--success)';
+            res.textContent='Connected — '+d.model+' ('+d.latency+'ms)';
+          }else{
+            res.style.color='var(--danger)';
+            var msg=d.error||'Unknown error';
+            if(msg.length>120) msg=msg.substring(0,120)+'...';
+            res.textContent='Failed: '+msg;
+          }
+        })
+        .catch(function(e){res.style.color='var(--danger)';res.textContent='Error: '+e.message;})
+        .finally(function(){btn.disabled=false;btn.textContent='Test Connection';});
+    }
+    </script>
     <input type="hidden" name="queue_size" value="{{if .Cfg.QueueSize}}{{.Cfg.QueueSize}}{{else}}100{{end}}">
     <input type="hidden" name="max_daily" value="{{.Cfg.MaxDailyReqs}}">
     <script>
@@ -3482,7 +3477,9 @@ tqApply();
       var p=document.getElementById('cfg-provider').value;
       if(p==='claude') return 'claude';
       if(p==='webhook') return 'webhook';
+      var m=(document.getElementById('cfg-model').value||'').toLowerCase();
       if(u.indexOf('openrouter')!==-1) return 'openrouter';
+      if(m.indexOf('/')!==-1&&m.indexOf('/')<m.lastIndexOf('/') || (m.indexOf('/')!==-1&&(m.indexOf('google/')===0||m.indexOf('anthropic/')===0||m.indexOf('meta-llama/')===0||m.indexOf('mistralai/')===0||m.indexOf('deepseek/')===0))) return 'openrouter';
       if(u.indexOf(':11434')!==-1) return 'ollama';
       if(u.indexOf('lmstudio')!==-1||u.indexOf(':1234')!==-1) return 'lmstudio';
       if(u.indexOf('groq')!==-1) return 'groq';
@@ -3617,7 +3614,7 @@ tqApply();
 
 <div style="display:flex;justify-content:space-between;align-items:center;padding-top:4px;padding-bottom:16px">
   <button type="submit" class="btn">Save Configuration</button>
-  <button type="button" class="btn btn-sm" style="background:transparent;color:var(--text3);border:1px solid var(--border);font-size:0.75rem" onclick="if(confirm('Disable LLM analysis?')){document.getElementById('llm-disable-form').submit()}">Disable LLM</button>
+  <button type="submit" form="llm-disable-form" class="btn btn-sm btn-outline" style="font-size:0.75rem" onclick="return confirm('Disable AI analysis? Threat detection will rely on rules only.')">Disable AI Analysis</button>
 </div>
 </form>
 <form method="POST" action="/dashboard/settings/llm" id="llm-disable-form" style="display:none">
@@ -3965,7 +3962,7 @@ function ciCopyText(text, btn) {
 // --- Events page (merged audit log + quarantine) ---
 
 var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Quarantined messages need human review. Blocked messages were stopped automatically. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<p class="page-desc">All intercepted messages. Click any row for full details. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 <div class="filter-bar">
   <select id="filter-agent">
@@ -4042,14 +4039,16 @@ updateExportLinks();
   <div id="search-results">
   {{if .Entries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th><th style="text-align:right">Rules</th></tr></thead>
     <tbody id="events-body">
     {{range .Entries}}
     <tr class="ev-row clickable{{if hasRules .RulesTriggered}} has-rules{{end}}" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
-      <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
+      <td><span class="badge-{{.Status}}">{{.Status}}</span>{{if ne .PolicyDecision "allowed"}} <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">{{humanDecision .PolicyDecision}}</span>{{end}}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:{{if ge .LatencyMs 500}}var(--danger){{else if ge .LatencyMs 100}}var(--warn){{else}}var(--text3){{end}}">{{.LatencyMs}}ms</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)">{{if hasRules .RulesTriggered}}<span style="color:var(--warn);font-weight:600">&#x26A0;</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
     </tr>
     {{end}}
     </tbody>
@@ -4076,7 +4075,7 @@ updateExportLinks();
   evRender();
   </script>
   {{else}}
-  <div class="empty">No events yet. Send a message through the proxy to see activity here.</div>
+  <div class="empty">No events in this view. Use your MCP tools normally and events will appear here in real-time.</div>
   {{end}}
   </div>
 </div>
@@ -4155,7 +4154,7 @@ updateExportLinks();
   updateExpiry();
   </script>
   {{else}}
-  <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.</div>
+  <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.{{if not .RequireSig}} Currently in observe mode - messages are scanned but not held. Switch to enforce mode to enable quarantine.{{end}}</div>
   {{end}}
 </div>
 
@@ -4163,14 +4162,16 @@ updateExportLinks();
 <div class="tab-content {{if eq .Tab "blocked"}}active{{end}}" data-tab-content="events" data-tab-name="blocked">
   {{if .BlockedEntries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th><th style="text-align:right">Rules</th></tr></thead>
     <tbody>
     {{range .BlockedEntries}}
     <tr class="blk-row clickable has-rules" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
       <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
-      <td><span class="badge-{{.Status}}">{{.Status}}</span></td>
+      <td><span class="badge-{{.Status}}">{{.Status}}</span> <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">{{humanDecision .PolicyDecision}}</span></td>
+      <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:{{if ge .LatencyMs 500}}var(--danger){{else if ge .LatencyMs 100}}var(--warn){{else}}var(--text3){{end}}">{{.LatencyMs}}ms</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)"><span style="color:var(--warn);font-weight:600">&#x26A0;</span></td>
     </tr>
     {{end}}
     </tbody>
@@ -4229,7 +4230,12 @@ updateExportLinks();
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
       row.ondblclick = function(evt){evt.preventDefault();evt.stopPropagation();window.location='/dashboard/events/'+ev.id;};
-      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span></td>';
+      var decExtra='';
+      if(ev.policy_decision&&ev.policy_decision!=='allowed'){
+        var labels={'content_blocked':'Blocked — dangerous content','content_quarantined':'Quarantined','signature_required':'Rejected — unsigned','acl_denied':'Rejected — ACL denied'};
+        decExtra=' <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">'+(labels[ev.policy_decision]||ev.policy_decision)+'</span>';
+      }
+      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span>'+decExtra+'</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
@@ -5082,7 +5088,7 @@ function gwTab(name){
       <label>URL</label>
       <input type="text" name="url" placeholder="e.g. http://localhost:8080/mcp">
     </div>
-    <button type="submit" class="btn">Add</button>
+    <button type="submit" class="btn">Add Server</button>
   </form>
   <p style="color:var(--text3);font-size:0.72rem;margin-top:8px">Configure args, env vars, and headers from the server detail page.</p>
 </div>

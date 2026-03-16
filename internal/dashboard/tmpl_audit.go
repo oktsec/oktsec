@@ -91,7 +91,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 }
 </style>
 
-<p class="page-desc">Configuration posture across oktsec and detected products.</p>
+<p class="page-desc">Security audit of your deployment. Score based on {{.TotalChecks}} checks across oktsec and detected products.</p>
 
 {{if .Sandbox}}
 <div class="a-sandbox">
@@ -136,6 +136,17 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
   <div style="color:var(--text3);font-size:var(--text-xs);margin-top:var(--sp-2)">This typically occurs when the database is modified externally, entries are deleted, or the proxy restarts with a different signing key.</div>
 </div>
 {{end}}
+{{end}}
+
+{{if .LLMEnabled}}
+<div style="display:flex;align-items:center;gap:12px;padding:12px 20px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:10px;margin-bottom:var(--sp-5)">
+  <span style="font-size:1.1rem">&#x1F9E0;</span>
+  <div style="flex:1">
+    <div style="font-size:0.82rem;font-weight:600;color:var(--text)">AI-Enhanced Analysis Active</div>
+    <div style="font-size:0.72rem;color:var(--text3);margin-top:2px">Messages are being analyzed by <span style="font-family:var(--mono);color:var(--accent-light)">{{.LLMModel}}</span> for threats that rules can't detect.{{if .LLMThreats}} {{.LLMThreats}} analyses completed{{if .LLMConfirmed}}, {{.LLMConfirmed}} confirmed threats{{end}}.{{end}}</div>
+  </div>
+  <a href="/dashboard/llm" class="btn btn-sm btn-outline" style="font-size:0.72rem;border-color:var(--accent-border);color:var(--accent-light);white-space:nowrap">View AI Analysis</a>
+</div>
 {{end}}
 
 {{if .HasCritical}}

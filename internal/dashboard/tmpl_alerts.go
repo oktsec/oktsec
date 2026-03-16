@@ -46,7 +46,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
 @media(max-width:768px){.alert-stats{grid-template-columns:repeat(2,1fr)}.alert-table{font-size:0.75rem}}
 </style>
 
-<p class="page-desc">Webhook notification history and alerting configuration</p>
+<p class="page-desc">Notification channels and alert history for security events.</p>
 
 <!-- Stats -->
 <div class="alert-stats">
@@ -102,11 +102,47 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
   {{end}}
 </div>
 
+<!-- Webhook channels -->
+<div class="card" style="margin-bottom:24px">
+  <h3 style="font-size:0.82rem;font-weight:600;margin-bottom:14px">Webhook Channels</h3>
+  <p class="desc" style="margin-bottom:16px">Add webhook URLs for Slack, email, or any HTTP endpoint to receive alerts when oktsec blocks or quarantines a message.</p>
+  <form method="POST" action="/dashboard/settings/webhooks" style="margin-bottom:16px">
+    <div class="form-row">
+      <div class="form-group" style="flex:1;min-width:140px">
+        <label>Channel name</label>
+        <input type="text" name="name" placeholder="e.g. slack-security" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*">
+      </div>
+      <div class="form-group" style="flex:3">
+        <label>Webhook URL</label>
+        <input type="url" name="url" placeholder="https://hooks.slack.com/services/..." required>
+      </div>
+      <div class="form-group" style="align-self:flex-end">
+        <button type="submit" class="btn">Add Channel</button>
+      </div>
+    </div>
+  </form>
+  {{if .WebhookChannels}}
+  <table>
+    <thead><tr><th>Channel</th><th>URL</th><th></th></tr></thead>
+    <tbody>
+    {{range .WebhookChannels}}
+    <tr id="wh-row-{{.Name}}">
+      <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{.Name}}</td>
+      <td style="font-family:var(--mono);font-size:0.75rem;color:var(--text3);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.URL}}</td>
+      <td>{{if .Name}}<button class="btn btn-sm btn-danger" hx-delete="/dashboard/settings/webhooks/{{.Name}}" hx-confirm="Delete channel {{.Name}}?" hx-target="#wh-row-{{.Name}}" hx-swap="outerHTML swap:200ms">delete</button>{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <div class="empty">No webhook channels configured. Add one above to start receiving alerts.</div>
+  {{end}}
+</div>
+
 <!-- Alert history table -->
 <div class="card" style="padding:0;overflow:hidden">
   <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
     <h3 style="margin:0;font-size:0.82rem;font-weight:600">Alert History</h3>
-    <a href="/dashboard/settings" class="btn btn-sm" style="font-size:0.72rem">Configure Webhooks</a>
   </div>
   {{if .Alerts}}
   <div style="overflow-x:auto">
@@ -141,7 +177,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
   <div class="empty-state">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
     <p>No alerts yet</p>
-    <p style="font-size:0.75rem;color:var(--text3);margin-top:6px">Configure webhook channels in <a href="/dashboard/settings" style="color:var(--accent)">Settings</a> to start receiving alerts</p>
+    <p style="font-size:0.75rem;color:var(--text3);margin-top:6px">Add a webhook channel above to start receiving alerts</p>
   </div>
   {{end}}
 </div>
