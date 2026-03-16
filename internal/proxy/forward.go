@@ -40,7 +40,7 @@ func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, au
 	// the transport dials the proxy, not the target. Use standard dialer
 	// for proxy connections; SSRF checks are applied at handler level.
 	upstream := hasUpstreamProxy()
-	dialFn := safeDialContext
+	dialFn := SafeDialContext
 	if upstream {
 		d := &net.Dialer{Timeout: 5 * time.Second}
 		dialFn = d.DialContext
@@ -215,7 +215,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SSRF: validate target host when using upstream proxy (safeDialContext
+	// SSRF: validate target host when using upstream proxy (SafeDialContext
 	// handles this for direct connections, but with an upstream proxy the
 	// transport dials the proxy, not the target).
 	if fp.upstreamProxy {
@@ -389,13 +389,13 @@ func (fp *ForwardProxy) logProxyEntry(remoteAddr, method, host, status, policyDe
 // proxy, it dials the target directly using the SSRF-safe dialer.
 func (fp *ForwardProxy) dialTarget(ctx context.Context, host string) (net.Conn, error) {
 	if !fp.upstreamProxy {
-		return safeDialContext(ctx, "tcp", host)
+		return SafeDialContext(ctx, "tcp", host)
 	}
 
 	// Chain through upstream proxy via CONNECT
 	proxyURL := upstreamProxyURL()
 	if proxyURL == nil {
-		return safeDialContext(ctx, "tcp", host)
+		return SafeDialContext(ctx, "tcp", host)
 	}
 
 	d := &net.Dialer{Timeout: 5 * time.Second}

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/oktsec/oktsec/internal/netutil"
 )
 
 // openaiProvider implements Analyzer for any OpenAI Chat Completions-compatible API.
@@ -44,7 +46,12 @@ func newOpenAIProvider(cfg Config) (*openaiProvider, error) {
 	}
 
 	return &openaiProvider{
-		client:       &http.Client{Timeout: cfg.ParseTimeout()},
+		client: &http.Client{
+			Timeout: cfg.ParseTimeout(),
+			Transport: &http.Transport{
+				DialContext: netutil.SafeDialContext,
+			},
+		},
 		baseURL:      baseURL,
 		apiKey:       apiKey,
 		model:        cfg.Model,

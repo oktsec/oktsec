@@ -489,7 +489,8 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 	query += " ORDER BY timestamp DESC"
 
 	if opts.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", opts.Limit)
+		query += " LIMIT ?"
+		args = append(args, opts.Limit)
 	} else {
 		query += " LIMIT 50"
 	}
@@ -846,7 +847,8 @@ func (s *Store) QuarantineQuery(status, agent string, limit int) ([]QuarantineIt
 	query += " ORDER BY created_at DESC"
 
 	if limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", limit)
+		query += " LIMIT ?"
+		args = append(args, limit)
 	} else {
 		query += " LIMIT 50"
 	}

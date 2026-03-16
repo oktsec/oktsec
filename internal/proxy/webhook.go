@@ -64,14 +64,14 @@ func NewWebhookNotifier(webhooks []config.Webhook, logger *slog.Logger) *Webhook
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 			Transport: &http.Transport{
-				DialContext: safeDialContext,
+				DialContext: SafeDialContext,
 			},
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 2 {
 					return errors.New("too many redirects")
 				}
 				// Validate redirect destination URL (defense-in-depth;
-				// safeDialContext also validates at connection time)
+				// SafeDialContext also validates at connection time)
 				if err := validateWebhookURL(req.URL.String()); err != nil {
 					return fmt.Errorf("redirect to blocked URL: %w", err)
 				}
@@ -95,7 +95,7 @@ func (n *WebhookNotifier) OnAlert(fn AlertLogFunc) {
 
 // validateWebhookURL performs pre-DNS validation on webhook URLs.
 // It rejects non-HTTP schemes, alternative IP encodings, and known
-// blocked IP ranges. Post-DNS validation happens in safeDialContext.
+// blocked IP ranges. Post-DNS validation happens in SafeDialContext.
 func validateWebhookURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
