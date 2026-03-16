@@ -71,6 +71,11 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore *audit.Store, keys
 	}
 	s.routes()
 
+	// Pre-warm rule cache so the first /dashboard/rules load is instant
+	if scanner != nil {
+		go scanner.ListRules()
+	}
+
 	// Auto-start gateway if enabled in config and backends exist
 	if cfg.Gateway.Enabled && len(cfg.MCPServers) > 0 {
 		s.gwMu.Lock()
@@ -246,7 +251,7 @@ func (s *Server) routes() {
 		http.Redirect(w, r, "/dashboard", http.StatusMovedPermanently)
 	})
 	s.mux.HandleFunc("GET /dashboard/identity", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/dashboard/settings", http.StatusMovedPermanently)
+		http.Redirect(w, r, "/dashboard/settings?tab=security", http.StatusMovedPermanently)
 	})
 	s.mux.HandleFunc("GET /dashboard/agents/{name...}", s.handleAgentDetail)
 	s.mux.HandleFunc("GET /dashboard/llm", s.handleLLM)
@@ -255,6 +260,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /dashboard/api/llm/{id}/dismiss", s.handleLLMDismiss)
 	s.mux.HandleFunc("POST /dashboard/api/llm/{id}/confirm", s.handleLLMConfirm)
 	s.mux.HandleFunc("POST /dashboard/api/llm/toggle", s.handleToggleLLM)
+	s.mux.HandleFunc("POST /dashboard/api/llm/test", s.handleTestLLM)
 	s.mux.HandleFunc("GET /dashboard/alerts", s.handleAlerts)
 	s.mux.HandleFunc("GET /dashboard/audit", s.handleAudit)
 	s.mux.HandleFunc("GET /dashboard/audit/sandbox", s.handleAuditSandbox)

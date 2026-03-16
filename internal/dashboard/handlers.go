@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -183,29 +184,22 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		unsignedPct = unsigned * 100 / totalRecent
 	}
 
-	// Build pipeline stage statuses from config.
+	// Build pipeline stage statuses.
 	type pipelineStage struct {
 		Name   string
 		Active bool
 	}
-	hasBlockedContent := false
-	for _, a := range s.cfg.Agents {
-		if len(a.BlockedContent) > 0 {
-			hasBlockedContent = true
-			break
-		}
-	}
 	pipelineStages := []pipelineStage{
-		{"Rate Limit", s.cfg.RateLimit.PerAgent > 0},
-		{"Identity", s.cfg.Identity.RequireSignature},
-		{"Suspension", true}, // always active
-		{"ACL", true},        // always active
+		{"Rate Limit", true},
+		{"Identity", true},
+		{"Suspension", true},
+		{"ACL", true},
 		{"Scan", s.scanner != nil},
-		{"Intent", s.cfg.Server.RequireIntent},
-		{"Blocked", hasBlockedContent},
-		{"Escalation", true}, // always active
-		{"Audit", true},      // always active
-		{"Anomaly", s.cfg.Anomaly.RiskThreshold > 0},
+		{"Intent", true},
+		{"Blocked", true},
+		{"Escalation", true},
+		{"Audit", true},
+		{"Anomaly", true},
 	}
 
 	ruleCount := 0
@@ -297,6 +291,15 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	chainEntries, _ := s.audit.QueryChainEntries(100)
 	chainResult := audit.VerifyChain(chainEntries, nil)
 
+	// LLM threat stats for the AI banner
+	var llmThreats, llmConfirmed int
+	if s.cfg.LLM.Enabled {
+		if llmStats, err := s.audit.QueryLLMStats(); err == nil && llmStats != nil {
+			llmThreats = llmStats.TotalAnalyses
+			llmConfirmed = llmStats.TotalThreats
+		}
+	}
+
 	data := map[string]any{
 		"Active":      "audit",
 		"RequireSig":  s.cfg.Identity.RequireSignature,
@@ -312,6 +315,10 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		"ChainReason":   chainResult.Reason,
 		"ChainBrokenAt": chainResult.BrokenAt,
 		"ChainBrokenID": chainResult.BrokenID,
+		"LLMEnabled":    s.cfg.LLM.Enabled,
+		"LLMModel":      s.cfg.LLM.Model,
+		"LLMThreats":    llmThreats,
+		"LLMConfirmed":  llmConfirmed,
 	}
 
 	s.renderTemplate(w, auditTmpl, data)
@@ -847,11 +854,17 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		stats = &audit.StatusCounts{}
 	}
 
-	// Check if key exists
+	// Check if key exists and revocation status
 	var keyFP string
+	var keyRevoked bool
 	if s.keys != nil {
 		if pub, ok := s.keys.Get(name); ok {
 			keyFP = identity.Fingerprint(pub)
+			if revoked, err := s.audit.IsRevoked(keyFP); err != nil {
+				s.logger.Warn("failed to check key revocation", "agent", name, "error", err)
+			} else {
+				keyRevoked = revoked
+			}
 		}
 	}
 
@@ -900,6 +913,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"Rejected":     stats.Rejected,
 		"Quarantined":  stats.Quarantined,
 		"KeyFP":        keyFP,
+		"KeyRevoked":   keyRevoked,
 		"RequireSig":   s.cfg.Identity.RequireSignature,
 		"TopRules":     topRules,
 		"RiskScore":    agentRiskData.RiskScore,
@@ -984,7 +998,7 @@ func (s *Server) handleIdentityRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/dashboard/identity", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/agents/"+agentName, http.StatusFound)
 }
 
 func (s *Server) handleModeToggle(w http.ResponseWriter, r *http.Request) {
@@ -996,7 +1010,7 @@ func (s *Server) handleModeToggle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	http.Redirect(w, r, "/dashboard/settings?tab=security", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
 }
 
 // --- SSE handler ---
@@ -1248,15 +1262,16 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	eventTypeCount := len(stats.ByEvent)
 
 	data := map[string]any{
-		"Active":         "alerts",
-		"RequireSig":     s.cfg.Identity.RequireSignature,
-		"Alerts":         alerts,
-		"Stats":          stats,
-		"WebhookCount":   len(s.cfg.Webhooks),
-		"EventTypeCount": eventTypeCount,
-		"Cooldown":       cooldown,
-		"LLMThreats":    s.cfg.Alerting.LLMThreats,
-		"Suspensions":   s.cfg.Alerting.Suspensions,
+		"Active":           "alerts",
+		"RequireSig":       s.cfg.Identity.RequireSignature,
+		"Alerts":           alerts,
+		"Stats":            stats,
+		"WebhookCount":     len(s.cfg.Webhooks),
+		"WebhookChannels":  s.cfg.Webhooks,
+		"EventTypeCount":   eventTypeCount,
+		"Cooldown":         cooldown,
+		"LLMThreats":      s.cfg.Alerting.LLMThreats || s.cfg.LLM.Enabled,
+		"Suspensions":     s.cfg.Alerting.Suspensions,
 	}
 
 	s.renderTemplate(w, alertsTmpl, data)
@@ -2233,33 +2248,13 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	tab := r.URL.Query().Get("tab")
-	if tab == "" {
+	switch tab {
+	case "pipeline":
+		tab = "protection" // backwards compat
+	case "identity":
+		tab = "security" // identity tab removed
+	case "":
 		tab = "security"
-	}
-
-	type keyInfo struct {
-		Name        string
-		Fingerprint string
-	}
-
-	var keys []keyInfo
-	if s.keys != nil {
-		for _, name := range s.keys.Names() {
-			pub, _ := s.keys.Get(name)
-			keys = append(keys, keyInfo{
-				Name:        name,
-				Fingerprint: identity.Fingerprint(pub),
-			})
-		}
-		sort.Slice(keys, func(i, j int) bool { return keys[i].Name < keys[j].Name })
-	}
-
-	revoked, _ := s.audit.ListRevokedKeys()
-
-	// Build revoked fingerprint set for template lookup
-	revokedFPs := make(map[string]bool)
-	for _, rk := range revoked {
-		revokedFPs[rk.Fingerprint] = true
 	}
 
 	qStats, _ := s.audit.QuarantineStats()
@@ -2277,10 +2272,6 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"Active":         "settings",
 		"Tab":            tab,
 		"RequireSig":     s.cfg.Identity.RequireSignature,
-		"Keys":           keys,
-		"KeysDir":        s.cfg.Identity.KeysDir,
-		"Revoked":        revoked,
-		"RevokedFPs":     revokedFPs,
 		"QEnabled":       s.cfg.Quarantine.Enabled,
 		"QExpiryHours":   s.cfg.Quarantine.ExpiryHours,
 		"QPending":       qPending,
@@ -2288,7 +2279,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"ServerBind":     serverBind,
 		"LogLevel":       s.cfg.Server.LogLevel,
 		"CustomRulesDir": s.cfg.CustomRulesDir,
-		"WebhookChannels": s.cfg.Webhooks,
+		"WebhookCount":   len(s.cfg.Webhooks),
 
 		"DefaultPolicy":        s.cfg.DefaultPolicy,
 		"RateLimitPerAgent":    s.cfg.RateLimit.PerAgent,
@@ -2604,6 +2595,31 @@ func (s *Server) handleToggleLLM(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) handleTestLLM(w http.ResponseWriter, r *http.Request) {
+	if s.llmQueue == nil {
+		s.renderJSON(w, map[string]any{"ok": false, "error": "LLM analysis is not running"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	_, err := s.llmQueue.TestConnection(ctx)
+	elapsed := time.Since(start).Milliseconds()
+
+	if err != nil {
+		s.renderJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+
+	s.renderJSON(w, map[string]any{
+		"ok":      true,
+		"latency": elapsed,
+		"model":   s.cfg.LLM.Model,
+	})
+}
+
 func (s *Server) handleSaveDefaultPolicy(w http.ResponseWriter, r *http.Request) {
 	policy := r.FormValue("default_policy")
 	if policy != "allow" && policy != "deny" {
@@ -2618,7 +2634,7 @@ func (s *Server) handleSaveDefaultPolicy(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	http.Redirect(w, r, "/dashboard/settings?tab=security", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
 }
 
 func (s *Server) handleSaveRateLimit(w http.ResponseWriter, r *http.Request) {
@@ -2641,7 +2657,7 @@ func (s *Server) handleSaveRateLimit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.Redirect(w, r, "/dashboard/settings?tab=pipeline", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
 }
 
 func (s *Server) handleSaveAnomaly(w http.ResponseWriter, r *http.Request) {
@@ -2671,7 +2687,7 @@ func (s *Server) handleSaveAnomaly(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.Redirect(w, r, "/dashboard/settings?tab=pipeline", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
 }
 
 func (s *Server) handleSaveIntent(w http.ResponseWriter, r *http.Request) {
@@ -2683,7 +2699,7 @@ func (s *Server) handleSaveIntent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.Redirect(w, r, "/dashboard/settings?tab=pipeline", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
 }
 
 func (s *Server) handleSaveForwardProxy(w http.ResponseWriter, r *http.Request) {
@@ -2705,7 +2721,7 @@ func (s *Server) handleSaveForwardProxy(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	http.Redirect(w, r, "/dashboard/settings?tab=infra", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
 }
 
 func (s *Server) handleSaveQuarantine(w http.ResponseWriter, r *http.Request) {
@@ -2729,7 +2745,7 @@ func (s *Server) handleSaveQuarantine(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	http.Redirect(w, r, "/dashboard/settings?tab=pipeline", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
 }
 
 // parseDomainList splits a newline-delimited textarea value into a trimmed domain slice.
@@ -2786,7 +2802,7 @@ func (s *Server) handleSaveWebhookChannel(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	http.Redirect(w, r, "/dashboard/settings?tab=infra", http.StatusFound)
+	http.Redirect(w, r, "/dashboard/alerts", http.StatusFound)
 }
 
 func (s *Server) handleDeleteWebhookChannel(w http.ResponseWriter, r *http.Request) {
