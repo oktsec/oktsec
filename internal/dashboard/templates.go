@@ -3040,19 +3040,33 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
   </div>
-  <div class="st-item" style="flex-wrap:wrap;gap:10px">
-    <div class="st-item-info" style="flex-basis:100%">
-      <div style="display:flex;gap:20px;margin-bottom:10px">
-        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}> Scan outgoing</label>
-        <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}> Scan incoming</label>
+  <div style="padding:14px 20px;border-bottom:1px solid var(--border)">
+    <div style="display:flex;gap:20px;margin-bottom:16px">
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}> Scan outgoing</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer"><input type="checkbox" name="scan_responses" value="true" {{if .FPScanResponses}}checked{{end}}> Scan incoming</label>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:6px"><label style="font-size:0.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Max body</label><input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0" style="width:90px;font-size:0.78rem"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Allowed domains</label>
+          <span style="font-size:0.68rem;color:var(--text3);font-family:var(--mono)">{{if .FPAllowedDomains}}active{{else}}allow all{{end}}</span>
+        </div>
+        <textarea name="allowed_domains" rows="4" style="font-family:var(--mono);font-size:0.75rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:10px 12px;resize:vertical;line-height:1.6" placeholder="api.openai.com&#10;api.anthropic.com&#10;*.github.com">{{.FPAllowedDomains}}</textarea>
+        <div style="font-size:0.65rem;color:var(--text3);margin-top:4px">One per line. Empty = allow all. Supports wildcards (*.example.com)</div>
       </div>
-      <div class="st-row">
-        <div class="form-group"><label>Allowed domains</label><textarea name="allowed_domains" rows="2" style="font-family:var(--mono);font-size:0.78rem" placeholder="api.example.com">{{.FPAllowedDomains}}</textarea></div>
-        <div class="form-group"><label>Blocked domains</label><textarea name="blocked_domains" rows="2" style="font-family:var(--mono);font-size:0.78rem" placeholder="evil.com">{{.FPBlockedDomains}}</textarea></div>
-        <div class="form-group" style="max-width:140px"><label>Max body (bytes)</label><input type="number" name="max_body_size" value="{{.FPMaxBodySize}}" min="0"></div>
+      <div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Blocked domains</label>
+          <span style="font-size:0.68rem;color:var(--text3);font-family:var(--mono)">{{if .FPBlockedDomains}}active{{else}}none{{end}}</span>
+        </div>
+        <textarea name="blocked_domains" rows="4" style="font-family:var(--mono);font-size:0.75rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:10px 12px;resize:vertical;line-height:1.6" placeholder="*.ru&#10;*.cn&#10;malware.example.com">{{.FPBlockedDomains}}</textarea>
+        <div style="font-size:0.65rem;color:var(--text3);margin-top:4px">Takes precedence over allowed. Block TLDs with *.ru, *.cn, etc.</div>
       </div>
     </div>
-    <div style="width:100%;display:flex;justify-content:flex-end;padding-top:4px"><button type="submit" class="btn btn-sm">Save</button></div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;padding:10px 20px">
+    <button type="submit" class="btn btn-sm">Save</button>
   </div>
   </form>
 </div>

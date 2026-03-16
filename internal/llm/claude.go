@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/oktsec/oktsec/internal/netutil"
 )
 
 // claudeProvider implements Analyzer for the Anthropic Messages API.
@@ -35,7 +37,12 @@ func newClaudeProvider(cfg Config) (*claudeProvider, error) {
 	}
 
 	return &claudeProvider{
-		client:    &http.Client{Timeout: cfg.ParseTimeout()},
+		client: &http.Client{
+			Timeout: cfg.ParseTimeout(),
+			Transport: &http.Transport{
+				DialContext: netutil.SafeDialContext,
+			},
+		},
 		apiKey:    apiKey,
 		model:     model,
 		maxTokens: maxTokens,

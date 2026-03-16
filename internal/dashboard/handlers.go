@@ -2403,7 +2403,8 @@ func (s *Server) handleLLMConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.audit.UpdateLLMReviewStatus(id, "confirmed"); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		s.logger.Error("confirm llm review failed", "id", id, "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
@@ -2422,7 +2423,7 @@ func (s *Server) handleApproveLLMRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.ruleGen.ApproveRule(id); err != nil {
 		s.logger.Error("approve llm rule failed", "id", id, "error", err)
-		http.Error(w, "failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	// Reload detection rules if scanner supports it
@@ -2448,7 +2449,7 @@ func (s *Server) handleRejectLLMRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.ruleGen.RejectRule(id); err != nil {
 		s.logger.Error("reject llm rule failed", "id", id, "error", err)
-		http.Error(w, "failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
@@ -2467,7 +2468,7 @@ func (s *Server) handleDeactivateLLMRule(w http.ResponseWriter, r *http.Request)
 	}
 	if err := s.ruleGen.DeactivateRule(id); err != nil {
 		s.logger.Error("deactivate llm rule failed", "id", id, "error", err)
-		http.Error(w, "failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if s.scanner != nil {
@@ -3264,7 +3265,8 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuditClear(w http.ResponseWriter, r *http.Request) {
 	if err := s.audit.ClearAll(); err != nil {
-		http.Error(w, "clear failed: "+err.Error(), http.StatusInternalServerError)
+		s.logger.Error("audit clear failed", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	// Remove all agents so the graph starts truly empty.

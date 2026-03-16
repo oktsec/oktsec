@@ -570,6 +570,7 @@ func TestOpenAIProviderAnalyze(t *testing.T) {
 	}
 	// Inject key directly since we can't use env in test easily
 	p.apiKey = "test-key"
+	p.client = srv.Client() // use test server client (bypasses SafeDialContext for localhost)
 
 	result, err := p.Analyze(context.Background(), AnalysisRequest{
 		MessageID: "msg-1",
@@ -599,6 +600,7 @@ func TestOpenAIProviderError(t *testing.T) {
 	defer srv.Close()
 
 	p, _ := newOpenAIProvider(Config{BaseURL: srv.URL, Model: "test", Timeout: "5s"})
+	p.client = srv.Client() // use test server client (bypasses SafeDialContext for localhost)
 	_, err := p.Analyze(context.Background(), AnalysisRequest{MessageID: "x"})
 	if err == nil {
 		t.Error("expected error for 429")
@@ -686,6 +688,7 @@ func TestWebhookProviderAnalyze(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	p.client = srv.Client() // use test server client (bypasses SafeDialContext for localhost)
 
 	result, err := p.Analyze(context.Background(), AnalysisRequest{
 		MessageID: "msg-wh",
@@ -718,6 +721,7 @@ func TestWebhookProviderServerError(t *testing.T) {
 		Timeout: "5s",
 		Webhook: WebhookConfig{URL: srv.URL},
 	})
+	p.client = srv.Client() // use test server client (bypasses SafeDialContext for localhost)
 
 	_, err := p.Analyze(context.Background(), AnalysisRequest{MessageID: "x"})
 	if err == nil {

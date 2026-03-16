@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/oktsec/oktsec/internal/netutil"
 )
 
 // webhookProvider sends analysis requests to a custom HTTP endpoint.
@@ -31,7 +33,12 @@ func newWebhookProvider(cfg Config) (*webhookProvider, error) {
 	}
 
 	return &webhookProvider{
-		client:  &http.Client{Timeout: cfg.ParseTimeout()},
+		client: &http.Client{
+			Timeout: cfg.ParseTimeout(),
+			Transport: &http.Transport{
+				DialContext: netutil.SafeDialContext,
+			},
+		},
 		url:     cfg.Webhook.URL,
 		headers: headers,
 	}, nil
