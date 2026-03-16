@@ -24,7 +24,7 @@
 
 ---
 
-See everything your AI agents execute. Monitors MCP tool calls and CLI operations in real-time - intercept, detect, block, audit. **188 detection rules** across 15 categories. Tamper-evident audit trail. Optional LLM threat intelligence. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline. Single binary. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+See everything your AI agents execute. Monitors MCP tool calls and CLI operations in real-time - intercept, detect, block, audit. **188 detection rules** across 16 categories. Tamper-evident audit trail. Optional LLM threat intelligence. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline. Single binary. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 
@@ -616,17 +616,17 @@ The access code is generated fresh each time the server starts. Sessions expire 
 
 ### Pages
 
-- **Overview** — Hero stats (total messages, blocked, quarantined, flagged), detection rate, pipeline health, audit chain integrity, live event feed via SSE.
-- **Events** — Unified audit log and quarantine view with live SSE streaming, tab filters (All / Quarantine / Blocked), search, event detail panels with clickable rule cards.
-- **Agents** — Agent CRUD grid with risk scores, ACLs, content restrictions, Ed25519 keygen per agent, suspension toggle.
-- **Agent Detail** — Per-agent stats, risk gauge, tool distribution, message history, tool policies.
-- **Rules** — Category card grid with drill-down to individual rules, per-rule enforcement overrides, per-category webhooks, custom rule creation, LLM-suggested rules with approve/reject.
+- **Overview** — Hero stats, pipeline health bar, live event feed (SSE) alongside security status, activity sparkline, top threats and agent risk.
+- **Events** — Audit log with latency and rules columns, tab filters (All / Quarantine / Blocked), search, event detail with pipeline summary bar, JSON syntax highlighting, full audit chain.
+- **Notifications** — Webhook channel CRUD, alert configuration summary, alert history with delivery status.
+- **Agents** — Card grid with risk scores, message counts, key status. Add Agent form at top. Detail page with communication partners, recent messages, LLM threat intelligence, tool policies.
+- **Rules** — Category card grid with severity breakdown, drill-down to individual rules, per-rule enforcement overrides, per-category webhook triggers, custom rule creation, LLM-suggested rules.
 - **Rule Detail** — Patterns, examples, inline test sandbox, enforcement override.
-- **Audit** — Deployment security posture: health score and grade, per-product finding cards (Oktsec, OpenClaw, NanoClaw) with remediation guidance.
-- **Graph** — Agent communication topology with deterministic layout, node threat scores (betweenness centrality), edge health, animated edge particles, shadow edge detection.
-- **Threat Intel** — LLM analysis cases, triage configuration, budget tracking, rule generation.
+- **Security Posture** — Deployment audit: health score and grade, per-product findings (Oktsec, OpenClaw, MCP Servers), AI-enhanced analysis banner, remediation guidance, SARIF export.
+- **Graph** — Agent communication topology with deterministic layout, node threat scores (betweenness centrality), edge health, shadow edge detection.
+- **AI Analysis** — LLM threat cases with confirm/dismiss workflow, triage configuration, provider test connection, budget tracking, rule generation.
 - **Gateway** — Backend MCP server CRUD, gateway configuration, tool discovery, health checks.
-- **Settings** — Pipeline configuration in 2-column layout: security mode, rate limiting, anomaly detection, intent validation, quarantine, forward proxy, webhook channels, LLM configuration.
+- **Settings** — Single-page layout with Security (mode, policy, server info), Protection (quarantine, behavior monitoring, rate limiting, intent validation), and Advanced (egress proxy) sections.
 
 ### Quarantine queue
 
