@@ -590,6 +590,7 @@ func (g *Gateway) autoRegisterAgent(name string) {
 	g.cfg.Agents[name] = config.Agent{
 		CanMessage:     []string{"*"},
 		BlockedContent: []string{},
+		ScanProfile:    config.ScanProfileContentAware,
 		Description:    "Auto-registered from gateway traffic",
 		CreatedBy:      "gateway",
 		CreatedAt:      time.Now().UTC().Format(time.RFC3339),

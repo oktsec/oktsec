@@ -24,14 +24,18 @@ type Config struct {
 
 // EventRow is a displayable event in the live feed.
 type EventRow struct {
-	Time     string
-	Agent    string
-	Tool     string
-	Status   string
-	Latency  string
-	Rule     string
-	RawRules string
-	Decision string
+	Time      string
+	Agent     string
+	Tool      string
+	Status    string
+	Latency   string
+	Rule      string
+	RawRules  string
+	Decision  string
+	EventID   string
+	SessionID string
+	ToAgent   string
+	Content   string
 }
 
 // Model is the Bubbletea model for the oktsec TUI.
@@ -229,14 +233,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			row := EventRow{
-				Time:     parseTime(entry.Timestamp),
-				Agent:    agent,
-				Tool:     entry.ToolName,
-				Status:   status,
-				Latency:  fmt.Sprintf("%dms", entry.LatencyMs),
-				Rule:     formatRules(entry.RulesTriggered),
-				RawRules: entry.RulesTriggered,
-				Decision: entry.PolicyDecision,
+				Time:      parseTime(entry.Timestamp),
+				Agent:     agent,
+				Tool:      entry.ToolName,
+				Status:    status,
+				Latency:   fmt.Sprintf("%dms", entry.LatencyMs),
+				Rule:      formatRules(entry.RulesTriggered),
+				RawRules:  entry.RulesTriggered,
+				Decision:  entry.PolicyDecision,
+				EventID:   entry.ID,
+				SessionID: entry.SessionID,
+				ToAgent:   entry.ToAgent,
+				Content:   truncate(entry.Intent, 300),
 			}
 			m.events = append(m.events, row)
 			if len(m.events) > m.maxEvents {
@@ -306,9 +314,16 @@ func (m Model) View() string {
 	}
 	contentWidth := min(w-4, 90)
 
+	// Animated hexagons
+	lit := lipgloss.NewStyle().Foreground(lipgloss.Color(colorPrimary))
+	dm := lipgloss.NewStyle().Foreground(lipgloss.Color(colorDim))
+	a := (int(time.Since(m.started).Milliseconds()) / 400) % 4
+	hx := [4]string{dm.Render("⏣"), dm.Render("⏣"), dm.Render("⏣"), dm.Render("⏣")}
+	hx[a] = lit.Render("⏣")
+
 	header := lipgloss.JoinVertical(lipgloss.Left,
-		headerStyle.Render("oktsec")+" "+dimStyle.Render(m.cfg.Version),
-		taglineStyle.Render("See everything your AI agents execute"),
+		hx[0]+" "+hx[1]+"  "+headerStyle.Render("oktsec")+" "+dimStyle.Render(m.cfg.Version),
+		hx[2]+" "+hx[3]+"  "+taglineStyle.Render("See everything your AI agents execute"),
 	)
 
 	mode := observeStyle.Render("observe")
@@ -359,27 +374,24 @@ func (m Model) View() string {
 		feedContent = mutedStyle.Render("No events for this agent")
 	} else {
 		visible := m.visibleRange(filtered)
+		cursorIdx := len(visible) - 1 - m.cursorPos
 		var lines []string
 		for i, ev := range visible {
-			statusStr := renderStatus(ev.Status)
-			rule := ""
-			if ev.Rule != "" {
-				rule = " " + dimStyle.Render(truncate(ev.Rule, 30))
+			isCursor := !m.autoScroll && i == cursorIdx
+			prefix := " "
+			if isCursor {
+				prefix = ">"
 			}
-			line := fmt.Sprintf("%s  %-18s %-14s %s  %s%s",
+			line := fmt.Sprintf("%s%s %-14s %-7s %-10s %5s",
+				prefix,
 				dimStyle.Render(ev.Time),
-				agentStyle.Render(truncate(ev.Agent, 18)),
-				toolStyle.Render(truncate(ev.Tool, 14)),
-				statusStr,
+				agentStyle.Render(truncate(ev.Agent, 14)),
+				renderStatus(ev.Status),
+				toolStyle.Render(truncate(ev.Tool, 10)),
 				dimStyle.Render(ev.Latency),
-				rule,
 			)
-			// Highlight cursor position (counted from bottom)
-			cursorIdx := len(visible) - 1 - m.cursorPos
-			if !m.autoScroll && i == cursorIdx {
-				line = lipgloss.NewStyle().Background(lipgloss.Color("#21262d")).Render(">" + line)
-			} else {
-				line = " " + line
+			if isCursor {
+				line = lipgloss.NewStyle().Background(lipgloss.Color("#21262d")).Render(line)
 			}
 			lines = append(lines, line)
 		}
@@ -406,18 +418,40 @@ func (m Model) View() string {
 
 func (m Model) renderDetail() string {
 	w := m.width
-	if w < 60 {
-		w = 80
+	if w < 40 {
+		w = 40
 	}
 	contentWidth := min(w-4, 90)
 
 	ev := m.events[m.selectedIdx]
 	detailBox := boxStyle.Width(contentWidth).BorderForeground(lipgloss.Color(colorPrimary))
-	sep := dimStyle.Render(strings.Repeat("-", contentWidth-6))
+	sepW := contentWidth - 8
+	if sepW < 10 {
+		sepW = 10
+	}
+	sep := dimStyle.Render(strings.Repeat("─", sepW))
 
 	rulesContent := mutedStyle.Render("No rules triggered")
 	if ev.RawRules != "" && ev.RawRules != "[]" {
 		rulesContent = formatRulesDetail(ev.RawRules)
+	}
+
+	contentPreview := mutedStyle.Render("Not stored")
+	if ev.Content != "" {
+		contentPreview = dimStyle.Render(ev.Content)
+	}
+
+	target := mutedStyle.Render("n/a")
+	if ev.ToAgent != "" {
+		target = toolStyle.Render(ev.ToAgent)
+	}
+	eventID := mutedStyle.Render("n/a")
+	if ev.EventID != "" {
+		eventID = dimStyle.Render(truncate(ev.EventID, 36))
+	}
+	sessionID := mutedStyle.Render("n/a")
+	if ev.SessionID != "" {
+		sessionID = dimStyle.Render(truncate(ev.SessionID, 36))
 	}
 
 	return "\n" + detailBox.Render(
@@ -425,16 +459,23 @@ func (m Model) renderDetail() string {
 			headerStyle.Render("EVENT DETAIL"),
 			"",
 			labelStyle.Render("Agent")+agentStyle.Render(ev.Agent),
+			labelStyle.Render("Target")+target,
 			labelStyle.Render("Tool")+toolStyle.Render(ev.Tool),
 			labelStyle.Render("Time")+mutedStyle.Render(ev.Time),
 			labelStyle.Render("Latency")+mutedStyle.Render(ev.Latency),
 			labelStyle.Render("Status")+renderStatus(ev.Status),
 			labelStyle.Render("Decision")+mutedStyle.Render(ev.Decision),
-			"", sep, "",
+			sep,
 			mutedStyle.Render("RULES"),
 			rulesContent,
+			sep,
+			mutedStyle.Render("CONTENT"),
+			contentPreview,
+			sep,
+			labelStyle.Render("Event ID")+eventID,
+			labelStyle.Render("Session")+sessionID,
 			"",
-			dimStyle.Render("Press Esc or Enter to go back"),
+			dimStyle.Render("Esc or Enter to go back"),
 		),
 	) + "\n"
 }

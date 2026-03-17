@@ -156,6 +156,7 @@ type Agent struct {
 	ToolPolicies    map[string]ToolPolicy   `yaml:"tool_policies,omitempty"`   // per-tool enforcement policies
 	ToolConstraints []ToolConstraintConfig  `yaml:"tool_constraints,omitempty"` // per-tool parameter constraints
 	ToolChainRules  []ToolChainRuleConfig   `yaml:"tool_chain_rules,omitempty"` // sequential tool blocking rules
+	ScanProfile     string                  `yaml:"scan_profile,omitempty"`     // strict (default), content-aware, minimal
 	Suspended       bool                    `yaml:"suspended,omitempty"`
 	Description     string                  `yaml:"description,omitempty"`
 	CreatedBy       string                  `yaml:"created_by,omitempty"`
@@ -216,11 +217,33 @@ type QuarantineConfig struct {
 
 // RuleAction maps a rule ID to an enforcement action.
 type RuleAction struct {
-	ID       string   `yaml:"id"`
-	Severity string   `yaml:"severity"`
-	Action   string   `yaml:"action"` // block, quarantine, allow-and-flag
-	Notify   []string `yaml:"notify"`
-	Template string   `yaml:"template,omitempty"` // webhook body template with {{RULE}}, {{ACTION}}, etc.
+	ID           string   `yaml:"id"`
+	Severity     string   `yaml:"severity"`
+	Action       string   `yaml:"action"` // block, quarantine, allow-and-flag
+	Notify       []string `yaml:"notify"`
+	Template     string   `yaml:"template,omitempty"`       // webhook body template with {{RULE}}, {{ACTION}}, etc.
+	ApplyToTools []string `yaml:"apply_to_tools,omitempty"` // rule only enforced for these tools (empty = all)
+	ExemptTools  []string `yaml:"exempt_tools,omitempty"`   // rule NOT enforced for these tools
+}
+
+// ScanProfile constants.
+const (
+	ScanProfileStrict       = "strict"
+	ScanProfileContentAware = "content-aware"
+	ScanProfileMinimal      = "minimal"
+)
+
+// ContentTools are tools that handle file content (not execution).
+var ContentTools = map[string]bool{
+	"Edit": true, "Write": true, "MultiEdit": true,
+	"Read": true, "Glob": true, "Grep": true, "NotebookEdit": true,
+}
+
+// MinimalEnforceRules are the only rules enforced in minimal profile.
+var MinimalEnforceRules = map[string]bool{
+	"TC-001": true, // Path traversal
+	"TC-003": true, // System directory write
+	"TC-006": true, // Credential in tool args
 }
 
 // RateLimitConfig controls per-agent message rate limiting.
@@ -453,6 +476,12 @@ func (c *Config) Validate() error {
 				return fmt.Errorf("agent %q lists itself in can_message", name)
 			}
 		}
+		switch agent.ScanProfile {
+		case "", ScanProfileStrict, ScanProfileContentAware, ScanProfileMinimal:
+			// valid
+		default:
+			return fmt.Errorf("agent %q has invalid scan_profile %q (valid: strict, content-aware, minimal)", name, agent.ScanProfile)
+		}
 	}
 	seen := make(map[string]bool, len(c.Rules))
 	for _, ra := range c.Rules {
@@ -465,6 +494,9 @@ func (c *Config) Validate() error {
 			// valid
 		default:
 			return fmt.Errorf("rule %q has invalid action %q (valid: block, quarantine, allow-and-flag, ignore)", ra.ID, ra.Action)
+		}
+		if len(ra.ApplyToTools) > 0 && len(ra.ExemptTools) > 0 {
+			return fmt.Errorf("rule %q cannot have both apply_to_tools and exempt_tools", ra.ID)
 		}
 	}
 	// Gateway validation (transport checks only; backend count and port
