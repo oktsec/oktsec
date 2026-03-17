@@ -124,6 +124,125 @@ func ApplyRuleOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome) 
 	outcome.Verdict = newVerdict
 }
 
+// ApplyToolScopedOverrides is like ApplyRuleOverrides but respects
+// per-rule tool scope. When a rule has ApplyToTools set and the current
+// tool is not in the list, that rule's override is skipped (finding
+// keeps default severity verdict). Similarly, if ExemptTools is set and
+// the tool IS in the list, the override is skipped.
+func ApplyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome, toolName string) {
+	if len(rules) == 0 || len(outcome.Findings) == 0 {
+		return
+	}
+
+	type ruleOvr struct {
+		action string
+		scoped bool // true if tool is in scope
+	}
+	overrides := make(map[string]ruleOvr, len(rules))
+	for _, ra := range rules {
+		scoped := true
+		if len(ra.ApplyToTools) > 0 {
+			scoped = containsTool(ra.ApplyToTools, toolName)
+		} else if len(ra.ExemptTools) > 0 {
+			scoped = !containsTool(ra.ExemptTools, toolName)
+		}
+		overrides[ra.ID] = ruleOvr{action: ra.Action, scoped: scoped}
+	}
+
+	var kept []engine.FindingSummary
+	newVerdict := engine.VerdictClean
+
+	for _, f := range outcome.Findings {
+		ovr, hasOverride := overrides[f.RuleID]
+		// If rule is scoped to specific tools and current tool is NOT in scope,
+		// drop the finding entirely (it doesn't apply to this tool).
+		if hasOverride && !ovr.scoped {
+			continue
+		}
+		if hasOverride && ovr.scoped && ovr.action == "ignore" {
+			continue
+		}
+
+		kept = append(kept, f)
+
+		var v engine.ScanVerdict
+		if hasOverride && ovr.scoped {
+			switch ovr.action {
+			case "block":
+				v = engine.VerdictBlock
+			case "quarantine":
+				v = engine.VerdictQuarantine
+			case "allow-and-flag":
+				v = engine.VerdictFlag
+			}
+		} else {
+			v = DefaultSeverityVerdict(f.Severity)
+		}
+
+		if Severity(v) > Severity(newVerdict) {
+			newVerdict = v
+		}
+	}
+
+	outcome.Findings = kept
+	outcome.Verdict = newVerdict
+}
+
+// ApplyScanProfile adjusts the verdict based on the agent's scan profile
+// and the tool being called. Findings are preserved for audit; only the
+// verdict is downgraded.
+//
+// content-aware: shell injection rules (TC-*) downgraded to flag for content tools
+// minimal: only MinimalEnforceRules enforced, everything else flagged
+func ApplyScanProfile(profile string, outcome *engine.ScanOutcome, toolName string) {
+	if profile == "" || profile == config.ScanProfileStrict {
+		return
+	}
+	if len(outcome.Findings) == 0 {
+		return
+	}
+
+	switch profile {
+	case config.ScanProfileContentAware:
+		// Only MinimalEnforceRules can block or flag.
+		// Everything else is downgraded to clean for trusted agents.
+		hasMinimalRule := false
+		for _, f := range outcome.Findings {
+			if config.MinimalEnforceRules[f.RuleID] {
+				hasMinimalRule = true
+				break
+			}
+		}
+		if !hasMinimalRule {
+			outcome.Verdict = engine.VerdictClean
+		} else if outcome.Verdict == engine.VerdictBlock {
+			outcome.Verdict = engine.VerdictFlag
+		}
+
+	case config.ScanProfileMinimal:
+		// Only enforce minimal rules
+		hasEnforced := false
+		for _, f := range outcome.Findings {
+			if config.MinimalEnforceRules[f.RuleID] {
+				hasEnforced = true
+				break
+			}
+		}
+		if !hasEnforced {
+			outcome.Verdict = engine.VerdictFlag
+		}
+	}
+}
+
+func containsTool(tools []string, name string) bool {
+	for _, t := range tools {
+		if t == name {
+			return true
+		}
+	}
+	return false
+}
+
 // ApplyBlockedContent escalates verdict to block if any finding's category
 // matches the agent's blocked_content list.
 func ApplyBlockedContent(agent config.Agent, outcome *engine.ScanOutcome) {

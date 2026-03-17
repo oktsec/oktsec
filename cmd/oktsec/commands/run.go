@@ -205,6 +205,14 @@ func autoSetup(configPath string, opts runOpts) error {
 		},
 		"db_path": dbPath,
 		"agents":  agents,
+		"rules": []map[string]any{
+			{
+				"id":             "TC-005",
+				"severity":       "critical",
+				"action":         "block",
+				"apply_to_tools": []string{"Bash"},
+			},
+		},
 		"gateway": map[string]any{
 			"enabled":       true,
 			"port":          9090,
@@ -413,7 +421,15 @@ func writeMinimalConfig(configPath string) error {
 			"require_signature": false,
 		},
 		"db_path": dbPath,
-		"agents":  map[string]any{},
+		"agents": map[string]any{},
+		"rules": []map[string]any{
+			{
+				"id":             "TC-005",
+				"severity":       "critical",
+				"action":         "block",
+				"apply_to_tools": []string{"Bash"},
+			},
+		},
 		"quarantine": map[string]any{
 			"enabled":        true,
 			"expiry_hours":   24,
@@ -489,7 +505,9 @@ func startServer(configPath string, opts runOpts) error {
 		return err
 	}
 
-	if !opts.noBrowser {
+	// Don't auto-open browser when TUI is active; the dashboard URL
+	// is shown in the TUI and clickable in most terminals.
+	if !opts.noBrowser && !term.IsTerminal(int(os.Stdout.Fd())) {
 		openDashboard(cfg)
 	}
 

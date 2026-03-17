@@ -64,7 +64,7 @@ func ProductInfoFor(name, configDir string) ProductInfo {
 	case "Oktsec":
 		return ProductInfo{
 			Name:        "Oktsec",
-			Description: "Security proxy for AI agent-to-agent communication",
+			Description: "Runtime security for AI agents",
 			ConfigPath:  filepath.Join(configDir, "oktsec.yaml"),
 			DocsURL:     "https://github.com/oktsec/oktsec",
 			Icon:        "\U0001f6e1\ufe0f",

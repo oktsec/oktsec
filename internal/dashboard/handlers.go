@@ -259,7 +259,15 @@ func topRemediations(findings []auditcheck.Finding, n int) []auditcheck.Finding 
 }
 
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
-	findings, detected, productInfos := s.cachedRunChecks()
+	allFindings, detected, productInfos := s.cachedRunChecks()
+	// In observe mode, hide INFO findings (they are expected defaults).
+	var findings []auditcheck.Finding
+	for _, f := range allFindings {
+		if f.Severity == auditcheck.Info && !s.cfg.Identity.RequireSignature {
+			continue
+		}
+		findings = append(findings, f)
+	}
 	score, grade := auditcheck.ComputeHealthScore(findings)
 	summary := auditcheck.Summarize(findings)
 

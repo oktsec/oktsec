@@ -711,7 +711,7 @@ func TestServer_AuditPageProductInfo(t *testing.T) {
 		t.Fatalf("audit page: status = %d, want 200", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Security proxy for AI agent-to-agent communication") {
+	if !strings.Contains(body, "Runtime security for AI agents") {
 		t.Error("audit page should contain Oktsec product description")
 	}
 	// "Priority Remediations" section only shown when there are critical/high

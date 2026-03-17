@@ -50,10 +50,10 @@ var (
 	toolStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorMuted))
 
 	// Status badges in feed
-	cleanStatusStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Width(10)
-	flaggedStatusStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarning)).Width(10)
-	blockedStatusStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger)).Width(10)
-	quarantinedStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorOrange)).Width(10)
+	cleanStatusStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Width(8)
+	flaggedStatusStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarning)).Width(8)
+	blockedStatusStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colorDanger)).Width(8)
+	quarantinedStatusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorOrange)).Width(8)
 )
 
 func threatStyle(n int) string {
