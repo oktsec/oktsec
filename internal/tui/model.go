@@ -134,10 +134,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			m.autoScroll = false
 			filtered := m.filteredEvents()
+			maxScroll := len(filtered) - m.feedHeight()
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
 			vis := m.visibleRange(filtered)
 			if m.cursorPos < len(vis)-1 {
 				m.cursorPos++
-			} else if m.scrollPos < len(filtered)-1 {
+			} else if m.scrollPos < maxScroll {
 				m.scrollPos++
 			}
 		case "down", "j":
@@ -359,7 +363,7 @@ func (m Model) View() string {
 	if m.filterAgent >= 0 && m.filterAgent < len(m.agentList) {
 		filterStr = lipgloss.NewStyle().Foreground(lipgloss.Color(colorPrimary)).Render(m.agentList[m.filterAgent])
 	}
-	feedTitle := mutedStyle.Render("LIVE FEED")
+	feedTitle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorText)).Render("LIVE FEED")
 	if m.paused {
 		feedTitle += " " + lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarning)).Bold(true).Render("PAUSED")
 	}
@@ -382,7 +386,7 @@ func (m Model) View() string {
 			if isCursor {
 				prefix = ">"
 			}
-			line := fmt.Sprintf("%s%s %-14s %-7s %-10s %5s",
+			line := fmt.Sprintf("%s%s %-14s %s %-10s %5s",
 				prefix,
 				dimStyle.Render(ev.Time),
 				agentStyle.Render(truncate(ev.Agent, 14)),
@@ -410,8 +414,15 @@ func (m Model) View() string {
 	)
 
 	uptime := time.Since(m.started).Truncate(time.Second)
-	controls := "↑↓ scroll  Space pause  Tab filter  Enter detail  Ctrl+C quit"
-	footer := dimStyle.Render(fmt.Sprintf("  Uptime %s  |  %s", uptime, controls))
+	var controls string
+	if w > 75 {
+		controls = "↑↓ scroll · Space pause · Tab filter · Enter detail · Ctrl+C quit"
+	} else if w > 55 {
+		controls = "↑↓ · Space · Tab · Enter · Ctrl+C"
+	} else {
+		controls = "↑↓ · Space · Ctrl+C"
+	}
+	footer := dimStyle.Render(fmt.Sprintf(" %s | %s", uptime, controls))
 
 	return lipgloss.JoinVertical(lipgloss.Left, "", topBox, feedBox, footer, "")
 }
@@ -571,8 +582,8 @@ func formatRulesDetail(raw string) string {
 		case "medium":
 			sev = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarning))
 		}
-		lines = append(lines, fmt.Sprintf("  %s  %s  %s",
-			sev.Render(fmt.Sprintf("%-8s", r.Severity)),
+		lines = append(lines, fmt.Sprintf("%s %s  %s",
+			sev.Render(fmt.Sprintf("%-9s", strings.ToUpper(r.Severity))),
 			valueStyle.Render(r.RuleID),
 			mutedStyle.Render(r.Name),
 		))
