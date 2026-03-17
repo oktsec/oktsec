@@ -36,50 +36,37 @@ func newServeCmd() *cobra.Command {
 
 func printBanner(cfg *config.Config, dashCode string) {
 	cyan := color.New(color.FgCyan).SprintFunc()
-	boldYellow := color.New(color.FgYellow, color.Bold).SprintFunc()
+	green := color.New(color.FgGreen).SprintFunc()
+	bold := color.New(color.Bold).SprintFunc()
+	dim := color.New(color.FgHiBlack).SprintFunc()
 
 	bindAddr := cfg.Server.Bind
 	if bindAddr == "" {
 		bindAddr = "127.0.0.1"
 	}
 
-	mode := color.GreenString("observe")
+	mode := color.New(color.FgGreen, color.Bold).Sprint("observe")
 	if cfg.Identity.RequireSignature {
-		mode = color.RedString("enforce")
+		mode = color.New(color.FgRed, color.Bold).Sprint("enforce")
 	}
 
 	fmt.Println()
-	fmt.Printf("  %s\n", color.New(color.Bold).Sprint("oktsec"))
-	fmt.Println("  ────────────────────────────────────────")
-	fmt.Printf("  API:        %s\n", cyan(fmt.Sprintf("http://%s:%d/v1/message", bindAddr, cfg.Server.Port)))
-	fmt.Printf("  Dashboard:  %s\n", cyan(fmt.Sprintf("http://%s:%d/dashboard", bindAddr, cfg.Server.Port)))
-	fmt.Printf("  Health:     %s\n", cyan(fmt.Sprintf("http://%s:%d/health", bindAddr, cfg.Server.Port)))
-	if cfg.ForwardProxy.Enabled {
-		fpBind := cfg.ForwardProxy.Bind
-		if fpBind == "" {
-			fpBind = bindAddr
-		}
-		fmt.Printf("  Egress:     %s\n", cyan(fmt.Sprintf("http://%s:%d", fpBind, cfg.ForwardProxy.Port)))
-	}
-	fmt.Println("  ────────────────────────────────────────")
-	fmt.Printf("  Access code:  %s\n", boldYellow(dashCode))
-	fmt.Println("  ────────────────────────────────────────")
-	fmt.Printf("  Mode: %s  |  Agents: %d\n", mode, len(cfg.Agents))
-	if len(cfg.Agents) == 0 {
-		fmt.Println("  ────────────────────────────────────────")
-		fmt.Println("  No agents configured. Run 'oktsec run' to get started.")
-	}
+	fmt.Printf("  %s %s\n", bold("oktsec"), dim(version))
+	fmt.Printf("  %s\n", dim("See everything your AI agents execute"))
+	fmt.Println()
+	fmt.Printf("  %s  %s\n", dim("Dashboard"), cyan(fmt.Sprintf("http://%s:%d/dashboard", bindAddr, cfg.Server.Port)))
+	fmt.Printf("  %s       %s\n", dim("Code"), color.New(color.FgYellow, color.Bold).Sprint(dashCode))
+	fmt.Printf("  %s       %s\n", dim("Mode"), mode)
 	fmt.Println()
 	if cfg.ForwardProxy.Enabled {
 		fpBind := cfg.ForwardProxy.Bind
 		if fpBind == "" {
 			fpBind = bindAddr
 		}
-		proxyURL := fmt.Sprintf("http://%s:%d", fpBind, cfg.ForwardProxy.Port)
-		fmt.Println("  To monitor agent egress traffic, start Claude Code with:")
-		fmt.Printf("    HTTP_PROXY=%s HTTPS_PROXY=%s claude\n", proxyURL, proxyURL)
-		fmt.Println()
+		fmt.Printf("  %s     %s\n", dim("Egress"), cyan(fmt.Sprintf("http://%s:%d", fpBind, cfg.ForwardProxy.Port)))
 	}
+	fmt.Printf("  %s %s\n", green("●"), dim("Pipeline ready. Agents auto-register on first activity."))
+	fmt.Println()
 }
 
 // openDashboard opens the dashboard URL in the default browser.

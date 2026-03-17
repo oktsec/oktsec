@@ -120,11 +120,12 @@ func (g *Gateway) Start(ctx context.Context) error {
 		g.backends[name] = b
 	}
 
-	if err := g.buildToolMap(); err != nil {
-		return err
+	if len(g.backends) > 0 {
+		if err := g.buildToolMap(); err != nil {
+			return err
+		}
+		g.filterPoisonedTools()
 	}
-
-	g.filterPoisonedTools()
 
 	// Create MCP server and register tools
 	g.mcpServer = mcp.NewServer(&mcp.Implementation{

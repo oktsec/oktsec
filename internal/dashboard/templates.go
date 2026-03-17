@@ -302,8 +302,8 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 @font-face{font-family:'Inter';src:url('/dashboard/static/fonts/Inter.woff2') format('woff2');font-weight:100 900;font-style:normal;font-display:swap}
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
-.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%);pointer-events:none;z-index:0}
-.login-card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.4);animation:fadeIn 0.4s ease-out}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.03) 0%,transparent 70%);pointer-events:none;z-index:0}
+.login-card{position:relative;z-index:1;background:var(--surface);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.3);animation:fadeIn 0.4s ease-out}
 .icon{margin-bottom:20px}
 .icon svg{width:48px;height:48px;color:var(--accent)}
 .logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.3px;margin-bottom:8px;color:var(--text)}
@@ -311,18 +311,18 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .help{color:var(--text3);font-size:0.78rem;margin-bottom:24px;line-height:1.6}
 .help code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)}
 input[type=text]{
-  width:100%;padding:14px 16px;background:var(--bg);border:1px solid var(--border);
+  width:100%;padding:14px 16px;background:var(--bg);border:1px solid #3d3a6e;
   border-radius:8px;color:var(--text);font-family:var(--mono);font-size:1.2rem;
   text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.2s,box-shadow 0.2s;
 }
-input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(99,102,241,0.15)}
+input[type=text]:focus{border-color:#8b7cf7;box-shadow:0 0 0 3px rgba(139,124,247,0.12)}
 input[type=text]::placeholder{letter-spacing:0;font-size:0.85rem;color:var(--text3)}
 button{
-  width:100%;padding:12px;margin-top:16px;background:var(--accent);color:#fff;
-  border:none;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;
+  width:100%;padding:12px;margin-top:16px;background:#2d2b55;color:#fff;
+  border:1px solid #6366f1;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;
   transition:background 0.2s,transform 0.1s,box-shadow 0.2s;
 }
-button:hover{background:var(--accent-light);box-shadow:0 0 24px rgba(99,102,241,0.35)}
+button:hover{background:#3d3a6e;box-shadow:none}
 button:active{transform:scale(0.98)}
 .error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.2);border-radius:8px;color:var(--danger);font-size:0.82rem}
 .error svg{flex-shrink:0;width:16px;height:16px}
@@ -335,7 +335,7 @@ button:active{transform:scale(0.98)}
   <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M12 11V9a2 2 0 0 0-4 0"/></svg></div>
   <div class="logo">oktsec</div>
   <div class="subtitle">Dashboard Access</div>
-  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec run</code> to get a code.<br><small style="opacity:0.5">Code changes each time the server restarts.</small></p>
+  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec run</code> to get a code.<br><small style="color:#8b949e">Code changes each time the server restarts.</small></p>
   <form method="POST" action="/dashboard/login" autocomplete="off">
     <input type="text" name="code" placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric" autofocus required>
     <button type="submit">Authenticate</button>
@@ -418,7 +418,7 @@ var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
-.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.06) 0%,transparent 70%);pointer-events:none;z-index:0}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.03) 0%,transparent 70%);pointer-events:none;z-index:0}
 .card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:420px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2);animation:fadeIn 0.4s ease-out}
 .icon{margin-bottom:20px}
 .icon svg{width:48px;height:48px;color:var(--accent);opacity:0.8}
@@ -741,14 +741,18 @@ a.ov-metric:hover{background:var(--surface2)}
 .sparkline-chart{display:flex;align-items:flex-end;gap:2px;height:48px}
 .sparkline-bar{flex:1;background:var(--accent);border-radius:1px 1px 0 0;min-width:3px;transition:background var(--ease-smooth)}
 .sparkline-bar:hover{background:var(--accent-light)}
-.empty-state{text-align:center;padding:var(--sp-16) var(--sp-6)}
-.empty-state svg{width:48px;height:48px;color:var(--accent);opacity:0.6;margin-bottom:var(--sp-5)}
-.empty-state h2{font-size:var(--text-xl);font-weight:600;margin-bottom:var(--sp-2);letter-spacing:var(--ls-tight)}
-.empty-state p{color:var(--text2);font-size:var(--text-md);margin-bottom:var(--sp-8);max-width:420px;margin-left:auto;margin-right:auto;line-height:1.6}
-.empty-steps{display:flex;flex-direction:column;gap:var(--sp-3);max-width:320px;margin:0 auto}
-.empty-step{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);font-size:var(--text-sm);color:var(--text2);text-align:left}
-.empty-step .step-num{width:24px;height:24px;border-radius:50%;background:var(--accent-glow);border:1px solid var(--accent-border);color:var(--accent-light);font-size:var(--text-xs);font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.empty-step code{background:var(--surface2);padding:1px 6px;border-radius:var(--radius-sm);font-family:var(--mono);font-size:var(--text-xs);color:var(--accent-light)}
+.empty-state{text-align:center;padding:60px var(--sp-6) var(--sp-16)}
+.empty-state svg.empty-icon{width:72px;height:72px;color:var(--accent-light);margin-bottom:var(--sp-6);filter:drop-shadow(0 0 24px rgba(139,92,246,0.4))}
+.empty-state h2{font-size:1.75rem;font-weight:700;margin-bottom:var(--sp-3);letter-spacing:var(--ls-tight);color:#fff}
+.empty-state .tagline{color:var(--accent-light);font-size:var(--text-md);margin-bottom:var(--sp-2);font-weight:500}
+.empty-state p{color:var(--text3);font-size:0.9rem;margin-bottom:48px;max-width:440px;margin-left:auto;margin-right:auto;line-height:1.7}
+.empty-steps{display:flex;flex-direction:column;gap:var(--sp-4);max-width:440px;margin:0 auto}
+.empty-step{display:flex;align-items:center;gap:var(--sp-4);padding:16px 20px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-lg);font-size:0.9rem;color:var(--text1);text-align:left;transition:border-color 0.2s,background 0.2s}
+.empty-step:hover{border-color:var(--accent-border);background:var(--surface3,var(--surface2))}
+.empty-step .step-num{width:32px;height:32px;border-radius:50%;background:var(--accent-glow);border:1.5px solid var(--accent-border);color:var(--accent-light);font-size:0.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.empty-step .step-done{width:32px;height:32px;border-radius:50%;background:rgba(63,185,80,0.15);border:1.5px solid rgba(63,185,80,0.4);color:var(--success);font-size:1rem;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.empty-step code{background:var(--bg);padding:3px 10px;border-radius:var(--radius-sm);font-family:var(--mono);font-size:var(--text-xs);color:var(--accent-light);border:1px solid var(--border)}
+.empty-step .step-desc{color:var(--text3);font-size:0.78rem;margin-top:2px}
 .score-ring{position:relative;display:inline-flex;align-items:center;justify-content:center}
 .score-ring svg{display:block}
 .score-ring-fill{transition:stroke-dashoffset 0.8s ease-out}
@@ -766,13 +770,23 @@ a.ov-metric:hover{background:var(--surface2)}
 
 {{if and (eq .Stats.TotalMessages 0) (eq .AgentCount 0)}}
 <div class="empty-state">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+  <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
   <h2>Welcome to oktsec</h2>
-  <p>Your security pipeline is ready. No agent activity yet.</p>
+  <div class="tagline">See everything your AI agents execute</div>
+  <p>Real-time monitoring for every tool call. Your pipeline is running. Start using your tools and activity will appear here.</p>
   <div class="empty-steps">
-    <div class="empty-step"><span class="step-num">1</span> Run <code>oktsec run</code></div>
-    <div class="empty-step"><span class="step-num">2</span> Use your MCP clients normally</div>
-    <div class="empty-step"><span class="step-num">3</span> Watch threats get caught here</div>
+    <div class="empty-step">
+      <span class="step-done">&#10003;</span>
+      <div><strong>Pipeline ready</strong> <code>oktsec run</code><div class="step-desc">188 detection rules loaded, hooks configured</div></div>
+    </div>
+    <div class="empty-step">
+      <span class="step-num">2</span>
+      <div><strong>Use your AI tools</strong><div class="step-desc">Claude Code, Cursor, Codex, or any connected tool</div></div>
+    </div>
+    <div class="empty-step">
+      <span class="step-num">3</span>
+      <div><strong>Monitor in real time</strong><div class="step-desc">Every tool call scanned, threats flagged, audit trail built</div></div>
+    </div>
   </div>
 </div>
 {{else}}
@@ -831,7 +845,7 @@ a.ov-metric:hover{background:var(--surface2)}
     </div>
     <div style="font-size:var(--text-sm);color:var(--text3);white-space:nowrap;margin-left:auto">
       {{.RuleCount}} rules &middot; {{if .RequireSig}}enforce{{else}}observe{{end}} mode &middot; chain {{if .ChainValid}}verified{{else}}broken{{end}} ({{formatNum .ChainCount}})
-      {{if .AvgLatency}}&middot; <span style="color:var(--success);font-weight:600">{{.AvgLatency}}ms</span> median{{end}}
+      {{if .AvgLatency}}&middot; <span style="color:var(--text2);font-weight:600">{{.AvgLatency}}ms</span> median{{end}}
     </div>
   </div>
 </div>
@@ -877,7 +891,7 @@ a.ov-metric:hover{background:var(--surface2)}
     </a>
     <div class="ov-metric">
       <span class="k">Scan latency</span>
-      <span class="v {{if ge .AvgLatency 500}}warn{{else}}success{{end}}">{{.AvgLatency}}ms</span>
+      <span class="v" style="color:var(--text2)">{{.AvgLatency}}ms</span>
     </div>
     <a href="/dashboard/settings" class="ov-metric">
       <span class="k">Identity mode</span>
@@ -2327,13 +2341,23 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
 <div style="font-size:var(--text-sm);color:var(--text3);padding:var(--sp-2) var(--sp-5);border-bottom:1px solid var(--border);font-family:var(--mono)" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</div>
 <div class="ed-body">
 
+  <!-- Agent -->
+  <div class="ed-section">
+    <div class="ed-slbl">Agent</div>
+    <div class="ed-row"><span class="k">Name</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
+    {{if .AgentDesc}}<div class="ed-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{truncate .AgentDesc 40}}</span></div>{{end}}
+    {{if .AgentLocation}}<div class="ed-row"><span class="k">Location</span><span class="v">{{.AgentLocation}}</span></div>{{end}}
+    {{if .ToolConstraintCount}}<div class="ed-row"><span class="k">Constraints</span><span class="v"><span style="color:var(--warn)">{{.ToolConstraintCount}} rules</span></span></div>{{end}}
+    {{if .AgentSuspended}}<div class="ed-row"><span class="k">Status</span><span class="v"><span style="color:var(--danger);font-weight:600">Suspended</span></span></div>{{end}}
+  </div>
+
   <!-- Message received -->
   <div class="ed-section">
     <div class="ed-slbl">Message received</div>
     <div class="ed-row"><span class="k">Event ID</span><span class="v" title="{{.Entry.ID}}">{{.Entry.ID}}</span></div>
     <div class="ed-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
     <div class="ed-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
-    <div class="ed-row"><span class="k">Latency</span><span class="v" style="color:var(--warn)">{{.Entry.LatencyMs}}ms</span></div>
+    <div class="ed-row"><span class="k">Latency</span><span class="v" style="color:{{if lt .Entry.LatencyMs 100}}var(--text2){{else}}var(--warn){{end}}">{{.Entry.LatencyMs}}ms</span></div>
     {{if .Entry.SessionID}}<div class="ed-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
   </div>
 
@@ -2381,7 +2405,7 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
   <!-- Intercepted content -->
   {{if .Entry.Intent}}
   <div class="ed-section">
-    <div class="ed-slbl">Intercepted content{{if .Entry.ToolName}} <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3);font-family:var(--mono)">{{.Entry.ToolName}}</span>{{end}}</div>
+    <div class="ed-slbl">Intercepted content</div>
     <div id="ed-content-raw" style="display:none">{{.Entry.Intent}}</div>
     <pre id="ed-content-pretty" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:var(--text-xs);line-height:1.6;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0"></pre>
     <script>
@@ -2417,15 +2441,6 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     {{if .Entry.ProxySignature}}<div class="ed-row"><span class="k">Proxy signature</span><span class="v" style="color:var(--success);font-size:0.68rem" title="{{.Entry.ProxySignature}}">signed</span></div>{{end}}
   </div>
 
-  <!-- Agent -->
-  <div class="ed-section">
-    <div class="ed-slbl">Agent</div>
-    <div class="ed-row"><span class="k">Name</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
-    {{if .AgentDesc}}<div class="ed-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{truncate .AgentDesc 40}}</span></div>{{end}}
-    {{if .AgentLocation}}<div class="ed-row"><span class="k">Location</span><span class="v">{{.AgentLocation}}</span></div>{{end}}
-    {{if .ToolConstraintCount}}<div class="ed-row"><span class="k">Constraints</span><span class="v"><span style="color:var(--warn)">{{.ToolConstraintCount}} rules</span></span></div>{{end}}
-    {{if .AgentSuspended}}<div class="ed-row"><span class="k">Status</span><span class="v"><span style="color:var(--danger);font-weight:600">Suspended</span></span></div>{{end}}
-  </div>
 </div>`))
 
 // ciCSS is the shared CSS for "case investigation" style pages (Threat Intel, Event Detail).
@@ -2486,7 +2501,13 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
 .ep-row .v a{color:var(--accent-light)}
 .ep-rule{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:var(--text-sm);border-bottom:1px solid var(--border-subtle)}
 .ep-rule:last-child{border-bottom:none}
-.ep-content{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:14px 16px;font-family:var(--mono);font-size:0.78rem;line-height:1.7;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto}
+.ep-content{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px 18px;font-family:var(--mono);font-size:0.75rem;line-height:1.8;color:var(--text2);white-space:pre-wrap;word-break:break-word;max-height:500px;overflow:auto;tab-size:2}
+.ep-content .json-key{color:#79c0ff}
+.ep-content .json-str{color:#a5d6ff}
+.ep-content .json-bool{color:#ff7b72}
+.ep-content .json-num{color:#d2a8ff}
+.ep-content .json-null{color:#ff7b72;font-style:italic}
+.ep-content .json-bracket{color:var(--text3)}
 .ep-pipe-step{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-subtle)}
 .ep-pipe-step:last-child{border-bottom:none}
 .ep-pipe-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
@@ -2560,7 +2581,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
       <div class="ep-card-body">
         <div class="ep-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a>{{if .AgentSuspended}} <span style="color:var(--danger);font-size:0.58rem;font-weight:600">SUSPENDED</span>{{end}}</span></div>
         <div class="ep-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
-        <div class="ep-row"><span class="k">Latency</span><span class="v" style="color:{{if ge .Entry.LatencyMs 500}}var(--danger){{else if ge .Entry.LatencyMs 100}}var(--warn){{else}}var(--success){{end}}">{{.Entry.LatencyMs}}ms</span></div>
+        <div class="ep-row"><span class="k">Latency</span><span class="v" style="color:{{if ge .Entry.LatencyMs 500}}var(--danger){{else if ge .Entry.LatencyMs 100}}var(--warn){{else}}var(--text2){{end}}">{{.Entry.LatencyMs}}ms</span></div>
         {{if .Entry.SessionID}}<div class="ep-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
         <div class="ep-row"><span class="k">Decision</span><span class="v" style="font-family:var(--sans);color:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}">{{.Decision}}</span></div>
       </div>
@@ -2632,16 +2653,49 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
           var el=document.getElementById('ep-content-pretty');
           try{
             var obj=JSON.parse(raw);
-            el.innerHTML=syntaxHL(JSON.stringify(obj,null,2));
+            el.innerHTML=renderJSON(obj,'');
           }catch(e){
-            el.textContent=raw;
+            el.style.lineHeight='1.7';
+            el.style.fontSize='0.82rem';
+            el.innerHTML=fmtText(raw);
           }
-          function syntaxHL(json){
-            return json.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-              .replace(/"([^"]*)"(\s*:)/g,'<span style="color:#79c0ff">"$1"</span>$2')
-              .replace(/"([^"]*)"/g,'<span style="color:#a5d6ff">"$1"</span>')
-              .replace(/\b(true|false|null)\b/g,'<span style="color:#ff7b72">$1</span>')
-              .replace(/\b(-?\d+\.?\d*)\b/g,'<span style="color:#d2a8ff">$1</span>');
+          function fmtText(s){
+            s=s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            s=s.replace(/\\n/g,'\n');
+            s=s.replace(/^(#{1,3})\s+(.+)$/gm,function(_,h,txt){
+              var sz=h.length===1?'1.05rem':'0.92rem';
+              return '<strong style="color:var(--text1);font-size:'+sz+'">'+txt+'</strong>';
+            });
+            s=s.replace(/\*\*([^*]+)\*\*/g,'<strong style="color:var(--text1)">$1</strong>');
+            s=s.replace(/^[-*]\s+/gm,'  \u2022 ');
+            return s;
+          }
+          function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+          function renderJSON(val,indent){
+            if(val===null)return '<span class="json-null">null</span>';
+            if(typeof val==='boolean')return '<span class="json-bool">'+val+'</span>';
+            if(typeof val==='number')return '<span class="json-num">'+val+'</span>';
+            if(typeof val==='string'){
+              var s=esc(val);
+              if(s.length>200){
+                var id='jv'+Math.random().toString(36).substr(2,6);
+                return '<span class="json-str">"<span id="'+id+'s">'+s.substring(0,120)+'<a onclick="document.getElementById(\''+id+'f\').style.display=\'inline\';document.getElementById(\''+id+'s\').style.display=\'none\'" style="color:var(--accent-light);cursor:pointer"> ...('+(s.length-120)+' more)</a></span><span id="'+id+'f" style="display:none">'+s+'</span>"</span>';
+              }
+              return '<span class="json-str">"'+s+'"</span>';
+            }
+            if(Array.isArray(val)){
+              if(val.length===0)return '<span class="json-bracket">[]</span>';
+              var ni=indent+'  ';
+              var items=val.map(function(v){return ni+renderJSON(v,ni);});
+              return '<span class="json-bracket">[</span>\n'+items.join(',\n')+'\n'+indent+'<span class="json-bracket">]</span>';
+            }
+            var keys=Object.keys(val);
+            if(keys.length===0)return '<span class="json-bracket">{}</span>';
+            var ni=indent+'  ';
+            var pairs=keys.map(function(k){
+              return ni+'<span class="json-key">"'+esc(k)+'"</span>: '+renderJSON(val[k],ni);
+            });
+            return '<span class="json-bracket">{</span>\n'+pairs.join(',\n')+'\n'+indent+'<span class="json-bracket">}</span>';
           }
         })();
         </script>
@@ -2955,7 +3009,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">{{if eq .DefaultPolicy "deny"}}Agents can only message explicitly allowed targets.{{else}}All agents can message each other unless denied.{{end}}</div>
     </div>
     <div class="st-item-value">
-      <span class="val" style="{{if eq .DefaultPolicy "deny"}}color:var(--success){{else}}color:var(--warn){{end}}">{{.DefaultPolicy}}</span>
+      <span class="val" style="{{if eq .DefaultPolicy "deny"}}color:var(--success){{else}}color:var(--warn){{end}}">{{if eq .DefaultPolicy "deny"}}deny{{else}}allow{{end}}</span>
       <form method="POST" action="/dashboard/settings/default-policy"><input type="hidden" name="default_policy" value="{{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to default {{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}?')">Switch to {{if eq .DefaultPolicy "deny"}}Allow{{else}}Deny{{end}}</button></form>
     </div>
   </div>
@@ -4168,7 +4222,7 @@ updateExportLinks();
   updateExpiry();
   </script>
   {{else}}
-  <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.{{if not .RequireSig}} Currently in observe mode - messages are scanned but not held. Switch to enforce mode to enable quarantine.{{end}}</div>
+  <div class="empty">No quarantined messages{{if .QStatusFilter}} with status "{{.QStatusFilter}}"{{end}}.{{if not .RequireSig}} In observe mode, suspicious messages are flagged in the event log but delivered normally. Switch to enforce mode in <a href="/dashboard/settings" style="color:var(--accent-light)">Settings</a> to hold them for review.{{end}}</div>
   {{end}}
 </div>
 
@@ -4283,14 +4337,18 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
   <div style="display:flex;min-height:480px;height:calc(100vh - 340px)">
     <div style="flex:1;position:relative;overflow:hidden">
       <div id="graph-container" style="width:100%;height:100%;background:var(--bg);position:relative;overflow:hidden"></div>
-      <div style="position:absolute;bottom:12px;left:16px;display:flex;gap:16px;font-size:0.7rem;color:var(--text3)">
+      <div style="position:absolute;bottom:12px;left:16px;display:flex;gap:16px;font-size:0.7rem;color:var(--text3);align-items:center">
         <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#5eead4" stroke-width="2"/></svg> Orchestration</span>
         <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.5"/></svg> Tool call</span>
+        <button id="graph-sidebar-expand" onclick="toggleGraphSidebar()" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;padding:2px 8px;font-size:0.7rem;margin-left:auto">Overview ›</button>
       </div>
     </div>
-    <div style="width:340px;border-left:1px solid var(--border);background:var(--surface2);flex-shrink:0;overflow-y:auto;font-size:0.8rem">
+    <div id="graph-sidebar" style="width:340px;border-left:1px solid var(--border);background:var(--surface2);flex-shrink:0;overflow-y:auto;font-size:0.8rem;transition:width 0.2s,opacity 0.2s">
       <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
-        <h3 style="font-size:0.95rem;font-weight:700;margin-bottom:14px">Overview</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h3 style="font-size:0.95rem;font-weight:700;margin:0">Overview</h3>
+          <button onclick="toggleGraphSidebar()" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;padding:2px 6px;font-size:0.7rem" title="Collapse panel">✕</button>
+        </div>
         <div id="gw-stats">
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Agents</span><span id="gs-agents" style="font-weight:700;font-family:var(--mono)">--</span></div>
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Tools</span><span id="gs-tools" style="font-weight:700;font-family:var(--mono)">--</span></div>
@@ -4404,6 +4462,17 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 </div><!-- end graph-tables -->
 
 <script>
+function toggleGraphSidebar() {
+  var sb = document.getElementById('graph-sidebar');
+  var btn = document.getElementById('graph-sidebar-expand');
+  if (sb.style.display === 'none') {
+    sb.style.display = '';
+    btn.style.display = 'none';
+  } else {
+    sb.style.display = 'none';
+    btn.style.display = '';
+  }
+}
 (function() {
   var container = document.getElementById('graph-container');
   if (!container) return;
