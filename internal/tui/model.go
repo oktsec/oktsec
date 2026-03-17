@@ -386,12 +386,12 @@ func (m Model) View() string {
 			if isCursor {
 				prefix = ">"
 			}
-			line := fmt.Sprintf("%s%s %-14s %s %-10s %5s",
+			line := fmt.Sprintf("%s%s %s %s %s %s",
 				prefix,
 				dimStyle.Render(ev.Time),
-				agentStyle.Render(truncate(ev.Agent, 14)),
+				agentStyle.Width(16).Render(truncate(ev.Agent, 16)),
 				renderStatus(ev.Status),
-				toolStyle.Render(truncate(ev.Tool, 10)),
+				toolStyle.Width(10).Render(truncate(ev.Tool, 10)),
 				dimStyle.Render(ev.Latency),
 			)
 			if isCursor {
