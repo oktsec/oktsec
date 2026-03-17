@@ -12,9 +12,9 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-stat-label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);font-weight:500;margin-bottom:var(--sp-2)}
 .a-stat-val{font-family:var(--sans);font-size:1.375rem;font-weight:700;color:var(--text);letter-spacing:-0.03em}
 .a-stat-val.v-crit{color:var(--danger)}
-.a-stat-val.v-high{color:#db6d28}
+.a-stat-val.v-high{color:var(--text2)}
 .a-stat-val.v-med{color:var(--text2)}
-.a-stat-val.v-dim{color:var(--text3)}
+.a-stat-val.v-dim{color:var(--text2)}
 .a-grade{display:block;font-size:0.6875rem;font-weight:500;color:var(--text3);font-family:var(--mono);margin-top:4px;letter-spacing:0.3px}
 
 /* Alert strip */
@@ -73,7 +73,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-fi-detail{font-size:0.75rem;color:var(--text3);margin-top:4px;line-height:1.5}
 .a-fi-fix{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
 .a-fi-fix code{font-family:var(--mono);font-size:0.75rem;color:var(--text2)}
-.a-fi-link{font-size:0.75rem;color:var(--blue);text-decoration:none;margin-left:4px}
+.a-fi-link{font-size:0.75rem;color:#58a6ff;text-decoration:none;margin-left:4px}
 .a-fi-link:hover{text-decoration:underline}
 
 /* Footer */
@@ -103,11 +103,11 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 <div class="a-stats">
   <div class="a-stat">
     <div class="a-stat-label">Posture Score</div>
-    <div class="a-stat-val{{if lt .Score 40}} v-crit{{else if lt .Score 75}} v-high{{end}}">{{.Score}}<span class="a-grade">Grade {{.Grade}}</span></div>
+    <div class="a-stat-val">{{.Score}}<span class="a-grade">Grade {{.Grade}}</span></div>
   </div>
   <div class="a-stat">
     <div class="a-stat-label">Critical</div>
-    <div class="a-stat-val v-crit">{{.Summary.Critical}}</div>
+    <div class="a-stat-val{{if gt .Summary.Critical 0}} v-crit{{end}}">{{.Summary.Critical}}</div>
   </div>
   <div class="a-stat">
     <div class="a-stat-label">High</div>
@@ -124,9 +124,9 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 </div>
 
 {{if .ChainCount}}
-<div class="a-alert" style="border-left-color:{{if .ChainValid}}var(--success){{else}}var(--danger){{end}};background:{{if .ChainValid}}rgba(63,185,80,0.04){{else}}rgba(248,81,73,0.04){{end}}">
+<div class="a-alert" style="border-left-color:{{if .ChainValid}}var(--border){{else}}var(--danger){{end}};background:{{if .ChainValid}}transparent{{else}}rgba(248,81,73,0.04){{end}}">
   {{if .ChainValid}}&#x2713;{{else}}&#x2717;{{end}}
-  <span>Audit chain: <strong style="color:{{if .ChainValid}}var(--success){{else}}var(--danger){{end}}">{{if .ChainValid}}verified{{else}}broken{{end}}</strong> &middot; {{.ChainCount}} entries verified</span>
+  <span>Audit chain: <strong style="color:{{if .ChainValid}}var(--text2){{else}}var(--danger){{end}}">{{if .ChainValid}}verified{{else}}broken{{end}}</strong> &middot; {{.ChainCount}} entries verified</span>
 </div>
 {{if and (not .ChainValid) .ChainReason}}
 <div class="card" style="border-color:rgba(248,81,73,0.2);margin-bottom:var(--sp-6)">
@@ -156,14 +156,14 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 {{end}}
 
 {{if .TopFixes}}
-<div class="a-prod" id="remediations" style="border-color:var(--warn)">
+<div class="a-prod" id="remediations">
   <div class="a-prod-head" style="border-bottom:1px solid var(--border)">
     <div class="a-prod-icon">&#x1F6E1;</div>
     <div style="flex:1;min-width:0">
       <div class="a-prod-name">Priority Remediations</div>
       <div class="a-prod-desc">Top critical and high findings that need immediate attention.</div>
     </div>
-    <div class="a-prod-counts"><span style="color:var(--warn)">{{len .TopFixes}} {{if eq (len .TopFixes) 1}}fix{{else}}fixes{{end}}</span></div>
+    <div class="a-prod-counts"><span style="color:var(--text2)">{{len .TopFixes}} {{if eq (len .TopFixes) 1}}fix{{else}}fixes{{end}}</span></div>
   </div>
   {{range .TopFixes}}
   <div class="a-fi">
@@ -203,7 +203,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
     </div>
     <div class="a-prod-counts">
       {{if .Summary.Critical}}<span style="color:var(--danger)">{{.Summary.Critical}} critical</span>{{end}}
-      {{if .Summary.High}}<span style="color:#db6d28">{{.Summary.High}} high</span>{{end}}
+      {{if .Summary.High}}<span style="color:var(--text2)">{{.Summary.High}} high</span>{{end}}
       {{if .Summary.Medium}}<span style="color:var(--text2)">{{.Summary.Medium}} medium</span>{{end}}
       {{if .Summary.Info}}<span style="color:var(--text3)">{{.Summary.Info}} info</span>{{end}}
     </div>

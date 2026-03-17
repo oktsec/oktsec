@@ -13,7 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/fatih/color"
+	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/dashboard"
 	"github.com/oktsec/oktsec/internal/discover"
@@ -21,7 +23,9 @@ import (
 	"github.com/oktsec/oktsec/internal/hooks"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/proxy"
+	"github.com/oktsec/oktsec/internal/tui"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -430,6 +434,11 @@ func writeMinimalConfig(configPath string) error {
 			"check_interval": 60,
 			"min_messages":   10,
 		},
+		"gateway": map[string]any{
+			"enabled":       true,
+			"port":          9090,
+			"endpoint_path": "/mcp",
+		},
 	}
 
 	data, err := yaml.Marshal(cfgMap)
@@ -466,12 +475,12 @@ func startServer(configPath string, opts runOpts) error {
 		return err
 	}
 
-	level := slog.LevelInfo
+	level := slog.LevelWarn
 	switch cfg.Server.LogLevel {
 	case "debug":
 		level = slog.LevelDebug
-	case "warn":
-		level = slog.LevelWarn
+	case "info":
+		level = slog.LevelInfo
 	case "error":
 		level = slog.LevelError
 	}
@@ -486,8 +495,6 @@ func startServer(configPath string, opts runOpts) error {
 		return err
 	}
 
-	printBanner(cfg, srv.DashboardCode())
-
 	if !opts.noBrowser {
 		openDashboard(cfg)
 	}
@@ -500,54 +507,80 @@ func startServer(configPath string, opts runOpts) error {
 		errCh <- srv.Start()
 	}()
 
-	// Start embedded gateway if configured with backends.
+	// Start embedded gateway if enabled (needed for hooks even without backends).
 	var gw *gateway.Gateway
-	if cfg.Gateway.Enabled && len(cfg.MCPServers) > 0 {
+	var auditHub *audit.Hub
+	if cfg.Gateway.Enabled {
 		var gwErr error
 		gw, gwErr = gateway.NewGateway(cfg, logger)
 		if gwErr != nil {
 			logger.Warn("gateway failed to initialize", "error", gwErr)
 		} else {
 			gw.SetCfgPath(configPath)
-			// Wire hooks handler so /hooks/event is available on the gateway.
 			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
 			gw.SetHooksHandler(hh)
+			auditHub = gw.AuditStore().Hub
 			go func() {
 				if e := gw.Start(ctx); e != nil {
 					logger.Error("gateway error", "error", e)
 				}
 			}()
-			bindAddr := cfg.Gateway.Bind
-			if bindAddr == "" {
-				bindAddr = "127.0.0.1"
-			}
-			ep := cfg.Gateway.EndpointPath
-			if ep == "" {
-				ep = "/mcp"
-			}
-			fmt.Printf("  Gateway:   http://%s:%d%s (%d backend%s)\n\n",
-				bindAddr, cfg.Gateway.Port, ep, len(cfg.MCPServers), plural(len(cfg.MCPServers)))
 		}
+	}
+	if auditHub == nil {
+		auditHub = srv.AuditStore().Hub
+	}
+
+	// Build dashboard URL
+	bindAddr := cfg.Server.Bind
+	if bindAddr == "" {
+		bindAddr = "127.0.0.1"
+	}
+	dashURL := fmt.Sprintf("http://%s:%d/dashboard", bindAddr, cfg.Server.Port)
+
+	mode := "observe"
+	if cfg.Identity.RequireSignature {
+		mode = "enforce"
+	}
+
+	// Use TUI if running in a terminal, otherwise fall back to static banner.
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		tuiModel := tui.New(tui.Config{
+			Version:    version,
+			Mode:       mode,
+			DashURL:    dashURL,
+			DashCode:   srv.DashboardCode(),
+			AgentCount: len(cfg.Agents),
+			Hub:        auditHub,
+		})
+
+		p := tea.NewProgram(tuiModel, tea.WithAltScreen())
+
+		go func() {
+			if _, err := p.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
+			}
+			stop()
+		}()
+	} else {
+		printBanner(cfg, srv.DashboardCode())
 	}
 
 	select {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
-		stop() // Reset signal handling so a second Ctrl+C forces exit.
-		fmt.Fprintln(os.Stderr, "\nShutting down...")
+		stop()
 
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Redirect stderr to suppress log noise after TUI restores terminal.
+		devNull, _ := os.Open(os.DevNull)
+		if devNull != nil {
+			os.Stderr = devNull
+			defer devNull.Close()
+		}
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-
-		// Force exit on second signal while shutting down.
-		go func() {
-			sigCh := make(chan os.Signal, 1)
-			signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-			<-sigCh
-			fmt.Fprintln(os.Stderr, "Force exit.")
-			os.Exit(1)
-		}()
 
 		if gw != nil {
 			_ = gw.Shutdown(shutdownCtx)

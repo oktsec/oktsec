@@ -8,6 +8,7 @@ LDFLAGS := -ldflags "-s -w -X $(PKG)/cmd/oktsec/commands.version=$(VERSION) -X $
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/oktsec
+	@if [ "$$(uname)" = "Darwin" ]; then codesign -s - $(BINARY) 2>/dev/null || true; fi
 
 test:
 	go test -race -count=1 ./...
