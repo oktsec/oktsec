@@ -302,12 +302,6 @@ func autoSetup(configPath string, opts runOpts) error {
 	return nil
 }
 
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
-}
 
 // hasClaudeCLI checks if the `claude` CLI is available on the system.
 func hasClaudeCLI() bool {
@@ -576,7 +570,7 @@ func startServer(configPath string, opts runOpts) error {
 		devNull, _ := os.Open(os.DevNull)
 		if devNull != nil {
 			os.Stderr = devNull
-			defer devNull.Close()
+			defer func() { _ = devNull.Close() }()
 		}
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)

@@ -211,10 +211,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			status := classifyStatus(entry)
-			if status == "blocked" {
+			switch status {
+			case "blocked":
 				m.blockedCount++
 				m.threatsFound++
-			} else if status == "quarantined" || status == "flagged" {
+			case "quarantined", "flagged":
 				m.threatsFound++
 			}
 
