@@ -72,10 +72,23 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		EndedAt:   entries[len(entries)-1].Timestamp,
 	}
 
-	// Calculate duration
-	if start, err := time.Parse(time.RFC3339, trace.StartedAt); err == nil {
-		if end, err := time.Parse(time.RFC3339, trace.EndedAt); err == nil {
-			trace.Duration = end.Sub(start).Round(time.Second).String()
+	// Calculate duration (try RFC3339Nano then RFC3339)
+	parseTS := func(ts string) (time.Time, bool) {
+		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+			return t, true
+		}
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			return t, true
+		}
+		return time.Time{}, false
+	}
+	if start, ok := parseTS(trace.StartedAt); ok {
+		if end, ok := parseTS(trace.EndedAt); ok {
+			d := end.Sub(start).Round(time.Second)
+			if d < time.Second {
+				d = end.Sub(start).Round(time.Millisecond)
+			}
+			trace.Duration = d.String()
 		}
 	}
 
@@ -92,7 +105,7 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		}
 
 		// Calculate gap from previous step
-		if t, err := time.Parse(time.RFC3339, e.Timestamp); err == nil {
+		if t, ok := parseTS(e.Timestamp); ok {
 			if !prevTime.IsZero() {
 				step.GapMs = t.Sub(prevTime).Milliseconds()
 			}

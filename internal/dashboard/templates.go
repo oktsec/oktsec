@@ -2317,14 +2317,19 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
 .ed-close{background:none;border:none;color:var(--text3);font-size:1.2rem;cursor:pointer;padding:var(--sp-1) var(--sp-2);border-radius:var(--radius-sm);line-height:1}
 .ed-close:hover{background:var(--surface-hover);color:var(--text)}
 .ed-body{padding:0}
-.ed-section{border-bottom:1px solid var(--border);padding:var(--sp-5) var(--sp-5)}
-.ed-section:last-child{border-bottom:none}
+.ed-section{padding:var(--sp-4) var(--sp-5)}
 .ed-slbl{font-size:var(--text-xs);font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:var(--ls-caps);margin-bottom:var(--sp-3)}
 .ed-row{display:flex;justify-content:space-between;align-items:baseline;padding:var(--sp-2) 0;border-bottom:1px solid var(--border-subtle)}
 .ed-row:last-child{border-bottom:none}
 .ed-row .k{color:var(--text3);font-size:var(--text-sm)}
 .ed-row .v{font-family:var(--mono);font-size:var(--text-sm);color:var(--text);text-align:right;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ed-row .v a{color:var(--accent-light)}
+.ed-tabs{display:flex;border-bottom:1px solid var(--border);padding:0 var(--sp-5)}
+.ed-tab{padding:var(--sp-3) var(--sp-4);font-size:var(--text-xs);font-weight:500;color:var(--text3);cursor:pointer;border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:0.5px;transition:color 0.15s,border-color 0.15s}
+.ed-tab:hover{color:var(--text2)}
+.ed-tab.active{color:var(--accent-light);border-bottom-color:var(--accent)}
+.ed-tab-content{display:none}
+.ed-tab-content.active{display:block}
 </style>
 <div class="ed-hdr">
   <div style="display:flex;align-items:center;gap:8px">
@@ -2339,29 +2344,31 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
   <button class="ed-close" onclick="closePanel()">&times;</button>
 </div>
 <div style="font-size:var(--text-sm);color:var(--text3);padding:var(--sp-2) var(--sp-5);border-bottom:1px solid var(--border);font-family:var(--mono)" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</div>
+
+<!-- Tabs -->
+<div class="ed-tabs">
+  <div class="ed-tab active" onclick="edSwitchTab('overview',this)">Overview</div>
+  <div class="ed-tab" onclick="edSwitchTab('content',this)">Content{{if .Rules}} <span style="color:var(--warn)">({{len .Rules}})</span>{{end}}</div>
+  <div class="ed-tab" onclick="edSwitchTab('forensics',this)">Forensics{{if .Reasoning}} &bull;{{end}}</div>
+</div>
+
 <div class="ed-body">
 
-  <!-- Agent -->
+<!-- TAB: Overview -->
+<div class="ed-tab-content active" data-ed-tab="overview">
   <div class="ed-section">
-    <div class="ed-slbl">Agent</div>
-    <div class="ed-row"><span class="k">Name</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
-    {{if .AgentDesc}}<div class="ed-row"><span class="k">Description</span><span class="v" style="font-family:var(--sans)" title="{{.AgentDesc}}">{{truncate .AgentDesc 40}}</span></div>{{end}}
-    {{if .AgentLocation}}<div class="ed-row"><span class="k">Location</span><span class="v">{{.AgentLocation}}</span></div>{{end}}
-    {{if .ToolConstraintCount}}<div class="ed-row"><span class="k">Constraints</span><span class="v"><span style="color:var(--warn)">{{.ToolConstraintCount}} rules</span></span></div>{{end}}
+    <div class="ed-row"><span class="k">Agent</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
+    <div class="ed-row"><span class="k">Tool</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
+    <div class="ed-row"><span class="k">Latency</span><span class="v" style="color:{{if lt .Entry.LatencyMs 100}}var(--text2){{else}}var(--warn){{end}}">{{.Entry.LatencyMs}}ms</span></div>
+    {{if .Entry.SessionID}}<div class="ed-row"><span class="k">Session</span><span class="v"><a href="/dashboard/sessions/{{.Entry.SessionID}}" style="color:var(--accent);text-decoration:none;font-size:0.72rem" title="View session trace">{{truncate .Entry.SessionID 20}} &rarr;</a></span></div>{{end}}
     {{if .AgentSuspended}}<div class="ed-row"><span class="k">Status</span><span class="v"><span style="color:var(--danger);font-weight:600">Suspended</span></span></div>{{end}}
   </div>
-
-  <!-- Message received -->
   <div class="ed-section">
-    <div class="ed-slbl">Message received</div>
-    <div class="ed-row"><span class="k">Event ID</span><span class="v" title="{{.Entry.ID}}">{{.Entry.ID}}</span></div>
-    <div class="ed-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a></span></div>
-    <div class="ed-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
-    <div class="ed-row"><span class="k">Latency</span><span class="v" style="color:{{if lt .Entry.LatencyMs 100}}var(--text2){{else}}var(--warn){{end}}">{{.Entry.LatencyMs}}ms</span></div>
-    {{if .Entry.SessionID}}<div class="ed-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
+    <div class="ed-slbl">Authorization</div>
+    {{if .Entry.DelegationChain}}<div class="ed-row"><span class="k">Delegation</span><span class="v" style="font-size:0.72rem;color:var(--success);font-family:var(--sans)">{{.Entry.DelegationChain}}</span></div>{{else}}<div class="ed-row"><span class="k">Delegation</span><span class="v" style="font-size:0.72rem;color:var(--text3)">Direct (no delegation)</span></div>{{end}}
+    {{if .AgentCreatedBy}}<div class="ed-row"><span class="k">Registered by</span><span class="v" style="font-family:var(--sans)">{{.AgentCreatedBy}}</span></div>{{end}}
+    {{if .AgentCreatedAt}}<div class="ed-row"><span class="k">Registered</span><span class="v" style="font-size:0.72rem" data-ts="{{.AgentCreatedAt}}">{{.AgentCreatedAt}}</span></div>{{end}}
   </div>
-
-  <!-- Pipeline -->
   <div class="ed-section">
     <div class="ed-slbl">Security pipeline</div>
     <div class="ed-row">
@@ -2374,17 +2381,19 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     </div>
     <div class="ed-row">
       <span class="k" style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}};flex-shrink:0"></span>Verdict</span>
-      <span class="v">{{if eq .Entry.Status "delivered"}}<span style="color:var(--success)">Allowed</span>{{else if eq .Entry.Status "blocked"}}<span style="color:var(--danger);font-weight:600">Blocked</span>{{else if eq .Entry.Status "quarantined"}}<span style="color:var(--warn);font-weight:600">Quarantined</span>{{else}}<span style="color:var(--warn)">Rejected</span>{{end}}</span>
+      <span class="v">{{.Decision}}</span>
     </div>
     {{if ge .LLMRiskScore 0.0}}
     <div class="ed-row">
-      <span class="k" style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{if ge .LLMRiskScore 51.0}}var(--danger){{else if ge .LLMRiskScore 31.0}}var(--warn){{else}}var(--success){{end}};flex-shrink:0"></span>LLM analysis</span>
+      <span class="k" style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{if ge .LLMRiskScore 51.0}}var(--danger){{else if ge .LLMRiskScore 31.0}}var(--warn){{else}}var(--success){{end}};flex-shrink:0"></span>LLM</span>
       <span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#f85149{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span>
     </div>
     {{end}}
   </div>
+</div>
 
-  <!-- Rules triggered -->
+<!-- TAB: Content -->
+<div class="ed-tab-content" data-ed-tab="content">
   {{if .Rules}}
   <div class="ed-section">
     <div class="ed-slbl">Rules triggered ({{len .Rules}})</div>
@@ -2401,48 +2410,57 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     {{end}}
   </div>
   {{end}}
-
-  <!-- Intercepted content -->
   {{if .Entry.Intent}}
   <div class="ed-section">
     <div class="ed-slbl">Intercepted content</div>
     <div id="ed-content-raw" style="display:none">{{.Entry.Intent}}</div>
-    <pre id="ed-content-pretty" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:var(--text-xs);line-height:1.6;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;margin:0"></pre>
+    <pre id="ed-content-pretty" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:var(--text-xs);line-height:1.6;color:var(--text2);white-space:pre-wrap;word-break:break-all;max-height:240px;overflow-y:auto;margin:0"></pre>
     <script>
     (function(){
-      var raw=document.getElementById('ed-content-raw').textContent.trim();
-      var el=document.getElementById('ed-content-pretty');
-      try{
-        var obj=JSON.parse(raw);
-        el.innerHTML=syntaxHL(JSON.stringify(obj,null,2));
-      }catch(e){
-        el.textContent=raw;
-      }
-      function syntaxHL(json){
-        return json.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-          .replace(/"([^"]*)"(\s*:)/g,'<span style="color:#79c0ff">"$1"</span>$2')
-          .replace(/"([^"]*)"/g,'<span style="color:#a5d6ff">"$1"</span>')
-          .replace(/\b(true|false|null)\b/g,'<span style="color:#ff7b72">$1</span>')
-          .replace(/\b(-?\d+\.?\d*)\b/g,'<span style="color:#d2a8ff">$1</span>');
-      }
+      var raw=document.getElementById('ed-content-raw');if(!raw)return;
+      var el=document.getElementById('ed-content-pretty');if(!el)return;
+      var txt=raw.textContent.trim();
+      try{el.innerHTML=syntaxHL(JSON.stringify(JSON.parse(txt),null,2));}catch(e){el.textContent=txt;}
+      function syntaxHL(j){return j.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"([^"]*)"(\s*:)/g,'<span style="color:#79c0ff">"$1"</span>$2').replace(/"([^"]*)"/g,'<span style="color:#a5d6ff">"$1"</span>').replace(/\b(true|false|null)\b/g,'<span style="color:#ff7b72">$1</span>').replace(/\b(-?\d+\.?\d*)\b/g,'<span style="color:#d2a8ff">$1</span>');}
     })();
     </script>
   </div>
+  {{else}}
+  <div class="ed-section"><div style="color:var(--text3);font-size:var(--text-sm);padding:var(--sp-3) 0">No content captured</div></div>
   {{end}}
+</div>
 
-  <!-- Forensics -->
+<!-- TAB: Forensics -->
+<div class="ed-tab-content" data-ed-tab="forensics">
+  {{if .Reasoning}}
   <div class="ed-section">
-    <div class="ed-slbl">Forensics</div>
+    <div class="ed-slbl">Reasoning</div>
+    <div style="font-size:var(--text-sm);color:var(--text2);line-height:1.6;padding:4px 0 8px">{{.Reasoning.Reasoning}}</div>
+    {{if gt .Reasoning.PlanStep 0}}<div class="ed-row"><span class="k">Plan</span><span class="v">Step {{.Reasoning.PlanStep}} of {{.Reasoning.PlanTotal}}</span></div>{{end}}
+    <div class="ed-row"><span class="k">Reasoning hash</span><span class="v" style="font-size:0.68rem" title="{{.Reasoning.ReasoningHash}}">{{truncate .Reasoning.ReasoningHash 28}}</span></div>
+  </div>
+  {{end}}
+  <div class="ed-section">
+    <div class="ed-slbl">Integrity</div>
     <div class="ed-row"><span class="k">Event ID</span><span class="v" title="{{.Entry.ID}}" style="font-size:0.68rem">{{truncate .Entry.ID 28}}</span></div>
     {{if .Entry.ContentHash}}<div class="ed-row"><span class="k">Content hash</span><span class="v" title="{{.Entry.ContentHash}}" style="font-size:0.68rem">{{truncate .Entry.ContentHash 28}}</span></div>{{end}}
     {{if .Entry.EntryHash}}<div class="ed-row"><span class="k">Chain hash</span><span class="v" title="{{.Entry.EntryHash}}" style="font-size:0.68rem">{{truncate .Entry.EntryHash 28}}</span></div>{{end}}
-    {{if .Entry.PrevHash}}<div class="ed-row"><span class="k">Prev hash</span><span class="v" title="{{.Entry.PrevHash}}" style="font-size:0.68rem">{{truncate .Entry.PrevHash 28}}</span></div>{{end}}
-    {{if .Entry.PubkeyFingerprint}}<div class="ed-row"><span class="k">Key fingerprint</span><span class="v" title="{{.Entry.PubkeyFingerprint}}" style="font-size:0.68rem">{{truncate .Entry.PubkeyFingerprint 28}}</span></div>{{end}}
-    {{if .Entry.ProxySignature}}<div class="ed-row"><span class="k">Proxy signature</span><span class="v" style="color:var(--success);font-size:0.68rem" title="{{.Entry.ProxySignature}}">signed</span></div>{{end}}
+    {{if .Entry.ProxySignature}}<div class="ed-row"><span class="k">Proxy signature</span><span class="v" style="color:var(--success);font-size:0.68rem">signed</span></div>{{end}}
+    {{if .Entry.DelegationChainHash}}<div class="ed-row"><span class="k">Delegation</span><span class="v" style="font-size:0.68rem" title="{{.Entry.DelegationChainHash}}">{{truncate .Entry.DelegationChainHash 28}}</span></div>{{end}}
   </div>
+</div>
 
-</div>`))
-
+</div>
+<script>
+function edSwitchTab(name,el){
+  document.querySelectorAll('.ed-tab').forEach(function(t){t.classList.remove('active')});
+  document.querySelectorAll('.ed-tab-content').forEach(function(c){c.classList.remove('active')});
+  el.classList.add('active');
+  var target=document.querySelector('[data-ed-tab="'+name+'"]');
+  if(target)target.classList.add('active');
+}
+</script>
+`))
 // ciCSS is the shared CSS for "case investigation" style pages (Threat Intel, Event Detail).
 const ciCSS = `
 .ci-back{color:var(--text3);text-decoration:none;font-size:var(--text-sm);display:inline-flex;align-items:center;gap:6px;transition:color var(--ease-default);touch-action:manipulation}
@@ -2582,7 +2600,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
         <div class="ep-row"><span class="k">From</span><span class="v"><a href="/dashboard/agents/{{.Entry.FromAgent}}">{{.Entry.FromAgent}}</a>{{if .AgentSuspended}} <span style="color:var(--danger);font-size:0.58rem;font-weight:600">SUSPENDED</span>{{end}}</span></div>
         <div class="ep-row"><span class="k">To</span><span class="v">{{if .Entry.ToolName}}{{toolDot .Entry.ToolName}}{{else}}{{.Entry.ToAgent}}{{end}}</span></div>
         <div class="ep-row"><span class="k">Latency</span><span class="v" style="color:{{if ge .Entry.LatencyMs 500}}var(--danger){{else if ge .Entry.LatencyMs 100}}var(--warn){{else}}var(--text2){{end}}">{{.Entry.LatencyMs}}ms</span></div>
-        {{if .Entry.SessionID}}<div class="ep-row"><span class="k">Session</span><span class="v" title="{{.Entry.SessionID}}">{{truncate .Entry.SessionID 24}}</span></div>{{end}}
+        {{if .Entry.SessionID}}<div class="ep-row"><span class="k">Session</span><span class="v"><a href="/dashboard/sessions/{{.Entry.SessionID}}" style="color:var(--accent);text-decoration:none" title="View session trace">{{truncate .Entry.SessionID 24}} &rarr;</a></span></div>{{end}}
         <div class="ep-row"><span class="k">Decision</span><span class="v" style="font-family:var(--sans);color:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}">{{.Decision}}</span></div>
       </div>
     </div>
@@ -4107,7 +4125,7 @@ updateExportLinks();
   <div id="search-results">
   {{if .Entries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th><th style="text-align:right">Rules</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Session</th><th style="text-align:right">Latency</th><th style="text-align:right">Rules</th></tr></thead>
     <tbody id="events-body">
     {{range .Entries}}
     <tr class="ev-row clickable{{if hasRules .RulesTriggered}} has-rules{{end}}" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
@@ -4115,6 +4133,7 @@ updateExportLinks();
       <td>{{agentCell .FromAgent}}</td>
       <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span>{{if ne .PolicyDecision "allowed"}} <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">{{humanDecision .PolicyDecision}}</span>{{end}}</td>
+      <td style="font-size:var(--text-xs)">{{if .SessionID}}<a href="/dashboard/sessions/{{.SessionID}}" style="color:var(--accent);text-decoration:none;font-family:var(--mono)" title="{{.SessionID}}">{{truncate .SessionID 12}}</a>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:{{if ge .LatencyMs 500}}var(--danger){{else if ge .LatencyMs 100}}var(--warn){{else}}var(--text3){{end}}">{{.LatencyMs}}ms</td>
       <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)">{{if hasRules .RulesTriggered}}<span style="color:var(--warn);font-weight:600">&#x26A0;</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
     </tr>
@@ -4303,7 +4322,10 @@ updateExportLinks();
         var labels={'content_blocked':'Blocked — dangerous content','content_quarantined':'Quarantined','signature_required':'Rejected — unsigned','acl_denied':'Rejected — ACL denied'};
         decExtra=' <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">'+(labels[ev.policy_decision]||ev.policy_decision)+'</span>';
       }
-      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span>'+decExtra+'</td>';
+      var sesCell = ev.session_id ? '<a href="/dashboard/sessions/'+ev.session_id+'" style="color:var(--accent);text-decoration:none;font-family:var(--mono)" title="'+ev.session_id+'">'+ev.session_id.substring(0,12)+'...</a>' : '<span style="color:var(--text3)">-</span>';
+      var latColor = ev.latency_ms>=500?'var(--danger)':ev.latency_ms>=100?'var(--warn)':'var(--text3)';
+      var rulesCell = hasRules ? '<span style="color:var(--warn);font-weight:600">&#x26A0;</span>' : '<span style="color:var(--text3)">-</span>';
+      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span>'+decExtra+'</td><td style="font-size:var(--text-xs)">'+sesCell+'</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:'+latColor+'">'+(ev.latency_ms||0)+'ms</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)">'+rulesCell+'</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();

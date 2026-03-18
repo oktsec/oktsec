@@ -366,11 +366,15 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		}
 
 		// 1d. Verify delegation chain if present
-		var delegationChainHash string
+		var delegationChainHash, delegationChainSummary string
 		if delHeader, _ := ctx.Value(delegationContextKey).(string); delHeader != "" {
 			chainResult := g.verifyDelegationHeader(delHeader)
 			if chainResult.Valid {
 				delegationChainHash = chainResult.ChainHash
+				delegationChainSummary = chainResult.Root + " -> " + chainResult.Delegate
+				if chainResult.Depth > 2 {
+					delegationChainSummary = fmt.Sprintf("%s -> ... -> %s (%d hops)", chainResult.Root, chainResult.Delegate, chainResult.Depth)
+				}
 				g.logger.Debug("delegation chain verified",
 					"root", chainResult.Root, "delegate", chainResult.Delegate,
 					"depth", chainResult.Depth)
@@ -483,8 +487,8 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		findingsJSON := verdict.EncodeFindings(outcome.Findings)
 		status, decision := verdictToGateway(outcome.Verdict)
 
-		// 9. Audit log (with delegation chain hash if verified)
-		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start, delegationChainHash)
+		// 9. Audit log (with delegation chain if verified)
+		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start, delegationChainHash, delegationChainSummary)
 
 		// 9a. Record tool call for constraint chain rule tracking
 		if g.constraintChecker != nil {
@@ -647,9 +651,12 @@ func (g *Gateway) autoRegisterAgent(name string) {
 // logAudit writes an audit entry for a gateway tool call.
 // Optional extra strings: first is delegation_chain_hash.
 func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, toolArgs, sessionID string, start time.Time, extra ...string) {
-	var delHash string
+	var delHash, delChain string
 	if len(extra) > 0 {
 		delHash = extra[0]
+	}
+	if len(extra) > 1 {
+		delChain = extra[1]
 	}
 	g.audit.Log(audit.Entry{
 		ID:                  msgID,
@@ -665,6 +672,7 @@ func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, t
 		Intent:              toolArgs,
 		SessionID:           sessionID,
 		DelegationChainHash: delHash,
+		DelegationChain:     delChain,
 	})
 }
 

@@ -22,6 +22,7 @@ type Entry struct {
 	EntryHash         string `json:"entry_hash,omitempty"`       // hash chain: this entry's hash
 	ProxySignature      string `json:"proxy_signature,omitempty"`  // Ed25519 signature by proxy
 	DelegationChainHash string `json:"delegation_chain_hash,omitempty"` // SHA-256 of verified delegation chain
+	DelegationChain     string `json:"delegation_chain,omitempty"`      // human-readable chain: "human -> agent-a -> agent-b"
 }
 
 // ReasoningEntry captures the model's chain-of-thought for a tool call.

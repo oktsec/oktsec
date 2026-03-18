@@ -1394,6 +1394,13 @@ func (s *Server) buildEventData(entry *audit.Entry) map[string]any {
 		data["RuleCount"] = len(s.scanner.ListRules())
 	}
 
+	// Reasoning chain
+	if s.audit != nil && entry.ID != "" {
+		if re, _ := s.audit.QueryReasoningByAuditID(entry.ID); re != nil {
+			data["Reasoning"] = re
+		}
+	}
+
 	return data
 }
 
@@ -1415,6 +1422,158 @@ func (s *Server) handleEventPage(w http.ResponseWriter, r *http.Request) {
 	data := s.buildEventData(entry)
 	data["Active"] = "events"
 	s.renderTemplate(w, eventPageTmpl, data)
+}
+
+func (s *Server) handleSessionExport(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	trace, err := s.audit.BuildSessionTrace(sessionID)
+	if err != nil || trace == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="session-%s.json"`, truncateID(sessionID)))
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(trace)
+}
+
+func (s *Server) handleSessionCSV(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	trace, err := s.audit.BuildSessionTrace(sessionID)
+	if err != nil || trace == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="session-%s.csv"`, truncateID(sessionID)))
+
+	fmt.Fprintf(w, "# Session Trace Report\r\n")
+	fmt.Fprintf(w, "# Generated: %s\r\n", time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(w, "# Session ID: %s\r\n", trace.SessionID)
+	fmt.Fprintf(w, "# Agent: %s\r\n", trace.Agent)
+	fmt.Fprintf(w, "# Duration: %s\r\n", trace.Duration)
+	fmt.Fprintf(w, "# Tool Calls: %d\r\n", trace.ToolCount)
+	fmt.Fprintf(w, "# Threats: %d\r\n", trace.Threats)
+	fmt.Fprintf(w, "\r\n")
+	fmt.Fprintf(w, "Step,Timestamp,Tool,Verdict,Decision,Latency_ms,Gap_ms,Plan_Step,Event_ID,Reasoning\r\n")
+
+	for i, step := range trace.Steps {
+		reasoning := csvEscape(step.Reasoning)
+		fmt.Fprintf(w, "%d,%s,%s,%s,%s,%d,%d,%d/%d,%s,%s\r\n",
+			i+1, step.Timestamp, step.ToolName, step.Verdict, step.Decision,
+			step.LatencyMs, step.GapMs, step.PlanStep, step.PlanTotal,
+			step.EventID, reasoning,
+		)
+	}
+}
+
+func (s *Server) handleSessionSARIF(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	trace, err := s.audit.BuildSessionTrace(sessionID)
+	if err != nil || trace == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="session-%s.sarif"`, truncateID(sessionID)))
+
+	// Build SARIF results from threat steps
+	results := make([]map[string]any, 0)
+	for _, step := range trace.Steps {
+		if step.Verdict == "blocked" || step.Verdict == "quarantined" {
+			result := map[string]any{
+				"ruleId": step.Verdict,
+				"level":  "error",
+				"message": map[string]string{
+					"text": fmt.Sprintf("Agent %s: tool %s was %s (decision: %s)", trace.Agent, step.ToolName, step.Verdict, step.Decision),
+				},
+				"properties": map[string]any{
+					"eventId":   step.EventID,
+					"tool":      step.ToolName,
+					"timestamp": step.Timestamp,
+					"latencyMs": step.LatencyMs,
+					"sessionId": trace.SessionID,
+					"agent":     trace.Agent,
+				},
+			}
+			if step.Reasoning != "" {
+				result["properties"].(map[string]any)["reasoning"] = step.Reasoning
+			}
+			results = append(results, result)
+		}
+	}
+
+	sarif := map[string]any{
+		"version": "2.1.0",
+		"$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+		"runs": []map[string]any{
+			{
+				"tool": map[string]any{
+					"driver": map[string]any{
+						"name":           "oktsec",
+						"semanticVersion": Version,
+						"informationUri": "https://github.com/oktsec/oktsec",
+						"rules": []map[string]any{
+							{"id": "blocked", "shortDescription": map[string]string{"text": "Tool call blocked by security pipeline"}},
+							{"id": "quarantined", "shortDescription": map[string]string{"text": "Tool call quarantined for review"}},
+						},
+					},
+				},
+				"results": results,
+				"properties": map[string]any{
+					"sessionId":  trace.SessionID,
+					"agent":      trace.Agent,
+					"duration":   trace.Duration,
+					"toolCalls":  trace.ToolCount,
+					"threats":    trace.Threats,
+					"startedAt":  trace.StartedAt,
+					"endedAt":    trace.EndedAt,
+				},
+			},
+		},
+	}
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(sarif)
+}
+
+func truncateID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+func csvEscape(s string) string {
+	if s == "" {
+		return ""
+	}
+	// Wrap in quotes and escape internal quotes
+	s = strings.ReplaceAll(s, `"`, `""`)
+	return `"` + s + `"`
+}
+
+func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		s.handleNotFound(w, r)
+		return
+	}
+
+	trace, err := s.audit.BuildSessionTrace(sessionID)
+	if err != nil || trace == nil {
+		s.handleNotFound(w, r)
+		return
+	}
+
+	data := map[string]any{
+		"Active":     "events",
+		"Trace":      trace,
+		"RequireSig": s.cfg.Identity.RequireSignature,
+	}
+	s.renderTemplate(w, sessionTraceTmpl, data)
 }
 
 func parseTriggeredRules(raw string) []triggeredRule {
