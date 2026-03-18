@@ -159,18 +159,7 @@ func (s *EphemeralKeyStore) Revoke(fingerprint string) bool {
 	}
 
 	delete(s.keys, fingerprint)
-
-	// Remove from byTask
-	fps := s.byTask[kp.TaskID]
-	for i, fp := range fps {
-		if fp == fingerprint {
-			s.byTask[kp.TaskID] = append(fps[:i], fps[i+1:]...)
-			break
-		}
-	}
-	if len(s.byTask[kp.TaskID]) == 0 {
-		delete(s.byTask, kp.TaskID)
-	}
+	s.removeTaskFingerprint(kp.TaskID, fingerprint)
 
 	return true
 }
@@ -223,18 +212,22 @@ func (s *EphemeralKeyStore) evictExpired() {
 	for fp, kp := range s.keys {
 		if kp.IsExpired() {
 			delete(s.keys, fp)
-
-			// Clean byTask
-			fps := s.byTask[kp.TaskID]
-			for i, f := range fps {
-				if f == fp {
-					s.byTask[kp.TaskID] = append(fps[:i], fps[i+1:]...)
-					break
-				}
-			}
-			if len(s.byTask[kp.TaskID]) == 0 {
-				delete(s.byTask, kp.TaskID)
-			}
+			s.removeTaskFingerprint(kp.TaskID, fp)
 		}
+	}
+}
+
+// removeTaskFingerprint removes a fingerprint from the byTask index.
+// Caller must hold s.mu.
+func (s *EphemeralKeyStore) removeTaskFingerprint(taskID, fingerprint string) {
+	fps := s.byTask[taskID]
+	for i, f := range fps {
+		if f == fingerprint {
+			s.byTask[taskID] = append(fps[:i], fps[i+1:]...)
+			break
+		}
+	}
+	if len(s.byTask[taskID]) == 0 {
+		delete(s.byTask, taskID)
 	}
 }

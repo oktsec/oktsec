@@ -20,7 +20,7 @@ type Entry struct {
 	SessionID         string `json:"session_id,omitempty"`       // MCP session ID for sub-agent tracking
 	PrevHash          string `json:"prev_hash,omitempty"`        // hash chain: previous entry hash
 	EntryHash         string `json:"entry_hash,omitempty"`       // hash chain: this entry's hash
-	ProxySignature      string `json:"proxy_signature,omitempty"`  // Ed25519 signature by proxy
+	ProxySignature      string `json:"proxy_signature,omitempty"`       // Ed25519 signature by proxy
 	DelegationChainHash string `json:"delegation_chain_hash,omitempty"` // SHA-256 of verified delegation chain
 	DelegationChain     string `json:"delegation_chain,omitempty"`      // human-readable chain: "human -> agent-a -> agent-b"
 }

@@ -225,7 +225,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			status := classifyStatus(entry)
 			switch status {
-			case "blocked":
+			case "blocked", "rejected":
 				m.blockedCount++
 				m.threatsFound++
 			case "quarantined", "flagged":
@@ -558,7 +558,9 @@ func renderStatus(s string) string {
 	case "blocked":
 		return blockedStatusStyle.Render("blocked")
 	case "quarantined":
-		return quarantinedStatusStyle.Render("quarantine")
+		return quarantinedStatusStyle.Render("quar")
+	case "rejected":
+		return blockedStatusStyle.Render("rejected")
 	default:
 		return dimStyle.Render(s)
 	}

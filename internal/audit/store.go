@@ -470,9 +470,13 @@ func (s *Store) Log(entry Entry) {
 	s.writes <- entry
 }
 
+// auditSelectCols is the shared SELECT column list for audit queries.
+// Update this constant (and the corresponding Scan calls) when adding columns.
+const auditSelectCols = "id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,'')"
+
 // Query returns audit entries matching the given filters.
 func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
-	query := "SELECT id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,'') FROM audit_log WHERE 1=1"
+	query := "SELECT " + auditSelectCols + " FROM audit_log WHERE 1=1"
 	var args []any
 
 	if opts.Status != "" {
@@ -512,7 +516,11 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		args = append(args, wild, wild, wild, wild)
 	}
 
-	query += " ORDER BY timestamp DESC"
+	if opts.OrderASC {
+		query += " ORDER BY timestamp ASC"
+	} else {
+		query += " ORDER BY timestamp DESC"
+	}
 
 	if opts.Limit > 0 {
 		query += " LIMIT ?"
@@ -612,7 +620,7 @@ func (s *Store) QueryHourlyStats() (map[int]int, error) {
 // QueryByID fetches a single audit entry by ID.
 func (s *Store) QueryByID(id string) (*Entry, error) {
 	row := s.db.QueryRow(
-		"SELECT id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,'') FROM audit_log WHERE id = ?", id)
+		"SELECT "+auditSelectCols+" FROM audit_log WHERE id = ?", id)
 
 	var e Entry
 	var fp, rules sql.NullString
@@ -812,12 +820,13 @@ type QueryOpts struct {
 	Status     string
 	Statuses   []string // multi-status filter (e.g. blocked + rejected)
 	Agent      string
-	SessionID  string   // filter by MCP session ID
+	SessionID  string // filter by MCP session ID
 	Unverified bool
 	Since      string
 	Until      string // upper bound for timestamp
 	Search     string
 	Limit      int
+	OrderASC   bool // if true, order by timestamp ASC instead of DESC
 }
 
 // --- Quarantine queue methods ---

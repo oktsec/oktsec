@@ -36,10 +36,11 @@ type TraceStep struct {
 
 // BuildSessionTrace constructs a timeline of tool calls for a session.
 func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
-	// Get all audit entries for this session
+	// Get all audit entries for this session in chronological order
 	entries, err := s.Query(QueryOpts{
 		SessionID: sessionID,
 		Limit:     500,
+		OrderASC:  true,
 	})
 	if err != nil {
 		return nil, err
@@ -57,11 +58,6 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 	reasoningMap := make(map[string]*ReasoningEntry, len(reasoningEntries))
 	for i := range reasoningEntries {
 		reasoningMap[reasoningEntries[i].AuditEntryID] = &reasoningEntries[i]
-	}
-
-	// Entries come back DESC from query, reverse for chronological order
-	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-		entries[i], entries[j] = entries[j], entries[i]
 	}
 
 	trace := &SessionTrace{
