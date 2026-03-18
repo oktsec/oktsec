@@ -20,7 +20,24 @@ type Entry struct {
 	SessionID         string `json:"session_id,omitempty"`       // MCP session ID for sub-agent tracking
 	PrevHash          string `json:"prev_hash,omitempty"`        // hash chain: previous entry hash
 	EntryHash         string `json:"entry_hash,omitempty"`       // hash chain: this entry's hash
-	ProxySignature    string `json:"proxy_signature,omitempty"`  // Ed25519 signature by proxy
+	ProxySignature      string `json:"proxy_signature,omitempty"`       // Ed25519 signature by proxy
+	DelegationChainHash string `json:"delegation_chain_hash,omitempty"` // SHA-256 of verified delegation chain
+	DelegationChain     string `json:"delegation_chain,omitempty"`      // human-readable chain: "human -> agent-a -> agent-b"
+}
+
+// ReasoningEntry captures the model's chain-of-thought for a tool call.
+// Stored separately from audit_log because reasoning data is large and
+// not every event has it. Linked via audit_entry_id.
+type ReasoningEntry struct {
+	ID            string `json:"id"`
+	AuditEntryID  string `json:"audit_entry_id"`
+	SessionID     string `json:"session_id"`
+	ToolUseID     string `json:"tool_use_id,omitempty"`
+	Reasoning     string `json:"reasoning"`
+	ReasoningHash string `json:"reasoning_hash"`
+	PlanStep      int    `json:"plan_step,omitempty"`
+	PlanTotal     int    `json:"plan_total,omitempty"`
+	Timestamp     string `json:"timestamp"`
 }
 
 // RevokedKey represents a revoked agent public key.

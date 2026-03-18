@@ -104,6 +104,8 @@ func NewRoot() *cobra.Command {
 	keygenCmd.Hidden = true
 	root.AddCommand(keygenCmd)
 
+	root.AddCommand(newDelegateCmd())
+
 	keysCmd := newKeysCmd()
 	keysCmd.Hidden = true
 	root.AddCommand(keysCmd)

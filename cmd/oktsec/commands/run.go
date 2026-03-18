@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -415,7 +416,7 @@ func writeMinimalConfig(configPath string) error {
 		},
 		"db_path": dbPath,
 		"agents": map[string]any{},
-		"rules":      []map[string]any{},
+		"rules":  []map[string]any{},
 		"quarantine": map[string]any{
 			"enabled":        true,
 			"expiry_hours":   24,
@@ -504,7 +505,18 @@ func startServer(configPath string, opts runOpts) error {
 		level = slog.LevelError
 	}
 
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+	// When TUI is active, redirect logs to a file to prevent display corruption.
+	// Otherwise, log to stderr as usual.
+	var logWriter io.Writer = os.Stderr
+	var logFile *os.File
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		lf, err := os.OpenFile(filepath.Join(filepath.Dir(configPath), "oktsec.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err == nil {
+			logWriter = lf
+			logFile = lf
+		}
+	}
+	logger := slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: level}))
 
 	dashboard.Version = version
 	proxy.Version = version
@@ -541,6 +553,8 @@ func startServer(configPath string, opts runOpts) error {
 			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
 			gw.SetHooksHandler(hh)
 			auditHub = gw.AuditStore().Hub
+			// Share audit store so proxy rejections appear in the same feed.
+			srv.SetAuditStore(gw.AuditStore())
 			go func() {
 				if e := gw.Start(ctx); e != nil {
 					logger.Error("gateway error", "error", e)
@@ -573,6 +587,7 @@ func startServer(configPath string, opts runOpts) error {
 			DashCode:   srv.DashboardCode(),
 			AgentCount: len(cfg.Agents),
 			Hub:        auditHub,
+			LiveCfg:    cfg,
 		})
 
 		p := tea.NewProgram(tuiModel, tea.WithAltScreen())
@@ -607,6 +622,9 @@ func startServer(configPath string, opts runOpts) error {
 			_ = gw.Shutdown(shutdownCtx)
 		}
 		_ = srv.Shutdown(shutdownCtx)
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		return nil
 	}
 }

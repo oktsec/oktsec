@@ -12,9 +12,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"crypto/ed25519"
+	"encoding/base64"
+
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/mcputil"
 	"github.com/oktsec/oktsec/internal/netutil"
@@ -29,6 +33,7 @@ type contextKey string
 
 const agentContextKey contextKey = "oktsec-agent"
 const sessionContextKey contextKey = "oktsec-session"
+const delegationContextKey contextKey = "oktsec-delegation"
 
 // toolMapping maps a frontend tool name to its backend.
 type toolMapping struct {
@@ -167,6 +172,9 @@ func (g *Gateway) Start(ctx context.Context) error {
 		ctx := context.WithValue(r.Context(), agentContextKey, agent)
 		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
 			ctx = context.WithValue(ctx, sessionContextKey, sid)
+		}
+		if del := r.Header.Get("X-Oktsec-Delegation"); del != "" {
+			ctx = context.WithValue(ctx, delegationContextKey, del)
 		}
 		streamable.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -357,6 +365,25 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			sessionID = req.Session.ID()
 		}
 
+		// 1d. Verify delegation chain if present
+		var delegationChainHash, delegationChainSummary string
+		if delHeader, _ := ctx.Value(delegationContextKey).(string); delHeader != "" {
+			chainResult := g.verifyDelegationHeader(delHeader)
+			if chainResult.Valid {
+				delegationChainHash = chainResult.ChainHash
+				delegationChainSummary = chainResult.Root + " -> " + chainResult.Delegate
+				if chainResult.Depth > 2 {
+					delegationChainSummary = fmt.Sprintf("%s -> ... -> %s (%d hops)", chainResult.Root, chainResult.Delegate, chainResult.Depth)
+				}
+				g.logger.Debug("delegation chain verified",
+					"root", chainResult.Root, "delegate", chainResult.Delegate,
+					"depth", chainResult.Depth)
+			} else {
+				g.logger.Warn("delegation chain invalid",
+					"agent", agent, "reason", chainResult.Reason)
+			}
+		}
+
 		// 2. Rate limit check
 		if !g.rateLimiter.Allow(agent) {
 			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionRateLimited, "[]", toolArgs, sessionID, start)
@@ -460,8 +487,8 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		findingsJSON := verdict.EncodeFindings(outcome.Findings)
 		status, decision := verdictToGateway(outcome.Verdict)
 
-		// 9. Audit log
-		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start)
+		// 9. Audit log (with delegation chain if verified)
+		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start, delegationChainHash, delegationChainSummary)
 
 		// 9a. Record tool call for constraint chain rule tracking
 		if g.constraintChecker != nil {
@@ -622,20 +649,30 @@ func (g *Gateway) autoRegisterAgent(name string) {
 }
 
 // logAudit writes an audit entry for a gateway tool call.
-func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, toolArgs, sessionID string, start time.Time) {
+// Optional extra strings: first is delegation_chain_hash.
+func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, toolArgs, sessionID string, start time.Time, extra ...string) {
+	var delHash, delChain string
+	if len(extra) > 0 {
+		delHash = extra[0]
+	}
+	if len(extra) > 1 {
+		delChain = extra[1]
+	}
 	g.audit.Log(audit.Entry{
-		ID:             msgID,
-		Timestamp:      time.Now().UTC().Format(time.RFC3339),
-		FromAgent:      agent,
-		ToAgent:        agent,
-		ToolName:       tool,
-		ContentHash:    "",
-		Status:         status,
-		RulesTriggered: findingsJSON,
-		PolicyDecision: decision,
-		LatencyMs:      time.Since(start).Milliseconds(),
-		Intent:         toolArgs,
-		SessionID:      sessionID,
+		ID:                  msgID,
+		Timestamp:           time.Now().UTC().Format(time.RFC3339),
+		FromAgent:           agent,
+		ToAgent:             agent,
+		ToolName:            tool,
+		ContentHash:         "",
+		Status:              status,
+		RulesTriggered:      findingsJSON,
+		PolicyDecision:      decision,
+		LatencyMs:           time.Since(start).Milliseconds(),
+		Intent:              toolArgs,
+		SessionID:           sessionID,
+		DelegationChainHash: delHash,
+		DelegationChain:     delChain,
 	})
 }
 
@@ -891,4 +928,35 @@ func buildConstraintMaps(cfg *config.Config) (map[string][]ToolConstraint, map[s
 
 // verdictToGateway maps a verdict to (status, policyDecision).
 var verdictToGateway = verdict.ToAuditStatus
+
+// verifyDelegationHeader decodes and verifies a base64-encoded delegation chain
+// from the X-Oktsec-Delegation HTTP header. Uses the gateway's keystore to
+// resolve public keys for each delegator in the chain.
+func (g *Gateway) verifyDelegationHeader(header string) identity.ChainVerifyResult {
+	data, err := base64.StdEncoding.DecodeString(header)
+	if err != nil {
+		return identity.ChainVerifyResult{Valid: false, Reason: "invalid base64 encoding"}
+	}
+
+	var chain identity.DelegationChain
+	if err := json.Unmarshal(data, &chain); err != nil {
+		return identity.ChainVerifyResult{Valid: false, Reason: "invalid chain JSON"}
+	}
+
+	// Resolve public keys from the identity keystore
+	resolver := func(agent string) ed25519.PublicKey {
+		if g.cfg.Identity.KeysDir == "" {
+			return nil
+		}
+		ks := identity.NewKeyStore()
+		_ = ks.LoadFromDir(g.cfg.Identity.KeysDir)
+		pub, ok := ks.Get(agent)
+		if !ok {
+			return nil
+		}
+		return pub
+	}
+
+	return identity.VerifyChain(chain, resolver)
+}
 

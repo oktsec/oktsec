@@ -144,8 +144,16 @@ type ServerConfig struct {
 
 // IdentityConfig configures agent identity verification.
 type IdentityConfig struct {
-	KeysDir          string `yaml:"keys_dir"`
-	RequireSignature bool   `yaml:"require_signature"`
+	KeysDir          string          `yaml:"keys_dir"`
+	RequireSignature bool            `yaml:"require_signature"`
+	Ephemeral        EphemeralConfig `yaml:"ephemeral,omitempty"`
+}
+
+// EphemeralConfig controls task-scoped ephemeral key issuance.
+type EphemeralConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	MaxTTL     string `yaml:"max_ttl,omitempty"`      // duration string, default "4h"
+	MaxPerTask int    `yaml:"max_per_task,omitempty"`  // default 10
 }
 
 // Agent defines per-agent access control and metadata.

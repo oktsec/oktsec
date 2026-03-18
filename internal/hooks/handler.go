@@ -50,6 +50,15 @@ type ToolEvent struct {
 
 	// Claude Code specific (auto-normalized)
 	HookEventName string `json:"hook_event_name,omitempty"` // "PreToolUse" / "PostToolUse"
+
+	// Delegation chain (optional) — cryptographic proof of authorization lineage
+	DelegationChain json.RawMessage `json:"delegation_chain,omitempty"`
+
+	// Reasoning capture (optional) — chain-of-thought for audit/compliance
+	Reasoning     string `json:"reasoning,omitempty"`      // model's reasoning for this tool call
+	ReasoningHash string `json:"reasoning_hash,omitempty"` // SHA-256 of reasoning (if client sends hash-only)
+	PlanStep      int    `json:"plan_step,omitempty"`      // position in a multi-step plan
+	PlanTotal     int    `json:"plan_total,omitempty"`     // total steps in plan
 }
 
 // normalize fills generic fields from client-specific ones.
@@ -208,20 +217,48 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		toAgent = h.extractSubagentName(ev.ToolInput)
 	}
 
+	// Compute delegation chain hash if provided.
+	var delegationHash string
+	if len(ev.DelegationChain) > 0 && string(ev.DelegationChain) != "null" {
+		dh := sha256.Sum256(ev.DelegationChain)
+		delegationHash = fmt.Sprintf("%x", dh)
+	}
+
 	h.store.Log(audit.Entry{
-		ID:             msgID,
-		Timestamp:      time.Now().UTC().Format(time.RFC3339),
-		FromAgent:      ev.Agent,
-		ToAgent:        toAgent,
-		ToolName:       ev.ToolName,
-		ContentHash:    ev.contentHash(),
-		Status:         status,
-		RulesTriggered: findingsJSON,
-		PolicyDecision: decision,
-		LatencyMs:      time.Since(start).Milliseconds(),
-		Intent:         toolArgs,
-		SessionID:      ev.SessionID,
+		ID:                  msgID,
+		Timestamp:           time.Now().UTC().Format(time.RFC3339),
+		FromAgent:           ev.Agent,
+		ToAgent:             toAgent,
+		ToolName:            ev.ToolName,
+		ContentHash:         ev.contentHash(),
+		Status:              status,
+		RulesTriggered:      findingsJSON,
+		PolicyDecision:      decision,
+		LatencyMs:           time.Since(start).Milliseconds(),
+		Intent:              toolArgs,
+		SessionID:           ev.SessionID,
+		DelegationChainHash: delegationHash,
 	})
+
+	// Log reasoning if provided (separate table for large data).
+	if ev.Reasoning != "" {
+		rHash := ev.ReasoningHash
+		if rHash == "" {
+			rh := sha256.Sum256([]byte(ev.Reasoning))
+			rHash = fmt.Sprintf("%x", rh)
+		}
+		_ = h.store.LogReasoning(audit.ReasoningEntry{
+			ID:            uuid.New().String(),
+			AuditEntryID:  msgID,
+			SessionID:     ev.SessionID,
+			ToolUseID:     ev.ToolUseID,
+			Reasoning:     ev.Reasoning,
+			ReasoningHash: rHash,
+			PlanStep:      ev.PlanStep,
+			PlanTotal:     ev.PlanTotal,
+			Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		})
+	}
 
 	h.logger.Debug("hook event",
 		"event", ev.Event,

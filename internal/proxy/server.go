@@ -37,11 +37,11 @@ type Server struct {
 	keys          *identity.KeyStore
 	scanner       *engine.Scanner
 	audit         *audit.Store
+	handler       *Handler
 	webhooks      *WebhookNotifier
 	dashboard     *dashboard.Server
 	llmQueue           *llm.Queue              // nil if LLM disabled
 	escalationTracker  *llm.EscalationTracker  // nil if LLM escalation disabled
-	handler            *Handler
 	logger             *slog.Logger
 	anomalyCancel context.CancelFunc
 	fwdSrv        *http.Server   // forward proxy (nil if disabled)
@@ -368,6 +368,15 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 // AuditStore returns the audit store for CLI queries.
 func (s *Server) AuditStore() *audit.Store {
 	return s.audit
+}
+
+// SetAuditStore replaces the audit store (used to share a single store
+// between proxy and gateway so all events feed into one Hub).
+func (s *Server) SetAuditStore(store *audit.Store) {
+	s.audit = store
+	if s.handler != nil {
+		s.handler.audit = store
+	}
 }
 
 // DashboardCode returns the one-time access code for the dashboard.

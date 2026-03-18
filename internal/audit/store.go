@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
 	tool_name TEXT DEFAULT '',
 	prev_hash TEXT DEFAULT '',
 	entry_hash TEXT DEFAULT '',
-	proxy_signature TEXT DEFAULT ''
+	proxy_signature TEXT DEFAULT '',
+	delegation_chain_hash TEXT DEFAULT '',
+	delegation_chain TEXT DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_log(status);
@@ -250,6 +252,8 @@ func (s *Store) migrateSchema() {
 		"ALTER TABLE audit_log ADD COLUMN proxy_signature TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN session_id TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN tool_name TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN delegation_chain_hash TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN delegation_chain TEXT DEFAULT ''",
 		"CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id)",
 	}
 
@@ -300,6 +304,24 @@ func (s *Store) migrateSchema() {
 				s.logger.Warn("migration skipped", "sql", m, "error", err)
 			}
 		}
+	}
+
+	// Reasoning log table (separate from audit_log — reasoning data is large)
+	reasoningSchema := `CREATE TABLE IF NOT EXISTS reasoning_log (
+		id TEXT PRIMARY KEY,
+		audit_entry_id TEXT NOT NULL,
+		session_id TEXT NOT NULL,
+		tool_use_id TEXT DEFAULT '',
+		reasoning TEXT NOT NULL,
+		reasoning_hash TEXT NOT NULL,
+		plan_step INTEGER DEFAULT 0,
+		plan_total INTEGER DEFAULT 0,
+		timestamp TEXT NOT NULL
+	);
+	CREATE INDEX IF NOT EXISTS idx_reasoning_session ON reasoning_log(session_id);
+	CREATE INDEX IF NOT EXISTS idx_reasoning_audit ON reasoning_log(audit_entry_id);`
+	if _, err := s.db.Exec(reasoningSchema); err != nil {
+		s.logger.Warn("reasoning_log table creation skipped", "error", err)
 	}
 
 	// Backfill: old entries stored tool names in to_agent with empty tool_name.
@@ -448,9 +470,13 @@ func (s *Store) Log(entry Entry) {
 	s.writes <- entry
 }
 
+// auditSelectCols is the shared SELECT column list for audit queries.
+// Update this constant (and the corresponding Scan calls) when adding columns.
+const auditSelectCols = "id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,'')"
+
 // Query returns audit entries matching the given filters.
 func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
-	query := "SELECT id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,'') FROM audit_log WHERE 1=1"
+	query := "SELECT " + auditSelectCols + " FROM audit_log WHERE 1=1"
 	var args []any
 
 	if opts.Status != "" {
@@ -480,13 +506,21 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		query += " AND timestamp <= ?"
 		args = append(args, opts.Until)
 	}
+	if opts.SessionID != "" {
+		query += " AND session_id = ?"
+		args = append(args, opts.SessionID)
+	}
 	if opts.Search != "" {
 		query += " AND (from_agent LIKE ? OR to_agent LIKE ? OR rules_triggered LIKE ? OR status LIKE ?)"
 		wild := "%" + opts.Search + "%"
 		args = append(args, wild, wild, wild, wild)
 	}
 
-	query += " ORDER BY timestamp DESC"
+	if opts.OrderASC {
+		query += " ORDER BY timestamp ASC"
+	} else {
+		query += " ORDER BY timestamp DESC"
+	}
 
 	if opts.Limit > 0 {
 		query += " LIMIT ?"
@@ -507,7 +541,7 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		var fp, rules sql.NullString
 		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 			&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-			&e.Intent, &e.SessionID, &e.EntryHash); err != nil {
+			&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		e.PubkeyFingerprint = fp.String
@@ -586,13 +620,13 @@ func (s *Store) QueryHourlyStats() (map[int]int, error) {
 // QueryByID fetches a single audit entry by ID.
 func (s *Store) QueryByID(id string) (*Entry, error) {
 	row := s.db.QueryRow(
-		"SELECT id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,'') FROM audit_log WHERE id = ?", id)
+		"SELECT "+auditSelectCols+" FROM audit_log WHERE id = ?", id)
 
 	var e Entry
 	var fp, rules sql.NullString
 	if err := row.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 		&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-		&e.Intent, &e.SessionID, &e.EntryHash); err != nil {
+		&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -741,7 +775,7 @@ func (s *Store) writeLoop() {
 			continue
 		}
 
-		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, tool_name, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, tool_name, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature, delegation_chain_hash, delegation_chain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			s.logger.Error("audit batch prepare failed", "error", err)
 			_ = tx.Rollback()
@@ -755,7 +789,7 @@ func (s *Store) writeLoop() {
 				batch[i].ID, batch[i].Timestamp, batch[i].FromAgent, batch[i].ToAgent, batch[i].ToolName, batch[i].ContentHash,
 				batch[i].SignatureVerified, batch[i].PubkeyFingerprint, batch[i].Status, batch[i].RulesTriggered,
 				batch[i].PolicyDecision, batch[i].LatencyMs, batch[i].Intent, batch[i].SessionID,
-				batch[i].PrevHash, batch[i].EntryHash, batch[i].ProxySignature,
+				batch[i].PrevHash, batch[i].EntryHash, batch[i].ProxySignature, batch[i].DelegationChainHash, batch[i].DelegationChain,
 			)
 			if err != nil {
 				s.logger.Error("audit write failed", "id", batch[i].ID, "error", err)
@@ -786,11 +820,13 @@ type QueryOpts struct {
 	Status     string
 	Statuses   []string // multi-status filter (e.g. blocked + rejected)
 	Agent      string
+	SessionID  string // filter by MCP session ID
 	Unverified bool
 	Since      string
 	Until      string // upper bound for timestamp
 	Search     string
 	Limit      int
+	OrderASC   bool // if true, order by timestamp ASC instead of DESC
 }
 
 // --- Quarantine queue methods ---
@@ -1415,6 +1451,53 @@ func (s *Store) PurgeOldEntries(retentionDays int) (int, error) {
 func (s *Store) ClearAll() error {
 	_, err := s.db.Exec(`DELETE FROM audit_log`)
 	return err
+}
+
+// LogReasoning persists a reasoning entry linked to an audit event.
+func (s *Store) LogReasoning(r ReasoningEntry) error {
+	_, err := s.db.Exec(
+		`INSERT INTO reasoning_log (id, audit_entry_id, session_id, tool_use_id, reasoning, reasoning_hash, plan_step, plan_total, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.AuditEntryID, r.SessionID, r.ToolUseID, r.Reasoning, r.ReasoningHash, r.PlanStep, r.PlanTotal, r.Timestamp,
+	)
+	return err
+}
+
+// QueryReasoningBySession returns all reasoning entries for a session, ordered by timestamp.
+func (s *Store) QueryReasoningBySession(sessionID string) ([]ReasoningEntry, error) {
+	rows, err := s.db.Query(
+		`SELECT id, audit_entry_id, session_id, COALESCE(tool_use_id,''), reasoning, reasoning_hash, plan_step, plan_total, timestamp FROM reasoning_log WHERE session_id = ? ORDER BY timestamp ASC`,
+		sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var entries []ReasoningEntry
+	for rows.Next() {
+		var r ReasoningEntry
+		if err := rows.Scan(&r.ID, &r.AuditEntryID, &r.SessionID, &r.ToolUseID, &r.Reasoning, &r.ReasoningHash, &r.PlanStep, &r.PlanTotal, &r.Timestamp); err != nil {
+			return nil, err
+		}
+		entries = append(entries, r)
+	}
+	return entries, rows.Err()
+}
+
+// QueryReasoningByAuditID returns the reasoning entry for a specific audit event.
+func (s *Store) QueryReasoningByAuditID(auditEntryID string) (*ReasoningEntry, error) {
+	row := s.db.QueryRow(
+		`SELECT id, audit_entry_id, session_id, COALESCE(tool_use_id,''), reasoning, reasoning_hash, plan_step, plan_total, timestamp FROM reasoning_log WHERE audit_entry_id = ?`,
+		auditEntryID,
+	)
+	var r ReasoningEntry
+	if err := row.Scan(&r.ID, &r.AuditEntryID, &r.SessionID, &r.ToolUseID, &r.Reasoning, &r.ReasoningHash, &r.PlanStep, &r.PlanTotal, &r.Timestamp); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &r, nil
 }
 
 // expiryLoop periodically expires old quarantine items and purges old audit entries.
