@@ -573,6 +573,7 @@ func startServer(configPath string, opts runOpts) error {
 			DashCode:   srv.DashboardCode(),
 			AgentCount: len(cfg.Agents),
 			Hub:        auditHub,
+			LiveCfg:    cfg,
 		})
 
 		p := tea.NewProgram(tuiModel, tea.WithAltScreen())

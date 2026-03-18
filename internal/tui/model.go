@@ -10,16 +10,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/config"
 )
 
 // Config holds initialization parameters for the TUI.
 type Config struct {
 	Version    string
-	Mode       string // "observe" or "enforce"
+	Mode       string           // "observe" or "enforce" (initial value)
 	DashURL    string
 	DashCode   string
 	AgentCount int
 	Hub        *audit.Hub
+	LiveCfg    *config.Config   // live config pointer — TUI reads current mode on each render
 }
 
 // EventRow is a displayable event in the live feed.
@@ -338,8 +340,16 @@ func (m Model) View() string {
 		hx[2]+" "+hx[3]+"  "+taglineStyle.Render("See everything your AI agents execute"),
 	)
 
+	currentMode := m.cfg.Mode
+	if m.cfg.LiveCfg != nil {
+		if m.cfg.LiveCfg.Identity.RequireSignature {
+			currentMode = "enforce"
+		} else {
+			currentMode = "observe"
+		}
+	}
 	mode := observeStyle.Render("observe")
-	if m.cfg.Mode == "enforce" {
+	if currentMode == "enforce" {
 		mode = enforceStyle.Render("enforce")
 	}
 	agentCount := len(m.agentsSeen)
