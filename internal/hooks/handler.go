@@ -166,21 +166,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Apply tool-scoped rule overrides from config.
 		verdict.ApplyToolScopedOverrides(h.cfg.Rules, outcome, ev.ToolName)
 
-		// Apply agent scan profile. Default to content-aware for
-		// unknown agents (auto-registered via hooks).
-		profile := config.ScanProfileContentAware
-		if agent, ok := h.cfg.Agents[ev.Agent]; ok && agent.ScanProfile != "" {
-			profile = agent.ScanProfile
+		// Apply scan profile only for content tools (Write, Edit, etc.)
+		// where file content naturally contains patterns that match rules.
+		// Execution tools (Bash, Agent, WebFetch) keep strict scanning
+		// so real threats are detected.
+		if config.ContentTools[ev.ToolName] {
+			profile := config.ScanProfileContentAware
+			if agent, ok := h.cfg.Agents[ev.Agent]; ok && agent.ScanProfile != "" {
+				profile = agent.ScanProfile
+			}
+			verdict.ApplyScanProfile(profile, outcome, ev.ToolName)
 		}
-		verdict.ApplyScanProfile(profile, outcome, ev.ToolName)
 
 		// If all findings were removed by tool scoping, reset to clean.
 		if len(outcome.Findings) == 0 {
 			outcome.Verdict = engine.VerdictClean
 		}
 
-		fj, _ := json.Marshal(outcome.Findings)
-		findingsJSON = string(fj)
+		findingsJSON = verdict.EncodeFindings(outcome.Findings)
 
 		status, decision = verdict.ToAuditStatus(outcome.Verdict)
 	}

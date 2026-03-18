@@ -32,10 +32,11 @@ type EventRow struct {
 	Rule      string
 	RawRules  string
 	Decision  string
-	EventID   string
-	SessionID string
-	ToAgent   string
-	Content   string
+	EventID     string
+	SessionID   string
+	ToAgent     string
+	Content     string
+	ContentHash string
 }
 
 // Model is the Bubbletea model for the oktsec TUI.
@@ -67,10 +68,11 @@ type Model struct {
 	hub *audit.Hub
 
 	// UI
-	spinner spinner.Model
-	width   int
-	height  int
-	started time.Time
+	spinner       spinner.Model
+	width         int
+	height        int
+	started       time.Time
+	lastEventTime time.Time
 }
 
 type auditEntryMsg audit.Entry
@@ -203,6 +205,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		entry := audit.Entry(msg)
 		if !m.paused {
 			m.totalScanned++
+			m.lastEventTime = time.Now()
 
 			if entry.ToAgent != "" && !strings.HasPrefix(entry.ToAgent, "gateway/") {
 				if entry.SessionID != "" {
@@ -248,7 +251,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				EventID:   entry.ID,
 				SessionID: entry.SessionID,
 				ToAgent:   entry.ToAgent,
-				Content:   truncate(entry.Intent, 300),
+				Content:     truncate(entry.Intent, 300),
+				ContentHash: entry.ContentHash,
 			}
 			m.events = append(m.events, row)
 			if len(m.events) > m.maxEvents {
@@ -318,12 +322,16 @@ func (m Model) View() string {
 	}
 	contentWidth := min(w-4, 90)
 
-	// Animated hexagons
+	// Animated hexagons — light up when agents are active
 	lit := lipgloss.NewStyle().Foreground(lipgloss.Color(colorPrimary))
 	dm := lipgloss.NewStyle().Foreground(lipgloss.Color(colorDim))
-	a := (int(time.Since(m.started).Milliseconds()) / 400) % 4
+	active := !m.lastEventTime.IsZero() && time.Since(m.lastEventTime) < 3*time.Second
 	hx := [4]string{dm.Render("⏣"), dm.Render("⏣"), dm.Render("⏣"), dm.Render("⏣")}
-	hx[a] = lit.Render("⏣")
+	if active {
+		// Original animation: all dim, one lit violet cycling
+		a := (int(time.Since(m.started).Milliseconds()) / 400) % 4
+		hx[a] = lit.Render("⏣")
+	}
 
 	header := lipgloss.JoinVertical(lipgloss.Left,
 		hx[0]+" "+hx[1]+"  "+headerStyle.Render("oktsec")+" "+dimStyle.Render(m.cfg.Version),
@@ -386,12 +394,12 @@ func (m Model) View() string {
 			if isCursor {
 				prefix = ">"
 			}
-			line := fmt.Sprintf("%s%s %-14s %s %-10s %5s",
+			line := fmt.Sprintf("%s%s %s %s %s %s",
 				prefix,
 				dimStyle.Render(ev.Time),
-				agentStyle.Render(truncate(ev.Agent, 14)),
+				agentStyle.Width(16).Render(truncate(ev.Agent, 16)),
 				renderStatus(ev.Status),
-				toolStyle.Render(truncate(ev.Tool, 10)),
+				toolStyle.Width(10).Render(truncate(ev.Tool, 10)),
 				dimStyle.Render(ev.Latency),
 			)
 			if isCursor {
@@ -435,7 +443,7 @@ func (m Model) renderDetail() string {
 	contentWidth := min(w-4, 90)
 
 	ev := m.events[m.selectedIdx]
-	detailBox := boxStyle.Width(contentWidth).BorderForeground(lipgloss.Color(colorPrimary))
+	detailBox := boxStyle.Width(contentWidth).BorderForeground(lipgloss.Color(colorDim))
 	sepW := contentWidth - 8
 	if sepW < 10 {
 		sepW = 10
@@ -485,6 +493,7 @@ func (m Model) renderDetail() string {
 			sep,
 			labelStyle.Render("Event ID")+eventID,
 			labelStyle.Render("Session")+sessionID,
+			labelStyle.Render("Hash")+dimStyle.Render(truncate(ev.ContentHash, 36)),
 			"",
 			dimStyle.Render("Esc or Enter to go back"),
 		),
@@ -512,7 +521,7 @@ func classifyStatus(e audit.Entry) string {
 	case "rejected":
 		return "rejected"
 	default:
-		if e.RulesTriggered != "" && e.RulesTriggered != "[]" {
+		if e.PolicyDecision == audit.DecisionContentFlagged {
 			return "flagged"
 		}
 		return "clean"

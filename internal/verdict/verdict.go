@@ -2,6 +2,7 @@ package verdict
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
@@ -30,8 +31,10 @@ func TopSeverity(findings []engine.FindingSummary) string {
 
 // DefaultSeverityVerdict maps a severity string to the default verdict.
 // Mirrors the logic in engine.buildOutcome but operates on string severity.
+// Case-insensitive because Aguara reports "CRITICAL" while audit constants
+// use "critical".
 func DefaultSeverityVerdict(severity string) engine.ScanVerdict {
-	switch severity {
+	switch strings.ToLower(severity) {
 	case audit.SeverityCritical:
 		return engine.VerdictBlock
 	case audit.SeverityHigh:
@@ -130,7 +133,7 @@ func ApplyRuleOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome) 
 // keeps default severity verdict). Similarly, if ExemptTools is set and
 // the tool IS in the list, the override is skipped.
 func ApplyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome, toolName string) {
-	if len(rules) == 0 || len(outcome.Findings) == 0 {
+	if len(outcome.Findings) == 0 {
 		return
 	}
 
@@ -149,8 +152,13 @@ func ApplyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOut
 		overrides[ra.ID] = ruleOvr{action: ra.Action, scoped: scoped}
 	}
 
-	var kept []engine.FindingSummary
+	kept := make([]engine.FindingSummary, 0, len(outcome.Findings))
 	newVerdict := engine.VerdictClean
+
+	// Content tools: only enforce minimal rules (file content matches many patterns).
+	// Dev workflow tools: exempt NLP rules (commit messages, prompts contain descriptive text).
+	isContentTool := config.ContentTools[toolName]
+	isDevTool := config.DevWorkflowTools[toolName]
 
 	for _, f := range outcome.Findings {
 		ovr, hasOverride := overrides[f.RuleID]
@@ -159,6 +167,30 @@ func ApplyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOut
 		if hasOverride && !ovr.scoped {
 			continue
 		}
+
+		// Content tools: only enforce critical rules (path traversal,
+		// system directory write, credential leak). Everything else is
+		// expected file content, not an attack.
+		if isContentTool && !hasOverride && !config.MinimalEnforceRules[f.RuleID] {
+			continue
+		}
+
+		// NLP rules exempt on Bash and dev workflow tools — these contain
+		// descriptive text (commit messages, prompts, task descriptions)
+		// that triggers semantic classifiers but isn't an attack.
+		if !hasOverride && (toolName == "Bash" || isDevTool) && strings.HasPrefix(f.RuleID, "NLP_") {
+			continue
+		}
+
+		// Apply built-in tool exemptions when no user override exists.
+		if !hasOverride {
+			if exemptTools, ok := BuiltinToolExemptions[f.RuleID]; ok {
+				if containsTool(exemptTools, toolName) {
+					continue
+				}
+			}
+		}
+
 		if hasOverride && ovr.scoped && ovr.action == "ignore" {
 			continue
 		}
@@ -232,6 +264,19 @@ func ApplyScanProfile(profile string, outcome *engine.ScanOutcome, toolName stri
 			outcome.Verdict = engine.VerdictFlag
 		}
 	}
+}
+
+// BuiltinToolExemptions maps rule IDs to tools where those rules should
+// NOT fire because the detected pattern is the tool's intended behavior.
+// For example, shell metacharacters in a Bash tool call are expected,
+// not a shell injection. These defaults apply only when the user hasn't
+// configured an explicit override for the rule.
+var BuiltinToolExemptions = map[string][]string{
+	"TC-005":         {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent"}, // Shell patterns in content/agent tools are not injection
+	"MCPCFG_002":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent"}, // Shell metacharacters in content/agent tools
+	"MCPCFG_004":     {"WebFetch", "Fetch", "WebSearch"},                     // Remote URLs — expected in web tools
+	"MCPCFG_006":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"}, // Inline code execution in content tools
+	"THIRDPARTY_001": {"WebFetch", "Fetch", "WebSearch"},                     // Runtime URL — expected in web tools
 }
 
 func containsTool(tools []string, name string) bool {

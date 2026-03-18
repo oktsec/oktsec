@@ -234,9 +234,17 @@ const (
 )
 
 // ContentTools are tools that handle file content (not execution).
+// Their arguments contain file content, search queries, etc.
 var ContentTools = map[string]bool{
 	"Edit": true, "Write": true, "MultiEdit": true,
 	"Read": true, "Glob": true, "Grep": true, "NotebookEdit": true,
+}
+
+// DevWorkflowTools are tools used for developer workflow where arguments
+// contain descriptive text (commit messages, task descriptions, prompts).
+// NLP rules are exempt on these because the text is authored content.
+var DevWorkflowTools = map[string]bool{
+	"Agent": true, "TaskCreate": true, "TaskUpdate": true, "TaskOutput": true,
 }
 
 // MinimalEnforceRules are the only rules enforced in minimal profile.
