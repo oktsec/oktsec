@@ -432,8 +432,19 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			outcome = &engine.ScanOutcome{Verdict: engine.VerdictClean}
 		}
 
-		// 6. Apply rule overrides
-		verdict.ApplyRuleOverrides(g.cfg.Rules, outcome)
+		// 6. Apply tool-scoped rule overrides (uses tool name to drop
+		// false positives, e.g. shell injection rules on Bash tool).
+		verdict.ApplyToolScopedOverrides(g.cfg.Rules, outcome, m.OriginalName)
+
+		// 6b. Apply agent scan profile if explicitly configured.
+		if agentCfg, ok := g.cfg.Agents[agent]; ok && agentCfg.ScanProfile != "" {
+			verdict.ApplyScanProfile(agentCfg.ScanProfile, outcome, m.OriginalName)
+		}
+
+		// If all findings were removed by tool scoping, reset to clean.
+		if len(outcome.Findings) == 0 {
+			outcome.Verdict = engine.VerdictClean
+		}
 
 		// 7. Apply blocked content
 		if agentCfg, ok := g.cfg.Agents[agent]; ok {
@@ -501,7 +512,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			if respContent != "" {
 				respOutcome, err := g.scanner.ScanContent(scanCtx, respContent)
 				if err == nil && respOutcome != nil {
-					verdict.ApplyRuleOverrides(g.cfg.Rules, respOutcome)
+					verdict.ApplyToolScopedOverrides(g.cfg.Rules, respOutcome, m.OriginalName)
 					if respOutcome.Verdict == engine.VerdictBlock || respOutcome.Verdict == engine.VerdictQuarantine {
 						g.logger.Warn("backend response blocked",
 							"tool", m.OriginalName, "backend", m.BackendName, "verdict", respOutcome.Verdict)
