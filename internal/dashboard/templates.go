@@ -3217,6 +3217,155 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   </div>
   </form>
 </div>
+
+<!-- Infrastructure -->
+<div class="st-section">
+  <div class="st-section-hdr">Infrastructure</div>
+
+  <div class="st-item" style="flex-wrap:wrap">
+    <div class="st-item-info">
+      <div class="st-item-name">Database</div>
+      <div class="st-item-desc">{{if eq .DBBackend "PostgreSQL"}}Connected to PostgreSQL{{else}}Local SQLite database{{end}}</div>
+    </div>
+    <div class="st-item-value">
+      <select id="db-backend" style="font-size:0.82rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 10px;font-family:var(--mono)" onchange="dbBackendChanged()">
+        <option value="sqlite" {{if ne .DBBackend "PostgreSQL"}}selected{{end}}>SQLite</option>
+        <option value="postgres" {{if eq .DBBackend "PostgreSQL"}}selected{{end}}>PostgreSQL</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- SQLite config (shown when sqlite selected) -->
+  <div id="db-sqlite-cfg" style="padding:14px 20px;border-bottom:1px solid var(--border){{if eq .DBBackend "PostgreSQL"}};display:none{{end}}">
+    <div class="st-row">
+      <div class="form-group">
+        <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Database path</label>
+        <input type="text" id="db-sqlite-path" value="{{.DBPath}}" style="font-family:var(--mono);font-size:0.78rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text2);padding:8px 12px" readonly>
+      </div>
+    </div>
+  </div>
+
+  <!-- PostgreSQL config (shown when postgres selected) -->
+  <div id="db-pg-cfg" style="padding:14px 20px;border-bottom:1px solid var(--border){{if ne .DBBackend "PostgreSQL"}};display:none{{end}}">
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Host</label>
+        <input type="text" id="db-pg-host" value="{{.PGHost}}" placeholder="localhost" style="font-family:var(--mono);font-size:0.78rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px">
+      </div>
+      <div>
+        <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Port</label>
+        <input type="number" id="db-pg-port" value="{{.PGPort}}" placeholder="5432" style="font-family:var(--mono);font-size:0.78rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">User</label>
+        <input type="text" id="db-pg-user" value="{{.PGUser}}" placeholder="oktsec" style="font-family:var(--mono);font-size:0.78rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px">
+      </div>
+      <div>
+        <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Password</label>
+        <input type="password" id="db-pg-pass" value="" placeholder="{{if .PGHost}}****{{else}}password{{end}}" style="font-family:var(--mono);font-size:0.78rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Database</label>
+        <input type="text" id="db-pg-name" value="{{.PGDatabase}}" placeholder="oktsec" style="font-family:var(--mono);font-size:0.78rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 12px">
+      </div>
+      <div>
+        <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">SSL Mode</label>
+        <select id="db-pg-ssl" style="font-size:0.78rem;width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:var(--mono)">
+          <option value="disable" {{if eq .PGSSLMode "disable"}}selected{{end}}>disable</option>
+          <option value="require" {{if eq .PGSSLMode "require"}}selected{{end}}>require</option>
+          <option value="verify-ca" {{if eq .PGSSLMode "verify-ca"}}selected{{end}}>verify-ca</option>
+          <option value="verify-full" {{if eq .PGSSLMode "verify-full"}}selected{{end}}>verify-full</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button type="button" class="btn btn-sm btn-outline" onclick="testDBConnection()">Test connection</button>
+      <span id="db-test-result" style="font-size:0.75rem;font-family:var(--mono)"></span>
+    </div>
+  </div>
+
+  <div style="display:flex;justify-content:flex-end;padding:10px 20px;border-bottom:1px solid var(--border)">
+    <button type="button" class="btn btn-sm" id="db-save-btn" onclick="saveDBConfig()">Save &amp; restart</button>
+  </div>
+
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">MCP Gateway</div>
+      <div class="st-item-desc">{{if .GatewayEnabled}}Accepting connections on port {{.GatewayPort}}{{else}}Disabled{{end}}</div>
+    </div>
+    <div class="st-item-value">
+      <span class="val" style="{{if .GatewayEnabled}}color:var(--success){{else}}color:var(--text3){{end}}">{{if .GatewayEnabled}}active{{else}}off{{end}}</span>
+    </div>
+  </div>
+</div>
+
+<script>
+function dbBackendChanged() {
+  var v = document.getElementById('db-backend').value;
+  document.getElementById('db-sqlite-cfg').style.display = v === 'sqlite' ? '' : 'none';
+  document.getElementById('db-pg-cfg').style.display = v === 'postgres' ? '' : 'none';
+  document.getElementById('db-test-result').textContent = '';
+}
+
+function buildPGDSN() {
+  var h = document.getElementById('db-pg-host').value || 'localhost';
+  var p = document.getElementById('db-pg-port').value || '5432';
+  var u = document.getElementById('db-pg-user').value || 'oktsec';
+  var pw = document.getElementById('db-pg-pass').value;
+  var db = document.getElementById('db-pg-name').value || 'oktsec';
+  var ssl = document.getElementById('db-pg-ssl').value || 'disable';
+  return 'postgres://' + encodeURIComponent(u) + (pw ? ':' + encodeURIComponent(pw) : '') + '@' + h + ':' + p + '/' + db + '?sslmode=' + ssl;
+}
+
+function testDBConnection() {
+  var res = document.getElementById('db-test-result');
+  res.style.color = 'var(--text3)';
+  res.textContent = 'Testing...';
+  var dsn = buildPGDSN();
+  fetch('/dashboard/api/db/test', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({backend: 'postgres', dsn: dsn})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok) {
+      res.style.color = 'var(--success)';
+      res.textContent = 'Connected (' + (d.version || 'ok') + ')';
+    } else {
+      res.style.color = 'var(--danger)';
+      res.textContent = d.error || 'Connection failed';
+    }
+  }).catch(function(e) {
+    res.style.color = 'var(--danger)';
+    res.textContent = 'Request failed';
+  });
+}
+
+function saveDBConfig() {
+  var backend = document.getElementById('db-backend').value;
+  var body = {backend: backend};
+  if (backend === 'postgres') {
+    body.dsn = buildPGDSN();
+  }
+  fetch('/dashboard/api/db/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.ok) {
+      document.getElementById('db-test-result').style.color = 'var(--success)';
+      document.getElementById('db-test-result').textContent = 'Saved. Restarting...';
+      setTimeout(function() { window.location.reload(); }, 3000);
+    } else {
+      document.getElementById('db-test-result').style.color = 'var(--danger)';
+      document.getElementById('db-test-result').textContent = d.error || 'Save failed';
+    }
+  });
+}
+</script>
 ` + layoutFoot))
 
 // --- LLM Analysis page ---

@@ -2,11 +2,13 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/auditcheck"
@@ -2463,9 +2467,167 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"FPMaxBodySize":        s.cfg.ForwardProxy.MaxBodySize,
 		"QRetentionDays":       s.cfg.Quarantine.RetentionDays,
 		"RequireIntent":        s.cfg.Server.RequireIntent,
+		"DBBackend":            dbBackendLabel(s.cfg.DBBackend),
+		"DBPath":               s.cfg.DBPath,
+		"DBDSN":                maskDSN(s.cfg.DBDSN),
+		"PGHost":               parsePGField(s.cfg.DBDSN, "host"),
+		"PGPort":               parsePGField(s.cfg.DBDSN, "port"),
+		"PGUser":               parsePGField(s.cfg.DBDSN, "user"),
+		"PGDatabase":           parsePGField(s.cfg.DBDSN, "database"),
+		"PGSSLMode":            parsePGField(s.cfg.DBDSN, "sslmode"),
+		"GatewayEnabled":       s.cfg.Gateway.Enabled,
+		"GatewayPort":          s.cfg.Gateway.Port,
 	}
 
 	s.renderTemplate(w, settingsTmpl, data)
+}
+
+func (s *Server) handleDBTest(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Backend string `json:"backend"`
+		DSN     string `json:"dsn"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.renderJSON(w, map[string]any{"ok": false, "error": "invalid request"})
+		return
+	}
+
+	if req.Backend != "postgres" && req.Backend != "postgresql" {
+		s.renderJSON(w, map[string]any{"ok": false, "error": "only postgres test supported"})
+		return
+	}
+
+	db, err := sql.Open("pgx", req.DSN)
+	if err != nil {
+		s.renderJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	defer func() { _ = db.Close() }()
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	if err := db.PingContext(ctx); err != nil {
+		s.renderJSON(w, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+
+	var version string
+	_ = db.QueryRowContext(ctx, "SELECT version()").Scan(&version)
+	// Shorten: "PostgreSQL 16.2 on ..." -> "PostgreSQL 16.2"
+	if i := strings.Index(version, " on "); i > 0 {
+		version = version[:i]
+	}
+
+	s.renderJSON(w, map[string]any{"ok": true, "version": version})
+}
+
+func (s *Server) handleDBSave(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Backend string `json:"backend"`
+		DSN     string `json:"dsn"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.renderJSON(w, map[string]any{"ok": false, "error": "invalid request"})
+		return
+	}
+
+	switch req.Backend {
+	case "sqlite":
+		s.cfg.DBBackend = ""
+		s.cfg.DBDSN = ""
+	case "postgres", "postgresql":
+		// Verify connection before saving
+		db, err := sql.Open("pgx", req.DSN)
+		if err != nil {
+			s.renderJSON(w, map[string]any{"ok": false, "error": err.Error()})
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+		defer cancel()
+		if err := db.PingContext(ctx); err != nil {
+			_ = db.Close()
+			s.renderJSON(w, map[string]any{"ok": false, "error": "connection failed: " + err.Error()})
+			return
+		}
+		_ = db.Close()
+		s.cfg.DBBackend = "postgres"
+		s.cfg.DBDSN = req.DSN
+	default:
+		s.renderJSON(w, map[string]any{"ok": false, "error": "unsupported backend"})
+		return
+	}
+
+	if err := s.cfg.Save(s.cfgPath); err != nil {
+		s.renderJSON(w, map[string]any{"ok": false, "error": "save failed: " + err.Error()})
+		return
+	}
+
+	s.renderJSON(w, map[string]any{"ok": true, "message": "saved, restart oktsec to apply"})
+}
+
+func dbBackendLabel(backend string) string {
+	switch backend {
+	case "postgres", "postgresql":
+		return "PostgreSQL"
+	default:
+		return "SQLite"
+	}
+}
+
+func parsePGField(dsn, field string) string {
+	if dsn == "" {
+		return ""
+	}
+	// Parse postgres://user:pass@host:port/database?sslmode=x
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return ""
+	}
+	switch field {
+	case "host":
+		h := u.Hostname()
+		if h == "" {
+			return "localhost"
+		}
+		return h
+	case "port":
+		p := u.Port()
+		if p == "" {
+			return "5432"
+		}
+		return p
+	case "user":
+		return u.User.Username()
+	case "database":
+		if len(u.Path) > 1 {
+			return u.Path[1:]
+		}
+		return ""
+	case "sslmode":
+		sm := u.Query().Get("sslmode")
+		if sm == "" {
+			return "disable"
+		}
+		return sm
+	}
+	return ""
+}
+
+func maskDSN(dsn string) string {
+	if dsn == "" {
+		return ""
+	}
+	// Mask password in postgres://user:pass@host/db
+	if i := strings.Index(dsn, "://"); i >= 0 {
+		rest := dsn[i+3:]
+		if at := strings.Index(rest, "@"); at >= 0 {
+			if colon := strings.Index(rest[:at], ":"); colon >= 0 {
+				return dsn[:i+3] + rest[:colon+1] + "****@" + rest[at+1:]
+			}
+		}
+	}
+	return dsn
 }
 
 // --- LLM page handler ---

@@ -239,6 +239,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/api/graph", s.handleAPIGraph)
 	s.mux.HandleFunc("GET /dashboard/api/graph/edge", s.handleEdgeDetail)
 	s.mux.HandleFunc("POST /dashboard/api/audit/clear", s.handleAuditClear)
+	s.mux.HandleFunc("POST /dashboard/api/db/test", s.handleDBTest)
+	s.mux.HandleFunc("POST /dashboard/api/db/save", s.handleDBSave)
 
 	// Legacy URL redirects
 	s.mux.HandleFunc("GET /dashboard/logs", func(w http.ResponseWriter, r *http.Request) {

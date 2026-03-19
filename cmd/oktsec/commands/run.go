@@ -447,31 +447,8 @@ func writeMinimalConfig(configPath string) error {
 	return os.WriteFile(configPath, append([]byte(header), data...), 0o600)
 }
 
-// killExistingInstance checks if another oktsec process is already running
-// and kills it to avoid port conflicts and zombie sessions.
-func killExistingInstance() {
-	pid := os.Getpid()
-	out, err := exec.Command("pgrep", "-x", "oktsec").Output()
-	if err != nil {
-		return
-	}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		var other int
-		if _, err := fmt.Sscanf(line, "%d", &other); err == nil && other != pid {
-			if p, err := os.FindProcess(other); err == nil {
-				_ = p.Signal(syscall.SIGTERM)
-				// Brief wait for graceful shutdown.
-				time.Sleep(200 * time.Millisecond)
-			}
-		}
-	}
-}
 
 func startServer(configPath string, opts runOpts) error {
-	killExistingInstance()
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
