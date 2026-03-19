@@ -31,8 +31,7 @@ func (s *Store) LogAlert(a AlertEntry) error {
 		a.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
 	_, err := s.db.Exec(
-		`INSERT OR IGNORE INTO alerts (id, timestamp, event, severity, agent, message_id, detail, channel, status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.dialect.InsertIgnoreAlert(),
 		a.ID, a.Timestamp, a.Event, a.Severity, a.Agent, a.MessageID, a.Detail, a.Channel, a.Status,
 	)
 	return err

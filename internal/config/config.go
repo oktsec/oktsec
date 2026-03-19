@@ -20,7 +20,9 @@ type Config struct {
 	Rules          []RuleAction                   `yaml:"rules"`
 	Webhooks         []Webhook                      `yaml:"webhooks"`
 	CategoryWebhooks []CategoryWebhook              `yaml:"category_webhooks,omitempty"`
-	DBPath           string                         `yaml:"db_path,omitempty"`
+	DBBackend        string                         `yaml:"db_backend,omitempty"`  // "sqlite" (default) or "postgres"
+	DBPath           string                         `yaml:"db_path,omitempty"`     // SQLite file path
+	DBDSN            string                         `yaml:"db_dsn,omitempty"`      // PostgreSQL connection string
 	CustomRulesDir string                         `yaml:"custom_rules_dir,omitempty"`
 	Quarantine     QuarantineConfig               `yaml:"quarantine,omitempty"`
 	RateLimit      RateLimitConfig                `yaml:"rate_limit,omitempty"`

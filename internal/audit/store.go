@@ -130,6 +130,7 @@ func (h *Hub) broadcast(entry Entry) {
 // Store manages the SQLite audit log.
 type Store struct {
 	db            *sql.DB
+	dialect       Dialect
 	writes        chan Entry
 	done          chan struct{}
 	logger        *slog.Logger
@@ -171,60 +172,56 @@ func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store,
 		return nil, fmt.Errorf("opening audit db: %w", err)
 	}
 
-	// Enable WAL mode for better concurrent read performance
-	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
-		if cerr := db.Close(); cerr != nil {
-			return nil, fmt.Errorf("setting WAL mode: %w (also: close: %v)", err, cerr)
-		}
-		return nil, fmt.Errorf("setting WAL mode: %w", err)
+	retention := 0
+	if len(retentionDays) > 0 && retentionDays[0] > 0 {
+		retention = retentionDays[0]
 	}
 
-	// Performance PRAGMAs: WAL + NORMAL is safe (only loses data on OS crash, not app crash)
-	for _, pragma := range []string{
-		"PRAGMA synchronous = NORMAL",
-		"PRAGMA cache_size = -64000",
-		"PRAGMA temp_store = MEMORY",
-	} {
-		if _, err := db.Exec(pragma); err != nil {
-			logger.Warn("PRAGMA failed", "pragma", pragma, "error", err)
+	return newStore(db, SQLiteDialect{}, logger, retention)
+}
+
+// NewStoreWithDB creates an audit store from an existing *sql.DB connection
+// and the specified dialect. Use this for Postgres, MySQL, or any database
+// reachable via database/sql.
+//
+//	db, _ := sql.Open("pgx", "postgres://user:pass@localhost/oktsec")
+//	store, _ := audit.NewStoreWithDB(db, audit.PostgresDialect{}, logger, 90)
+func NewStoreWithDB(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays int) (*Store, error) {
+	return newStore(db, dialect, logger, retentionDays)
+}
+
+func newStore(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays int) (*Store, error) {
+	// Run dialect-specific initialization (PRAGMAs for SQLite, etc.)
+	for _, stmt := range dialect.InitPragmas() {
+		if _, err := db.Exec(stmt); err != nil {
+			logger.Warn("init statement failed", "stmt", stmt, "error", err)
 		}
 	}
 
-	// Set busy timeout so concurrent writers wait instead of returning SQLITE_BUSY
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		if cerr := db.Close(); cerr != nil {
-			return nil, fmt.Errorf("setting busy_timeout: %w (also: close: %v)", err, cerr)
-		}
-		return nil, fmt.Errorf("setting busy_timeout: %w", err)
-	}
-
-	if _, err := db.Exec(schema); err != nil {
+	// Create schema
+	if _, err := db.Exec(dialect.SchemaSQL()); err != nil {
 		if cerr := db.Close(); cerr != nil {
 			return nil, fmt.Errorf("creating schema: %w (also: close: %v)", err, cerr)
 		}
 		return nil, fmt.Errorf("creating schema: %w", err)
 	}
 
-	// Update query planner statistics for optimal index usage
+	// Update query planner statistics
 	if _, err := db.Exec("ANALYZE"); err != nil {
 		logger.Warn("ANALYZE failed", "error", err)
-	}
-
-	retention := 0
-	if len(retentionDays) > 0 && retentionDays[0] > 0 {
-		retention = retentionDays[0]
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Store{
 		db:            db,
+		dialect:       dialect,
 		writes:        make(chan Entry, 4096),
 		done:          make(chan struct{}),
 		logger:        logger,
 		Hub:           newHub(),
 		ctx:           ctx,
 		cancel:        cancel,
-		retentionDays: retention,
+		retentionDays: retentionDays,
 	}
 
 	// Migrate schema: add columns if they don't exist (idempotent)
@@ -245,17 +242,7 @@ func (s *Store) SetProxyKey(key ed25519.PrivateKey) {
 
 // migrateSchema adds columns that may not exist in older databases.
 func (s *Store) migrateSchema() {
-	migrations := []string{
-		"ALTER TABLE audit_log ADD COLUMN intent TEXT DEFAULT ''",
-		"ALTER TABLE audit_log ADD COLUMN prev_hash TEXT DEFAULT ''",
-		"ALTER TABLE audit_log ADD COLUMN entry_hash TEXT DEFAULT ''",
-		"ALTER TABLE audit_log ADD COLUMN proxy_signature TEXT DEFAULT ''",
-		"ALTER TABLE audit_log ADD COLUMN session_id TEXT DEFAULT ''",
-		"ALTER TABLE audit_log ADD COLUMN tool_name TEXT DEFAULT ''",
-		"ALTER TABLE audit_log ADD COLUMN delegation_chain_hash TEXT DEFAULT ''",
-		"ALTER TABLE audit_log ADD COLUMN delegation_chain TEXT DEFAULT ''",
-		"CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id)",
-	}
+	migrations := s.dialect.MigrateStatements()
 
 	// LLM analysis table (separate from audit_log, linked by message_id)
 	llmSchema := `CREATE TABLE IF NOT EXISTS llm_analysis (
@@ -554,7 +541,7 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 // RevokeKey persists a key revocation in the database.
 func (s *Store) RevokeKey(fingerprint, agentName, reason string) error {
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO revoked_keys (fingerprint, agent_name, revoked_at, reason) VALUES (?, ?, ?, ?)`,
+		s.dialect.UpsertRevoked(),
 		fingerprint, agentName, time.Now().UTC().Format(time.RFC3339), reason,
 	)
 	if err != nil {
@@ -595,12 +582,10 @@ func (s *Store) ListRevokedKeys() ([]RevokedKey, error) {
 // QueryHourlyStats returns message counts grouped by hour for the last 24 hours.
 func (s *Store) QueryHourlyStats() (map[int]int, error) {
 	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
-	rows, err := s.db.Query(`
-		SELECT CAST(strftime('%H', timestamp) AS INTEGER) AS hour, COUNT(*)
-		FROM audit_log
-		WHERE timestamp >= ?
-		GROUP BY hour
-		ORDER BY hour`, cutoff)
+	hourExpr := s.dialect.HourExtract("timestamp")
+	rows, err := s.db.Query(
+		`SELECT `+hourExpr+` AS hour, COUNT(*) FROM audit_log WHERE timestamp >= ? GROUP BY hour ORDER BY hour`,
+		cutoff)
 	if err != nil {
 		return nil, fmt.Errorf("querying hourly stats: %w", err)
 	}
