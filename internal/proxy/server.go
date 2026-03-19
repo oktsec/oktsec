@@ -70,7 +70,11 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	scanner := engine.NewScanner(cfg.CustomRulesDir)
 
 	// Audit store
-	auditStore, err := audit.NewStore(cfg.DBPath, logger, cfg.Quarantine.RetentionDays)
+	dbDSN := cfg.DBPath
+	if cfg.DBBackend == "postgres" || cfg.DBBackend == "postgresql" {
+		dbDSN = cfg.DBDSN
+	}
+	auditStore, err := audit.Open(cfg.DBBackend, dbDSN, logger, cfg.Quarantine.RetentionDays)
 	if err != nil {
 		return nil, fmt.Errorf("opening audit store: %w — if another oktsec instance is running, stop it first", err)
 	}

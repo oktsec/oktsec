@@ -71,7 +71,11 @@ type Gateway struct {
 func NewGateway(cfg *config.Config, logger *slog.Logger) (*Gateway, error) {
 	scanner := engine.NewScanner(cfg.CustomRulesDir)
 
-	auditStore, err := audit.NewStore(cfg.DBPath, logger, cfg.Quarantine.RetentionDays)
+	dbDSN := cfg.DBPath
+	if cfg.DBBackend == "postgres" || cfg.DBBackend == "postgresql" {
+		dbDSN = cfg.DBDSN
+	}
+	auditStore, err := audit.Open(cfg.DBBackend, dbDSN, logger, cfg.Quarantine.RetentionDays)
 	if err != nil {
 		return nil, fmt.Errorf("opening audit store: %w", err)
 	}
