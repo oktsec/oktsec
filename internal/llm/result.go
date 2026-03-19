@@ -10,7 +10,7 @@ import (
 
 // StoreResult persists an LLM analysis result to the audit store.
 // This is the shared logic used by both the proxy server and gateway command.
-func StoreResult(store *audit.Store, result AnalysisResult) error {
+func StoreResult(store audit.LLMStore, result AnalysisResult) error {
 	threatsJSON, _ := json.Marshal(result.Threats)
 	intentJSON, _ := json.Marshal(result.IntentAnalysis)
 	return store.LogLLMAnalysis(audit.LLMAnalysis{

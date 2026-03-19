@@ -14,7 +14,7 @@ import (
 )
 
 // NewServer creates an MCP server exposing oktsec tools.
-func NewServer(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.Store, keys *identity.KeyStore, logger *slog.Logger) *mcp.Server {
+func NewServer(cfg *config.Config, scanner *engine.Scanner, auditStore audit.AuditStore, keys *identity.KeyStore, logger *slog.Logger) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "oktsec",
 		Version: "0.2.0",

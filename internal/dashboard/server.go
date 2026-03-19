@@ -26,7 +26,7 @@ var Version = "dev"
 // Server serves the oktsec dashboard UI.
 type Server struct {
 	auth    *Auth
-	audit   *audit.Store
+	audit   audit.AuditStore
 	cfg     *config.Config
 	cfgPath string
 	keys    *identity.KeyStore
@@ -58,7 +58,7 @@ type Server struct {
 }
 
 // NewServer creates a dashboard server with access-code authentication.
-func NewServer(cfg *config.Config, cfgPath string, auditStore *audit.Store, keys *identity.KeyStore, scanner *engine.Scanner, logger *slog.Logger) *Server {
+func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, keys *identity.KeyStore, scanner *engine.Scanner, logger *slog.Logger) *Server {
 	s := &Server{
 		auth:    NewAuth(logger),
 		audit:   auditStore,

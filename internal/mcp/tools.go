@@ -18,7 +18,7 @@ import (
 type handlers struct {
 	cfg     *config.Config
 	scanner *engine.Scanner
-	audit   *audit.Store
+	audit   audit.AuditStore
 	keys    *identity.KeyStore
 	logger  *slog.Logger
 }

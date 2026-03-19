@@ -113,16 +113,22 @@ func (e *ToolEvent) contentHash() string {
 	return fmt.Sprintf("%x", h[:16])
 }
 
+// HookStore is the subset of AuditStore used by the hooks handler.
+type HookStore interface {
+	audit.AuditLogger
+	audit.ReasoningStore
+}
+
 // Handler processes tool-call events from any MCP client.
 type Handler struct {
 	scanner *engine.Scanner
-	store   *audit.Store
+	store   HookStore
 	cfg     *config.Config
 	logger  *slog.Logger
 }
 
 // NewHandler creates a hooks handler wired to the security pipeline.
-func NewHandler(scanner *engine.Scanner, store *audit.Store, cfg *config.Config, logger *slog.Logger) *Handler {
+func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, logger *slog.Logger) *Handler {
 	return &Handler{
 		scanner: scanner,
 		store:   store,
