@@ -16,7 +16,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/fatih/color"
-	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/dashboard"
 	"github.com/oktsec/oktsec/internal/discover"
@@ -520,29 +519,26 @@ func startServer(configPath string, opts runOpts) error {
 	}()
 
 	// Start embedded gateway if enabled (needed for hooks even without backends).
+	// Share the proxy's audit store so all events (proxy + gateway + hooks) feed
+	// into a single Hub. This fixes the dual-store issue where TUI and dashboard
+	// would show different events.
 	var gw *gateway.Gateway
-	var auditStore *audit.Store
+	auditStore := srv.AuditStore()
 	if cfg.Gateway.Enabled {
 		var gwErr error
-		gw, gwErr = gateway.NewGateway(cfg, logger)
+		gw, gwErr = gateway.NewGateway(cfg, logger, auditStore)
 		if gwErr != nil {
 			logger.Warn("gateway failed to initialize", "error", gwErr)
 		} else {
 			gw.SetCfgPath(configPath)
 			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
 			gw.SetHooksHandler(hh)
-			auditStore = gw.AuditStore()
-			// Share audit store so proxy rejections appear in the same feed.
-			srv.SetAuditStore(auditStore)
 			go func() {
 				if e := gw.Start(ctx); e != nil {
 					logger.Error("gateway error", "error", e)
 				}
 			}()
 		}
-	}
-	if auditStore == nil {
-		auditStore = srv.AuditStore()
 	}
 
 	// Build dashboard URL
