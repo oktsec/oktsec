@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"strings"
 	"time"
 )
 
@@ -23,6 +24,7 @@ type SessionTrace struct {
 type TraceStep struct {
 	ToolName   string `json:"tool_name"`
 	ToolInput  string `json:"tool_input"`
+	FromAgent  string `json:"from_agent"`
 	Reasoning  string `json:"reasoning,omitempty"`
 	Verdict    string `json:"verdict"`
 	Decision   string `json:"decision"`
@@ -60,9 +62,19 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		reasoningMap[reasoningEntries[i].AuditEntryID] = &reasoningEntries[i]
 	}
 
+	// Collect unique agents in the session
+	agentSet := make(map[string]bool)
+	for _, e := range entries {
+		agentSet[e.FromAgent] = true
+	}
+	agents := make([]string, 0, len(agentSet))
+	for a := range agentSet {
+		agents = append(agents, a)
+	}
+
 	trace := &SessionTrace{
 		SessionID: sessionID,
-		Agent:     entries[0].FromAgent,
+		Agent:     strings.Join(agents, ", "),
 		ToolCount: len(entries),
 		StartedAt: entries[0].Timestamp,
 		EndedAt:   entries[len(entries)-1].Timestamp,
@@ -93,6 +105,7 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		step := TraceStep{
 			ToolName:  e.ToolName,
 			ToolInput: truncateStr(e.Intent, 200),
+			FromAgent: e.FromAgent,
 			Verdict:   e.Status,
 			Decision:  e.PolicyDecision,
 			Timestamp: e.Timestamp,
@@ -121,6 +134,11 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		}
 
 		trace.Steps = append(trace.Steps, step)
+	}
+
+	// Reverse steps so most recent appears first in the timeline
+	for i, j := 0, len(trace.Steps)-1; i < j; i, j = i+1, j-1 {
+		trace.Steps[i], trace.Steps[j] = trace.Steps[j], trace.Steps[i]
 	}
 
 	return trace, nil

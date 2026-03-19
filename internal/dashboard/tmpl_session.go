@@ -31,6 +31,11 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-step.s-blocked::before{background:var(--danger)}
 .st-step.s-quarantined::before{background:var(--warn)}
 
+.st-step.s-human{border-left:3px solid var(--accent)}
+.st-step.s-human::before{background:var(--accent)}
+.st-role{font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+.st-role.r-human{color:var(--accent);background:rgba(139,124,247,0.1)}
+.st-role.r-agent{color:var(--text3);background:var(--surface2)}
 .st-step-header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
 .st-tool{font-weight:600;color:var(--text);font-size:var(--text-sm)}
 .st-verdict{font-size:var(--text-xs);padding:2px 8px;border-radius:4px;font-weight:500}
@@ -91,8 +96,10 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 {{if .Trace.Steps}}
 <div class="st-timeline">
   {{range .Trace.Steps}}
-  <div class="st-step{{if eq .Verdict "blocked"}} s-blocked{{end}}{{if eq .Verdict "quarantined"}} s-quarantined{{end}}">
+  <div class="st-step{{if eq .Verdict "blocked"}} s-blocked{{end}}{{if eq .Verdict "quarantined"}} s-quarantined{{end}}{{if eq .ToolName "message"}} s-human{{end}}">
     <div class="st-step-header">
+      {{if eq .ToolName "message"}}<span class="st-role r-human">human</span>{{else}}<span class="st-role r-agent">agent</span>{{end}}
+      <span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)">{{.FromAgent}}</span>
       <span class="st-tool">{{.ToolName}}</span>
       <span class="st-verdict{{if eq .Verdict "blocked"}} v-blocked{{else if eq .Verdict "quarantined"}} v-quarantined{{else}} v-clean{{end}}">{{.Verdict}}</span>
       {{if gt .PlanStep 0}}<span class="st-plan">Step {{.PlanStep}}/{{.PlanTotal}}</span>{{end}}
