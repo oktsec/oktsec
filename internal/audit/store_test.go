@@ -281,8 +281,8 @@ func TestEntryJSON(t *testing.T) {
 
 func TestHubBroadcast(t *testing.T) {
 	store := newTestStore(t)
-	ch := store.Hub.Subscribe()
-	defer store.Hub.Unsubscribe(ch)
+	ch := store.Subscribe()
+	defer store.Unsubscribe(ch)
 
 	store.Log(Entry{ID: "hub1", Timestamp: time.Now().UTC().Format(time.RFC3339), FromAgent: "a", ToAgent: "b", ContentHash: "h", Status: "delivered", PolicyDecision: "allow"})
 	store.Flush()

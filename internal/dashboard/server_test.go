@@ -843,8 +843,8 @@ func TestAuditStore_Hub(t *testing.T) {
 	}
 	defer func() { _ = store.Close() }()
 
-	ch := store.Hub.Subscribe()
-	defer store.Hub.Unsubscribe(ch)
+	ch := store.Subscribe()
+	defer store.Unsubscribe(ch)
 
 	store.Log(audit.Entry{
 		ID: "hub-1", Timestamp: time.Now().UTC().Format(time.RFC3339),

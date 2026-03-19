@@ -730,6 +730,12 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// Subscribe returns a channel that receives every new audit entry in real time.
+func (s *Store) Subscribe() chan Entry { return s.Hub.Subscribe() }
+
+// Unsubscribe removes a subscription channel from the broadcast list.
+func (s *Store) Unsubscribe(ch chan Entry) { s.Hub.Unsubscribe(ch) }
+
 func (s *Store) writeLoop() {
 	defer close(s.done)
 

@@ -20,7 +20,7 @@ type Config struct {
 	DashURL    string
 	DashCode   string
 	AgentCount int
-	Hub        *audit.Hub
+	Hub        audit.EventHub
 	LiveCfg    *config.Config   // live config pointer — TUI reads current mode on each render
 }
 
@@ -67,7 +67,7 @@ type Model struct {
 
 	// Sub
 	sub chan audit.Entry
-	hub *audit.Hub
+	hub audit.EventHub
 
 	// UI
 	spinner       spinner.Model

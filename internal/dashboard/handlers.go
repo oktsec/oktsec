@@ -1041,8 +1041,8 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// Flush headers immediately so clients don't block waiting
 	flusher.Flush()
 
-	ch := s.audit.Hub.Subscribe()
-	defer s.audit.Hub.Unsubscribe(ch)
+	ch := s.audit.Subscribe()
+	defer s.audit.Unsubscribe(ch)
 
 	ctx := r.Context()
 	for {

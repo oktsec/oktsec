@@ -544,7 +544,7 @@ func startServer(configPath string, opts runOpts) error {
 
 	// Start embedded gateway if enabled (needed for hooks even without backends).
 	var gw *gateway.Gateway
-	var auditHub *audit.Hub
+	var auditStore *audit.Store
 	if cfg.Gateway.Enabled {
 		var gwErr error
 		gw, gwErr = gateway.NewGateway(cfg, logger)
@@ -554,9 +554,9 @@ func startServer(configPath string, opts runOpts) error {
 			gw.SetCfgPath(configPath)
 			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
 			gw.SetHooksHandler(hh)
-			auditHub = gw.AuditStore().Hub
+			auditStore = gw.AuditStore()
 			// Share audit store so proxy rejections appear in the same feed.
-			srv.SetAuditStore(gw.AuditStore())
+			srv.SetAuditStore(auditStore)
 			go func() {
 				if e := gw.Start(ctx); e != nil {
 					logger.Error("gateway error", "error", e)
@@ -564,8 +564,8 @@ func startServer(configPath string, opts runOpts) error {
 			}()
 		}
 	}
-	if auditHub == nil {
-		auditHub = srv.AuditStore().Hub
+	if auditStore == nil {
+		auditStore = srv.AuditStore()
 	}
 
 	// Build dashboard URL
@@ -588,7 +588,7 @@ func startServer(configPath string, opts runOpts) error {
 			DashURL:    dashURL,
 			DashCode:   srv.DashboardCode(),
 			AgentCount: len(cfg.Agents),
-			Hub:        auditHub,
+			Hub:        auditStore,
 			LiveCfg:    cfg,
 		})
 
