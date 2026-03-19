@@ -517,6 +517,10 @@ const layoutHead = `<!DOCTYPE html>
   </button>
   <span class="page-title">{{pageTitle .Active}}</span>
   <div class="spacer"></div>
+  <button id="redact-toggle" class="topbar-btn" onclick="toggleRedactPaths()" title="Mask file paths in displayed content">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+    <span id="redact-label">Mask paths</span>
+  </button>
   <a href="/dashboard/settings" class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Enforce mode — signatures required, unsigned messages rejected{{else}}Observe mode — scanning active, signatures optional. Click to configure.{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</a>
   <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" class="topbar-logout">Logout</button></form>
 </div>
@@ -596,6 +600,77 @@ function humanizeTimestamps(){
 }
 humanizeTimestamps();
 document.body.addEventListener('htmx:afterSettle',humanizeTimestamps);
+
+// Path redaction — hides full file paths, home dirs, usernames from displayed content.
+// Useful for screenshots, demos, compliance. Data in audit trail is NOT modified.
+var _redactOn = localStorage.getItem('oktsec-redact') === '1';
+function _redactStr(s) {
+  // /Users/foo/Documents/bar/baz.txt -> ~/.../baz.txt
+  // /home/foo/projects/bar/main.go -> ~/.../main.go
+  // C:\Users\foo\Documents\bar -> ~\...\bar
+  s = s.replace(/\/Users\/[^\/\s"',]+\/[^"'\s,}]*/g, function(m) {
+    var parts = m.split('/'); return '~/.../' + parts[parts.length - 1];
+  });
+  s = s.replace(/\/home\/[^\/\s"',]+\/[^"'\s,}]*/g, function(m) {
+    var parts = m.split('/'); return '~/.../' + parts[parts.length - 1];
+  });
+  s = s.replace(/[A-Z]:\\Users\\[^\\"\s,]+\\[^"'\s,}]*/g, function(m) {
+    var parts = m.split('\\'); return '~\\...\\' + parts[parts.length - 1];
+  });
+  return s;
+}
+function _applyRedaction() {
+  if (!_redactOn) return;
+  // Session trace tool inputs
+  document.querySelectorAll('.st-content').forEach(function(el) {
+    if (!el.dataset.orig) el.dataset.orig = el.textContent;
+    el.textContent = _redactStr(el.dataset.orig);
+  });
+  // Event detail panel
+  var edp = document.getElementById('ed-content-pretty');
+  if (edp) {
+    if (!edp.dataset.origHtml) edp.dataset.origHtml = edp.innerHTML;
+    edp.innerHTML = _redactStr(edp.dataset.origHtml);
+  }
+  // Event full page
+  var epp = document.getElementById('ep-content-pretty');
+  if (epp) {
+    if (!epp.dataset.origHtml) epp.dataset.origHtml = epp.innerHTML;
+    epp.innerHTML = _redactStr(epp.dataset.origHtml);
+  }
+  // Quarantine preview
+  document.querySelectorAll('.q-preview').forEach(function(el) {
+    if (!el.dataset.orig) el.dataset.orig = el.textContent;
+    el.textContent = _redactStr(el.dataset.orig);
+  });
+}
+function _removeRedaction() {
+  document.querySelectorAll('.st-content').forEach(function(el) {
+    if (el.dataset.orig) el.textContent = el.dataset.orig;
+  });
+  var edp = document.getElementById('ed-content-pretty');
+  if (edp && edp.dataset.origHtml) edp.innerHTML = edp.dataset.origHtml;
+  var epp = document.getElementById('ep-content-pretty');
+  if (epp && epp.dataset.origHtml) epp.innerHTML = epp.dataset.origHtml;
+  document.querySelectorAll('.q-preview').forEach(function(el) {
+    if (el.dataset.orig) el.textContent = el.dataset.orig;
+  });
+}
+function toggleRedactPaths() {
+  _redactOn = !_redactOn;
+  localStorage.setItem('oktsec-redact', _redactOn ? '1' : '0');
+  var btn = document.getElementById('redact-toggle');
+  if (btn) btn.classList.toggle('active', _redactOn);
+  if (_redactOn) _applyRedaction(); else _removeRedaction();
+}
+// Init on page load
+(function() {
+  var btn = document.getElementById('redact-toggle');
+  if (btn) btn.classList.toggle('active', _redactOn);
+  if (_redactOn) setTimeout(_applyRedaction, 100);
+})();
+// Re-apply after HTMX content loads
+document.body.addEventListener('htmx:afterSettle', function() { if (_redactOn) setTimeout(_applyRedaction, 50); });
 
 // Agent avatar generator (mirrors Go agentAvatar — pastel palette, abstract patterns)
 var _avPal=['#7ec8e3','#a78bda','#c9a9e0','#e8a0bf','#f4b183','#b5d99c','#8cc5b2','#d6c28e'];

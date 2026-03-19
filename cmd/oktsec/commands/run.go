@@ -462,7 +462,7 @@ func killExistingInstance() {
 		var other int
 		if _, err := fmt.Sscanf(line, "%d", &other); err == nil && other != pid {
 			if p, err := os.FindProcess(other); err == nil {
-				_ = p.Signal(os.Interrupt)
+				_ = p.Signal(syscall.SIGTERM)
 				// Brief wait for graceful shutdown.
 				time.Sleep(200 * time.Millisecond)
 			}

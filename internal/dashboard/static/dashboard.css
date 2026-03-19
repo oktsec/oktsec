@@ -128,6 +128,9 @@ a{color:inherit;text-decoration:none}
 .topbar .mode-pill.observe{background:transparent;border-color:rgba(139,148,158,0.3);color:#c9d1d9}
 .topbar-logout{background:transparent;border:1px solid var(--border);color:var(--text3);padding:5px var(--sp-3);border-radius:var(--radius-md);font-size:var(--text-xs);cursor:pointer;font-family:var(--sans);transition:all var(--ease-default)}
 .topbar-logout:hover{color:var(--text2);border-color:var(--border-hover);background:var(--surface2)}
+.topbar-btn{display:inline-flex;align-items:center;gap:5px;background:transparent;border:1px solid var(--border);color:var(--text3);padding:5px 10px;border-radius:var(--radius-md);font-size:var(--text-xs);cursor:pointer;font-family:var(--sans);transition:all var(--ease-default);margin-right:8px}
+.topbar-btn:hover{color:var(--text2);border-color:var(--border-hover);background:var(--surface2)}
+.topbar-btn.active{color:#d29922;border-color:rgba(210,153,34,0.4);background:rgba(210,153,34,0.08)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
 
 /* ==========================================================================
