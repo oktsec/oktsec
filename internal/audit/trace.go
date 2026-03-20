@@ -102,9 +102,14 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 
 	var prevTime time.Time
 	for _, e := range entries {
+		// Strip wrapping quotes from intent (hooks handler JSON-encodes simple strings)
+		intent := e.Intent
+		if len(intent) >= 2 && intent[0] == '"' && intent[len(intent)-1] == '"' {
+			intent = intent[1 : len(intent)-1]
+		}
 		step := TraceStep{
 			ToolName:  e.ToolName,
-			ToolInput: truncateStr(e.Intent, 200),
+			ToolInput: truncateStr(intent, 200),
 			FromAgent: e.FromAgent,
 			Verdict:   e.Status,
 			Decision:  e.PolicyDecision,
