@@ -813,7 +813,7 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
 .hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
-.hero-stat{background:var(--surface2);padding:var(--sp-6) var(--sp-5);text-align:center;transition:background var(--ease-smooth);position:relative}
+.hero-stat{background:var(--surface2);padding:var(--sp-6) var(--sp-5);text-align:center;transition:background var(--ease-smooth);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .hero-stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent-dim),var(--accent-light));opacity:0;transition:opacity var(--ease-smooth)}
 .hero-stat:hover{background:var(--surface2)}
 .hero-stat:hover::before{opacity:1}
