@@ -39,8 +39,9 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-step.s-blocked::before{background:var(--danger);box-shadow:0 0 6px var(--danger-muted)}
 .st-step.s-quarantined::before{background:var(--warn);box-shadow:0 0 6px var(--warn-muted)}
 
-.st-step.s-human{border-left:3px solid var(--purple)}
+.st-step.s-human{border-left:3px solid var(--purple);background:var(--purple-muted)}
 .st-step.s-human::before{background:var(--purple);box-shadow:0 0 6px var(--purple-muted)}
+.st-step.s-human.s-blocked{border-left:3px solid var(--danger);background:var(--danger-muted)}
 .st-role{font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
 .st-role.r-human{color:var(--purple);background:var(--purple-muted);border:1px solid var(--purple-border)}
 .st-role.r-agent{color:var(--text3);background:var(--surface2);border:1px solid var(--border)}
