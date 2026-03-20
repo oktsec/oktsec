@@ -1807,8 +1807,9 @@ func simpleMarkdownToHTML(s string) template.HTML {
 	return template.HTML(out.String())
 }
 
-// boldify converts **text** to <strong>text</strong> in already-escaped HTML.
+// boldify converts **text** to <strong>, `code` to <code>, and [text](url) to <a> in already-escaped HTML.
 func boldify(s string) string {
+	// Bold: **text**
 	for {
 		start := strings.Index(s, "**")
 		if start == -1 {
@@ -1833,6 +1834,31 @@ func boldify(s string) string {
 		}
 		end += start + 1
 		s = s[:start] + "<code style=\"background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:0.85em\">" + s[start+1:end] + "</code>" + s[end+1:]
+	}
+	// Links: [text](url) - only allow internal /dashboard/ links for safety
+	for {
+		lStart := strings.Index(s, "[")
+		if lStart == -1 {
+			break
+		}
+		lEnd := strings.Index(s[lStart:], "](")
+		if lEnd == -1 {
+			break
+		}
+		lEnd += lStart
+		uEnd := strings.Index(s[lEnd+2:], ")")
+		if uEnd == -1 {
+			break
+		}
+		uEnd += lEnd + 2
+		text := s[lStart+1 : lEnd]
+		url := s[lEnd+2 : uEnd]
+		// Only allow internal dashboard links
+		if strings.HasPrefix(url, "/dashboard/") {
+			s = s[:lStart] + "<a href=\"" + url + "\" style=\"color:var(--accent)\">" + text + "</a>" + s[uEnd+1:]
+		} else {
+			break // stop processing links if not internal
+		}
 	}
 	return s
 }

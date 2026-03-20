@@ -18,13 +18,15 @@ var sessionsPageTmpl = template.Must(template.New("sessions").Funcs(tmplFuncs).P
 .ss-search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text3);width:14px;height:14px}
 
 .ss-table{width:100%;border-collapse:collapse}
-.ss-table th{text-align:left;padding:10px 12px;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);border-bottom:1px solid var(--border)}
-.ss-table td{padding:14px 12px;border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--text2);vertical-align:middle}
+.ss-table th{text-align:left;padding:10px 14px;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);border-bottom:1px solid var(--border)}
+.ss-table td{padding:14px;border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--text2);vertical-align:top}
 .ss-table tr:hover{background:var(--surface)}
 .ss-table tr.ss-hidden{display:none}
 .ss-table a{color:var(--accent);text-decoration:none}
 .ss-table a:hover{text-decoration:underline}
 .ss-table .r{text-align:right}
+.ss-session-name{font-weight:500;color:var(--accent);word-break:break-all}
+.ss-session-meta{font-size:0.68rem;color:var(--text3);margin-top:3px;font-family:var(--mono)}
 
 .ss-risk{display:inline-block;padding:2px 8px;border-radius:4px;font-size:var(--text-xs);font-weight:600}
 .ss-risk.r-high{background:rgba(239,68,68,0.12);color:var(--danger)}
@@ -91,22 +93,20 @@ const sessionsBodyTmpl = `
 <table class="ss-table" id="ss-table">
   <thead>
     <tr>
-      <th style="width:22%">Session</th>
-      <th style="width:12%">Duration</th>
-      <th style="width:24%">Agents</th>
-      <th style="width:7%" class="r">Events</th>
-      <th style="width:25%">Threats</th>
-      <th style="width:10%" class="r">Risk</th>
+      <th>Session</th>
+      <th>Agents</th>
+      <th class="r">Events</th>
+      <th>Threats</th>
+      <th class="r">Risk</th>
     </tr>
   </thead>
   <tbody>
     {{range .Sessions}}
     <tr data-search="{{.SessionID}} {{.Agents}} {{if gt .Blocks 0}}blocked{{end}} {{if gt .Quarantines 0}}quarantined{{end}}">
       <td>
-        <a href="/dashboard/sessions/{{.SessionID}}" class="ss-session" title="{{.SessionID}}">{{.SessionID}}</a>
-        <div style="font-size:0.65rem;color:var(--text3);margin-top:2px">{{truncate .StartedAt 19}}{{if .Duration}} &middot; {{.Duration}}{{end}}</div>
+        <a href="/dashboard/sessions/{{.SessionID}}" class="ss-session-name">{{.SessionID}}</a>
+        <div class="ss-session-meta">{{truncate .StartedAt 19}} · {{if .Duration}}{{.Duration}}{{else}}0s{{end}}</div>
       </td>
-      <td>{{if .Duration}}{{.Duration}}{{else}}&mdash;{{end}}</td>
       <td class="ss-agents">{{range $i, $a := split .Agents ","}}{{if $i}} {{end}}<span class="pill">{{$a}}</span>{{end}}</td>
       <td class="r">{{.EventCount}}</td>
       <td>

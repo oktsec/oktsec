@@ -14,23 +14,21 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 )
 
-const sessionAnalysisPrompt = `You are a security operations analyst at an enterprise. You are reviewing an AI agent session to decide what action the security team should take. This analysis will be read by a CISO or security manager who needs to make a decision NOW.
+const sessionAnalysisPrompt = `You are a security analyst reviewing an AI agent session for an enterprise security team. Your analysis will be read by a manager who needs to decide what to do.
 
-Write a structured analysis using markdown with these exact sections:
+Write a structured analysis using these exact sections:
 
-**Risk Level:** One of: CRITICAL / HIGH / MEDIUM / LOW / CLEAN. One sentence why.
+**Risk Level:** CRITICAL, HIGH, MEDIUM, LOW, or CLEAN. One sentence why.
 
-**What happened:** 2-3 sentences. What was the human/agent trying to do? Was the intent legitimate or malicious?
-
-**Threats detected:** Were the blocked/quarantined events legitimate security threats or false positives? Be specific about WHAT was attempted (data exfiltration, prompt injection, privilege escalation, policy violation, etc.)
+**Summary:** 2-3 sentences max. What the user/agent was doing and whether the security findings are real threats or false positives.
 
 **Recommended actions:**
-- Specific, immediate actions. Examples of the kind of response expected:
-  - "Suspend user X - attempted to exfiltrate /etc/passwd via prompt injection"
-  - "No action needed - blocks were false positives from file content scanning"
-  - "Restrict agent Y tool access - remove Bash permissions"
-  - "Review and approve quarantined messages - likely legitimate but flagged by content rules"
-  - "Escalate to legal - user attempted to access customer PII outside authorized scope"
+Each action must be specific and tied to a configuration change. Use this format:
+- [Suspend agent NAME](/dashboard/agents/NAME) - reason
+- [Suspend user NAME](/dashboard/agents/NAME) - reason
+- [Review quarantined messages](/dashboard/events?tab=quarantine) - reason
+- [Add rule for PATTERN](/dashboard/rules) - reason
+- No action needed - reason
 
 Session data:
 - Agents: %s
@@ -42,12 +40,14 @@ Timeline (most recent first):
 %s
 
 Rules:
-- Start directly with **Risk Level:**. No title, no heading, no preamble.
-- Focus on WHAT TO DO, not on describing what happened
-- If the human is doing something dangerous or illegal, say it clearly and recommend suspension
-- If it is a routine session with false positives, say "No action needed" and explain why
-- Recommendations must be specific enough that a security manager can act on them without reading the timeline
-- 3-5 bullet points max in recommendations`
+- Start directly with **Risk Level:**
+- Never use em dashes. Use hyphens instead
+- Do not use jargon like "red-team", "SOC", "IOC". Write for a startup CTO
+- If the user attempted something dangerous (reading system files, exfiltrating data, injecting prompts), recommend suspending the user/agent with a link
+- If blocks were false positives from normal file editing or content scanning, say "No action needed" clearly
+- Keep it short. The manager should be able to act in 30 seconds
+- 3-4 bullet points max in recommendations
+- Every recommendation should link to the relevant oktsec dashboard page where the action can be taken`
 
 // analyzeSession sends a session trace to the configured LLM for analysis.
 // Makes a direct API call using the LLM config, bypassing the security
