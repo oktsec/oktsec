@@ -18,7 +18,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-stat .value.v-success{color:var(--success)}
 
 /* 2-column layout */
-.st-layout{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+.st-layout{display:grid;grid-template-columns:3fr 2fr;gap:24px;align-items:start}
 .st-layout.no-analysis{grid-template-columns:1fr}
 @media(max-width:1100px){.st-layout{grid-template-columns:1fr}}
 

@@ -75,8 +75,40 @@ func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) 
 		return "", fmt.Errorf("LLM API key not set")
 	}
 
+	// Identify humans and agents explicitly
+	humanNames := make(map[string]bool)
+	agentNames := make(map[string]bool)
+	for _, step := range trace.Steps {
+		if step.ToolName == "message" {
+			humanNames[step.FromAgent] = true
+		} else {
+			agentNames[step.FromAgent] = true
+		}
+	}
+	var rolesSummary strings.Builder
+	rolesSummary.WriteString("Human users in this session (sent [HUMAN] messages): ")
+	first := true
+	for name := range humanNames {
+		if !first {
+			rolesSummary.WriteString(", ")
+		}
+		rolesSummary.WriteString(name)
+		first = false
+	}
+	rolesSummary.WriteString("\nAI agents in this session (sent [AGENT] responses): ")
+	first = true
+	for name := range agentNames {
+		if !first {
+			rolesSummary.WriteString(", ")
+		}
+		rolesSummary.WriteString(name)
+		first = false
+	}
+	rolesSummary.WriteString("\n\nOnly recommend suspending names listed as Human users above. Never recommend suspending AI agents that correctly blocked attacks.\n\n")
+
 	// Build timeline text with role tags
 	var sb strings.Builder
+	sb.WriteString(rolesSummary.String())
 	for i, step := range trace.Steps {
 		if i >= 30 {
 			fmt.Fprintf(&sb, "... and %d more steps\n", len(trace.Steps)-30)
