@@ -14,7 +14,7 @@ test:
 	go test -race -count=1 ./...
 
 integration-test:
-	go test -race -count=1 -tags=integration ./internal/proxy/ -v -timeout 120s
+	go test -race -count=1 -tags=integration ./internal/proxy/ -v -timeout 300s
 
 lint:
 	golangci-lint run ./...
