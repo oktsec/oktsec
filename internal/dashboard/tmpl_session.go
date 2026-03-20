@@ -20,7 +20,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 /* 2-column layout */
 .st-layout{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
 .st-layout.no-analysis{grid-template-columns:1fr}
-@media(max-width:1200px){.st-layout{grid-template-columns:1fr}}
+@media(max-width:1100px){.st-layout{grid-template-columns:1fr}}
 
 /* Timeline */
 .st-timeline{position:relative;padding-left:32px}

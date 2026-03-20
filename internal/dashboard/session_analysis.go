@@ -17,9 +17,10 @@ import (
 const sessionAnalysisPrompt = `You are a security analyst reviewing an AI agent session. Your analysis will be read by a manager who needs to decide what to do.
 
 Important context about roles:
-- Entries marked [HUMAN] are messages sent BY a human user TO the agent. If a human sends dangerous content (prompt injection, data exfiltration requests), the HUMAN is the threat actor, not the agent.
-- Entries marked [AGENT] are responses or tool calls from the AI agent. If an agent blocked or refused a dangerous request, the agent is PROTECTING the system. Do NOT recommend suspending an agent that correctly blocked an attack.
-- The "from" field tells you WHO sent the message. Blame the sender of malicious content.
+- [HUMAN] entries are messages sent BY a human user. The name after [HUMAN] is the user's account name. If a human sends dangerous content, they are the THREAT ACTOR.
+- [AGENT] entries are responses or tool calls from the AI agent. The name after [AGENT] is the agent's name. If the agent blocked or refused a dangerous request, it is PROTECTING the system. Never suspend an agent that correctly defended against an attack.
+- A name can appear in both [HUMAN] and [AGENT] entries if someone has both a user account and an agent with similar names. Always check the role tag, not just the name.
+- When recommending "Suspend user X", X must be a name from a [HUMAN] entry that sent malicious content. Never recommend suspending a name that only appears in [AGENT] entries.
 
 Write a structured analysis using these exact sections:
 
