@@ -209,13 +209,15 @@ type ToolPolicy struct {
 // EgressPolicy defines per-agent outbound traffic controls.
 // Nil means fall back to global forward_proxy settings.
 type EgressPolicy struct {
-	AllowedDomains    []string `yaml:"allowed_domains,omitempty"`
-	BlockedDomains    []string `yaml:"blocked_domains,omitempty"`
-	ScanRequests      *bool    `yaml:"scan_requests,omitempty"`
-	ScanResponses     *bool    `yaml:"scan_responses,omitempty"`
-	BlockedCategories []string `yaml:"blocked_categories,omitempty"`
-	RateLimit         int      `yaml:"rate_limit,omitempty"`
-	RateWindow        int      `yaml:"rate_window,omitempty"` // seconds (default: 60)
+	AllowedDomains    []string            `yaml:"allowed_domains,omitempty"`
+	BlockedDomains    []string            `yaml:"blocked_domains,omitempty"`
+	ToolRestrictions  map[string][]string `yaml:"tool_restrictions,omitempty"` // tool -> allowed domains (empty = no egress for that tool)
+	ScanRequests      *bool               `yaml:"scan_requests,omitempty"`
+	ScanResponses     *bool               `yaml:"scan_responses,omitempty"`
+	BlockedCategories []string            `yaml:"blocked_categories,omitempty"`
+	RateLimit         int                 `yaml:"rate_limit,omitempty"`
+	RateWindow        int                 `yaml:"rate_window,omitempty"` // seconds (default: 60)
+	Integrations      []string            `yaml:"integrations,omitempty"` // preset names: "slack", "github", "telegram", etc.
 }
 
 // QuarantineConfig configures the quarantine queue behavior.

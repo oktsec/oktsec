@@ -70,16 +70,7 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		EndedAt:   entries[len(entries)-1].Timestamp,
 	}
 
-	// Calculate duration (try RFC3339Nano then RFC3339)
-	parseTS := func(ts string) (time.Time, bool) {
-		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
-			return t, true
-		}
-		if t, err := time.Parse(time.RFC3339, ts); err == nil {
-			return t, true
-		}
-		return time.Time{}, false
-	}
+	// Calculate duration
 	if start, ok := parseTS(trace.StartedAt); ok {
 		if end, ok := parseTS(trace.EndedAt); ok {
 			d := end.Sub(start).Round(time.Second)

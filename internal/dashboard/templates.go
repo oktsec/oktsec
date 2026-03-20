@@ -93,9 +93,24 @@ var tmplFuncs = template.FuncMap{
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
 	"hasRules": func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"fmtDate": func(ts string) string {
+		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+			return t.Local().Format("Jan 02 15:04")
+		}
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			return t.Local().Format("Jan 02 15:04")
+		}
+		if len(ts) > 16 {
+			return ts[:16]
+		}
+		return ts
+	},
+	"split":    strings.Split,
+	"mdToHTML": simpleMarkdownToHTML,
 	"pageTitle": func(active string) string {
 		titles := map[string]string{
 			"events":    "Events",
+			"sessions":  "Sessions",
 			"audit":     "Security Posture",
 			"llm":       "AI Analysis",
 			"discovery": "Discovery",
@@ -466,6 +481,10 @@ const layoutHead = `<!DOCTYPE html>
     <a href="/dashboard/events" class="sidebar-item {{if eq .Active "events"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
       Events
+    </a>
+    <a href="/dashboard/sessions" class="sidebar-item {{if eq .Active "sessions"}}active{{end}}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      Sessions
     </a>
     <a href="/dashboard/alerts" class="sidebar-item {{if eq .Active "alerts"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>

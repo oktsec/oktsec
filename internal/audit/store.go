@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -86,6 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_quarantine_status ON quarantine_queue(status);
 CREATE INDEX IF NOT EXISTS idx_quarantine_expires ON quarantine_queue(expires_at);
 CREATE INDEX IF NOT EXISTS idx_audit_ts_agent_status ON audit_log(timestamp, from_agent, status);
 CREATE INDEX IF NOT EXISTS idx_audit_ts_from_to_status ON audit_log(timestamp, from_agent, to_agent, status);
+CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id) WHERE session_id <> '';
 `
 
 // Hub broadcasts new audit entries to connected SSE clients.
@@ -1277,6 +1279,113 @@ func (s *Store) QueryToolStats(since string) ([]ToolStat, error) {
 		result = append(result, ts)
 	}
 	return result, rows.Err()
+}
+
+// QuerySessions returns aggregated session summaries within the given time window.
+// Sessions are grouped by session_id with stats computed from audit_log.
+func (s *Store) QuerySessions(since string, limit int) ([]SessionSummary, error) {
+	cutoff := since
+	if cutoff == "" {
+		cutoff = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := s.db.Query(`
+		SELECT
+			session_id,
+			MIN(timestamp) as started_at,
+			MAX(timestamp) as ended_at,
+			COUNT(*) as event_count,
+			COUNT(DISTINCT from_agent) as agent_count,
+			GROUP_CONCAT(DISTINCT from_agent) as agents,
+			SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocks,
+			SUM(CASE WHEN status = 'quarantined' THEN 1 ELSE 0 END) as quarantines,
+			SUM(CASE WHEN policy_decision = 'content_flagged' THEN 1 ELSE 0 END) as flags,
+			SUM(COALESCE(latency_ms, 0)) as total_latency_ms
+		FROM audit_log
+		WHERE session_id <> '' AND timestamp >= ?
+		GROUP BY session_id
+		ORDER BY MIN(timestamp) DESC
+		LIMIT ?`, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query sessions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []SessionSummary
+	for rows.Next() {
+		var ss SessionSummary
+		if err := rows.Scan(
+			&ss.SessionID, &ss.StartedAt, &ss.EndedAt,
+			&ss.EventCount, &ss.AgentCount, &ss.Agents,
+			&ss.Blocks, &ss.Quarantines, &ss.Flags,
+			&ss.TotalLatencyMs,
+		); err != nil {
+			continue
+		}
+		// Compute duration
+		if start, ok := parseTS(ss.StartedAt); ok {
+			if end, ok := parseTS(ss.EndedAt); ok {
+				d := end.Sub(start).Round(time.Second)
+				if d < time.Second {
+					d = end.Sub(start).Round(time.Millisecond)
+				}
+				ss.Duration = d.String()
+			}
+		}
+		// Risk score: weighted sum
+		ss.RiskScore = ss.Blocks*10 + ss.Quarantines*5 + ss.Flags
+		result = append(result, ss)
+	}
+	return result, rows.Err()
+}
+
+// parseTS tries RFC3339Nano then RFC3339.
+func parseTS(ts string) (time.Time, bool) {
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse(time.RFC3339, ts); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
+// SessionAnalysisResult holds a saved AI analysis with metadata.
+type SessionAnalysisResult struct {
+	Text      string
+	Model     string
+	Timestamp string
+}
+
+// QuerySessionAnalysis retrieves a saved AI analysis for a session.
+func (s *Store) QuerySessionAnalysis(sessionID string) *SessionAnalysisResult {
+	var text, model, ts string
+	err := s.db.QueryRow(
+		`SELECT reasoning, COALESCE(tool_use_id,''), timestamp FROM reasoning_log WHERE session_id = ? AND audit_entry_id = 'session-analysis' ORDER BY timestamp DESC LIMIT 1`,
+		sessionID,
+	).Scan(&text, &model, &ts)
+	if err != nil || text == "" {
+		return nil
+	}
+	return &SessionAnalysisResult{Text: text, Model: model, Timestamp: ts}
+}
+
+// SaveSessionAnalysis persists an AI session analysis as a reasoning entry.
+// The model name is stored in ToolUseID for metadata tracking.
+func (s *Store) SaveSessionAnalysis(sessionID, analysis, model string) error {
+	r := ReasoningEntry{
+		ID:            "sa-" + sessionID[:min(len(sessionID), 20)] + "-" + time.Now().Format("20060102150405"),
+		AuditEntryID:  "session-analysis",
+		SessionID:     sessionID,
+		ToolUseID:     model,
+		Reasoning:     analysis,
+		ReasoningHash: fmt.Sprintf("%x", sha256.Sum256([]byte(analysis))),
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+	}
+	return s.LogReasoning(r)
 }
 
 // QueryEdgeRules returns the top triggered rules for a specific from→to edge.

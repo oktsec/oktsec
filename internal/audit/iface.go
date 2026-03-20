@@ -104,9 +104,10 @@ type AlertStore interface {
 	AlertStats() (AlertStats, error)
 }
 
-// SessionTracer reconstructs agent session timelines.
+// SessionTracer reconstructs agent session timelines and inventories.
 type SessionTracer interface {
 	BuildSessionTrace(sessionID string) (*SessionTrace, error)
+	QuerySessions(since string, limit int) ([]SessionSummary, error)
 }
 
 // ChainVerifier provides access to the hash chain for tamper detection.

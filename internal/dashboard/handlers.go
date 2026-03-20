@@ -1559,6 +1559,133 @@ func csvEscape(s string) string {
 	return `"` + s + `"`
 }
 
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	rangeParam := r.URL.Query().Get("range")
+	if rangeParam == "" {
+		rangeParam = "24h"
+	}
+
+	var since string
+	switch rangeParam {
+	case "7d":
+		since = time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	case "30d":
+		since = time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	default:
+		rangeParam = "24h"
+		since = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
+
+	sessions, err := s.audit.QuerySessions(since, 200)
+	if err != nil {
+		s.logger.Error("query sessions", "error", err)
+		sessions = nil
+	}
+
+	// Compute summary stats
+	totalEvents := 0
+	threatSessions := 0
+	var totalDurationMs int64
+	durCount := 0
+	for _, ss := range sessions {
+		totalEvents += ss.EventCount
+		if ss.Blocks > 0 || ss.Quarantines > 0 {
+			threatSessions++
+		}
+		totalDurationMs += ss.TotalLatencyMs
+		if ss.Duration != "" {
+			durCount++
+		}
+	}
+
+	avgDuration := "-"
+	if durCount > 0 {
+		avgMs := totalDurationMs / int64(durCount)
+		if avgMs > 0 {
+			avgDuration = (time.Duration(avgMs) * time.Millisecond).Round(time.Second).String()
+		}
+	}
+
+	data := map[string]any{
+		"Active":         "sessions",
+		"Sessions":       sessions,
+		"Range":          rangeParam,
+		"TotalSessions":  len(sessions),
+		"ThreatSessions": threatSessions,
+		"AvgDuration":    avgDuration,
+		"TotalEvents":    totalEvents,
+	}
+	s.renderTemplate(w, sessionsPageTmpl, data)
+}
+
+func (s *Server) handleSessionsExport(w http.ResponseWriter, r *http.Request) {
+	rangeParam := r.URL.Query().Get("range")
+	format := r.URL.Query().Get("format")
+
+	var since string
+	switch rangeParam {
+	case "7d":
+		since = time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	case "30d":
+		since = time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	default:
+		since = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
+
+	sessions, err := s.audit.QuerySessions(since, 500)
+	if err != nil {
+		http.Error(w, "query error", http.StatusInternalServerError)
+		return
+	}
+
+	switch format {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=sessions.csv")
+		_, _ = w.Write([]byte("session_id,started_at,ended_at,duration,events,agents,blocks,quarantines,flags,risk_score\n"))
+		for _, ss := range sessions {
+			_, _ = fmt.Fprintf(w, "%s,%s,%s,%s,%d,%q,%d,%d,%d,%d\n",
+				ss.SessionID, ss.StartedAt, ss.EndedAt, ss.Duration,
+				ss.EventCount, ss.Agents, ss.Blocks, ss.Quarantines, ss.Flags, ss.RiskScore)
+		}
+	default: // json
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(sessions)
+	}
+}
+
+func (s *Server) handleSessionAnalyze(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		http.Error(w, "missing session ID", http.StatusBadRequest)
+		return
+	}
+
+	trace, err := s.audit.BuildSessionTrace(sessionID)
+	if err != nil || trace == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	analysis, err := s.analyzeSession(r.Context(), trace)
+	if err != nil {
+		s.logger.Warn("session analysis failed", "error", err, "session", sessionID)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	// Persist to DB as evidence
+	model := s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
+	if store, ok := s.audit.(*audit.Store); ok {
+		if saveErr := store.SaveSessionAnalysis(sessionID, analysis, model); saveErr != nil {
+			s.logger.Warn("failed to save session analysis", "error", saveErr)
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	_, _ = w.Write([]byte(analysis))
+}
+
 func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 	if sessionID == "" {
@@ -1572,10 +1699,27 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load saved AI analysis if it exists
+	var savedAnalysis, analysisModel, analysisDate string
+	if store, ok := s.audit.(*audit.Store); ok {
+		if result := store.QuerySessionAnalysis(sessionID); result != nil {
+			savedAnalysis = result.Text
+			analysisModel = result.Model
+			if t, err := time.Parse(time.RFC3339, result.Timestamp); err == nil {
+				analysisDate = t.Local().Format("Jan 02, 2006 15:04")
+			} else {
+				analysisDate = result.Timestamp
+			}
+		}
+	}
+
 	data := map[string]any{
-		"Active":     "events",
-		"Trace":      trace,
-		"RequireSig": s.cfg.Identity.RequireSignature,
+		"Active":        "sessions",
+		"Trace":         trace,
+		"RequireSig":    s.cfg.Identity.RequireSignature,
+		"SavedAnalysis": savedAnalysis,
+		"AnalysisModel": analysisModel,
+		"AnalysisDate":  analysisDate,
 	}
 	s.renderTemplate(w, sessionTraceTmpl, data)
 }
@@ -1645,6 +1789,89 @@ func humanReadableDecision(decision string) string {
 		return label
 	}
 	return decision
+}
+
+// simpleMarkdownToHTML converts basic markdown (bold, headers, lists, code)
+// to HTML for rendering AI analysis in the dashboard. No external dependencies.
+func simpleMarkdownToHTML(s string) template.HTML {
+	var out strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "## "):
+			out.WriteString("<h3 style=\"margin:16px 0 8px;font-size:0.85rem;color:var(--text)\">")
+			out.WriteString(template.HTMLEscapeString(strings.TrimPrefix(trimmed, "## ")))
+			out.WriteString("</h3>")
+		case strings.HasPrefix(trimmed, "# "):
+			out.WriteString("<h3 style=\"margin:16px 0 8px;font-size:0.9rem;color:var(--text)\">")
+			out.WriteString(template.HTMLEscapeString(strings.TrimPrefix(trimmed, "# ")))
+			out.WriteString("</h3>")
+		case strings.HasPrefix(trimmed, "- "):
+			content := boldify(template.HTMLEscapeString(strings.TrimPrefix(trimmed, "- ")))
+			out.WriteString("<div style=\"padding-left:16px;margin:4px 0\">&#8226; " + content + "</div>")
+		case trimmed == "":
+			out.WriteString("<div style=\"height:8px\"></div>")
+		default:
+			out.WriteString("<p style=\"margin:6px 0\">" + boldify(template.HTMLEscapeString(trimmed)) + "</p>")
+		}
+	}
+	return template.HTML(out.String())
+}
+
+// boldify converts **text** to <strong>, `code` to <code>, and [text](url) to <a> in already-escaped HTML.
+func boldify(s string) string {
+	// Bold: **text**
+	for {
+		start := strings.Index(s, "**")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start+2:], "**")
+		if end == -1 {
+			break
+		}
+		end += start + 2
+		s = s[:start] + "<strong>" + s[start+2:end] + "</strong>" + s[end+2:]
+	}
+	// Inline code: `text`
+	for {
+		start := strings.Index(s, "`")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start+1:], "`")
+		if end == -1 {
+			break
+		}
+		end += start + 1
+		s = s[:start] + "<code style=\"background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:0.85em\">" + s[start+1:end] + "</code>" + s[end+1:]
+	}
+	// Links: [text](url) - only allow internal /dashboard/ links for safety
+	for {
+		lStart := strings.Index(s, "[")
+		if lStart == -1 {
+			break
+		}
+		lEnd := strings.Index(s[lStart:], "](")
+		if lEnd == -1 {
+			break
+		}
+		lEnd += lStart
+		uEnd := strings.Index(s[lEnd+2:], ")")
+		if uEnd == -1 {
+			break
+		}
+		uEnd += lEnd + 2
+		text := s[lStart+1 : lEnd]
+		url := s[lEnd+2 : uEnd]
+		// Only allow internal dashboard links
+		if strings.HasPrefix(url, "/dashboard/") {
+			s = s[:lStart] + "<a href=\"" + url + "\" style=\"color:var(--accent)\">" + text + "</a>" + s[uEnd+1:]
+		} else {
+			break // stop processing links if not internal
+		}
+	}
+	return s
 }
 
 // --- Rule detail handler ---
@@ -2909,6 +3136,12 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Hot-reload LLM queue so Test Connection and Analyze work without restart
+	if s.cfg.LLM.Enabled && s.llmQueue == nil {
+		s.reloadLLMQueue()
+	}
+
 	http.Redirect(w, r, "/dashboard/llm", http.StatusFound)
 }
 
@@ -2916,6 +3149,10 @@ func (s *Server) handleToggleLLM(w http.ResponseWriter, r *http.Request) {
 	s.cfg.LLM.Enabled = !s.cfg.LLM.Enabled
 	if s.cfgPath != "" {
 		_ = s.saveConfig()
+	}
+	// Hot-reload queue when enabling
+	if s.cfg.LLM.Enabled && s.llmQueue == nil {
+		s.reloadLLMQueue()
 	}
 	w.Header().Set("Content-Type", "text/html")
 	if s.cfg.LLM.Enabled {
