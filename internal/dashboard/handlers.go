@@ -932,8 +932,9 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"AgentRisk":    agentRiskData,
 		"LLMHistory":   llmHistory,
 		"LLMEnabled":   s.cfg.LLM.Enabled,
-		"CommPartners": commPartners,
-		"Presets":      presetsList(),
+		"CommPartners":   commPartners,
+		"Presets":        presetsList(),
+		"AgentSessions":  agentSessions(s.audit, name),
 	}
 
 	s.renderTemplate(w, agentDetailTmpl, data)
@@ -1790,6 +1791,24 @@ func humanReadableDecision(decision string) string {
 		return label
 	}
 	return decision
+}
+
+// agentSessions returns recent sessions involving this agent.
+func agentSessions(store audit.AuditStore, agentName string) []audit.SessionSummary {
+	all, err := store.QuerySessions("", 100)
+	if err != nil {
+		return nil
+	}
+	var result []audit.SessionSummary
+	for _, s := range all {
+		if strings.Contains(s.Agents, agentName) {
+			result = append(result, s)
+			if len(result) >= 10 {
+				break
+			}
+		}
+	}
+	return result
 }
 
 type presetInfo struct {

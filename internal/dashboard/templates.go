@@ -1608,6 +1608,27 @@ function adTab(name){
       {{end}}
     </div>
 
+    <!-- Sessions -->
+    {{if .AgentSessions}}
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Sessions <a href="/dashboard/sessions" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a></div>
+      <table style="font-size:0.78rem">
+        <thead><tr><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Session</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Events</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Duration</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Threats</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Risk</th></tr></thead>
+        <tbody>
+        {{range .AgentSessions}}
+        <tr>
+          <td><a href="/dashboard/sessions/{{.SessionID}}" style="color:var(--accent);text-decoration:none;font-family:var(--mono);font-size:0.75rem">{{truncate .SessionID 24}}</a></td>
+          <td>{{.EventCount}}</td>
+          <td>{{if .Duration}}{{.Duration}}{{else}}0s{{end}}</td>
+          <td>{{if gt .Blocks 0}}<span style="color:var(--danger);font-size:0.75rem">{{.Blocks}} blocked</span>{{end}}{{if gt .Quarantines 0}} <span style="color:var(--warning);font-size:0.75rem">{{.Quarantines}} quarantined</span>{{end}}{{if and (eq .Blocks 0) (eq .Quarantines 0)}}<span style="color:var(--text3)">clean</span>{{end}}</td>
+          <td style="text-align:right"><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;{{if ge .RiskScore 10}}background:rgba(239,68,68,0.12);color:#ef4444{{else if ge .RiskScore 5}}background:rgba(234,179,8,0.12);color:#d29922{{else if gt .RiskScore 0}}background:rgba(34,197,94,0.12);color:#22c55e{{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RiskScore}}</span></td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{end}}
+
     <!-- Recent Messages -->
     <div class="card" style="padding:18px 20px">
       <div class="ad-slbl">Recent Messages {{if .Entries}}<a href="/dashboard/events?agent={{.Name}}" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all in Event Log &rarr;</a>{{end}}</div>
