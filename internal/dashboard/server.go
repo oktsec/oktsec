@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -98,6 +99,21 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 // SetLLMQueue attaches the LLM queue for budget status display.
 func (s *Server) SetLLMQueue(q *llm.Queue) {
 	s.llmQueue = q
+}
+
+// reloadLLMQueue creates (or replaces) the LLM queue from current config.
+// Called after dashboard saves LLM settings so that "Test Connection" and
+// "Analyze with AI" work without restarting the process.
+func (s *Server) reloadLLMQueue() {
+	if !s.cfg.LLM.Enabled {
+		return
+	}
+	queue, _ := llm.SetupQueue(s.cfg.LLM, s.logger)
+	if queue != nil {
+		queue.Start(context.Background())
+		s.llmQueue = queue
+		s.logger.Info("LLM queue hot-reloaded from dashboard config")
+	}
 }
 
 // SetRuleGenerator attaches the LLM rule generator for the rules dashboard.

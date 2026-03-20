@@ -3028,6 +3028,12 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Hot-reload LLM queue so Test Connection and Analyze work without restart
+	if s.cfg.LLM.Enabled && s.llmQueue == nil {
+		s.reloadLLMQueue()
+	}
+
 	http.Redirect(w, r, "/dashboard/llm", http.StatusFound)
 }
 
@@ -3035,6 +3041,10 @@ func (s *Server) handleToggleLLM(w http.ResponseWriter, r *http.Request) {
 	s.cfg.LLM.Enabled = !s.cfg.LLM.Enabled
 	if s.cfgPath != "" {
 		_ = s.saveConfig()
+	}
+	// Hot-reload queue when enabling
+	if s.cfg.LLM.Enabled && s.llmQueue == nil {
+		s.reloadLLMQueue()
 	}
 	w.Header().Set("Content-Type", "text/html")
 	if s.cfg.LLM.Enabled {
