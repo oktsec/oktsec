@@ -349,7 +349,7 @@ func (s *Server) handleAuditSandbox(w http.ResponseWriter, r *http.Request) {
 	productInfos := map[string]auditcheck.ProductInfo{
 		"OpenClaw": {
 			Name:        "OpenClaw",
-			Description: "AI agent gateway — multi-channel personal assistant platform",
+			Description: "AI agent gateway, multi-channel personal assistant platform",
 			ConfigPath:  "~/.openclaw/openclaw.json",
 			DocsURL:     "https://docs.openclaw.ai/gateway/security",
 			Icon:        "\U0001f980",
@@ -932,7 +932,9 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"AgentRisk":    agentRiskData,
 		"LLMHistory":   llmHistory,
 		"LLMEnabled":   s.cfg.LLM.Enabled,
-		"CommPartners": commPartners,
+		"CommPartners":   commPartners,
+		"Presets":        presetsList(),
+		"AgentSessions":  agentSessions(s.audit, name),
 	}
 
 	s.renderTemplate(w, agentDetailTmpl, data)
@@ -1791,6 +1793,38 @@ func humanReadableDecision(decision string) string {
 	return decision
 }
 
+// agentSessions returns recent sessions involving this agent.
+func agentSessions(store audit.AuditStore, agentName string) []audit.SessionSummary {
+	all, err := store.QuerySessions("", 100)
+	if err != nil {
+		return nil
+	}
+	var result []audit.SessionSummary
+	for _, s := range all {
+		if strings.Contains(s.Agents, agentName) {
+			result = append(result, s)
+			if len(result) >= 10 {
+				break
+			}
+		}
+	}
+	return result
+}
+
+type presetInfo struct {
+	Name        string
+	Description string
+}
+
+func presetsList() []presetInfo {
+	var list []presetInfo
+	for key, p := range config.IntegrationPresets {
+		list = append(list, presetInfo{Name: key, Description: p.Description})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	return list
+}
+
 // simpleMarkdownToHTML converts basic markdown (bold, headers, lists, code)
 // to HTML for rendering AI analysis in the dashboard. No external dependencies.
 func simpleMarkdownToHTML(s string) template.HTML {
@@ -2355,6 +2389,65 @@ func (s *Server) handleEditAgent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/dashboard/agents/"+name, http.StatusFound)
+}
+
+func (s *Server) handleSaveEgress(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	agent, ok := s.cfg.Agents[name]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	if agent.Egress == nil {
+		agent.Egress = &config.EgressPolicy{}
+	}
+
+	// Parse integrations (checkboxes)
+	r.ParseForm()
+	agent.Egress.Integrations = r.Form["integrations"]
+
+	// Parse allowed domains (space/comma separated)
+	if v := strings.TrimSpace(r.FormValue("allowed_domains")); v != "" {
+		agent.Egress.AllowedDomains = strings.Fields(strings.ReplaceAll(v, ",", " "))
+	} else {
+		agent.Egress.AllowedDomains = nil
+	}
+
+	// Parse blocked domains
+	if v := strings.TrimSpace(r.FormValue("blocked_domains")); v != "" {
+		agent.Egress.BlockedDomains = strings.Fields(strings.ReplaceAll(v, ",", " "))
+	} else {
+		agent.Egress.BlockedDomains = nil
+	}
+
+	// Parse tool restrictions: tool_name -> domains
+	toolNames := strings.Fields(strings.ReplaceAll(r.FormValue("tool_restriction_tools"), ",", " "))
+	if len(toolNames) > 0 {
+		if agent.Egress.ToolRestrictions == nil {
+			agent.Egress.ToolRestrictions = make(map[string][]string)
+		}
+		for _, t := range toolNames {
+			domains := strings.Fields(strings.ReplaceAll(r.FormValue("tr_"+t), ",", " "))
+			agent.Egress.ToolRestrictions[t] = domains
+		}
+	}
+
+	// Clean up empty egress
+	if len(agent.Egress.AllowedDomains) == 0 && len(agent.Egress.BlockedDomains) == 0 &&
+		len(agent.Egress.Integrations) == 0 && len(agent.Egress.ToolRestrictions) == 0 {
+		agent.Egress = nil
+	}
+
+	s.cfg.Agents[name] = agent
+
+	if s.cfgPath != "" {
+		if err := s.saveConfig(); err != nil {
+			s.logger.Error("failed to save egress config", "error", err)
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/agents/"+name+"#egress", http.StatusFound)
 }
 
 func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {

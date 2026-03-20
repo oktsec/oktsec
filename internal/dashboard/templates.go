@@ -92,7 +92,15 @@ var tmplFuncs = template.FuncMap{
 		}
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
-	"hasRules": func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"hasRules":    func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"listContains": func(list []string, s string) bool {
+		for _, v := range list {
+			if v == s {
+				return true
+			}
+		}
+		return false
+	},
 	"fmtDate": func(ts string) string {
 		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
 			return t.Local().Format("Jan 02 15:04")
@@ -805,7 +813,7 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
 .hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
-.hero-stat{background:var(--surface2);padding:var(--sp-6) var(--sp-5);text-align:center;transition:background var(--ease-smooth);position:relative}
+.hero-stat{background:var(--surface2);padding:var(--sp-6) var(--sp-5);text-align:center;transition:background var(--ease-smooth);position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .hero-stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent-dim),var(--accent-light));opacity:0;transition:opacity var(--ease-smooth)}
 .hero-stat:hover{background:var(--surface2)}
 .hero-stat:hover::before{opacity:1}
@@ -1324,6 +1332,7 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
   </form>
 </div>
 
+<div style="display:grid;grid-template-columns:{{if .DiscoveredAgents}}1fr 280px{{else}}1fr{{end}};gap:20px;align-items:start">
 {{if .AgentRows}}
 <div class="ag-grid">
   {{range .AgentRows}}
@@ -1350,27 +1359,21 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 {{end}}
 
 {{if .DiscoveredAgents}}
-<div class="card" style="margin-top:20px">
-  <h2 style="color:var(--warn)">Discovered from Traffic <span style="font-size:var(--text-xs);font-weight:400;color:var(--text3);margin-left:var(--sp-2)">{{len .DiscoveredAgents}} unregistered</span></h2>
-  <p class="desc">These identifiers appeared as message destinations but aren't registered agents. Register to enforce identity and ACL policies.</p>
-  <table>
-    <thead><tr><th>Identifier</th><th></th></tr></thead>
-    <tbody>
+  <div class="card" style="padding:18px 20px">
+    <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--warn);font-weight:600;margin-bottom:8px">Discovered from Traffic <span style="color:var(--text3);font-weight:400">{{len .DiscoveredAgents}}</span></div>
+    <p style="font-size:0.72rem;color:var(--text3);margin:0 0 12px;line-height:1.4">Identifiers seen in traffic but not registered.</p>
     {{range .DiscoveredAgents}}
-    <tr>
-      <td>{{agentCell .}}</td>
-      <td>
-        <form method="POST" action="/dashboard/agents" style="display:inline">
-          <input type="hidden" name="name" value="{{.}}">
-          <button type="submit" class="btn btn-sm">Register</button>
-        </form>
-      </td>
-    </tr>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)">
+      <span style="display:flex;align-items:center;gap:8px">{{agentCell .}}</span>
+      <form method="POST" action="/dashboard/agents" style="display:inline">
+        <input type="hidden" name="name" value="{{.}}">
+        <button type="submit" class="btn btn-sm" style="font-size:0.68rem;padding:3px 10px">Register</button>
+      </form>
+    </div>
     {{end}}
-    </tbody>
-  </table>
-</div>
+  </div>
 {{end}}
+</div>
 ` + layoutFoot))
 
 var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
@@ -1496,6 +1499,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   <button class="ad-tab active" onclick="adTab('overview')">Overview</button>
   <button class="ad-tab" onclick="adTab('config')">Configuration</button>
   <button class="ad-tab" onclick="adTab('policies')">Tool Policies</button>
+  <button class="ad-tab" onclick="adTab('egress')">Egress</button>
 </div>
 <script>
 function adTab(name){
@@ -1508,104 +1512,28 @@ function adTab(name){
 
 <!-- Overview Tab -->
 <div id="ad-overview" class="ad-panel active">
-  <!-- Top Triggered Rules (full width) -->
-  <div class="card" style="padding:18px 20px">
-    <div class="ad-slbl">Top triggered rules (24h) {{if .TopRules}}<a href="/dashboard/rules" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a>{{end}}</div>
-    {{if .TopRules}}
-    <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap">
-    {{range .TopRules}}
-    <div class="ad-rule" style="padding-left:8px;flex:1;min-width:200px">
-      <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
-      <div style="flex:1;min-width:0;position:relative">
-        <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
-          <span style="font-family:var(--mono);font-size:0.68rem;color:var(--text3)">{{.RuleID}}</span>
-          {{if eq .Severity "critical"}}<span class="sev-critical">critical</span>
-          {{else if eq .Severity "high"}}<span class="sev-high">high</span>
-          {{else if eq .Severity "medium"}}<span class="sev-medium">medium</span>
-          {{else}}<span class="sev-low">low</span>{{end}}
-        </div>
-      </div>
-      <span style="font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--text);flex-shrink:0">{{.Count}}</span>
-    </div>
-    {{end}}
-    </div>
-    {{else}}
-    <div class="empty" style="padding:20px 0">No rules triggered for this agent.</div>
-    {{end}}
-  </div>
 
-  <!-- LLM Threat Intelligence (full width, only if data exists) -->
-  {{if and .LLMEnabled .LLMHistory}}
-  <div class="card" style="padding:0;overflow:hidden;margin-bottom:var(--sp-5)">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
-      <div class="ad-slbl" style="margin-bottom:0">LLM Threat Intelligence</div>
-      <a href="/dashboard/llm" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a>
-    </div>
-    {{if gt .AgentRisk.LLMThreatCount 0}}
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border-bottom:1px solid var(--border)">
-      <div style="background:var(--surface);padding:14px 20px;text-align:center">
-        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div>
-        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Threats</div>
-      </div>
-      <div style="background:var(--surface);padding:14px 20px;text-align:center">
-        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMConfirmed 0}}var(--danger){{else}}var(--success){{end}}">{{.AgentRisk.LLMConfirmed}}</div>
-        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Confirmed</div>
-      </div>
-      <div style="background:var(--surface);padding:14px 20px;text-align:center">
-        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div>
-        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Avg Risk</div>
-      </div>
-    </div>
-    {{end}}
-    <div style="overflow-x:auto">
-    <table style="font-size:0.82rem;width:100%;border-collapse:collapse;table-layout:fixed">
-      <colgroup><col style="width:25%"><col style="width:15%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
-      <thead><tr>
-        <th style="text-align:left;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Time</th>
-        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Risk</th>
-        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Action</th>
-        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Status</th>
-        <th style="text-align:right;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)"></th>
-      </tr></thead>
-      <tbody>
-      {{range .LLMHistory}}
-      <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'" style="transition:background 0.1s">
-        <td style="padding:10px 20px;border-bottom:1px solid var(--border)" data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border);font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
-        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
-        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3)">dismissed</span>{{else}}<span style="color:var(--warn)">pending</span>{{end}}</td>
-        <td style="text-align:right;padding:10px 20px;border-bottom:1px solid var(--border);font-size:0.72rem;color:var(--text3)">view &rarr;</td>
-      </tr>
-      {{end}}
-      </tbody>
-    </table>
-    </div>
-  </div>
-  {{end}}
-
+  <!-- Row 1: Sessions + Recent Messages -->
   <div class="ad-grid">
-    <!-- Communication Partners -->
+    {{if .AgentSessions}}
     <div class="card" style="padding:18px 20px">
-      <div class="ad-slbl">Communication partners (24h)</div>
-      {{if .CommPartners}}
+      <div class="ad-slbl">Sessions <a href="/dashboard/sessions" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a></div>
       <table style="font-size:0.78rem">
-        <thead><tr><th class="section-label">Partner</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Total</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Blocked</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Rate</th></tr></thead>
+        <thead><tr><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Session</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Events</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Duration</th><th style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Threats</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Risk</th></tr></thead>
         <tbody>
-        {{range .CommPartners}}
-        <tr style="{{if eq .Total 0}}opacity:0.4{{end}}">
-          <td>{{toolDot .To}}</td>
-          <td style="text-align:right;font-family:var(--mono)">{{.Total}}</td>
-          <td style="text-align:right;font-family:var(--mono);color:{{if .Blocked}}var(--danger){{else}}var(--success){{end}}">{{.Blocked}}</td>
-          <td style="text-align:right;font-family:var(--mono)">{{if .Total}}{{printf "%.0f" (divf (mulf .Blocked 100) .Total)}}%{{else}}0%{{end}}</td>
+        {{range .AgentSessions}}
+        <tr>
+          <td><a href="/dashboard/sessions/{{.SessionID}}" style="color:var(--accent);text-decoration:none;font-family:var(--mono);font-size:0.75rem">{{truncate .SessionID 24}}</a></td>
+          <td>{{.EventCount}}</td>
+          <td>{{if .Duration}}{{.Duration}}{{else}}0s{{end}}</td>
+          <td>{{if gt .Blocks 0}}<span style="color:var(--danger);font-size:0.75rem">{{.Blocks}} blocked</span>{{end}}{{if gt .Quarantines 0}} <span style="color:var(--warning);font-size:0.75rem">{{.Quarantines}} quarantined</span>{{end}}{{if and (eq .Blocks 0) (eq .Quarantines 0)}}<span style="color:var(--text3)">clean</span>{{end}}</td>
+          <td style="text-align:right"><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;{{if ge .RiskScore 10}}background:rgba(239,68,68,0.12);color:#ef4444{{else if ge .RiskScore 5}}background:rgba(234,179,8,0.12);color:#d29922{{else if gt .RiskScore 0}}background:rgba(34,197,94,0.12);color:#22c55e{{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RiskScore}}</span></td>
         </tr>
         {{end}}
         </tbody>
       </table>
-      {{else}}
-      <div class="empty" style="padding:20px 0">No communication partners.</div>
-      {{end}}
     </div>
+    {{end}}
 
     <!-- Recent Messages -->
     <div class="card" style="padding:18px 20px">
@@ -1656,6 +1584,83 @@ function adTab(name){
       {{end}}
     </div>
   </div>
+
+  <!-- Row 2: Top Triggered Rules + Communication Partners -->
+  <div class="ad-grid">
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Top triggered rules (24h) {{if .TopRules}}<a href="/dashboard/rules" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a>{{end}}</div>
+      {{if .TopRules}}
+      <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap">
+      {{range .TopRules}}
+      <div class="ad-rule" style="padding-left:8px;flex:1;min-width:200px">
+        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
+        <div style="flex:1;min-width:0;position:relative">
+          <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+            <span style="font-family:var(--mono);font-size:0.68rem;color:var(--text3)">{{.RuleID}}</span>
+          </div>
+        </div>
+        <span style="font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--text);flex-shrink:0">{{.Count}}</span>
+      </div>
+      {{end}}
+      </div>
+      {{else}}
+      <div class="empty" style="padding:20px 0">No rules triggered for this agent.</div>
+      {{end}}
+    </div>
+
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Communication partners (24h)</div>
+      {{if .CommPartners}}
+      <table style="font-size:0.78rem">
+        <thead><tr><th class="section-label">Partner</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Total</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Blocked</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Rate</th></tr></thead>
+        <tbody>
+        {{range .CommPartners}}
+        <tr style="{{if eq .Total 0}}opacity:0.4{{end}}">
+          <td>{{toolDot .To}}</td>
+          <td style="text-align:right;font-family:var(--mono)">{{.Total}}</td>
+          <td style="text-align:right;font-family:var(--mono);color:{{if .Blocked}}var(--danger){{else}}var(--success){{end}}">{{.Blocked}}</td>
+          <td style="text-align:right;font-family:var(--mono)">{{if .Total}}{{printf "%.0f" (divf (mulf .Blocked 100) .Total)}}%{{else}}0%{{end}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <div class="empty" style="padding:20px 0">No communication partners.</div>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- LLM Threat Intelligence (full width, only if data exists) -->
+  {{if and .LLMEnabled .LLMHistory}}
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div class="ad-slbl" style="margin-bottom:0">LLM Threat Intelligence</div>
+      <a href="/dashboard/llm" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a>
+    </div>
+    <div style="overflow-x:auto">
+    <table style="font-size:0.82rem;width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Time</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Risk</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Action</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Status</th>
+      </tr></thead>
+      <tbody>
+      {{range .LLMHistory}}
+      <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
+        <td style="padding:10px 20px;border-bottom:1px solid var(--border)" data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border);font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3)">dismissed</span>{{else}}<span style="color:var(--warn)">pending</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {{end}}
+
 </div>
 
 <!-- Configuration Tab -->
@@ -1760,6 +1765,97 @@ function stagePolicy() {
   return true;
 }
 </script>
+
+<!-- Egress Tab -->
+<div id="ad-egress" class="ad-panel">
+  <div class="card" style="padding:18px 20px">
+    <div class="ad-slbl">Egress Policy</div>
+    <p class="desc">Control which domains this agent can access and restrict egress per tool.</p>
+
+    <form method="POST" action="/dashboard/agents/{{.Name}}/egress">
+
+    <!-- Integration Presets -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:10px">Integration Presets</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        {{range .Presets}}
+        <label style="display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--surface2);border-radius:6px;cursor:pointer;font-size:0.78rem;color:var(--text2);transition:all 0.1s" title="{{.Description}}">
+          <input type="checkbox" name="integrations" value="{{.Name}}" {{if $.Agent.Egress}}{{if listContains $.Agent.Egress.Integrations .Name}}checked{{end}}{{end}} style="accent-color:var(--accent)">
+          {{.Name}}
+        </label>
+        {{end}}
+      </div>
+    </div>
+
+    <!-- Allowed Domains -->
+    <div style="margin-bottom:16px">
+      <div class="form-group">
+        <label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Allowed Domains (space or comma separated)</label>
+        <input type="text" name="allowed_domains" value="{{if .Agent.Egress}}{{range $i, $d := .Agent.Egress.AllowedDomains}}{{if $i}} {{end}}{{$d}}{{end}}{{end}}" placeholder="api.github.com api.slack.com">
+      </div>
+    </div>
+
+    <!-- Blocked Domains -->
+    <div style="margin-bottom:16px">
+      <div class="form-group">
+        <label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Blocked Domains (space or comma separated)</label>
+        <input type="text" name="blocked_domains" value="{{if .Agent.Egress}}{{range $i, $d := .Agent.Egress.BlockedDomains}}{{if $i}} {{end}}{{$d}}{{end}}{{end}}" placeholder="evil.com malicious.io">
+      </div>
+    </div>
+
+    <!-- Per-Tool Restrictions -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:10px">Per-Tool Restrictions</div>
+      {{if .Agent.Egress}}{{if .Agent.Egress.ToolRestrictions}}
+      {{range $tool, $domains := .Agent.Egress.ToolRestrictions}}
+      <div class="form-row" style="margin-bottom:8px;align-items:center">
+        <div style="min-width:120px;font-family:var(--mono);font-size:0.82rem;font-weight:600">{{$tool}}</div>
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <input type="text" name="tr_{{$tool}}" value="{{range $i, $d := $domains}}{{if $i}} {{end}}{{$d}}{{end}}" placeholder="Domains (empty = block all egress)">
+        </div>
+      </div>
+      {{end}}
+      {{end}}{{end}}
+      <div class="form-row" style="align-items:flex-end;margin-top:8px">
+        <div class="form-group" style="flex:1">
+          <label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Tool Name</label>
+          <input type="text" id="eg-new-tool" placeholder="e.g. Bash, WebFetch">
+        </div>
+        <div class="form-group" style="flex:2">
+          <label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Allowed Domains (empty = block all egress for tool)</label>
+          <input type="text" id="eg-new-domains" placeholder="api.github.com arxiv.org">
+        </div>
+        <button type="button" class="btn btn-sm" style="background:var(--surface2);color:var(--text2);margin-bottom:12px" onclick="addToolRestriction()">Add</button>
+      </div>
+      <input type="hidden" name="tool_restriction_tools" id="eg-tr-tools" value="{{if .Agent.Egress}}{{if .Agent.Egress.ToolRestrictions}}{{range $tool, $_ := .Agent.Egress.ToolRestrictions}}{{$tool}} {{end}}{{end}}{{end}}">
+    </div>
+
+    <button type="submit" class="btn btn-sm" style="background:var(--success)">Save Egress Policy</button>
+    </form>
+  </div>
+</div>
+<script>
+function addToolRestriction() {
+  var tool = document.getElementById('eg-new-tool').value.trim();
+  if (!tool) return;
+  var domains = document.getElementById('eg-new-domains').value.trim();
+  var form = document.getElementById('eg-new-tool').closest('form');
+  var existing = form.querySelector('[name="tr_' + tool + '"]');
+  if (!existing) {
+    var row = document.createElement('div');
+    row.className = 'form-row';
+    row.style.marginBottom = '8px';
+    row.style.alignItems = 'center';
+    row.innerHTML = '<div style="min-width:120px;font-family:var(--mono);font-size:0.82rem;font-weight:600">' + tool + '</div><div class="form-group" style="flex:1;margin-bottom:0"><input type="text" name="tr_' + tool + '" value="' + domains + '" placeholder="Domains"></div>';
+    document.getElementById('eg-new-tool').closest('.form-row').before(row);
+  }
+  var toolsInput = document.getElementById('eg-tr-tools');
+  var tools = toolsInput.value.trim().split(/\s+/).filter(Boolean);
+  if (tools.indexOf(tool) === -1) tools.push(tool);
+  toolsInput.value = tools.join(' ');
+  document.getElementById('eg-new-tool').value = '';
+  document.getElementById('eg-new-domains').value = '';
+}</script>
 
 ` + layoutFoot))
 

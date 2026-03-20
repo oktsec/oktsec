@@ -10,7 +10,7 @@ import (
 	"github.com/oktsec/oktsec/internal/discover"
 )
 
-// OpenClaw configuration structs — subset of fields needed for security auditing.
+// OpenClaw configuration structs  - subset of fields needed for security auditing.
 // Based on https://docs.openclaw.ai/gateway/security
 type ocConfig struct {
 	Gateway   ocGateway            `json:"gateway"`
@@ -141,7 +141,7 @@ func auditOpenClaw() []Finding {
 func auditOpenClawAt(configPath string) []Finding {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		// Not installed — not an error, just skip
+		// Not installed  - not an error, just skip
 		return nil
 	}
 
@@ -167,11 +167,11 @@ func auditOpenClawAt(configPath string) []Finding {
 
 	// ── Critical ──────────────────────────────────────────────
 
-	// OC-NET-001: Gateway bind is not loopback — exposed to network
+	// OC-NET-001: Gateway bind is not loopback  - exposed to network
 	bind := strings.ToLower(cfg.Gateway.Bind)
 	if bind != "" && bind != "loopback" && bind != "localhost" && bind != "127.0.0.1" && bind != "::1" {
 		f(Critical, "OC-NET-001", "Gateway exposed to network",
-			fmt.Sprintf("gateway.bind is %q — the gateway accepts connections beyond localhost. "+
+			fmt.Sprintf("gateway.bind is %q  - the gateway accepts connections beyond localhost. "+
 				"Docs recommend loopback-only. Use SSH tunnels or Tailscale for remote access.", cfg.Gateway.Bind),
 			`Set gateway.bind: "loopback"`)
 	}
@@ -181,7 +181,7 @@ func auditOpenClawAt(configPath string) []Finding {
 		// Only flag if gateway is not loopback-only (remote exposure + no auth = critical)
 		if bind != "" && bind != "loopback" && bind != "localhost" && bind != "127.0.0.1" {
 			f(Critical, "OC-AUTH-001", "No gateway authentication token",
-				"gateway.auth.token is empty or placeholder while gateway is network-exposed — "+
+				"gateway.auth.token is empty or placeholder while gateway is network-exposed  - "+
 					"anyone on the network can control the gateway.",
 				`Set gateway.auth.token to a long random value`)
 		} else if cfg.Gateway.Auth.Token == "" && cfg.Gateway.Auth.Mode == "token" {
@@ -191,10 +191,10 @@ func auditOpenClawAt(configPath string) []Finding {
 		}
 	}
 
-	// OC-EXEC-001: Exec security set to "allow" — arbitrary code execution
+	// OC-EXEC-001: Exec security set to "allow"  - arbitrary code execution
 	if strings.ToLower(cfg.Tools.Exec.Security) == "allow" {
 		f(Critical, "OC-EXEC-001", "Command execution auto-approved",
-			"tools.exec.security is \"allow\" — agents can execute arbitrary shell commands "+
+			"tools.exec.security is \"allow\"  - agents can execute arbitrary shell commands "+
 				"without human approval. This is the highest-risk tool setting.",
 			`Set tools.exec.security: "deny" or "ask"`)
 	}
@@ -202,7 +202,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-TOOL-001: Full tool profile without deny list
 	if cfg.Tools.Profile == "full" && len(cfg.Tools.Deny) == 0 {
 		f(Critical, "OC-TOOL-001", "Full tool profile without deny list",
-			"tools.profile is \"full\" with no deny list — agents have unrestricted access "+
+			"tools.profile is \"full\" with no deny list  - agents have unrestricted access "+
 				"to all tools including filesystem, exec, and automation.",
 			`Set tools.profile: "messaging" or add deny list`)
 	}
@@ -213,7 +213,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	for ch, chCfg := range cfg.Channels {
 		if strings.ToLower(chCfg.DMPolicy) == "open" {
 			f(High, "OC-DM-001", fmt.Sprintf("Open DM policy on %s channel", ch),
-				fmt.Sprintf("channels.%s.dmPolicy is \"open\" — any external user can send messages "+
+				fmt.Sprintf("channels.%s.dmPolicy is \"open\"  - any external user can send messages "+
 					"to agents. This is a prompt injection vector.", ch),
 				fmt.Sprintf(`Set channels.%s.dmPolicy: "pairing" or "allowlist"`, ch))
 		}
@@ -231,7 +231,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	sandboxMode := strings.ToLower(cfg.Agents.Defaults.Sandbox.Mode)
 	if (sandboxMode == "" || sandboxMode == "off") && !execDenied && cfg.Tools.Exec.Security != "deny" {
 		f(High, "OC-SAND-001", "Sandbox disabled with exec tools available",
-			"agents.defaults.sandbox.mode is \"off\" and exec tools are not denied — "+
+			"agents.defaults.sandbox.mode is \"off\" and exec tools are not denied  - "+
 				"agents run commands directly on the host without isolation.",
 			`Set agents.defaults.sandbox.mode: "all"`)
 	}
@@ -239,7 +239,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-ELEV-001: Elevated execution enabled without sender allowlist
 	if cfg.Tools.Elevated.Enabled && len(cfg.Tools.Elevated.AllowFrom) == 0 {
 		f(High, "OC-ELEV-001", "Elevated execution without allowFrom",
-			"tools.elevated.enabled is true with no allowFrom list — any message sender "+
+			"tools.elevated.enabled is true with no allowFrom list  - any message sender "+
 				"can trigger elevated (sudo-level) command execution.",
 			`Disable tools.elevated or add allowFrom list`)
 	}
@@ -247,7 +247,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-UI-001: Device authentication disabled on control UI
 	if cfg.Gateway.ControlUI.DangerouslyDisableDeviceAuth {
 		f(High, "OC-UI-001", "Device authentication disabled",
-			"gateway.controlUi.dangerouslyDisableDeviceAuth is true — the web control UI "+
+			"gateway.controlUi.dangerouslyDisableDeviceAuth is true  - the web control UI "+
 				"can be accessed without device verification.",
 			`Set gateway.controlUi.dangerouslyDisableDeviceAuth: false`)
 	}
@@ -255,7 +255,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-UI-002: Insecure auth allowed on control UI
 	if cfg.Gateway.ControlUI.AllowInsecureAuth {
 		f(High, "OC-UI-002", "Insecure authentication allowed",
-			"gateway.controlUi.allowInsecureAuth is true — authentication can be performed "+
+			"gateway.controlUi.allowInsecureAuth is true  - authentication can be performed "+
 				"over unencrypted connections, exposing credentials.",
 			`Set gateway.controlUi.allowInsecureAuth: false`)
 	}
@@ -263,7 +263,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-HOOK-001: Webhook token too short or empty
 	if cfg.Hooks.Token != "" && len(cfg.Hooks.Token) < 32 {
 		f(High, "OC-HOOK-001", "Webhook token too short",
-			fmt.Sprintf("hooks.token is only %d characters — minimum recommended is 32 for "+
+			fmt.Sprintf("hooks.token is only %d characters  - minimum recommended is 32 for "+
 				"webhook authentication security.", len(cfg.Hooks.Token)),
 			`Set hooks.token to at least 32 random characters`)
 	}
@@ -274,7 +274,7 @@ func auditOpenClawAt(configPath string) []Finding {
 		mode := info.Mode().Perm()
 		if mode&0o077 != 0 {
 			f(High, "OC-PERM-001", "OpenClaw directory has loose permissions",
-				fmt.Sprintf("%s has mode %04o — group/world accessible. "+
+				fmt.Sprintf("%s has mode %04o  - group/world accessible. "+
 					"Config files may contain auth tokens.", dir, mode),
 				fmt.Sprintf("chmod 700 %s", dir))
 		}
@@ -285,7 +285,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-FS-001: Workspace-only filesystem disabled
 	if cfg.Tools.FS.WorkspaceOnly != nil && !*cfg.Tools.FS.WorkspaceOnly {
 		f(Medium, "OC-FS-001", "Filesystem access not restricted to workspace",
-			"tools.fs.workspaceOnly is false — agents can read and write files "+
+			"tools.fs.workspaceOnly is false  - agents can read and write files "+
 				"outside the workspace directory.",
 			`Set tools.fs.workspaceOnly: true`)
 	}
@@ -293,7 +293,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-LOG-001: Sensitive data redaction disabled
 	if strings.ToLower(cfg.Logging.RedactSensitive) == "off" {
 		f(Medium, "OC-LOG-001", "Sensitive data redaction disabled",
-			"logging.redactSensitive is \"off\" — tool inputs/outputs containing "+
+			"logging.redactSensitive is \"off\"  - tool inputs/outputs containing "+
 				"secrets or PII are written to logs in plaintext.",
 			`Set logging.redactSensitive: "tools" or "all"`)
 	}
@@ -301,7 +301,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-DISC-001: mDNS broadcasting full system info
 	if strings.ToLower(cfg.Discovery.MDNS.Mode) == "full" {
 		f(Medium, "OC-DISC-001", "mDNS broadcasting full system info",
-			"discovery.mdns.mode is \"full\" — the gateway broadcasts CLI path and SSH port "+
+			"discovery.mdns.mode is \"full\"  - the gateway broadcasts CLI path and SSH port "+
 				"to the local network via mDNS.",
 			`Set discovery.mdns.mode: "minimal" or "off"`)
 	}
@@ -309,7 +309,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	// OC-HOOK-002: External session key selection allowed
 	if cfg.Hooks.AllowRequestSessionKey {
 		f(Medium, "OC-HOOK-002", "External session key selection allowed",
-			"hooks.allowRequestSessionKey is true — external webhook callers can choose "+
+			"hooks.allowRequestSessionKey is true  - external webhook callers can choose "+
 				"which session receives their message, potentially hijacking sessions.",
 			`Set hooks.allowRequestSessionKey: false`)
 	}
@@ -318,7 +318,7 @@ func auditOpenClawAt(configPath string) []Finding {
 	if cfg.Tools.Browser.SSRFPolicy.DangerouslyAllowPrivateNetwork != nil &&
 		*cfg.Tools.Browser.SSRFPolicy.DangerouslyAllowPrivateNetwork {
 		f(Medium, "OC-SSRF-001", "Browser allows private network requests",
-			"tools.browser.ssrfPolicy.dangerouslyAllowPrivateNetwork is true — "+
+			"tools.browser.ssrfPolicy.dangerouslyAllowPrivateNetwork is true  - "+
 				"agents can make HTTP requests to internal/private network addresses.",
 			`Set tools.browser.ssrfPolicy.dangerouslyAllowPrivateNetwork: false`)
 	}
@@ -328,7 +328,7 @@ func auditOpenClawAt(configPath string) []Finding {
 		mode := info.Mode().Perm()
 		if mode&0o077 != 0 {
 			f(Medium, "OC-PERM-002", "OpenClaw config has loose permissions",
-				fmt.Sprintf("%s has mode %04o — group/world readable. "+
+				fmt.Sprintf("%s has mode %04o  - group/world readable. "+
 					"File may contain auth tokens and credentials.", configPath, mode),
 				fmt.Sprintf("chmod 600 %s", configPath))
 		}

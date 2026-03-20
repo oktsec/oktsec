@@ -8,7 +8,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 /* Stat strip */
 .a-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:24px}
-.a-stat{background:var(--surface);padding:var(--sp-5) var(--sp-5)}
+.a-stat{background:var(--surface);padding:var(--sp-5) var(--sp-5);text-align:center}
 .a-stat-label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);font-weight:500;margin-bottom:var(--sp-2)}
 .a-stat-val{font-family:var(--sans);font-size:1.375rem;font-weight:700;color:var(--text);letter-spacing:-0.03em}
 .a-stat-val.v-crit{color:var(--danger)}
@@ -36,7 +36,10 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 /* Priority fix row */
 .a-fix{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)}
 .a-fix:last-child{border-bottom:none}
-.a-fix-sev{min-width:60px;flex-shrink:0;padding-top:1px}
+.a-fix-sev{min-width:60px;flex-shrink:0;padding-top:1px;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px;text-align:center;display:inline-block}
+.a-fix-sev.sev-critical{background:rgba(248,81,73,0.12);color:#f85149}
+.a-fix-sev.sev-high{background:rgba(248,81,73,0.08);color:#fb923c}
+.a-fix-sev.sev-medium{background:rgba(234,179,8,0.1);color:#d29922}
 .a-fix-body{flex:1;min-width:0}
 .a-fix-head{display:flex;align-items:baseline;gap:8px}
 .a-fix-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
@@ -65,7 +68,11 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-fd[open] summary::before{transform:rotate(90deg)}
 .a-fi{display:flex;align-items:flex-start;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border)}
 .a-fi:last-child{border-bottom:none}
-.a-fi-sev{min-width:60px;flex-shrink:0;padding-top:1px}
+.a-fi-sev{min-width:60px;flex-shrink:0;padding-top:1px;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px;text-align:center;display:inline-block}
+.a-fi-sev.sev-critical{background:rgba(248,81,73,0.12);color:#f85149}
+.a-fi-sev.sev-high{background:rgba(248,81,73,0.08);color:#fb923c}
+.a-fi-sev.sev-medium{background:rgba(234,179,8,0.1);color:#d29922}
+.a-fi-sev.sev-info,.a-fi-sev.sev-low{background:var(--surface2);color:var(--text3)}
 .a-fi-body{flex:1;min-width:0}
 .a-fi-head{display:flex;align-items:baseline;gap:8px}
 .a-fi-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
@@ -95,7 +102,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 {{if .Sandbox}}
 <div class="a-sandbox">
-  <strong>Sandbox</strong> &mdash; Sample OpenClaw config with intentional security issues.
+  <strong>Sandbox</strong> &middot; Sample OpenClaw config with intentional security issues.
   <a href="/dashboard/audit">Exit sandbox &rarr;</a>
 </div>
 {{end}}

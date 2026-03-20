@@ -8,7 +8,7 @@ var sessionsPageTmpl = template.Must(template.New("sessions").Funcs(tmplFuncs).P
 .ss-filters{display:flex;gap:8px;align-items:center}
 .ss-filters select{padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:var(--text-sm)}
 .ss-stats{display:grid;grid-template-columns:repeat(4,1fr);margin-bottom:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
-.ss-stat{padding:16px 20px}
+.ss-stat{padding:16px 20px;text-align:center}
 .ss-stat+.ss-stat{border-left:1px solid var(--border)}
 .ss-stat .label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:4px}
 .ss-stat .value{font-size:1.2rem;font-weight:600;color:var(--text)}

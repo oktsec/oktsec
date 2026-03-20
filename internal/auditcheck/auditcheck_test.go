@@ -394,7 +394,7 @@ func TestRunChecks_SecureConfig(t *testing.T) {
 
 	for _, f := range findings {
 		assert.LessOrEqual(t, f.Severity, Info,
-			"unexpected finding: [%s] %s — %s", f.CheckID, f.Title, f.Detail)
+			"unexpected finding: [%s] %s  - %s", f.CheckID, f.Title, f.Detail)
 	}
 }
 
@@ -1022,7 +1022,7 @@ func TestAuditNanoClaw_SecureConfig(t *testing.T) {
 	findings := auditNanoClawAt(allowlistPath)
 	for _, f := range findings {
 		assert.LessOrEqual(t, f.Severity, Info,
-			"unexpected finding: [%s] %s — %s", f.CheckID, f.Title, f.Detail)
+			"unexpected finding: [%s] %s  - %s", f.CheckID, f.Title, f.Detail)
 	}
 }
 

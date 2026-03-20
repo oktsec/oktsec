@@ -53,7 +53,7 @@ func auditMCPServersFromResult(result *discover.Result) []Finding {
 				if strings.Contains(cmdLower, sus) {
 					f(High, "MCP-001",
 						fmt.Sprintf("Suspicious MCP server command: %s", srv.Name),
-						fmt.Sprintf("Server %q in %s uses %q which contains %q — may indicate a malicious or misconfigured server.",
+						fmt.Sprintf("Server %q in %s uses %q which contains %q  - may indicate a malicious or misconfigured server.",
 							srv.Name, discover.ClientDisplayName(cr.Client), cmdFull, sus),
 						"Review the MCP server command and replace with a trusted binary")
 					break
@@ -63,7 +63,7 @@ func auditMCPServersFromResult(result *discover.Result) []Finding {
 			if strings.Contains(cmdFull, "|") {
 				f(High, "MCP-001",
 					fmt.Sprintf("Suspicious MCP server command: %s", srv.Name),
-					fmt.Sprintf("Server %q in %s uses a pipe in its command %q — may indicate command chaining.",
+					fmt.Sprintf("Server %q in %s uses a pipe in its command %q  - may indicate command chaining.",
 						srv.Name, discover.ClientDisplayName(cr.Client), cmdFull),
 					"Review the MCP server command and avoid piped commands")
 			}
@@ -87,7 +87,7 @@ func auditMCPServersFromResult(result *discover.Result) []Finding {
 			if srv.Command != "" && len(srv.Args) == 0 && !strings.Contains(srv.Command, " ") {
 				f(High, "MCP-004",
 					fmt.Sprintf("MCP server with bare command: %s", srv.Name),
-					fmt.Sprintf("Server %q in %s runs %q with no arguments — may be a wrapper hiding the real command.",
+					fmt.Sprintf("Server %q in %s runs %q with no arguments  - may be a wrapper hiding the real command.",
 						srv.Name, discover.ClientDisplayName(cr.Client), srv.Command),
 					fmt.Sprintf("Run 'which %s' to verify the binary path, then check it's not a wrapper: 'file %s'", srv.Command, srv.Command))
 			}
@@ -98,7 +98,7 @@ func auditMCPServersFromResult(result *discover.Result) []Finding {
 	if totalServers > 20 {
 		f(Medium, "MCP-003",
 			fmt.Sprintf("Excessive MCP server count: %d", totalServers),
-			fmt.Sprintf("Found %d MCP servers across %d clients — a large attack surface. Review and remove unused servers.",
+			fmt.Sprintf("Found %d MCP servers across %d clients  - a large attack surface. Review and remove unused servers.",
 				totalServers, result.TotalClients()),
 			"Remove unused MCP server configurations")
 	}
