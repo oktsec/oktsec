@@ -146,9 +146,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
   <!-- Right: AI Analysis (shown when analysis exists) -->
   {{if .SavedAnalysis}}
   <div class="st-ai-panel">
-    <h3>AI Analysis</h3>
     <div class="st-ai-content">
-      <span class="ai-label">AI Generated</span>
       {{mdToHTML .SavedAnalysis}}
     </div>
     <div class="st-ai-actions">

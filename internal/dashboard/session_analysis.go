@@ -14,23 +14,32 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 )
 
-const sessionAnalysisPrompt = `You are a security analyst reviewing an AI agent session. Analyze this session in 3-5 concise sentences:
+const sessionAnalysisPrompt = `You are a security analyst reviewing an AI agent session. Write a structured analysis using markdown with these exact sections:
 
-1. What was the agent trying to accomplish?
-2. Were any security findings legitimate threats or false positives?
-3. Was the behavior pattern normal or anomalous?
-4. Any recommendations for policy changes?
+**Objective:** What the agent was trying to accomplish (1-2 sentences)
 
-Session ID: %s
-Agents: %s
-Duration: %s
-Tool calls: %d
-Threats: %d (blocked/quarantined/flagged)
+**Threat Assessment:** Were the security findings legitimate threats or false positives? Why? (2-3 sentences)
+
+**Behavior Pattern:** Was the pattern normal or anomalous? What stands out? (1-2 sentences)
+
+**Recommendations:**
+- Bullet points with specific, actionable policy changes
+
+Session data:
+- Agents: %s
+- Duration: %s
+- Tool calls: %d
+- Threats: %d (blocked/quarantined/flagged)
 
 Timeline (most recent first):
 %s
 
-Be concise and actionable. No preamble.`
+Rules:
+- Do NOT include a title or heading. Start directly with **Objective:**
+- Do NOT repeat the session ID or agent name in a heading
+- Use **bold** for section labels
+- Keep each section to 1-3 sentences max
+- Recommendations should be specific and actionable, 3-5 bullet points`
 
 // analyzeSession sends a session trace to the configured LLM for analysis.
 // Makes a direct API call using the LLM config, bypassing the security
@@ -68,7 +77,6 @@ func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) 
 	}
 
 	prompt := fmt.Sprintf(sessionAnalysisPrompt,
-		trace.SessionID,
 		trace.Agent,
 		trace.Duration,
 		trace.ToolCount,

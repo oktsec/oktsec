@@ -33,8 +33,10 @@ var sessionsPageTmpl = template.Must(template.New("sessions").Funcs(tmplFuncs).P
 .ss-risk.r-low{background:rgba(34,197,94,0.12);color:var(--success)}
 .ss-risk.r-none{background:var(--surface2);color:var(--text3)}
 
-.ss-agents{font-family:var(--mono);font-size:var(--text-xs);color:var(--text3)}
+.ss-agents{font-size:var(--text-xs);color:var(--text3);overflow:hidden;text-overflow:ellipsis}
+.ss-agents .pill{display:inline-block;padding:1px 6px;background:var(--surface2);border-radius:3px;margin:1px 2px;font-family:var(--mono);font-size:0.68rem}
 .ss-id{font-family:var(--mono);font-size:var(--text-xs)}
+.ss-ts{font-family:var(--mono);font-size:var(--text-xs);color:var(--text3)}
 .ss-threats{display:flex;gap:6px;font-size:var(--text-xs)}
 .ss-threats .badge{padding:1px 6px;border-radius:3px;font-weight:500}
 .ss-threats .b-block{background:rgba(239,68,68,0.12);color:var(--danger)}
@@ -106,10 +108,10 @@ const sessionsBodyTmpl = `
   <tbody>
     {{range .Sessions}}
     <tr>
-      <td class="ss-id"><a href="/dashboard/sessions/{{.SessionID}}" title="{{.SessionID}}">{{truncate .SessionID 16}}</a></td>
-      <td title="{{.StartedAt}}">{{truncate .StartedAt 16}}</td>
+      <td class="ss-id"><a href="/dashboard/sessions/{{.SessionID}}" title="{{.SessionID}}">{{truncate .SessionID 20}}</a></td>
+      <td class="ss-ts" title="{{.StartedAt}}">{{truncate .StartedAt 16}}</td>
       <td>{{if .Duration}}{{.Duration}}{{else}}&mdash;{{end}}</td>
-      <td class="ss-agents" title="{{.Agents}}">{{.Agents}}</td>
+      <td class="ss-agents" title="{{.Agents}}">{{range $i, $a := split .Agents ","}}{{if $i}} {{end}}<span class="pill">{{$a}}</span>{{end}}</td>
       <td style="text-align:right">{{.EventCount}}</td>
       <td>
         <div class="ss-threats">
