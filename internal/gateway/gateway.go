@@ -500,7 +500,27 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		// 9. Audit log (with delegation chain if verified)
 		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start, delegationChainHash, delegationChainSummary)
 
-		// 9a. Record tool call for constraint chain rule tracking
+		// 9a. Enqueue quarantined items for human review
+		if outcome.Verdict == engine.VerdictQuarantine {
+			expiryHours := g.cfg.Quarantine.ExpiryHours
+			if expiryHours <= 0 {
+				expiryHours = 24
+			}
+			_ = g.audit.Enqueue(audit.QuarantineItem{
+				ID:             msgID,
+				AuditEntryID:   msgID,
+				Content:        content,
+				FromAgent:      agent,
+				ToAgent:        m.OriginalName,
+				Status:         audit.QStatusPending,
+				ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
+				CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+				RulesTriggered: findingsJSON,
+				Timestamp:      time.Now().UTC().Format(time.RFC3339),
+			})
+		}
+
+		// 9b. Record tool call for constraint chain rule tracking
 		if g.constraintChecker != nil {
 			g.constraintChecker.RecordToolCall(agent, m.OriginalName)
 		}

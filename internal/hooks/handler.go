@@ -117,6 +117,7 @@ func (e *ToolEvent) contentHash() string {
 type HookStore interface {
 	audit.AuditLogger
 	audit.ReasoningStore
+	audit.QuarantineManager
 }
 
 // Handler processes tool-call events from any MCP client.
@@ -246,6 +247,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		SessionID:           ev.SessionID,
 		DelegationChainHash: delegationHash,
 	})
+
+	// Enqueue quarantined items for human review
+	if status == audit.StatusQuarantined {
+		expiryHours := h.cfg.Quarantine.ExpiryHours
+		if expiryHours <= 0 {
+			expiryHours = 24
+		}
+		_ = h.store.Enqueue(audit.QuarantineItem{
+			ID:             msgID,
+			AuditEntryID:   msgID,
+			Content:        content,
+			FromAgent:      ev.Agent,
+			ToAgent:        toAgent,
+			Status:         audit.QStatusPending,
+			ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
+			CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+			RulesTriggered: findingsJSON,
+			Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		})
+	}
 
 	// Log reasoning if provided (separate table for large data).
 	if ev.Reasoning != "" {

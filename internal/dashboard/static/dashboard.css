@@ -20,8 +20,8 @@
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--surface-hover:#21262d;
   --border:#30363d;--border-hover:#484f58;--border-subtle:#21262d;
   --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
-  --accent:#6366f1;--accent-light:#58a6ff;--accent-dim:#4f46e5;
-  --accent-glow:rgba(99,102,241,0.08);--accent-glow-md:rgba(99,102,241,0.15);--accent-border:rgba(99,102,241,0.25);
+  --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;
+  --accent-glow:rgba(56,139,253,0.08);--accent-glow-md:rgba(56,139,253,0.15);--accent-border:rgba(56,139,253,0.25);
   --danger:#f85149;--success:#3fb950;--warn:#d29922;
 
   /* Severity tokens */
@@ -106,12 +106,12 @@ a{color:inherit;text-decoration:none}
 .sidebar .brand{padding:var(--sp-5) var(--sp-5) var(--sp-6);font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:-0.3px;text-decoration:none;display:block;background:linear-gradient(135deg,#ededed 0%,var(--accent-light) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .sidebar-section{padding:0 var(--sp-3);margin-bottom:var(--sp-4)}
 .sidebar-section+.sidebar-section{border-top:1px solid var(--border);padding-top:var(--sp-2)}
-.sidebar-section-label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);font-weight:500;padding:var(--sp-2) var(--sp-3) 6px;user-select:none}
-.sidebar-item{display:flex;align-items:center;gap:10px;padding:var(--sp-2) var(--sp-3);border-radius:var(--radius-md);color:var(--text3);font-size:var(--text-sm);font-weight:500;text-decoration:none;letter-spacing:var(--ls-tight);transition:all var(--ease-default);border-left:2px solid transparent;margin-bottom:1px}
-.sidebar-item:hover{background:var(--surface-hover);color:var(--text2)}
-.sidebar-item.active{color:var(--accent-light);background:var(--accent-glow);border-left-color:var(--accent-light);font-weight:600}
-.sidebar-item svg{width:18px;height:18px;flex-shrink:0;opacity:0.7}
-.sidebar-item.active svg{opacity:1}
+.sidebar-section-label{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#6e7681;font-weight:500;padding:var(--sp-2) var(--sp-3) 6px;user-select:none}
+.sidebar-item{display:flex;align-items:center;gap:10px;padding:var(--sp-2) var(--sp-3);border-radius:var(--radius-md);color:#8b949e;font-size:var(--text-sm);font-weight:500;text-decoration:none;letter-spacing:var(--ls-tight);transition:all var(--ease-default);border-left:2px solid transparent;margin-bottom:1px}
+.sidebar-item:hover{background:rgba(139,148,158,0.08);color:#e6edf3}
+.sidebar-item.active{color:#e6edf3;background:rgba(56,139,253,0.15);border-left-color:#58a6ff;font-weight:600}
+.sidebar-item svg{width:18px;height:18px;flex-shrink:0;color:#8b949e}
+.sidebar-item.active svg{color:#e6edf3}
 
 /* ==========================================================================
    Top bar
@@ -180,17 +180,17 @@ tr:hover td{background:var(--surface-hover)}
 /* ==========================================================================
    Status badges
    ========================================================================== */
-[class^="badge-"]{padding:3px 10px;border-radius:var(--radius-sm);font-size:var(--text-xs);font-weight:500;display:inline-block;background:transparent}
-.badge-delivered{color:#3fb950;border:1px solid rgba(63,185,80,0.3)}
-.badge-blocked{color:#f85149;border:1px solid rgba(248,81,73,0.3)}
-.badge-rejected{color:#db6d28;border:1px solid rgba(219,109,40,0.3)}
-.badge-quarantined{color:#db6d28;border:1px solid rgba(219,109,40,0.3)}
-.badge-pending{color:#d29922;border:1px solid rgba(210,153,34,0.3)}
-.badge-approved{color:#3fb950;border:1px solid rgba(63,185,80,0.3)}
-.badge-expired{color:var(--text3);border:1px solid var(--border)}
-.badge-verified{color:var(--success);background:none;padding:0}
-.badge-unsigned{color:var(--text3);background:none;padding:0}
-.badge-invalid{color:var(--danger);background:none;padding:0}
+[class^="badge-"]{padding:2px 10px;border-radius:12px;font-size:var(--text-xs);font-weight:500;display:inline-block}
+.badge-delivered{color:var(--success);background:var(--success-muted);border:1px solid var(--success-border)}
+.badge-blocked{color:var(--danger);background:var(--danger-muted);border:1px solid var(--danger-border)}
+.badge-rejected{color:var(--danger);background:var(--danger-muted);border:1px solid var(--danger-border)}
+.badge-quarantined{color:var(--warn);background:var(--warn-muted);border:1px solid var(--warn-border)}
+.badge-pending{color:var(--warn);background:var(--warn-muted);border:1px solid var(--warn-border)}
+.badge-approved{color:var(--success);background:var(--success-muted);border:1px solid var(--success-border)}
+.badge-expired{color:var(--text3);background:var(--surface2);border:1px solid var(--border)}
+.badge-verified{color:var(--success);background:none;border:none;padding:0}
+.badge-unsigned{color:var(--text3);background:none;border:none;padding:0}
+.badge-invalid{color:var(--danger);background:none;border:none;padding:0}
 
 /* ==========================================================================
    Agent list
@@ -218,7 +218,7 @@ tr:hover td{background:var(--surface-hover)}
 [class^="act-"]{padding:2px var(--sp-2);border-radius:var(--radius-sm);font-size:var(--text-xs);font-weight:600;display:inline-block}
 .act-block{background:rgba(248,81,73,0.09);color:var(--danger)}
 .act-quarantine{background:rgba(168,85,247,0.09);color:#c084fc}
-.act-allow-and-flag{background:rgba(251,146,60,0.09);color:#fb923c}
+.act-allow-and-flag{background:rgba(251,146,60,0.09);color:var(--danger)}
 .act-ignore{background:var(--surface2);color:var(--text3)}
 
 /* ==========================================================================
@@ -234,7 +234,7 @@ tr:hover td{background:var(--surface-hover)}
    ========================================================================== */
 .toggle-btn{display:inline-block;padding:6px 14px;background:var(--surface2);color:var(--text2);border:1px solid var(--border);border-radius:var(--radius-lg);font-size:var(--text-sm);cursor:pointer;text-decoration:none;transition:all var(--ease-smooth);font-family:var(--sans)}
 .toggle-btn:hover{background:var(--accent-dim);color:#fff;border-color:var(--accent)}
-.toggle-btn.active{background:#4f46e5;color:#fff;border-color:rgba(255,255,255,0.08)}
+.toggle-btn.active{background:var(--accent-dim);color:#fff;border-color:rgba(255,255,255,0.08)}
 
 /* ==========================================================================
    HTMX loading indicator
@@ -301,8 +301,8 @@ tr:hover td{background:var(--surface-hover)}
   width:100%;background:var(--bg);font-family:var(--mono);
 }
 .form-group textarea{resize:vertical;min-height:80px}
-.btn{display:inline-block;padding:var(--sp-2) 18px;background:#4f46e5;color:#fff;border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:500;cursor:pointer;transition:all var(--ease-smooth);width:auto;margin:0}
-.btn:hover{background:#5b52f0;border-color:rgba(255,255,255,0.12)}
+.btn{display:inline-block;padding:var(--sp-2) 18px;background:var(--accent-dim);color:#fff;border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:500;cursor:pointer;transition:all var(--ease-smooth);width:auto;margin:0}
+.btn:hover{background:#388bfd;border-color:rgba(56,139,253,0.30)}
 .btn-sm{padding:var(--sp-1) var(--sp-3);font-size:var(--text-sm)}
 .btn-danger{background:transparent;border:1px solid rgba(248,81,73,0.3);color:#f85149}
 .btn-danger:hover{background:rgba(248,81,73,0.1)}
@@ -347,7 +347,7 @@ tr.has-rules>td:first-child{border-left:3px solid var(--warn);padding-left:11px}
 .q-rule-link{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);margin-bottom:6px;color:inherit;transition:border-color var(--ease-smooth)}
 .q-rule-link:hover{border-color:var(--accent)}
 .q-actions{display:flex;gap:var(--sp-2);margin-top:var(--sp-2)}
-.pending-badge{background:#fb923c;color:#000;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:var(--radius-lg);margin-left:6px}
+.pending-badge{background:var(--danger);color:#000;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:var(--radius-lg);margin-left:6px}
 /* badge-pending, badge-approved, badge-expired defined in Status badges section above */
 
 /* ==========================================================================
@@ -358,7 +358,7 @@ tr.has-rules>td:first-child{border-left:3px solid var(--warn);padding-left:11px}
 .agent-cell{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 
 /* ACL target pills */
-.acl-target{display:inline-block;padding:2px var(--sp-2);background:rgba(99,102,241,0.1);border-radius:var(--radius-sm);font-size:var(--text-sm);color:var(--accent-light);font-family:var(--mono)}
+.acl-target{display:inline-block;padding:2px var(--sp-2);background:rgba(56,139,253,0.1);border-radius:var(--radius-sm);font-size:var(--text-sm);color:var(--accent-light);font-family:var(--mono)}
 
 /* ==========================================================================
    Risk bar
@@ -445,6 +445,7 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
   background:var(--bg);color:var(--text);font-size:var(--text-sm);font-family:var(--sans);
   transition:border-color var(--ease-smooth);outline:none;
 }
+.filter-bar input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1)}
 .filter-bar select:focus,.filter-bar input[type="date"]:focus{border-color:var(--accent)}
 .filter-bar .sep{color:var(--text3);font-size:var(--text-sm)}
 .filter-bar .spacer{flex:1}
@@ -550,7 +551,7 @@ pre,pre code{background:var(--bg);border:1px solid var(--border);border-radius:v
 /* ==========================================================================
    SSE new row highlight
    ========================================================================== */
-@keyframes rowFlash{from{background:rgba(99,102,241,0.08)}to{background:transparent}}
+@keyframes rowFlash{from{background:rgba(56,139,253,0.08)}to{background:transparent}}
 tr.new-event td{animation:rowFlash 1.5s ease-out}
 
 /* ==========================================================================

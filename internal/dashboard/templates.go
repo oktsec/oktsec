@@ -82,9 +82,9 @@ var tmplFuncs = template.FuncMap{
 	},
 	"toolDot": func(toolName string) template.HTML {
 		colors := map[string]string{
-			"Bash": "#d29922", "Write": "#c084fc", "Edit": "#818cf8",
+			"Bash": "#d29922", "Write": "#c084fc", "Edit": "#58a6ff",
 			"Read": "#22d3ee", "Glob": "#2dd4bf", "Grep": "#2dd4bf",
-			"WebFetch": "#f472b6", "WebSearch": "#f472b6", "Agent": "#a78bfa",
+			"WebFetch": "#f472b6", "WebSearch": "#f472b6", "Agent": "#bc8cff",
 		}
 		c := "#6e7681"
 		if v, ok := colors[toolName]; ok {
@@ -315,37 +315,47 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
-  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
-  --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --danger:#f85149;--success:#3fb950;--warn:#d29922;
+  color-scheme:dark;
+  /* Canvas & Surfaces */
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;--border-muted:#21262d;
+  /* Text - WCAG AA validated */
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;--text-on-emphasis:#ffffff;
+  /* Accent / Info */
+  --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;--accent-muted:rgba(56,139,253,0.15);--accent-border:rgba(56,139,253,0.30);
+  /* Semantic */
+  --danger:#f85149;--danger-emphasis:#da3633;--danger-muted:rgba(248,81,73,0.15);--danger-border:rgba(248,81,73,0.30);
+  --success:#3fb950;--success-emphasis:#238636;--success-muted:rgba(63,185,80,0.15);--success-border:rgba(63,185,80,0.30);
+  --warn:#d29922;--warn-emphasis:#9e6a03;--warn-muted:rgba(210,153,34,0.15);--warn-border:rgba(210,153,34,0.30);
+  /* Purple (agent/session identity) */
+  --purple:#bc8cff;--purple-emphasis:#8b5cf6;--purple-muted:rgba(188,140,255,0.15);--purple-border:rgba(188,140,255,0.30);
+  /* Typography */
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @font-face{font-family:'Inter';src:url('/dashboard/static/fonts/Inter.woff2') format('woff2');font-weight:100 900;font-style:normal;font-display:swap}
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
-.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.03) 0%,transparent 70%);pointer-events:none;z-index:0}
-.login-card{position:relative;z-index:1;background:var(--surface);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.3);animation:fadeIn 0.4s ease-out}
+.backdrop{display:none}
+.login-card{position:relative;z-index:1;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.4);animation:fadeIn 0.4s ease-out}
 .icon{margin-bottom:20px}
 .icon svg{width:48px;height:48px;color:var(--accent)}
 .logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.3px;margin-bottom:8px;color:var(--text)}
 .subtitle{color:var(--text2);font-size:0.85rem;margin-bottom:32px}
 .help{color:var(--text3);font-size:0.78rem;margin-bottom:24px;line-height:1.6}
-.help code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)}
+.help code{background:#21262d;padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:#e6edf3;border:1px solid #30363d}
 input[type=text]{
-  width:100%;padding:14px 16px;background:var(--bg);border:1px solid #3d3a6e;
+  width:100%;padding:12px 16px;background:#0d1117;border:1px solid #30363d;
   border-radius:8px;color:var(--text);font-family:var(--mono);font-size:1.2rem;
-  text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.2s,box-shadow 0.2s;
+  text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.15s,box-shadow 0.15s;
 }
-input[type=text]:focus{border-color:#8b7cf7;box-shadow:0 0 0 3px rgba(139,124,247,0.12)}
+input[type=text]:focus{border-color:#58a6ff;box-shadow:0 0 0 3px rgba(56,139,253,0.15)}
 input[type=text]::placeholder{letter-spacing:0;font-size:0.85rem;color:var(--text3)}
 button{
-  width:100%;padding:12px;margin-top:16px;background:#2d2b55;color:#fff;
-  border:1px solid #6366f1;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;
-  transition:background 0.2s,transform 0.1s,box-shadow 0.2s;
+  width:100%;padding:12px 16px;margin-top:16px;background:#1f6feb;color:#fff;
+  border:1px solid rgba(56,139,253,0.30);border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;
+  transition:background 0.15s,transform 0.1s;
 }
-button:hover{background:#3d3a6e;box-shadow:none}
+button:hover{background:#388bfd}
 button:active{transform:scale(0.98)}
 .error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.2);border-radius:8px;color:var(--danger);font-size:0.82rem}
 .error svg{flex-shrink:0;width:16px;height:16px}
@@ -382,14 +392,14 @@ var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
 :root{
   --bg:#0d1117;--surface:#161b22;--border:#30363d;
   --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
-  --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
+  --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:0.15}50%{opacity:0.25}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:800px;height:800px;background:radial-gradient(circle,rgba(99,102,241,0.08) 0%,transparent 65%);pointer-events:none;animation:pulse 6s ease-in-out infinite}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:800px;height:800px;background:radial-gradient(circle,transparent 0%,transparent 65%);pointer-events:none;animation:pulse 6s ease-in-out infinite}
 .container{position:relative;z-index:1;text-align:center;animation:fadeIn 0.6s ease-out}
 .logo{font-family:var(--mono);font-size:4.5rem;font-weight:700;letter-spacing:-2px;margin-bottom:12px;background:linear-gradient(135deg,var(--text) 0%,var(--accent-light) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .tagline{color:var(--text3);font-size:1rem;letter-spacing:0.5px;margin-bottom:40px}
@@ -397,7 +407,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .links a{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:8px;font-size:0.88rem;font-weight:500;text-decoration:none;transition:background 0.2s,transform 0.1s,box-shadow 0.2s}
 .links a:active{transform:scale(0.98)}
 .primary{background:var(--accent);color:#fff}
-.primary:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
+.primary:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(56,139,253,0.25)}
 .secondary{background:var(--surface);color:var(--text2);border:1px solid var(--border)}
 .secondary:hover{border-color:var(--accent);color:var(--text)}
 .version{margin-top:48px;color:var(--text3);font-family:var(--mono);font-size:0.72rem;opacity:0.6}
@@ -435,13 +445,13 @@ var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
 :root{
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
   --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
-  --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
+  --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
-.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.03) 0%,transparent 70%);pointer-events:none;z-index:0}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,transparent 0%,transparent 70%);pointer-events:none;z-index:0}
 .card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:420px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2);animation:fadeIn 0.4s ease-out}
 .icon{margin-bottom:20px}
 .icon svg{width:48px;height:48px;color:var(--accent);opacity:0.8}
@@ -449,7 +459,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .title{font-size:1.25rem;font-weight:600;margin-bottom:12px}
 .desc{color:var(--text3);font-size:0.85rem;line-height:1.6;margin-bottom:32px}
 .back{display:inline-block;padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;text-decoration:none;cursor:pointer;transition:background 0.2s,transform 0.1s,box-shadow 0.2s}
-.back:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
+.back:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(56,139,253,0.25)}
 .back:active{transform:scale(0.98)}
 .footer{margin-top:32px;color:var(--text3);font-size:0.72rem}
 </style>
@@ -475,7 +485,7 @@ const layoutHead = `<!DOCTYPE html>
 <title>oktsec — {{.Active}}</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E">
 <script src="/dashboard/static/htmx.min.js"></script>
-<link rel="stylesheet" href="/dashboard/static/dashboard.css">
+<link rel="stylesheet" href="/dashboard/static/dashboard.css?v=20260320">
 </head>
 <body>
 <aside class="sidebar">
@@ -1029,7 +1039,7 @@ a.ov-metric:hover{background:var(--surface2)}
     {{range .TopRules}}
     <div class="ov-metric clickable" style="cursor:pointer" hx-get="/dashboard/api/rule/{{.RuleID}}" hx-target="#panel-content" hx-swap="innerHTML">
       <span class="k">{{.Name}}<br><span style="color:var(--text3);font-size:var(--text-xs);font-family:var(--mono)">{{.RuleID}}</span></span>
-      <span class="v">{{if eq .Severity "critical"}}<span style="color:var(--danger)">{{.Count}}</span>{{else if eq .Severity "high"}}<span style="color:#fb923c">{{.Count}}</span>{{else}}<span>{{.Count}}</span>{{end}}</span>
+      <span class="v">{{if eq .Severity "critical"}}<span style="color:var(--danger)">{{.Count}}</span>{{else if eq .Severity "high"}}<span style="color:var(--danger)">{{.Count}}</span>{{else}}<span>{{.Count}}</span>{{end}}</span>
     </div>
     {{end}}
   </div>
@@ -1467,7 +1477,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     <script>
     (function(){
       var partners={{if .CommPartners}}[{{range .CommPartners}}{to:"{{.To}}",total:{{.Total}}},{{end}}]{{else}}[]{{end}};
-      var toolColors={'Bash':'#d29922','Read':'#22d3ee','Edit':'#818cf8','Grep':'#f472b6','Write':'#c084fc','Glob':'#2dd4bf','Agent':'#a78bfa'};
+      var toolColors={'Bash':'#d29922','Read':'#22d3ee','Edit':'#58a6ff','Grep':'#f472b6','Write':'#c084fc','Glob':'#2dd4bf','Agent':'#bc8cff'};
       var tools={},total=0;
       partners.forEach(function(p){
         var parts=p.to.split('/');
@@ -1526,8 +1536,8 @@ function adTab(name){
           <td><a href="/dashboard/sessions/{{.SessionID}}" style="color:var(--accent);text-decoration:none;font-family:var(--mono);font-size:0.75rem">{{truncate .SessionID 24}}</a></td>
           <td>{{.EventCount}}</td>
           <td>{{if .Duration}}{{.Duration}}{{else}}0s{{end}}</td>
-          <td>{{if gt .Blocks 0}}<span style="color:var(--danger);font-size:0.75rem">{{.Blocks}} blocked</span>{{end}}{{if gt .Quarantines 0}} <span style="color:var(--warning);font-size:0.75rem">{{.Quarantines}} quarantined</span>{{end}}{{if and (eq .Blocks 0) (eq .Quarantines 0)}}<span style="color:var(--text3)">clean</span>{{end}}</td>
-          <td style="text-align:right"><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;{{if ge .RiskScore 10}}background:rgba(239,68,68,0.12);color:#ef4444{{else if ge .RiskScore 5}}background:rgba(234,179,8,0.12);color:#d29922{{else if gt .RiskScore 0}}background:rgba(34,197,94,0.12);color:#22c55e{{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RiskScore}}</span></td>
+          <td>{{if gt .Blocks 0}}<span style="color:var(--danger);font-size:0.75rem">{{.Blocks}} blocked</span>{{end}}{{if gt .Quarantines 0}} <span style="color:var(--warn);font-size:0.75rem">{{.Quarantines}} quarantined</span>{{end}}{{if and (eq .Blocks 0) (eq .Quarantines 0)}}<span style="color:var(--text3)">clean</span>{{end}}</td>
+          <td style="text-align:right"><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;{{if ge .RiskScore 10}}background:var(--danger-muted);color:var(--danger){{else if ge .RiskScore 5}}background:var(--warn-muted);color:#d29922{{else if gt .RiskScore 0}}background:var(--success-muted);color:var(--success){{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RiskScore}}</span></td>
         </tr>
         {{end}}
         </tbody>
@@ -1593,7 +1603,7 @@ function adTab(name){
       <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap">
       {{range .TopRules}}
       <div class="ad-rule" style="padding-left:8px;flex:1;min-width:200px">
-        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
+        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}var(--danger){{else}}var(--text3){{end}}"></div>
         <div style="flex:1;min-width:0;position:relative">
           <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
@@ -1868,7 +1878,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .rules-tab:hover{color:var(--text)}
 .rules-tab.active{color:var(--text);border-bottom-color:var(--accent)}
 .rules-tab .count{font-size:var(--text-xs);font-family:var(--mono);background:var(--surface2);padding:2px var(--sp-2);border-radius:10px;color:var(--text3)}
-.rules-tab.active .count{background:rgba(99,102,241,0.15);color:var(--accent-light)}
+.rules-tab.active .count{background:rgba(56,139,253,0.15);color:var(--accent-light)}
 .cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
 @media(max-width:768px){.cat-grid{grid-template-columns:1fr}}
 .cat-card{background:var(--surface);padding:var(--sp-5) var(--sp-5);cursor:pointer;transition:background var(--ease-default);text-decoration:none;color:inherit;display:block}
@@ -1880,8 +1890,8 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .cat-card-footer{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .cat-card-sev{display:inline-flex;align-items:center;gap:4px;font-size:0.65rem;font-family:var(--mono);padding:2px 7px;border-radius:4px}
 .cat-card-sev.critical{background:rgba(248,81,73,0.08);color:#f85149}
-.cat-card-sev.high{background:rgba(251,146,60,0.08);color:#fb923c}
-.cat-card-sev.medium{background:rgba(96,165,250,0.06);color:#60a5fa}
+.cat-card-sev.high{background:var(--danger-muted);color:var(--danger)}
+.cat-card-sev.medium{background:var(--accent-muted);color:var(--accent)}
 .cat-card-sev.low{background:var(--surface2);color:var(--text3)}
 .cat-card-status{margin-left:auto;font-size:0.68rem;font-weight:500;color:var(--text3)}
 .cat-card-status.some-off{color:var(--warn)}
@@ -1895,7 +1905,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 <div class="rules-tabs">
   <a href="/dashboard/rules?tab=detection" class="rules-tab {{if eq .Tab "detection"}}active{{end}}">Detection Rules{{if .RuleCount}} <span class="count">{{.RuleCount}}</span>{{end}}</a>
   <a href="/dashboard/rules?tab=enforcement" class="rules-tab {{if eq .Tab "enforcement"}}active{{end}}">Enforcement{{if .EnforcementCount}} <span class="count">{{.EnforcementCount}}</span>{{end}}</a>
-  {{if .LLMTotalCount}}<a href="/dashboard/rules?tab=llm-rules" class="rules-tab {{if eq .Tab "llm-rules"}}active{{end}}">LLM Rules{{if .LLMPendingCount}} <span class="count" style="background:rgba(251,146,60,0.15);color:#fb923c">{{.LLMPendingCount}} pending</span>{{else if .LLMTotalCount}} <span class="count">{{.LLMTotalCount}}</span>{{end}}</a>{{end}}
+  {{if .LLMTotalCount}}<a href="/dashboard/rules?tab=llm-rules" class="rules-tab {{if eq .Tab "llm-rules"}}active{{end}}">LLM Rules{{if .LLMPendingCount}} <span class="count" style="background:var(--danger-muted);color:var(--danger)">{{.LLMPendingCount}} pending</span>{{else if .LLMTotalCount}} <span class="count">{{.LLMTotalCount}}</span>{{end}}</a>{{end}}
   <a href="/dashboard/rules?tab=custom" class="rules-tab {{if eq .Tab "custom"}}active{{end}}">Custom Rules{{if .CustomCount}} <span class="count">{{.CustomCount}}</span>{{end}}</a>
 </div>
 
@@ -1904,11 +1914,11 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 {{if .Categories}}
 
 {{if or .LLMPendingCount .LLMActiveCount}}
-<div style="display:flex;align-items:center;gap:16px;padding:14px 20px;margin-bottom:20px;background:var(--surface);border:1px solid rgba(99,102,241,0.2);border-radius:10px">
+<div style="display:flex;align-items:center;gap:16px;padding:14px 20px;margin-bottom:20px;background:var(--surface);border:1px solid rgba(56,139,253,0.2);border-radius:10px">
   <div style="flex:1;min-width:0">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
       <span style="font-weight:600;font-size:0.85rem">AI-Generated Rules</span>
-      {{if .LLMPendingCount}}<span style="font-size:0.68rem;padding:2px 8px;border-radius:4px;background:rgba(251,146,60,0.12);color:#fb923c;font-weight:600">{{.LLMPendingCount}} pending review</span>{{end}}
+      {{if .LLMPendingCount}}<span style="font-size:0.68rem;padding:2px 8px;border-radius:4px;background:var(--danger-muted);color:var(--danger);font-weight:600">{{.LLMPendingCount}} pending review</span>{{end}}
     </div>
     <span style="font-size:0.75rem;color:var(--text3)">{{.LLMActiveCount}} LLM-generated rules active{{if .LLMPendingCount}} &middot; {{.LLMPendingCount}} awaiting approval{{end}}</span>
   </div>
@@ -2060,14 +2070,14 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .enf-name{color:var(--text2);font-size:0.78rem;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .enf-badge{font-size:0.68rem;font-family:var(--mono);padding:3px 10px;border-radius:4px;font-weight:600;text-transform:uppercase;white-space:nowrap}
 .enf-badge.block{background:rgba(248,81,73,0.08);color:#f85149}
-.enf-badge.quarantine{background:rgba(251,146,60,0.08);color:#fb923c}
-.enf-badge.allow-and-flag{background:rgba(96,165,250,0.08);color:#60a5fa}
+.enf-badge.quarantine{background:var(--danger-muted);color:var(--danger)}
+.enf-badge.allow-and-flag{background:var(--accent-muted);color:var(--accent)}
 .enf-badge.ignore{background:var(--surface2);color:var(--text3)}
 .enf-meta{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
 .enf-tag{font-size:0.68rem;font-family:var(--mono);padding:2px 8px;border-radius:4px;background:var(--surface2);color:var(--text3)}
 .enf-tag.sev-critical{background:rgba(248,81,73,0.06);color:#f85149}
-.enf-tag.sev-high{background:rgba(251,146,60,0.06);color:#fb923c}
-.enf-tag.sev-medium{background:rgba(96,165,250,0.06);color:#60a5fa}
+.enf-tag.sev-high{background:var(--danger-muted);color:var(--danger)}
+.enf-tag.sev-medium{background:var(--accent-muted);color:var(--accent)}
 .enf-urls{margin-top:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--surface);border-radius:var(--radius-md);font-family:var(--mono);font-size:var(--text-sm);color:var(--text3);line-height:1.8;word-break:break-all}
 .enf-btns{display:flex;gap:6px}
 /* Combobox */
@@ -2082,8 +2092,8 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .combo-item .cnm{color:var(--text2);font-size:0.75rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .combo-item .csv{font-size:0.65rem;font-family:var(--mono);padding:2px 6px;border-radius:3px}
 .csv.critical{background:rgba(248,81,73,0.08);color:#f85149}
-.csv.high{background:rgba(251,146,60,0.08);color:#fb923c}
-.csv.medium{background:rgba(96,165,250,0.08);color:#60a5fa}
+.csv.high{background:var(--danger-muted);color:var(--danger)}
+.csv.medium{background:var(--accent-muted);color:var(--accent)}
 .csv.low{background:var(--surface2);color:var(--text3)}
 .combo-empty{padding:12px 14px;color:var(--text3);font-size:0.78rem;font-style:italic}
 /* Channel chips */
@@ -2091,7 +2101,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .ch-chip:hover{border-color:var(--accent-dim);color:var(--text)}
 .ch-chip input{position:absolute;opacity:0;pointer-events:none}
 .ch-check{display:none;font-size:0.65rem;color:var(--accent-light)}
-.ch-chip:has(input:checked){background:rgba(99,102,241,0.1);border-color:var(--accent);color:var(--accent-light)}
+.ch-chip:has(input:checked){background:rgba(56,139,253,0.1);border-color:var(--accent);color:var(--accent-light)}
 .ch-chip:has(input:checked) .ch-check{display:inline}
 </style>
 
@@ -2193,7 +2203,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
   <div class="enf-meta">
     {{if .Category}}<span class="enf-tag">{{.Category}}</span>{{end}}
     {{if .DefaultSeverity}}<span class="enf-tag sev-{{.DefaultSeverity}}">default: {{.DefaultSeverity}}</span>{{end}}
-    {{if .Notify}}{{range .Notify}}{{if not (contains . "://")}} <span class="enf-tag" style="background:rgba(99,102,241,0.1);color:var(--accent-light)">{{.}}</span>{{end}}{{end}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-wh-{{$.ID}}').style.display=document.getElementById('enf-wh-{{$.ID}}').style.display==='none'?'block':'none'">{{len .Notify}} webhook{{if gt (len .Notify) 1}}s{{end}} &#9662;</span>{{end}}
+    {{if .Notify}}{{range .Notify}}{{if not (contains . "://")}} <span class="enf-tag" style="background:rgba(56,139,253,0.1);color:var(--accent-light)">{{.}}</span>{{end}}{{end}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-wh-{{$.ID}}').style.display=document.getElementById('enf-wh-{{$.ID}}').style.display==='none'?'block':'none'">{{len .Notify}} webhook{{if gt (len .Notify) 1}}s{{end}} &#9662;</span>{{end}}
     {{if .Template}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-tp-{{.ID}}').style.display=document.getElementById('enf-tp-{{.ID}}').style.display==='none'?'block':'none'">template &#9662;</span>{{end}}
   </div>
   {{if .Notify}}<div class="enf-urls" id="enf-wh-{{.ID}}" style="display:none">{{range .Notify}}{{.}}<br>{{end}}</div>{{end}}
@@ -2576,7 +2586,7 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     {{if ge .LLMRiskScore 0.0}}
     <div class="ed-row">
       <span class="k" style="display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;border-radius:50%;background:{{if ge .LLMRiskScore 51.0}}var(--danger){{else if ge .LLMRiskScore 31.0}}var(--warn){{else}}var(--success){{end}};flex-shrink:0"></span>LLM</span>
-      <span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#f85149{{else if ge .LLMRiskScore 51.0}}color:#fb923c{{else if ge .LLMRiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span>
+      <span class="v" style="{{if ge .LLMRiskScore 76.0}}color:#f85149{{else if ge .LLMRiskScore 51.0}}color:var(--danger){{else if ge .LLMRiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span>
     </div>
     {{end}}
   </div>
@@ -2666,7 +2676,7 @@ const ciCSS = `
 .ci-badge{display:inline-block;padding:var(--sp-1) 14px;border-radius:100px;font-size:var(--text-sm);font-weight:500;flex-shrink:0;align-self:center;letter-spacing:0.2px}
 .ci-badge-blk{background:rgba(248,81,73,0.15);color:#f85149}
 .ci-badge-inv{background:rgba(210,153,34,0.15);color:#d29922}
-.ci-badge-qua{background:rgba(251,146,60,0.15);color:#fb923c}
+.ci-badge-qua{background:var(--danger-muted);color:var(--danger)}
 .ci-badge-ok{background:var(--surface2);color:var(--text3)}
 .ci-s{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5) var(--sp-6);margin-bottom:var(--sp-5)}
 .ci-s h3{font-size:var(--text-xs);font-weight:600;color:var(--text3);margin:0 0 var(--sp-4);text-transform:uppercase;letter-spacing:var(--ls-caps);display:flex;align-items:center;gap:var(--sp-2)}
@@ -2674,7 +2684,7 @@ const ciCSS = `
 .ci-context-row{display:grid;grid-template-columns:3fr 2fr;gap:var(--sp-5);align-items:start;margin-bottom:var(--sp-5)}
 .ci-sev{display:inline-block;padding:2px var(--sp-2);border-radius:100px;font-size:0.6rem;font-weight:600;letter-spacing:0.3px}
 .ci-sev-c{background:rgba(248,81,73,0.18);color:#f85149}
-.ci-sev-h{background:rgba(251,146,60,0.18);color:#fb923c}
+.ci-sev-h{background:var(--danger-muted);color:var(--danger)}
 .ci-sev-m{background:rgba(210,153,34,0.18);color:#d29922}
 .ci-sev-l{background:rgba(63,185,80,0.15);color:#3fb950}
 .ci-thr{display:flex;align-items:flex-start;gap:var(--sp-3);padding:14px var(--sp-5);border-bottom:1px solid var(--border)}
@@ -2818,7 +2828,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
         <div class="ep-pipe-step">
           <span class="ep-pipe-dot" style="background:{{if ge .LLMRiskScore 51.0}}var(--danger){{else if ge .LLMRiskScore 31.0}}var(--warn){{else}}var(--success){{end}}"></span>
           <span class="ep-pipe-name">LLM analysis</span>
-          <span class="ep-pipe-val" style="color:{{if ge .LLMRiskScore 76.0}}#f85149{{else if ge .LLMRiskScore 51.0}}#fb923c{{else if ge .LLMRiskScore 31.0}}#d29922{{else}}var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span>
+          <span class="ep-pipe-val" style="color:{{if ge .LLMRiskScore 76.0}}#f85149{{else if ge .LLMRiskScore 51.0}}var(--danger){{else if ge .LLMRiskScore 31.0}}#d29922{{else}}var(--success){{end}}">{{printf "%.0f" .LLMRiskScore}}/100{{if .LLMAction}} &middot; {{.LLMAction}}{{end}}</span>
         </div>
         {{end}}
       </div>
@@ -2962,7 +2972,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
     <div class="ep-card">
       <div class="ep-card-hdr"><h3>LLM Analysis</h3><a href="/dashboard/llm/{{.LLMAnalysis.ID}}" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none">Full analysis &rarr;</a></div>
       <div class="ep-card-body">
-        <div class="ep-row"><span class="k">Risk score</span><span class="v" style="{{if ge .LLMAnalysis.RiskScore 76.0}}color:#f85149{{else if ge .LLMAnalysis.RiskScore 51.0}}color:#fb923c{{else if ge .LLMAnalysis.RiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}};font-weight:700">{{printf "%.0f" .LLMAnalysis.RiskScore}} / 100</span></div>
+        <div class="ep-row"><span class="k">Risk score</span><span class="v" style="{{if ge .LLMAnalysis.RiskScore 76.0}}color:#f85149{{else if ge .LLMAnalysis.RiskScore 51.0}}color:var(--danger){{else if ge .LLMAnalysis.RiskScore 31.0}}color:#d29922{{else}}color:var(--success){{end}};font-weight:700">{{printf "%.0f" .LLMAnalysis.RiskScore}} / 100</span></div>
         <div class="ep-row"><span class="k">Confidence</span><span class="v">{{printf "%.0f" .LLMAnalysis.Confidence}}%</span></div>
         <div class="ep-row"><span class="k">Action</span><span class="v" style="font-family:var(--sans)">{{.LLMAnalysis.RecommendedAction}}</span></div>
         <div class="ep-row"><span class="k">Model</span><span class="v">{{.LLMAnalysis.Model}}</span></div>
@@ -3515,10 +3525,10 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 .tq-action{padding:3px 10px;border-radius:100px;font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:0.3px}
 .tq-action.block{background:rgba(248,81,73,0.12);color:#f85149}
 .tq-action.investigate{background:rgba(210,153,34,0.12);color:#d29922}
-.tq-action.quarantine{background:rgba(251,146,60,0.12);color:#fb923c}
+.tq-action.quarantine{background:var(--danger-muted);color:var(--danger)}
 .tq-action.monitor,.tq-action.allow{background:var(--surface2);color:var(--text3)}
 .tq-status{padding:3px 10px;border-radius:100px;font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:0.3px}
-.tq-status.new{background:rgba(99,102,241,0.12);color:var(--accent-light)}
+.tq-status.new{background:rgba(56,139,253,0.12);color:var(--accent-light)}
 .tq-status.dismissed{background:rgba(63,185,80,0.08);color:#3fb950}
 .tq-status.confirmed{background:rgba(248,81,73,0.08);color:#f85149}
 @media(max-width:768px){.tq-bar{flex-direction:column;gap:12px;align-items:flex-start}.tq-div{width:100%;height:1px;margin:0}}
@@ -3532,7 +3542,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 .prov-opt{position:relative;flex:1;padding:16px;border-radius:8px;border:2px solid var(--border);cursor:pointer;transition:border-color 0.15s,background 0.15s;text-align:center}
 .prov-opt:hover{border-color:var(--text3)}
 .prov-opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
-.prov-opt.sel{border-color:var(--accent);background:rgba(99,102,241,0.06)}
+.prov-opt.sel{border-color:var(--accent);background:rgba(56,139,253,0.06)}
 .prov-opt .pname{font-weight:600;font-size:0.88rem;margin-bottom:2px}
 .prov-opt .pdesc{font-size:0.7rem;color:var(--text3);line-height:1.4}
 .fw-step{display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text2)}
@@ -3729,7 +3739,7 @@ function llmSwitchTab(name){
   <tbody id="tq-tbody">
   {{range .Analyses}}
     <tr class="tq-row{{if eq .ReviewedStatus "false_positive"}} tq-dismissed{{end}}" data-risk="{{printf "%.0f" .RiskScore}}" data-status="{{.ReviewedStatus}}" data-agent="{{.FromAgent}} {{.ToAgent}}" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
-      <td><span class="tq-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.07);color:#d29922{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span></td>
+      <td><span class="tq-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:var(--danger-muted);color:var(--danger){{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.07);color:#d29922{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span></td>
       <td style="font-size:0.8rem;white-space:nowrap">{{.FromAgent}} <span style="color:var(--text3)">&rarr;</span> {{.ToAgent}}</td>
       <td style="font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{firstThreatSummary .ThreatsJSON .RiskScore}}</td>
       <td><span class="tq-action {{.RecommendedAction}}">{{.RecommendedAction}}</span></td>
@@ -3889,10 +3899,10 @@ tqApply();
     var llmSvc={
       openrouter:{label:'OpenRouter',provider:'openai',url:'https://openrouter.ai/api/v1',bg:'rgba(168,85,247,0.15)',fg:'#a855f7',keyHint:'Set OPENROUTER_API_KEY in your environment',keyPh:'OPENROUTER_API_KEY',models:['deepseek/deepseek-chat-v3-0324','google/gemini-2.5-flash-preview','google/gemini-2.5-flash','anthropic/claude-sonnet-4','x-ai/grok-4-fast']},
       ollama:{label:'Ollama',provider:'openai',url:'http://localhost:11434/v1',bg:'rgba(34,197,94,0.15)',fg:'#3fb950',keyHint:'No API key needed for local Ollama',keyPh:'',models:['qwen3.5:latest','llama3:latest','mistral:latest','deepseek-r1:latest']},
-      lmstudio:{label:'LM Studio',provider:'openai',url:'http://localhost:1234/v1',bg:'rgba(96,165,250,0.15)',fg:'#60a5fa',keyHint:'No API key needed for local LM Studio',keyPh:'',models:['loaded-model']},
+      lmstudio:{label:'LM Studio',provider:'openai',url:'http://localhost:1234/v1',bg:'var(--accent-muted)',fg:'var(--accent)',keyHint:'No API key needed for local LM Studio',keyPh:'',models:['loaded-model']},
       openai:{label:'OpenAI',provider:'openai',url:'https://api.openai.com/v1',bg:'rgba(168,162,158,0.15)',fg:'#a8a29e',keyHint:'Set OPENAI_API_KEY in your environment',keyPh:'OPENAI_API_KEY',models:['gpt-4o','gpt-4o-mini','gpt-4-turbo']},
       groq:{label:'Groq',provider:'openai',url:'https://api.groq.com/openai/v1',bg:'rgba(210,153,34,0.15)',fg:'#d29922',keyHint:'Set GROQ_API_KEY in your environment',keyPh:'GROQ_API_KEY',models:['llama-3.3-70b-versatile','mixtral-8x7b-32768']},
-      azure:{label:'Azure',provider:'openai',url:'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT',bg:'rgba(96,165,250,0.15)',fg:'#60a5fa',keyHint:'Set AZURE_OPENAI_API_KEY in your environment',keyPh:'AZURE_OPENAI_API_KEY',models:['gpt-4o']},
+      azure:{label:'Azure',provider:'openai',url:'https://YOUR-RESOURCE.openai.azure.com/openai/deployments/YOUR-DEPLOYMENT',bg:'var(--accent-muted)',fg:'var(--accent)',keyHint:'Set AZURE_OPENAI_API_KEY in your environment',keyPh:'AZURE_OPENAI_API_KEY',models:['gpt-4o']},
       vllm:{label:'vLLM',provider:'openai',url:'http://localhost:8000/v1',bg:'rgba(34,197,94,0.15)',fg:'#3fb950',keyHint:'No API key needed for local vLLM',keyPh:'',models:[]},
       claude:{label:'Claude',provider:'claude',url:'https://api.anthropic.com',bg:'rgba(217,119,87,0.15)',fg:'#d97756',keyHint:'Set ANTHROPIC_API_KEY in your environment',keyPh:'ANTHROPIC_API_KEY',models:['claude-sonnet-4-6','claude-haiku-4-5-20251001','claude-opus-4-6']},
       webhook:{label:'Webhook',provider:'webhook',url:'',bg:'rgba(168,162,158,0.15)',fg:'#a8a29e',keyHint:'',keyPh:'',models:[]}
@@ -4001,7 +4011,7 @@ tqApply();
         <span class="toggle"><input type="checkbox" name="analyze_flagged" value="true" {{if .Cfg.Analyze.Flagged}}checked{{end}}><span class="toggle-slider"></span></span>
         <div><div style="font-size:0.82rem;font-weight:500">Flagged</div></div>
       </label>
-      <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Quarantined}}#fb923c{{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Quarantined}}background:rgba(251,146,60,0.06){{end}}">
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Quarantined}}var(--danger){{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Quarantined}}background:var(--danger-muted){{end}}">
         <span class="toggle"><input type="checkbox" name="analyze_quarantined" value="true" {{if .Cfg.Analyze.Quarantined}}checked{{end}}><span class="toggle-slider"></span></span>
         <div><div style="font-size:0.82rem;font-weight:500">Quarantined</div></div>
       </label>
@@ -4064,7 +4074,7 @@ var llmDetailTmpl = template.Must(template.New("llm-detail").Funcs(tmplFuncs).Pa
       <div style="font-weight:600;margin-bottom:2px">Risk Score</div>
       <div style="color:var(--text3);font-size:0.78rem">Confidence: {{printf "%.0f" .Confidence}}%</div>
     </div>
-    <span style="margin-left:auto;padding:4px 12px;border-radius:4px;font-size:0.78rem;font-weight:500;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(210,153,34,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:rgba(251,146,60,0.15);color:#fb923c{{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RecommendedAction}}</span>
+    <span style="margin-left:auto;padding:4px 12px;border-radius:4px;font-size:0.78rem;font-weight:500;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(210,153,34,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:var(--danger-muted);color:var(--danger){{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RecommendedAction}}</span>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px">
@@ -4170,8 +4180,8 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-thr-card:last-child{margin-bottom:0}
 .cs-thr-top{display:flex;align-items:flex-start;gap:12px;padding:14px 18px}
 .cs-thr-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:700;font-family:var(--mono);flex-shrink:0;margin-top:1px}
-.cs-thr-num-c{background:rgba(239,68,68,0.12);color:#f85149}
-.cs-thr-num-h{background:rgba(251,146,60,0.12);color:#fb923c}
+.cs-thr-num-c{background:var(--danger-muted);color:#f85149}
+.cs-thr-num-h{background:var(--danger-muted);color:var(--danger)}
 .cs-thr-num-m{background:rgba(210,153,34,0.1);color:#d29922}
 .cs-thr-num-l{background:rgba(34,197,94,0.08);color:#3fb950}
 .cs-thr-info{flex:1;min-width:0}
@@ -4195,7 +4205,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-evidence{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto}
 
 /* Generated rule */
-.cs-rule-block{background:var(--surface2);border:1px solid rgba(99,102,241,0.15);border-radius:10px;padding:14px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap}
+.cs-rule-block{background:var(--surface2);border:1px solid rgba(56,139,253,0.15);border-radius:10px;padding:14px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap}
 
 @media(max-width:960px){.cs-layout{grid-template-columns:1fr}.cs-banner{flex-direction:column}.cs-banner-score{min-width:unset;padding:14px}.cs-banner-body{border-left:none;border-top:1px solid var(--border)}.cs-banner-action{border-left:none;border-top:1px solid var(--border);padding:14px 22px}.cs-intent{grid-template-columns:1fr}.cs-intent-decl{border-right:none;border-bottom:1px solid var(--border)}}
 </style>
@@ -4205,7 +4215,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 {{with .Analysis}}
 <!-- Verdict banner -->
 <div class="cs-banner">
-  <div class="cs-banner-score" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:rgba(251,146,60,0.08);color:#fb923c{{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.06);color:#d29922{{else if gt .RiskScore 10.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">
+  <div class="cs-banner-score" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:var(--danger-muted);color:var(--danger){{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.06);color:#d29922{{else if gt .RiskScore 10.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">
     <div class="n">{{printf "%.0f" .RiskScore}}</div>
     <div class="l">{{if ge .RiskScore 76.0}}CRITICAL{{else if ge .RiskScore 51.0}}HIGH{{else if ge .RiskScore 31.0}}MEDIUM{{else if gt .RiskScore 10.0}}LOW{{else}}BENIGN{{end}}</div>
   </div>
@@ -4313,7 +4323,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 
     <!-- Generated Rule -->
     {{if .RuleGenerated}}
-    <div class="ci-s" style="border-color:rgba(99,102,241,0.15)">
+    <div class="ci-s" style="border-color:rgba(56,139,253,0.15)">
       <h3 style="color:var(--accent-light)">Generated Rule</h3>
       <p style="font-size:0.78rem;color:var(--text2);margin-bottom:10px">Deterministic rule created from this analysis. Catches future matches in &lt;1ms.</p>
       <div class="cs-rule-block">{{.RuleGenerated}}</div>
@@ -4329,7 +4339,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
     <div class="cs-card">
       <div class="cs-card-hdr">Assessment</div>
       <div class="cs-card-body">
-        <div class="cs-row"><span class="k">Risk score</span><span class="v" style="font-weight:700;font-size:0.82rem;{{if ge .RiskScore 76.0}}color:#f85149{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#d29922{{else}}color:#3fb950{{end}}">{{printf "%.0f" .RiskScore}}</span></div>
+        <div class="cs-row"><span class="k">Risk score</span><span class="v" style="font-weight:700;font-size:0.82rem;{{if ge .RiskScore 76.0}}color:#f85149{{else if ge .RiskScore 51.0}}color:var(--danger){{else if ge .RiskScore 31.0}}color:#d29922{{else}}color:#3fb950{{end}}">{{printf "%.0f" .RiskScore}}</span></div>
         <div class="cs-row">
           <span class="k">Confidence</span>
           <span class="v">{{printf "%.0f" .Confidence}}%</span>
@@ -4359,7 +4369,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
         <div class="cs-hist-grid">
           {{range $.AgentHistory}}
           <a href="/dashboard/llm/case/{{.ID}}" class="cs-hist-pill">
-            <span class="cs-hist-score" style="{{if ge .RiskScore 76.0}}color:#f85149{{else if ge .RiskScore 51.0}}color:#fb923c{{else if ge .RiskScore 31.0}}color:#d29922{{else}}color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
+            <span class="cs-hist-score" style="{{if ge .RiskScore 76.0}}color:#f85149{{else if ge .RiskScore 51.0}}color:var(--danger){{else if ge .RiskScore 31.0}}color:#d29922{{else}}color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
             <span>{{relativeTime .Timestamp}}</span>
           </a>
           {{end}}
@@ -4641,7 +4651,7 @@ updateExportLinks();
       var ev = JSON.parse(e.data);
       var tbody = document.getElementById('events-body');
       if (!tbody) return;
-      var toolColors = {Bash:'#d29922',Write:'#c084fc',Edit:'#818cf8',Read:'#22d3ee',Glob:'#2dd4bf',Grep:'#2dd4bf',WebFetch:'#f472b6',WebSearch:'#f472b6',Agent:'#a78bfa'};
+      var toolColors = {Bash:'#d29922',Write:'#c084fc',Edit:'#58a6ff',Read:'#22d3ee',Glob:'#2dd4bf',Grep:'#2dd4bf',WebFetch:'#f472b6',WebSearch:'#f472b6',Agent:'#bc8cff'};
       var toCell;
       if (ev.tool_name) {
         var tc = toolColors[ev.tool_name] || '#6e7681';
@@ -4700,7 +4710,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       <div id="graph-container" style="width:100%;height:100%;background:var(--bg);position:relative;overflow:hidden"></div>
       <div style="position:absolute;bottom:12px;left:16px;display:flex;gap:16px;font-size:0.7rem;color:var(--text3);align-items:center">
         <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#5eead4" stroke-width="2"/></svg> Orchestration</span>
-        <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.5"/></svg> Tool call</span>
+        <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#bc8cff" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.5"/></svg> Tool call</span>
         <button id="graph-sidebar-expand" onclick="toggleGraphSidebar()" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;padding:2px 8px;font-size:0.7rem;margin-left:auto">Overview ›</button>
       </div>
     </div>
@@ -4967,8 +4977,8 @@ function toggleGraphSidebar() {
     fm.appendChild(mn1); fm.appendChild(mn2); glow.appendChild(fm); defs.appendChild(glow);
     // Orchestrator gradient
     var orchGrad=document.createElementNS(NS,'radialGradient'); orchGrad.setAttribute('id','orchFill');
-    var s1=document.createElementNS(NS,'stop'); s1.setAttribute('offset','0%'); s1.setAttribute('stop-color','#a78bfa'); s1.setAttribute('stop-opacity','0.25');
-    var s2=document.createElementNS(NS,'stop'); s2.setAttribute('offset','100%'); s2.setAttribute('stop-color','#7c3aed'); s2.setAttribute('stop-opacity','0.08');
+    var s1=document.createElementNS(NS,'stop'); s1.setAttribute('offset','0%'); s1.setAttribute('stop-color','#bc8cff'); s1.setAttribute('stop-opacity','0.25');
+    var s2=document.createElementNS(NS,'stop'); s2.setAttribute('offset','100%'); s2.setAttribute('stop-color','#8b5cf6'); s2.setAttribute('stop-opacity','0.08');
     orchGrad.appendChild(s1); orchGrad.appendChild(s2); defs.appendChild(orchGrad);
     svg.appendChild(defs);
 
@@ -5011,7 +5021,7 @@ function toggleGraphSidebar() {
 
       if(e.isTool){
         // Tool edges: dashed purple lines
-        hk='ok'; strokeColor='#a78bfa'; baseW=1.2;
+        hk='ok'; strokeColor='#bc8cff'; baseW=1.2;
       } else {
         hk=e.health>=70?'ok':(e.health>=40?'warn':'bad');
         strokeColor=edgeColors[hk];
@@ -5173,13 +5183,13 @@ function toggleGraphSidebar() {
         shape.setAttribute('width',(TR+2)*2); shape.setAttribute('height',(TR+2)*2);
         shape.setAttribute('rx','4');
         shape.setAttribute('fill','rgba(139,92,246,0.06)');
-        shape.setAttribute('stroke','#7c3aed'); shape.setAttribute('stroke-width','1');
+        shape.setAttribute('stroke','#8b5cf6'); shape.setAttribute('stroke-width','1');
         shape.setAttribute('stroke-opacity','0.5');
         fo=document.createElementNS(NS,'foreignObject');
         fo.setAttribute('x',n.x-TR); fo.setAttribute('y',n.y-TR);
         fo.setAttribute('width',TR*2); fo.setAttribute('height',TR*2);
         var toolDiv=document.createElement('div');
-        toolDiv.style.cssText='width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#a78bfa;font-family:ui-monospace,SFMono-Regular,monospace;font-size:10px;font-weight:600';
+        toolDiv.style.cssText='width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#bc8cff;font-family:ui-monospace,SFMono-Regular,monospace;font-size:10px;font-weight:600';
         toolDiv.textContent=n.name.charAt(0).toUpperCase();
         fo.appendChild(toolDiv);
         labelY=n.y+TR+11; textLen=nameLen*4.5+6;
@@ -5188,7 +5198,7 @@ function toggleGraphSidebar() {
         shape=document.createElementNS(NS,'polygon');
         shape.setAttribute('points',hexPts(n.x,n.y,OR+3));
         shape.setAttribute('fill','url(#orchFill)');
-        shape.setAttribute('stroke','#a78bfa'); shape.setAttribute('stroke-width','2.5');
+        shape.setAttribute('stroke','#bc8cff'); shape.setAttribute('stroke-width','2.5');
         shape.setAttribute('filter','url(#glow)');
         shape.classList.add('orch-hex');
         var innerHex=document.createElementNS(NS,'polygon');
@@ -5240,7 +5250,7 @@ function toggleGraphSidebar() {
       var label=document.createElementNS(NS,'text');
       label.setAttribute('x',n.x); label.setAttribute('y',labelY);
       label.setAttribute('text-anchor','middle');
-      label.setAttribute('fill',n.isTool?'#a78bfa':'#e4e4e7');
+      label.setAttribute('fill',n.isTool?'#bc8cff':'#e4e4e7');
       label.setAttribute('font-size',n.isTool?'8.5':(n.isOrch?'12':'9.5'));
       label.setAttribute('font-weight',n.isOrch?'600':'500');
       label.setAttribute('font-family','ui-monospace,SFMono-Regular,SF Mono,Menlo,monospace');

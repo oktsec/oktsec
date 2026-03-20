@@ -30,18 +30,18 @@ var sessionsPageTmpl = template.Must(template.New("sessions").Funcs(tmplFuncs).P
 .ss-session-name{font-weight:500;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:220px}
 
 .ss-risk{display:inline-block;padding:2px 8px;border-radius:4px;font-size:var(--text-xs);font-weight:600}
-.ss-risk.r-high{background:rgba(239,68,68,0.12);color:var(--danger)}
-.ss-risk.r-medium{background:rgba(234,179,8,0.12);color:var(--warning)}
-.ss-risk.r-low{background:rgba(34,197,94,0.12);color:var(--success)}
-.ss-risk.r-none{background:var(--surface2);color:var(--text3)}
+.ss-risk.r-high{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
+.ss-risk.r-medium{background:var(--warn-muted);color:var(--warn);border:1px solid var(--warn-border)}
+.ss-risk.r-low{background:var(--success-muted);color:var(--success);border:1px solid var(--success-border)}
+.ss-risk.r-none{background:var(--surface2);color:var(--text3);border:1px solid var(--border)}
 
 .ss-agents .pill{display:inline-block;padding:2px 7px;background:var(--surface2);border-radius:4px;margin:1px 2px;font-family:var(--mono);font-size:0.68rem;color:var(--text2)}
 .ss-session{font-family:var(--mono);font-size:var(--text-xs);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
 .ss-threats{display:flex;gap:4px;flex-wrap:wrap}
 .ss-threats .badge{padding:2px 7px;border-radius:4px;font-weight:500;font-size:var(--text-xs);white-space:nowrap}
-.ss-threats .b-block{background:rgba(239,68,68,0.12);color:var(--danger)}
-.ss-threats .b-quar{background:rgba(234,179,8,0.12);color:var(--warning)}
-.ss-threats .b-flag{background:rgba(96,165,250,0.12);color:var(--info)}
+.ss-threats .b-block{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
+.ss-threats .b-quar{background:var(--warn-muted);color:var(--warn);border:1px solid var(--warn-border)}
+.ss-threats .b-flag{background:rgba(56,139,253,0.15);color:var(--accent);border:1px solid var(--accent-border)}
 
 .ss-filter-btn{padding:5px 12px;font-size:var(--text-xs);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text3);cursor:pointer;white-space:nowrap}
 .ss-filter-btn:hover{background:var(--surface2)}

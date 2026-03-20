@@ -28,7 +28,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
 .event-badge.llm_threat{background:rgba(137,87,229,0.12);color:#8957e5}
 .event-badge.anomaly,.event-badge.agent_risk_elevated{background:rgba(210,153,34,0.12);color:#d29922}
 .event-badge.agent_suspended{background:rgba(248,81,73,0.15);color:#f85149}
-.event-badge.rule_triggered{background:rgba(99,102,241,0.12);color:var(--accent-light)}
+.event-badge.rule_triggered{background:rgba(56,139,253,0.12);color:var(--accent-light)}
 .sev-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
 .sev-dot.critical{background:#f85149}
 .sev-dot.high{background:#db6d28}
