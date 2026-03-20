@@ -1,55 +1,66 @@
 package dashboard
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
-	"github.com/oktsec/oktsec/internal/llm"
 )
 
-const sessionAnalysisPrompt = `You are a security analyst reviewing an AI agent session.
+const sessionAnalysisPrompt = `You are a security analyst reviewing an AI agent session. Analyze this session in 3-5 concise sentences:
 
-Session ID: %s
-Agents: %s
-Duration: %s
-Tool calls: %d
-Threats: %d blocked, %d quarantined, %d flagged
-
-Timeline (most recent first):
-%s
-
-Analyze this session in 3-5 sentences:
 1. What was the agent trying to accomplish?
 2. Were any security findings legitimate threats or false positives?
 3. Was the behavior pattern normal or anomalous?
 4. Any recommendations for policy changes?
 
-Be concise. Focus on actionable insights, not descriptions of what happened.`
+Session ID: %s
+Agents: %s
+Duration: %s
+Tool calls: %d
+Threats: %d (blocked/quarantined/flagged)
 
-// analyzeSession sends a session trace to the LLM for analysis and returns
-// a text summary. Returns empty string if LLM is not configured.
+Timeline (most recent first):
+%s
+
+Be concise and actionable. No preamble.`
+
+// analyzeSession sends a session trace to the configured LLM for analysis.
+// Makes a direct API call using the LLM config, bypassing the security
+// analysis prompt and structured JSON parsing used by Analyzer.Analyze().
 func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) (string, error) {
-	if s.llmQueue == nil {
+	cfg := s.cfg.LLM
+	if !cfg.Enabled {
 		return "", fmt.Errorf("LLM not configured")
 	}
 
-	analyzer := s.llmQueue.Analyzer()
-	if analyzer == nil {
-		return "", fmt.Errorf("LLM analyzer not available")
+	apiKey := cfg.APIKey
+	if apiKey == "" && cfg.APIKeyEnv != "" {
+		apiKey = os.Getenv(cfg.APIKeyEnv)
+	}
+	if apiKey == "" {
+		return "", fmt.Errorf("LLM API key not set")
 	}
 
 	// Build timeline text from trace steps
 	var sb strings.Builder
-	for _, step := range trace.Steps {
+	for i, step := range trace.Steps {
+		if i >= 30 {
+			fmt.Fprintf(&sb, "... and %d more steps\n", len(trace.Steps)-30)
+			break
+		}
 		verdict := step.Verdict
 		if verdict == "" {
 			verdict = "clean"
 		}
-		fmt.Fprintf(&sb, "- [%s] %s tool=%s verdict=%s",
-			step.Timestamp, step.FromAgent, step.ToolName, verdict)
+		fmt.Fprintf(&sb, "- %s tool=%s verdict=%s", step.FromAgent, step.ToolName, verdict)
 		if step.ToolInput != "" {
 			fmt.Fprintf(&sb, " input=%q", step.ToolInput)
 		}
@@ -61,40 +72,125 @@ func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) 
 		trace.Agent,
 		trace.Duration,
 		trace.ToolCount,
-		trace.Threats, 0, 0, // blocked, quarantined, flagged - threats is total
+		trace.Threats,
 		sb.String(),
 	)
 
 	analysisCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	result, err := analyzer.Analyze(analysisCtx, llm.AnalysisRequest{
-		MessageID: "session-" + trace.SessionID,
-		FromAgent: trace.Agent,
-		Content:   prompt,
-		Timestamp: time.Now(),
-	})
-	if err != nil {
-		return "", fmt.Errorf("LLM analysis: %w", err)
-	}
-
-	// Use the recommended action as a summary, or construct from findings
-	if result.RecommendedAction != "" && result.RecommendedAction != "none" {
-		parts := []string{result.RecommendedAction}
-		for _, t := range result.Threats {
-			parts = append(parts, t.Description)
+	switch cfg.Provider {
+	case "claude":
+		return s.callClaude(analysisCtx, apiKey, cfg.Model, prompt)
+	case "openai":
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
 		}
-		return strings.Join(parts, ". "), nil
+		return s.callOpenAI(analysisCtx, apiKey, baseURL, cfg.Model, prompt)
+	default:
+		return "", fmt.Errorf("unsupported LLM provider %q for session analysis", cfg.Provider)
+	}
+}
+
+func (s *Server) callClaude(ctx context.Context, apiKey, model, prompt string) (string, error) {
+	if model == "" {
+		model = "claude-sonnet-4-6"
 	}
 
-	// If no threats, return a clean summary
-	if len(result.Threats) == 0 {
-		return "Session appears clean. No anomalous behavior detected.", nil
+	body, _ := json.Marshal(map[string]any{
+		"model":      model,
+		"max_tokens": 512,
+		"messages": []map[string]string{
+			{"role": "user", "content": prompt},
+		},
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("claude request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("claude %d: %s", resp.StatusCode, truncStr(string(respBody), 200))
 	}
 
-	var parts []string
-	for _, t := range result.Threats {
-		parts = append(parts, fmt.Sprintf("[%s] %s", t.Severity, t.Description))
+	var result struct {
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
 	}
-	return strings.Join(parts, ". "), nil
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	if len(result.Content) == 0 {
+		return "", fmt.Errorf("empty response")
+	}
+	return result.Content[0].Text, nil
+}
+
+func (s *Server) callOpenAI(ctx context.Context, apiKey, baseURL, model, prompt string) (string, error) {
+	if model == "" {
+		model = "gpt-4o-mini"
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"model":      model,
+		"max_tokens": 512,
+		"messages": []map[string]string{
+			{"role": "user", "content": prompt},
+		},
+	})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("openai request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("openai %d: %s", resp.StatusCode, truncStr(string(respBody), 200))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("empty response")
+	}
+	return result.Choices[0].Message.Content, nil
+}
+
+func truncStr(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
