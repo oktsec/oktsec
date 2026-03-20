@@ -1517,108 +1517,8 @@ function adTab(name){
 
 <!-- Overview Tab -->
 <div id="ad-overview" class="ad-panel active">
-  <!-- Top Triggered Rules (full width) -->
-  <div class="card" style="padding:18px 20px">
-    <div class="ad-slbl">Top triggered rules (24h) {{if .TopRules}}<a href="/dashboard/rules" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a>{{end}}</div>
-    {{if .TopRules}}
-    <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap">
-    {{range .TopRules}}
-    <div class="ad-rule" style="padding-left:8px;flex:1;min-width:200px">
-      <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
-      <div style="flex:1;min-width:0;position:relative">
-        <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
-          <span style="font-family:var(--mono);font-size:0.68rem;color:var(--text3)">{{.RuleID}}</span>
-          {{if eq .Severity "critical"}}<span class="sev-critical">critical</span>
-          {{else if eq .Severity "high"}}<span class="sev-high">high</span>
-          {{else if eq .Severity "medium"}}<span class="sev-medium">medium</span>
-          {{else}}<span class="sev-low">low</span>{{end}}
-        </div>
-      </div>
-      <span style="font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--text);flex-shrink:0">{{.Count}}</span>
-    </div>
-    {{end}}
-    </div>
-    {{else}}
-    <div class="empty" style="padding:20px 0">No rules triggered for this agent.</div>
-    {{end}}
-  </div>
 
-  <!-- LLM Threat Intelligence (full width, only if data exists) -->
-  {{if and .LLMEnabled .LLMHistory}}
-  <div class="card" style="padding:0;overflow:hidden;margin-bottom:var(--sp-5)">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
-      <div class="ad-slbl" style="margin-bottom:0">LLM Threat Intelligence</div>
-      <a href="/dashboard/llm" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a>
-    </div>
-    {{if gt .AgentRisk.LLMThreatCount 0}}
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border-bottom:1px solid var(--border)">
-      <div style="background:var(--surface);padding:14px 20px;text-align:center">
-        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMThreatCount 3}}var(--danger){{else}}var(--text){{end}}">{{.AgentRisk.LLMThreatCount}}</div>
-        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Threats</div>
-      </div>
-      <div style="background:var(--surface);padding:14px 20px;text-align:center">
-        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMConfirmed 0}}var(--danger){{else}}var(--success){{end}}">{{.AgentRisk.LLMConfirmed}}</div>
-        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Confirmed</div>
-      </div>
-      <div style="background:var(--surface);padding:14px 20px;text-align:center">
-        <div style="font-size:1.2rem;font-weight:700;font-family:var(--mono);color:{{if gt .AgentRisk.LLMAvgRisk 60.0}}var(--danger){{else if gt .AgentRisk.LLMAvgRisk 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .AgentRisk.LLMAvgRisk}}</div>
-        <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-top:2px">Avg Risk</div>
-      </div>
-    </div>
-    {{end}}
-    <div style="overflow-x:auto">
-    <table style="font-size:0.82rem;width:100%;border-collapse:collapse;table-layout:fixed">
-      <colgroup><col style="width:25%"><col style="width:15%"><col style="width:20%"><col style="width:20%"><col style="width:20%"></colgroup>
-      <thead><tr>
-        <th style="text-align:left;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Time</th>
-        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Risk</th>
-        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Action</th>
-        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Status</th>
-        <th style="text-align:right;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)"></th>
-      </tr></thead>
-      <tbody>
-      {{range .LLMHistory}}
-      <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'" style="transition:background 0.1s">
-        <td style="padding:10px 20px;border-bottom:1px solid var(--border)" data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border);font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
-        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
-        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3)">dismissed</span>{{else}}<span style="color:var(--warn)">pending</span>{{end}}</td>
-        <td style="text-align:right;padding:10px 20px;border-bottom:1px solid var(--border);font-size:0.72rem;color:var(--text3)">view &rarr;</td>
-      </tr>
-      {{end}}
-      </tbody>
-    </table>
-    </div>
-  </div>
-  {{end}}
-
-  <div class="ad-grid">
-    <!-- Communication Partners -->
-    <div class="card" style="padding:18px 20px">
-      <div class="ad-slbl">Communication partners (24h)</div>
-      {{if .CommPartners}}
-      <table style="font-size:0.78rem">
-        <thead><tr><th class="section-label">Partner</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Total</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Blocked</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Rate</th></tr></thead>
-        <tbody>
-        {{range .CommPartners}}
-        <tr style="{{if eq .Total 0}}opacity:0.4{{end}}">
-          <td>{{toolDot .To}}</td>
-          <td style="text-align:right;font-family:var(--mono)">{{.Total}}</td>
-          <td style="text-align:right;font-family:var(--mono);color:{{if .Blocked}}var(--danger){{else}}var(--success){{end}}">{{.Blocked}}</td>
-          <td style="text-align:right;font-family:var(--mono)">{{if .Total}}{{printf "%.0f" (divf (mulf .Blocked 100) .Total)}}%{{else}}0%{{end}}</td>
-        </tr>
-        {{end}}
-        </tbody>
-      </table>
-      {{else}}
-      <div class="empty" style="padding:20px 0">No communication partners.</div>
-      {{end}}
-    </div>
-
-  </div>
-
-  <!-- Sessions + Recent Messages side by side -->
+  <!-- Row 1: Sessions + Recent Messages -->
   <div class="ad-grid">
     {{if .AgentSessions}}
     <div class="card" style="padding:18px 20px">
@@ -1689,6 +1589,83 @@ function adTab(name){
       {{end}}
     </div>
   </div>
+
+  <!-- Row 2: Top Triggered Rules + Communication Partners -->
+  <div class="ad-grid">
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Top triggered rules (24h) {{if .TopRules}}<a href="/dashboard/rules" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a>{{end}}</div>
+      {{if .TopRules}}
+      <div style="display:flex;gap:var(--sp-4);flex-wrap:wrap">
+      {{range .TopRules}}
+      <div class="ad-rule" style="padding-left:8px;flex:1;min-width:200px">
+        <div class="ad-rule-bar" style="width:{{if $.TopRules}}{{printf "%.0f" (mulf (divf .Count (index $.TopRules 0).Count) 100)}}%{{else}}0%{{end}};background:{{if eq .Severity "critical"}}#f85149{{else if eq .Severity "high"}}#fb923c{{else}}var(--text3){{end}}"></div>
+        <div style="flex:1;min-width:0;position:relative">
+          <div style="font-size:0.82rem;font-weight:500;color:var(--text)">{{.Name}}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:2px">
+            <span style="font-family:var(--mono);font-size:0.68rem;color:var(--text3)">{{.RuleID}}</span>
+          </div>
+        </div>
+        <span style="font-family:var(--mono);font-weight:700;font-size:1.05rem;color:var(--text);flex-shrink:0">{{.Count}}</span>
+      </div>
+      {{end}}
+      </div>
+      {{else}}
+      <div class="empty" style="padding:20px 0">No rules triggered for this agent.</div>
+      {{end}}
+    </div>
+
+    <div class="card" style="padding:18px 20px">
+      <div class="ad-slbl">Communication partners (24h)</div>
+      {{if .CommPartners}}
+      <table style="font-size:0.78rem">
+        <thead><tr><th class="section-label">Partner</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Total</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Blocked</th><th style="text-align:right;font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:600">Rate</th></tr></thead>
+        <tbody>
+        {{range .CommPartners}}
+        <tr style="{{if eq .Total 0}}opacity:0.4{{end}}">
+          <td>{{toolDot .To}}</td>
+          <td style="text-align:right;font-family:var(--mono)">{{.Total}}</td>
+          <td style="text-align:right;font-family:var(--mono);color:{{if .Blocked}}var(--danger){{else}}var(--success){{end}}">{{.Blocked}}</td>
+          <td style="text-align:right;font-family:var(--mono)">{{if .Total}}{{printf "%.0f" (divf (mulf .Blocked 100) .Total)}}%{{else}}0%{{end}}</td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <div class="empty" style="padding:20px 0">No communication partners.</div>
+      {{end}}
+    </div>
+  </div>
+
+  <!-- LLM Threat Intelligence (full width, only if data exists) -->
+  {{if and .LLMEnabled .LLMHistory}}
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)">
+      <div class="ad-slbl" style="margin-bottom:0">LLM Threat Intelligence</div>
+      <a href="/dashboard/llm" style="font-size:0.72rem;color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a>
+    </div>
+    <div style="overflow-x:auto">
+    <table style="font-size:0.82rem;width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Time</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Risk</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Action</th>
+        <th style="text-align:center;padding:10px 20px;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);font-weight:500;border-bottom:1px solid var(--border)">Status</th>
+      </tr></thead>
+      <tbody>
+      {{range .LLMHistory}}
+      <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
+        <td style="padding:10px 20px;border-bottom:1px solid var(--border)" data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border);font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
+        <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3)">dismissed</span>{{else}}<span style="color:var(--warn)">pending</span>{{end}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {{end}}
+
 </div>
 
 <!-- Configuration Tab -->
