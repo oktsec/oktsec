@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,9 +35,7 @@ func itoa(n int) string {
 		b = append(b, byte('0'+n%10))
 		n /= 10
 	}
-	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
-		b[i], b[j] = b[j], b[i]
-	}
+	slices.Reverse(b)
 	return string(b)
 }
 

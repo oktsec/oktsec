@@ -378,10 +378,14 @@ func TestRunChecks_SecureConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(keysDir, "agent-a.pub"), []byte("key"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(keysDir, "agent-a.key"), []byte("priv"), 0o600))
 
-	// Override MCP scanner to avoid scanning real host configs.
-	orig := mcpScanFunc
+	// Override host scanners to avoid scanning real configs.
+	origMCP := mcpScanFunc
 	mcpScanFunc = func() (*discover.Result, error) { return nil, nil }
-	t.Cleanup(func() { mcpScanFunc = orig })
+	t.Cleanup(func() { mcpScanFunc = origMCP })
+
+	origOC := openClawScanFunc
+	openClawScanFunc = func() string { return "" }
+	t.Cleanup(func() { openClawScanFunc = origOC })
 
 	cfg := secureBaseline()
 	cfg.Identity.KeysDir = keysDir

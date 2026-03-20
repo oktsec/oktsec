@@ -127,12 +127,22 @@ func ApplyRuleOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome) 
 	outcome.Verdict = newVerdict
 }
 
-// ApplyToolScopedOverrides is like ApplyRuleOverrides but respects
-// per-rule tool scope. When a rule has ApplyToTools set and the current
-// tool is not in the list, that rule's override is skipped (finding
-// keeps default severity verdict). Similarly, if ExemptTools is set and
-// the tool IS in the list, the override is skipped.
+// ApplyToolScopedOverrides applies tool-aware rule filtering including
+// oktsec's built-in tool exemptions. Use this when Aguara did NOT receive
+// tool context (callers that use ScanContent without tool name).
 func ApplyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome, toolName string) {
+	applyToolScopedOverrides(rules, outcome, toolName, true)
+}
+
+// ApplyToolScopedOverridesPostAguara applies tool-aware rule filtering but
+// skips built-in tool exemptions because Aguara already applied them during
+// scanning (when tool name was passed via WithToolName). Still applies:
+// ContentTools filtering, DevWorkflowTools/NLP_ exemption, user overrides.
+func ApplyToolScopedOverridesPostAguara(rules []config.RuleAction, outcome *engine.ScanOutcome, toolName string) {
+	applyToolScopedOverrides(rules, outcome, toolName, false)
+}
+
+func applyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome, toolName string, applyBuiltinExemptions bool) {
 	if len(outcome.Findings) == 0 {
 		return
 	}
@@ -182,8 +192,9 @@ func ApplyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOut
 			continue
 		}
 
-		// Apply built-in tool exemptions when no user override exists.
-		if !hasOverride {
+		// Apply built-in tool exemptions when no user override exists
+		// and Aguara hasn't already filtered them.
+		if applyBuiltinExemptions && !hasOverride {
 			if exemptTools, ok := BuiltinToolExemptions[f.RuleID]; ok {
 				if containsTool(exemptTools, toolName) {
 					continue

@@ -60,7 +60,7 @@ func newGatewayCmd() *cobra.Command {
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
 			gateway.Version = version
-			gw, err := gateway.NewGateway(cfg, logger)
+			gw, err := gateway.NewGateway(cfg, logger, nil)
 			if err != nil {
 				return err
 			}

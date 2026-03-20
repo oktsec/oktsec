@@ -167,7 +167,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	outcome, scanErr := h.scanner.ScanContent(ctx, content)
+	outcome, scanErr := h.scanner.ScanContentWithTool(ctx, content, ev.ToolName)
 
 	// Determine verdict.
 	status := audit.StatusDelivered
@@ -179,7 +179,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		decision = audit.DecisionScanError
 	} else if outcome != nil && len(outcome.Findings) > 0 {
 		// Apply tool-scoped rule overrides from config.
-		verdict.ApplyToolScopedOverrides(h.cfg.Rules, outcome, ev.ToolName)
+		// PostAguara: built-in exemptions already applied by Aguara via WithToolName.
+		verdict.ApplyToolScopedOverridesPostAguara(h.cfg.Rules, outcome, ev.ToolName)
 
 		// Apply scan profile only for content tools (Write, Edit, etc.)
 		// where file content naturally contains patterns that match rules.

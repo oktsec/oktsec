@@ -11,7 +11,6 @@ import (
 
 	"github.com/garagon/aguara"
 	"github.com/oktsec/oktsec/rules"
-	"golang.org/x/text/unicode/norm"
 )
 
 // credentialPatterns matches known API key and secret formats for redaction.
@@ -116,19 +115,30 @@ func (s *Scanner) ScanContent(ctx context.Context, content string) (*ScanOutcome
 // ScanContentAs scans content with a specific virtual filename for target matching.
 // Use this when the content represents a specific file type (e.g., "openclaw.json")
 // so that rules with file-type targets can match correctly.
-//
-// Content is NFKC-normalized before scanning to prevent homoglyph evasion
-// (e.g., fullwidth characters like IGNORE bypassing ASCII pattern rules).
-// Findings reference the normalized form since that is what matched.
+// NFKC normalization is handled internally by Aguara (v0.9.0+).
 func (s *Scanner) ScanContentAs(ctx context.Context, content, filename string) (*ScanOutcome, error) {
-	// NFKC normalization: decompose compatibility characters (fullwidth,
-	// circled, superscript, etc.) then compose canonical equivalents.
-	// This collapses homoglyphs like \uFF29\uFF47\uFF4E\uFF4F\uFF52\uFF45
-	// ("Ignore" in fullwidth) down to plain ASCII so detection rules
-	// cannot be bypassed with Unicode tricks.
-	normalized := norm.NFKC.String(content)
+	result, err := aguara.ScanContent(ctx, content, filename, s.opts...)
+	if err != nil {
+		return nil, fmt.Errorf("aguara scan: %w", err)
+	}
+	return buildOutcome(result), nil
+}
 
-	result, err := aguara.ScanContent(ctx, normalized, filename, s.opts...)
+// ScanContentWithTool scans content with tool context, enabling Aguara's
+// built-in tool exemptions (e.g., TC-005 dropped on Edit/Write).
+// Use this when the tool name is known (hooks handler, gateway tool calls).
+func (s *Scanner) ScanContentWithTool(ctx context.Context, content, toolName string) (*ScanOutcome, error) {
+	return s.ScanContentAsWithTool(ctx, content, "message.md", toolName)
+}
+
+// ScanContentAsWithTool scans content with both filename and tool context.
+func (s *Scanner) ScanContentAsWithTool(ctx context.Context, content, filename, toolName string) (*ScanOutcome, error) {
+	opts := make([]aguara.Option, len(s.opts), len(s.opts)+1)
+	copy(opts, s.opts)
+	if toolName != "" {
+		opts = append(opts, aguara.WithToolName(toolName))
+	}
+	result, err := aguara.ScanContent(ctx, content, filename, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("aguara scan: %w", err)
 	}
