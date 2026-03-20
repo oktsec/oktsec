@@ -2391,6 +2391,65 @@ func (s *Server) handleEditAgent(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/agents/"+name, http.StatusFound)
 }
 
+func (s *Server) handleSaveEgress(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	agent, ok := s.cfg.Agents[name]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	if agent.Egress == nil {
+		agent.Egress = &config.EgressPolicy{}
+	}
+
+	// Parse integrations (checkboxes)
+	r.ParseForm()
+	agent.Egress.Integrations = r.Form["integrations"]
+
+	// Parse allowed domains (space/comma separated)
+	if v := strings.TrimSpace(r.FormValue("allowed_domains")); v != "" {
+		agent.Egress.AllowedDomains = strings.Fields(strings.ReplaceAll(v, ",", " "))
+	} else {
+		agent.Egress.AllowedDomains = nil
+	}
+
+	// Parse blocked domains
+	if v := strings.TrimSpace(r.FormValue("blocked_domains")); v != "" {
+		agent.Egress.BlockedDomains = strings.Fields(strings.ReplaceAll(v, ",", " "))
+	} else {
+		agent.Egress.BlockedDomains = nil
+	}
+
+	// Parse tool restrictions: tool_name -> domains
+	toolNames := strings.Fields(strings.ReplaceAll(r.FormValue("tool_restriction_tools"), ",", " "))
+	if len(toolNames) > 0 {
+		if agent.Egress.ToolRestrictions == nil {
+			agent.Egress.ToolRestrictions = make(map[string][]string)
+		}
+		for _, t := range toolNames {
+			domains := strings.Fields(strings.ReplaceAll(r.FormValue("tr_"+t), ",", " "))
+			agent.Egress.ToolRestrictions[t] = domains
+		}
+	}
+
+	// Clean up empty egress
+	if len(agent.Egress.AllowedDomains) == 0 && len(agent.Egress.BlockedDomains) == 0 &&
+		len(agent.Egress.Integrations) == 0 && len(agent.Egress.ToolRestrictions) == 0 {
+		agent.Egress = nil
+	}
+
+	s.cfg.Agents[name] = agent
+
+	if s.cfgPath != "" {
+		if err := s.saveConfig(); err != nil {
+			s.logger.Error("failed to save egress config", "error", err)
+		}
+	}
+
+	http.Redirect(w, r, "/dashboard/agents/"+name+"#egress", http.StatusFound)
+}
+
 func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := s.cfg.Agents[name]; !ok {

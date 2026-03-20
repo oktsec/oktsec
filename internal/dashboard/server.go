@@ -349,6 +349,7 @@ func (s *Server) routes() {
 	// Agent CRUD
 	s.mux.HandleFunc("POST /dashboard/agents", s.handleCreateAgent)
 	s.mux.HandleFunc("POST /dashboard/agents/{name}/edit", s.handleEditAgent)
+	s.mux.HandleFunc("POST /dashboard/agents/{name}/egress", s.handleSaveEgress)
 	s.mux.HandleFunc("DELETE /dashboard/agents/{name}", s.handleDeleteAgent)
 	s.mux.HandleFunc("POST /dashboard/agents/{name}/keygen", s.handleAgentKeygen)
 	s.mux.HandleFunc("POST /dashboard/agents/{name}/suspend", s.handleSuspendToggle)

@@ -92,7 +92,15 @@ var tmplFuncs = template.FuncMap{
 		}
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
-	"hasRules": func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"hasRules":    func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"listContains": func(list []string, s string) bool {
+		for _, v := range list {
+			if v == s {
+				return true
+			}
+		}
+		return false
+	},
 	"fmtDate": func(ts string) string {
 		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
 			return t.Local().Format("Jan 02 15:04")
@@ -1789,72 +1797,90 @@ function stagePolicy() {
     <div class="ad-slbl">Egress Policy</div>
     <p class="desc">Control which domains this agent can access and restrict egress per tool.</p>
 
-    {{if .Agent.Egress}}
-    {{if .Agent.Egress.Integrations}}
-    <div style="margin-bottom:16px">
-      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Integration Presets</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        {{range .Agent.Egress.Integrations}}<span style="padding:3px 10px;background:rgba(99,102,241,0.1);color:var(--accent-light);border-radius:4px;font-size:0.75rem;font-weight:500">{{.}}</span>{{end}}
-      </div>
-    </div>
-    {{end}}
+    <form method="POST" action="/dashboard/agents/{{.Name}}/egress">
 
-    {{if .Agent.Egress.AllowedDomains}}
-    <div style="margin-bottom:16px">
-      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Allowed Domains</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
-        {{range .Agent.Egress.AllowedDomains}}<code style="padding:2px 8px;background:var(--surface2);border-radius:3px;font-size:0.75rem">{{.}}</code>{{end}}
-      </div>
-    </div>
-    {{end}}
-
-    {{if .Agent.Egress.BlockedDomains}}
-    <div style="margin-bottom:16px">
-      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Blocked Domains</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
-        {{range .Agent.Egress.BlockedDomains}}<code style="padding:2px 8px;background:rgba(248,81,73,0.08);color:var(--danger);border-radius:3px;font-size:0.75rem">{{.}}</code>{{end}}
-      </div>
-    </div>
-    {{end}}
-
-    {{if .Agent.Egress.ToolRestrictions}}
-    <div style="margin-bottom:16px">
-      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Per-Tool Restrictions</div>
-      <table>
-        <thead><tr><th>Tool</th><th>Allowed Domains</th></tr></thead>
-        <tbody>
-        {{range $tool, $domains := .Agent.Egress.ToolRestrictions}}
-        <tr>
-          <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{$tool}}</td>
-          <td>
-            {{if $domains}}
-            <div style="display:flex;gap:4px;flex-wrap:wrap">
-              {{range $domains}}<code style="padding:1px 6px;background:var(--surface2);border-radius:3px;font-size:0.72rem">{{.}}</code>{{end}}
-            </div>
-            {{else}}
-            <span style="color:var(--danger);font-size:0.75rem">No egress allowed</span>
-            {{end}}
-          </td>
-        </tr>
+    <!-- Integration Presets -->
+    <div style="margin-bottom:20px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:10px">Integration Presets</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        {{range .Presets}}
+        <label style="display:flex;align-items:center;gap:5px;padding:5px 12px;background:var(--surface2);border-radius:6px;cursor:pointer;font-size:0.78rem;color:var(--text2);transition:all 0.1s" title="{{.Description}}">
+          <input type="checkbox" name="integrations" value="{{.Name}}" {{if $.Agent.Egress}}{{if listContains $.Agent.Egress.Integrations .Name}}checked{{end}}{{end}} style="accent-color:var(--accent)">
+          {{.Name}}
+        </label>
         {{end}}
-        </tbody>
-      </table>
-    </div>
-    {{end}}
-
-    {{else}}
-    <div class="empty">No egress policy configured. This agent can access any domain.<br><span style="font-size:0.75rem;color:var(--text3)">Add an egress policy in oktsec.yaml to restrict outbound access.</span></div>
-    {{end}}
-
-    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
-      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Available Integration Presets</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap">
-        {{range .Presets}}<span style="padding:2px 8px;background:var(--surface2);border-radius:3px;font-size:0.72rem;color:var(--text3)" title="{{.Description}}">{{.Name}}</span>{{end}}
       </div>
-      <p style="font-size:0.72rem;color:var(--text3);margin-top:8px">Add presets in oktsec.yaml: <code style="font-size:0.72rem">egress: { integrations: ["slack", "github"] }</code></p>
     </div>
+
+    <!-- Allowed Domains -->
+    <div style="margin-bottom:16px">
+      <div class="form-group">
+        <label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Allowed Domains (space or comma separated)</label>
+        <input type="text" name="allowed_domains" value="{{if .Agent.Egress}}{{range $i, $d := .Agent.Egress.AllowedDomains}}{{if $i}} {{end}}{{$d}}{{end}}{{end}}" placeholder="api.github.com api.slack.com">
+      </div>
+    </div>
+
+    <!-- Blocked Domains -->
+    <div style="margin-bottom:16px">
+      <div class="form-group">
+        <label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Blocked Domains (space or comma separated)</label>
+        <input type="text" name="blocked_domains" value="{{if .Agent.Egress}}{{range $i, $d := .Agent.Egress.BlockedDomains}}{{if $i}} {{end}}{{$d}}{{end}}{{end}}" placeholder="evil.com malicious.io">
+      </div>
+    </div>
+
+    <!-- Per-Tool Restrictions -->
+    <div style="margin-bottom:16px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:10px">Per-Tool Restrictions</div>
+      {{if .Agent.Egress}}{{if .Agent.Egress.ToolRestrictions}}
+      {{range $tool, $domains := .Agent.Egress.ToolRestrictions}}
+      <div class="form-row" style="margin-bottom:8px;align-items:center">
+        <div style="min-width:120px;font-family:var(--mono);font-size:0.82rem;font-weight:600">{{$tool}}</div>
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <input type="text" name="tr_{{$tool}}" value="{{range $i, $d := $domains}}{{if $i}} {{end}}{{$d}}{{end}}" placeholder="Domains (empty = block all egress)">
+        </div>
+      </div>
+      {{end}}
+      {{end}}{{end}}
+      <div class="form-row" style="align-items:flex-end;margin-top:8px">
+        <div class="form-group" style="flex:1">
+          <label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Tool Name</label>
+          <input type="text" id="eg-new-tool" placeholder="e.g. Bash, WebFetch">
+        </div>
+        <div class="form-group" style="flex:2">
+          <label style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3)">Allowed Domains (empty = block all egress for tool)</label>
+          <input type="text" id="eg-new-domains" placeholder="api.github.com arxiv.org">
+        </div>
+        <button type="button" class="btn btn-sm" style="background:var(--surface2);color:var(--text2);margin-bottom:12px" onclick="addToolRestriction()">Add</button>
+      </div>
+      <input type="hidden" name="tool_restriction_tools" id="eg-tr-tools" value="{{if .Agent.Egress}}{{if .Agent.Egress.ToolRestrictions}}{{range $tool, $_ := .Agent.Egress.ToolRestrictions}}{{$tool}} {{end}}{{end}}{{end}}">
+    </div>
+
+    <button type="submit" class="btn btn-sm" style="background:var(--success)">Save Egress Policy</button>
+    </form>
   </div>
 </div>
+<script>
+function addToolRestriction() {
+  var tool = document.getElementById('eg-new-tool').value.trim();
+  if (!tool) return;
+  var domains = document.getElementById('eg-new-domains').value.trim();
+  var form = document.getElementById('eg-new-tool').closest('form');
+  var existing = form.querySelector('[name="tr_' + tool + '"]');
+  if (!existing) {
+    var row = document.createElement('div');
+    row.className = 'form-row';
+    row.style.marginBottom = '8px';
+    row.style.alignItems = 'center';
+    row.innerHTML = '<div style="min-width:120px;font-family:var(--mono);font-size:0.82rem;font-weight:600">' + tool + '</div><div class="form-group" style="flex:1;margin-bottom:0"><input type="text" name="tr_' + tool + '" value="' + domains + '" placeholder="Domains"></div>';
+    document.getElementById('eg-new-tool').closest('.form-row').before(row);
+  }
+  var toolsInput = document.getElementById('eg-tr-tools');
+  var tools = toolsInput.value.trim().split(/\s+/).filter(Boolean);
+  if (tools.indexOf(tool) === -1) tools.push(tool);
+  toolsInput.value = tools.join(' ');
+  document.getElementById('eg-new-tool').value = '';
+  document.getElementById('eg-new-domains').value = '';
+}</script>
 
 ` + layoutFoot))
 
