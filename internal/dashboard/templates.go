@@ -1616,7 +1616,10 @@ function adTab(name){
       {{end}}
     </div>
 
-    <!-- Sessions -->
+  </div>
+
+  <!-- Sessions + Recent Messages side by side -->
+  <div class="ad-grid">
     {{if .AgentSessions}}
     <div class="card" style="padding:18px 20px">
       <div class="ad-slbl">Sessions <a href="/dashboard/sessions" style="margin-left:auto;font-size:0.68rem;color:var(--accent-light);text-decoration:none;font-weight:400;text-transform:none;letter-spacing:0">View all &rarr;</a></div>
