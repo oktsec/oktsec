@@ -56,6 +56,10 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-link:hover{text-decoration:underline}
 
 .st-empty{padding:40px;text-align:center;color:var(--text3)}
+.ss-ai-btn{padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:var(--text-xs);cursor:pointer;font-weight:500}
+.ss-ai-btn:hover{opacity:0.9}
+.ss-ai-btn:disabled{opacity:0.5;cursor:not-allowed}
+.ss-ai-result{margin-top:16px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:var(--text-sm);line-height:1.6;color:var(--text2);white-space:pre-wrap}
 </style>
 
 <div class="page-header" style="margin-bottom:8px">
@@ -72,7 +76,23 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/csv" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">CSV</a>
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/sarif" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">SARIF</a>
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/export" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">JSON</a>
+  <button class="ss-ai-btn" id="ai-analyze-btn" onclick="analyzeSession('{{.Trace.SessionID}}')">Analyze with AI</button>
 </div>
+<div id="ai-analysis-result" class="ss-ai-result" style="display:none"></div>
+<script>
+function analyzeSession(sid) {
+  var btn = document.getElementById('ai-analyze-btn');
+  var result = document.getElementById('ai-analysis-result');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
+  result.style.display = 'none';
+  fetch('/dashboard/api/sessions/' + sid + '/analyze', {method: 'POST'})
+    .then(function(r) { if (!r.ok) throw new Error(r.statusText); return r.text(); })
+    .then(function(text) { result.textContent = text; result.style.display = 'block'; })
+    .catch(function(e) { result.textContent = 'Analysis unavailable: ' + e.message; result.style.display = 'block'; })
+    .finally(function() { btn.disabled = false; btn.textContent = 'Analyze with AI'; });
+}
+</script>
 
 <div class="st-stats">
   <div class="st-stat">

@@ -298,6 +298,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/events/{id...}", s.handleEventPage)
 
 	// Session trace page + exports
+	s.mux.HandleFunc("GET /dashboard/sessions", s.handleSessions)
+	s.mux.HandleFunc("GET /dashboard/api/sessions/export", s.handleSessionsExport)
+	s.mux.HandleFunc("POST /dashboard/api/sessions/{id}/analyze", s.handleSessionAnalyze)
 	s.mux.HandleFunc("GET /dashboard/sessions/{id...}", s.handleSessionTrace)
 	s.mux.HandleFunc("GET /dashboard/api/session/{id}/export", s.handleSessionExport)
 	s.mux.HandleFunc("GET /dashboard/api/session/{id}/csv", s.handleSessionCSV)

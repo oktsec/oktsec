@@ -1559,6 +1559,125 @@ func csvEscape(s string) string {
 	return `"` + s + `"`
 }
 
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	rangeParam := r.URL.Query().Get("range")
+	if rangeParam == "" {
+		rangeParam = "24h"
+	}
+
+	var since string
+	switch rangeParam {
+	case "7d":
+		since = time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	case "30d":
+		since = time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	default:
+		rangeParam = "24h"
+		since = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
+
+	sessions, err := s.audit.QuerySessions(since, 200)
+	if err != nil {
+		s.logger.Error("query sessions", "error", err)
+		sessions = nil
+	}
+
+	// Compute summary stats
+	totalEvents := 0
+	threatSessions := 0
+	var totalDurationMs int64
+	durCount := 0
+	for _, ss := range sessions {
+		totalEvents += ss.EventCount
+		if ss.Blocks > 0 || ss.Quarantines > 0 {
+			threatSessions++
+		}
+		totalDurationMs += ss.TotalLatencyMs
+		if ss.Duration != "" {
+			durCount++
+		}
+	}
+
+	avgDuration := "-"
+	if durCount > 0 {
+		avgMs := totalDurationMs / int64(durCount)
+		if avgMs > 0 {
+			avgDuration = (time.Duration(avgMs) * time.Millisecond).Round(time.Second).String()
+		}
+	}
+
+	data := map[string]any{
+		"Active":         "sessions",
+		"Sessions":       sessions,
+		"Range":          rangeParam,
+		"TotalSessions":  len(sessions),
+		"ThreatSessions": threatSessions,
+		"AvgDuration":    avgDuration,
+		"TotalEvents":    totalEvents,
+	}
+	s.renderTemplate(w, sessionsPageTmpl, data)
+}
+
+func (s *Server) handleSessionsExport(w http.ResponseWriter, r *http.Request) {
+	rangeParam := r.URL.Query().Get("range")
+	format := r.URL.Query().Get("format")
+
+	var since string
+	switch rangeParam {
+	case "7d":
+		since = time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	case "30d":
+		since = time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	default:
+		since = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	}
+
+	sessions, err := s.audit.QuerySessions(since, 500)
+	if err != nil {
+		http.Error(w, "query error", http.StatusInternalServerError)
+		return
+	}
+
+	switch format {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=sessions.csv")
+		_, _ = w.Write([]byte("session_id,started_at,ended_at,duration,events,agents,blocks,quarantines,flags,risk_score\n"))
+		for _, ss := range sessions {
+			_, _ = fmt.Fprintf(w, "%s,%s,%s,%s,%d,%q,%d,%d,%d,%d\n",
+				ss.SessionID, ss.StartedAt, ss.EndedAt, ss.Duration,
+				ss.EventCount, ss.Agents, ss.Blocks, ss.Quarantines, ss.Flags, ss.RiskScore)
+		}
+	default: // json
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(sessions)
+	}
+}
+
+func (s *Server) handleSessionAnalyze(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		http.Error(w, "missing session ID", http.StatusBadRequest)
+		return
+	}
+
+	trace, err := s.audit.BuildSessionTrace(sessionID)
+	if err != nil || trace == nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	analysis, err := s.analyzeSession(r.Context(), trace)
+	if err != nil {
+		s.logger.Warn("session analysis failed", "error", err, "session", sessionID)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain")
+	_, _ = w.Write([]byte(analysis))
+}
+
 func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 	if sessionID == "" {

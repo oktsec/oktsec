@@ -101,6 +101,23 @@ type ToolStat struct {
 	Total int    `json:"total"`
 }
 
+// SessionSummary holds aggregated stats for a single session.
+type SessionSummary struct {
+	SessionID      string `json:"session_id"`
+	StartedAt      string `json:"started_at"`
+	EndedAt        string `json:"ended_at"`
+	Duration       string `json:"duration"`
+	EventCount     int    `json:"event_count"`
+	AgentCount     int    `json:"agent_count"`
+	Agents         string `json:"agents"`
+	Blocks         int    `json:"blocks"`
+	Quarantines    int    `json:"quarantines"`
+	Flags          int    `json:"flags"`
+	TotalLatencyMs int64  `json:"total_latency_ms"`
+	RiskScore      int    `json:"risk_score"`
+	AIAnalysis     string `json:"ai_analysis,omitempty"`
+}
+
 // AgentRisk holds risk scoring for an agent based on audit history and LLM analysis.
 type AgentRisk struct {
 	Agent       string  `json:"agent"`

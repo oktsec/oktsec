@@ -63,6 +63,11 @@ func NewQueue(analyzer Analyzer, cfg QueueConfig, logger *slog.Logger) *Queue {
 	}
 }
 
+// Analyzer returns the underlying analyzer for direct (synchronous) use.
+func (q *Queue) Analyzer() Analyzer {
+	return q.analyzer
+}
+
 // OnResult sets the callback for completed analyses.
 func (q *Queue) OnResult(fn func(AnalysisResult)) {
 	q.onResult = fn
