@@ -933,6 +933,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"LLMHistory":   llmHistory,
 		"LLMEnabled":   s.cfg.LLM.Enabled,
 		"CommPartners": commPartners,
+		"Presets":      presetsList(),
 	}
 
 	s.renderTemplate(w, agentDetailTmpl, data)
@@ -1789,6 +1790,20 @@ func humanReadableDecision(decision string) string {
 		return label
 	}
 	return decision
+}
+
+type presetInfo struct {
+	Name        string
+	Description string
+}
+
+func presetsList() []presetInfo {
+	var list []presetInfo
+	for key, p := range config.IntegrationPresets {
+		list = append(list, presetInfo{Name: key, Description: p.Description})
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Name < list[j].Name })
+	return list
 }
 
 // simpleMarkdownToHTML converts basic markdown (bold, headers, lists, code)

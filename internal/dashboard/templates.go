@@ -1496,6 +1496,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   <button class="ad-tab active" onclick="adTab('overview')">Overview</button>
   <button class="ad-tab" onclick="adTab('config')">Configuration</button>
   <button class="ad-tab" onclick="adTab('policies')">Tool Policies</button>
+  <button class="ad-tab" onclick="adTab('egress')">Egress</button>
 </div>
 <script>
 function adTab(name){
@@ -1760,6 +1761,79 @@ function stagePolicy() {
   return true;
 }
 </script>
+
+<!-- Egress Tab -->
+<div id="ad-egress" class="ad-panel">
+  <div class="card" style="padding:18px 20px">
+    <div class="ad-slbl">Egress Policy</div>
+    <p class="desc">Control which domains this agent can access and restrict egress per tool.</p>
+
+    {{if .Agent.Egress}}
+    {{if .Agent.Egress.Integrations}}
+    <div style="margin-bottom:16px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Integration Presets</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        {{range .Agent.Egress.Integrations}}<span style="padding:3px 10px;background:rgba(99,102,241,0.1);color:var(--accent-light);border-radius:4px;font-size:0.75rem;font-weight:500">{{.}}</span>{{end}}
+      </div>
+    </div>
+    {{end}}
+
+    {{if .Agent.Egress.AllowedDomains}}
+    <div style="margin-bottom:16px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Allowed Domains</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        {{range .Agent.Egress.AllowedDomains}}<code style="padding:2px 8px;background:var(--surface2);border-radius:3px;font-size:0.75rem">{{.}}</code>{{end}}
+      </div>
+    </div>
+    {{end}}
+
+    {{if .Agent.Egress.BlockedDomains}}
+    <div style="margin-bottom:16px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Blocked Domains</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        {{range .Agent.Egress.BlockedDomains}}<code style="padding:2px 8px;background:rgba(248,81,73,0.08);color:var(--danger);border-radius:3px;font-size:0.75rem">{{.}}</code>{{end}}
+      </div>
+    </div>
+    {{end}}
+
+    {{if .Agent.Egress.ToolRestrictions}}
+    <div style="margin-bottom:16px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Per-Tool Restrictions</div>
+      <table>
+        <thead><tr><th>Tool</th><th>Allowed Domains</th></tr></thead>
+        <tbody>
+        {{range $tool, $domains := .Agent.Egress.ToolRestrictions}}
+        <tr>
+          <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{$tool}}</td>
+          <td>
+            {{if $domains}}
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              {{range $domains}}<code style="padding:1px 6px;background:var(--surface2);border-radius:3px;font-size:0.72rem">{{.}}</code>{{end}}
+            </div>
+            {{else}}
+            <span style="color:var(--danger);font-size:0.75rem">No egress allowed</span>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{end}}
+
+    {{else}}
+    <div class="empty">No egress policy configured. This agent can access any domain.<br><span style="font-size:0.75rem;color:var(--text3)">Add an egress policy in oktsec.yaml to restrict outbound access.</span></div>
+    {{end}}
+
+    <div style="border-top:1px solid var(--border);padding-top:16px;margin-top:16px">
+      <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:8px">Available Integration Presets</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        {{range .Presets}}<span style="padding:2px 8px;background:var(--surface2);border-radius:3px;font-size:0.72rem;color:var(--text3)" title="{{.Description}}">{{.Name}}</span>{{end}}
+      </div>
+      <p style="font-size:0.72rem;color:var(--text3);margin-top:8px">Add presets in oktsec.yaml: <code style="font-size:0.72rem">egress: { integrations: ["slack", "github"] }</code></p>
+    </div>
+  </div>
+</div>
 
 ` + layoutFoot))
 
