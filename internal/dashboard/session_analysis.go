@@ -49,7 +49,7 @@ Timeline (most recent first):
 
 Rules:
 - Start directly with **Risk Level:**
-- Never use em dashes (-). Use hyphens instead
+- Never use em dashes or single hyphens as separators in sentences. Use commas or periods instead
 - Write for a startup CTO, not a security specialist
 - If a HUMAN sent dangerous content, recommend suspending the HUMAN, not the agent that blocked it
 - If blocks were false positives from normal content, say "No action needed"

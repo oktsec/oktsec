@@ -149,9 +149,6 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
     <div class="st-ai-content">
       {{mdToHTML .SavedAnalysis}}
     </div>
-    <div class="st-ai-actions">
-      <button class="ss-ai-btn btn-outline" onclick="analyzeSession('{{.Trace.SessionID}}')">Re-analyze</button>
-    </div>
   </div>
   {{end}}
 </div>

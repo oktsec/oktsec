@@ -25,8 +25,7 @@ var sessionsPageTmpl = template.Must(template.New("sessions").Funcs(tmplFuncs).P
 .ss-table a{color:var(--accent);text-decoration:none}
 .ss-table a:hover{text-decoration:underline}
 .ss-table .r{text-align:right}
-.ss-session-name{font-weight:500;color:var(--accent);word-break:break-all}
-.ss-session-meta{font-size:0.68rem;color:var(--text3);margin-top:3px;font-family:var(--mono)}
+.ss-session-name{font-weight:500;color:var(--accent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;max-width:220px}
 
 .ss-risk{display:inline-block;padding:2px 8px;border-radius:4px;font-size:var(--text-xs);font-weight:600}
 .ss-risk.r-high{background:rgba(239,68,68,0.12);color:var(--danger)}
@@ -93,20 +92,21 @@ const sessionsBodyTmpl = `
 <table class="ss-table" id="ss-table">
   <thead>
     <tr>
-      <th>Session</th>
-      <th>Agents</th>
-      <th class="r">Events</th>
-      <th>Threats</th>
-      <th class="r">Risk</th>
+      <th style="width:18%">Session</th>
+      <th style="width:14%">Date</th>
+      <th style="width:8%">Duration</th>
+      <th style="width:22%">Agents</th>
+      <th style="width:6%" class="r">Events</th>
+      <th style="width:22%">Threats</th>
+      <th style="width:10%" class="r">Risk</th>
     </tr>
   </thead>
   <tbody>
     {{range .Sessions}}
     <tr data-search="{{.SessionID}} {{.Agents}} {{if gt .Blocks 0}}blocked{{end}} {{if gt .Quarantines 0}}quarantined{{end}}">
-      <td>
-        <a href="/dashboard/sessions/{{.SessionID}}" class="ss-session-name">{{.SessionID}}</a>
-        <div class="ss-session-meta">{{truncate .StartedAt 19}} · {{if .Duration}}{{.Duration}}{{else}}0s{{end}}</div>
-      </td>
+      <td><a href="/dashboard/sessions/{{.SessionID}}" class="ss-session-name" title="{{.SessionID}}">{{truncate .SessionID 24}}</a></td>
+      <td style="font-size:var(--text-xs);color:var(--text2);white-space:nowrap">{{fmtDate .StartedAt}}</td>
+      <td>{{if .Duration}}{{.Duration}}{{else}}0s{{end}}</td>
       <td class="ss-agents">{{range $i, $a := split .Agents ","}}{{if $i}} {{end}}<span class="pill">{{$a}}</span>{{end}}</td>
       <td class="r">{{.EventCount}}</td>
       <td>

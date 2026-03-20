@@ -93,6 +93,18 @@ var tmplFuncs = template.FuncMap{
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
 	"hasRules": func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"fmtDate": func(ts string) string {
+		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+			return t.Local().Format("Jan 02 15:04")
+		}
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			return t.Local().Format("Jan 02 15:04")
+		}
+		if len(ts) > 16 {
+			return ts[:16]
+		}
+		return ts
+	},
 	"split":    strings.Split,
 	"mdToHTML": simpleMarkdownToHTML,
 	"pageTitle": func(active string) string {
