@@ -315,6 +315,7 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
+  color-scheme:dark;
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
   --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
   --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
@@ -1526,7 +1527,7 @@ function adTab(name){
           <td><a href="/dashboard/sessions/{{.SessionID}}" style="color:var(--accent);text-decoration:none;font-family:var(--mono);font-size:0.75rem">{{truncate .SessionID 24}}</a></td>
           <td>{{.EventCount}}</td>
           <td>{{if .Duration}}{{.Duration}}{{else}}0s{{end}}</td>
-          <td>{{if gt .Blocks 0}}<span style="color:var(--danger);font-size:0.75rem">{{.Blocks}} blocked</span>{{end}}{{if gt .Quarantines 0}} <span style="color:var(--warning);font-size:0.75rem">{{.Quarantines}} quarantined</span>{{end}}{{if and (eq .Blocks 0) (eq .Quarantines 0)}}<span style="color:var(--text3)">clean</span>{{end}}</td>
+          <td>{{if gt .Blocks 0}}<span style="color:var(--danger);font-size:0.75rem">{{.Blocks}} blocked</span>{{end}}{{if gt .Quarantines 0}} <span style="color:var(--warn);font-size:0.75rem">{{.Quarantines}} quarantined</span>{{end}}{{if and (eq .Blocks 0) (eq .Quarantines 0)}}<span style="color:var(--text3)">clean</span>{{end}}</td>
           <td style="text-align:right"><span style="padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:600;{{if ge .RiskScore 10}}background:rgba(239,68,68,0.12);color:#ef4444{{else if ge .RiskScore 5}}background:rgba(234,179,8,0.12);color:#d29922{{else if gt .RiskScore 0}}background:rgba(34,197,94,0.12);color:#22c55e{{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RiskScore}}</span></td>
         </tr>
         {{end}}

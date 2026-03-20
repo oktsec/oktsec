@@ -31,7 +31,7 @@ var sessionsPageTmpl = template.Must(template.New("sessions").Funcs(tmplFuncs).P
 
 .ss-risk{display:inline-block;padding:2px 8px;border-radius:4px;font-size:var(--text-xs);font-weight:600}
 .ss-risk.r-high{background:rgba(239,68,68,0.12);color:var(--danger)}
-.ss-risk.r-medium{background:rgba(234,179,8,0.12);color:var(--warning)}
+.ss-risk.r-medium{background:rgba(234,179,8,0.12);color:var(--warn)}
 .ss-risk.r-low{background:rgba(34,197,94,0.12);color:var(--success)}
 .ss-risk.r-none{background:var(--surface2);color:var(--text3)}
 
@@ -40,8 +40,8 @@ var sessionsPageTmpl = template.Must(template.New("sessions").Funcs(tmplFuncs).P
 .ss-threats{display:flex;gap:4px;flex-wrap:wrap}
 .ss-threats .badge{padding:2px 7px;border-radius:4px;font-weight:500;font-size:var(--text-xs);white-space:nowrap}
 .ss-threats .b-block{background:rgba(239,68,68,0.12);color:var(--danger)}
-.ss-threats .b-quar{background:rgba(234,179,8,0.12);color:var(--warning)}
-.ss-threats .b-flag{background:rgba(96,165,250,0.12);color:var(--info)}
+.ss-threats .b-quar{background:rgba(234,179,8,0.12);color:var(--warn)}
+.ss-threats .b-flag{background:rgba(96,165,250,0.12);color:#58a6ff}
 
 .ss-filter-btn{padding:5px 12px;font-size:var(--text-xs);background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text3);cursor:pointer;white-space:nowrap}
 .ss-filter-btn:hover{background:var(--surface2)}
