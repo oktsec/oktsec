@@ -1332,6 +1332,7 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
   </form>
 </div>
 
+<div style="display:grid;grid-template-columns:{{if .DiscoveredAgents}}1fr 280px{{else}}1fr{{end}};gap:20px;align-items:start">
 {{if .AgentRows}}
 <div class="ag-grid">
   {{range .AgentRows}}
@@ -1358,27 +1359,21 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
 {{end}}
 
 {{if .DiscoveredAgents}}
-<div class="card" style="margin-top:20px">
-  <h2 style="color:var(--warn)">Discovered from Traffic <span style="font-size:var(--text-xs);font-weight:400;color:var(--text3);margin-left:var(--sp-2)">{{len .DiscoveredAgents}} unregistered</span></h2>
-  <p class="desc">These identifiers appeared as message destinations but aren't registered agents. Register to enforce identity and ACL policies.</p>
-  <table>
-    <thead><tr><th>Identifier</th><th></th></tr></thead>
-    <tbody>
+  <div class="card" style="padding:18px 20px">
+    <div style="font-size:0.68rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--warn);font-weight:600;margin-bottom:8px">Discovered from Traffic <span style="color:var(--text3);font-weight:400">{{len .DiscoveredAgents}}</span></div>
+    <p style="font-size:0.72rem;color:var(--text3);margin:0 0 12px;line-height:1.4">Identifiers seen in traffic but not registered.</p>
     {{range .DiscoveredAgents}}
-    <tr>
-      <td>{{agentCell .}}</td>
-      <td>
-        <form method="POST" action="/dashboard/agents" style="display:inline">
-          <input type="hidden" name="name" value="{{.}}">
-          <button type="submit" class="btn btn-sm">Register</button>
-        </form>
-      </td>
-    </tr>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-top:1px solid var(--border)">
+      <span style="display:flex;align-items:center;gap:8px">{{agentCell .}}</span>
+      <form method="POST" action="/dashboard/agents" style="display:inline">
+        <input type="hidden" name="name" value="{{.}}">
+        <button type="submit" class="btn btn-sm" style="font-size:0.68rem;padding:3px 10px">Register</button>
+      </form>
+    </div>
     {{end}}
-    </tbody>
-  </table>
-</div>
+  </div>
 {{end}}
+</div>
 ` + layoutFoot))
 
 var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs).Parse(layoutHead + `
