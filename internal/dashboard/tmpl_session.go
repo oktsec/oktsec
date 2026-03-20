@@ -11,7 +11,9 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 
 .st-actions{display:flex;gap:8px;margin-bottom:20px}
 
-.st-stats{display:flex;gap:24px;margin-bottom:24px;padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;flex-wrap:wrap}
+.st-stats{display:grid;grid-template-columns:repeat(4,1fr);margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.st-stat{padding:16px 20px}
+.st-stat+.st-stat{border-left:1px solid var(--border)}
 .st-stat .label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:2px}
 .st-stat .value{font-size:1.1rem;font-weight:600;color:var(--text)}
 .st-stat .value.v-danger{color:var(--danger)}
@@ -94,6 +96,10 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 
 <div class="st-stats">
   <div class="st-stat">
+    <div class="label">Threats</div>
+    <div class="value{{if gt .Trace.Threats 0}} v-danger{{else}} v-success{{end}}">{{.Trace.Threats}}</div>
+  </div>
+  <div class="st-stat">
     <div class="label">Tool Calls</div>
     <div class="value">{{.Trace.ToolCount}}</div>
   </div>
@@ -104,10 +110,6 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
   <div class="st-stat">
     <div class="label">Started</div>
     <div class="value" data-ts="{{.Trace.StartedAt}}">{{.Trace.StartedAt}}</div>
-  </div>
-  <div class="st-stat">
-    <div class="label">Threats</div>
-    <div class="value{{if gt .Trace.Threats 0}} v-danger{{else}} v-success{{end}}">{{.Trace.Threats}}</div>
   </div>
 </div>
 
