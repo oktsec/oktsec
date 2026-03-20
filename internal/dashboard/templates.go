@@ -335,27 +335,27 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 @font-face{font-family:'Inter';src:url('/dashboard/static/fonts/Inter.woff2') format('woff2');font-weight:100 900;font-style:normal;font-display:swap}
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
-.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.03) 0%,transparent 70%);pointer-events:none;z-index:0}
-.login-card{position:relative;z-index:1;background:var(--surface);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.3);animation:fadeIn 0.4s ease-out}
+.backdrop{display:none}
+.login-card{position:relative;z-index:1;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.4);animation:fadeIn 0.4s ease-out}
 .icon{margin-bottom:20px}
 .icon svg{width:48px;height:48px;color:var(--accent)}
 .logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.3px;margin-bottom:8px;color:var(--text)}
 .subtitle{color:var(--text2);font-size:0.85rem;margin-bottom:32px}
 .help{color:var(--text3);font-size:0.78rem;margin-bottom:24px;line-height:1.6}
-.help code{background:var(--surface2);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)}
+.help code{background:#21262d;padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:#e6edf3;border:1px solid #30363d}
 input[type=text]{
-  width:100%;padding:14px 16px;background:var(--bg);border:1px solid #3d3a6e;
+  width:100%;padding:12px 16px;background:#0d1117;border:1px solid #30363d;
   border-radius:8px;color:var(--text);font-family:var(--mono);font-size:1.2rem;
-  text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.2s,box-shadow 0.2s;
+  text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.15s,box-shadow 0.15s;
 }
-input[type=text]:focus{border-color:#8b7cf7;box-shadow:0 0 0 3px rgba(139,124,247,0.12)}
+input[type=text]:focus{border-color:#58a6ff;box-shadow:0 0 0 3px rgba(56,139,253,0.15)}
 input[type=text]::placeholder{letter-spacing:0;font-size:0.85rem;color:var(--text3)}
 button{
-  width:100%;padding:12px;margin-top:16px;background:#2d2b55;color:#fff;
-  border:1px solid #58a6ff;border-radius:8px;font-size:0.9rem;font-weight:600;cursor:pointer;
-  transition:background 0.2s,transform 0.1s,box-shadow 0.2s;
+  width:100%;padding:12px 16px;margin-top:16px;background:#1f6feb;color:#fff;
+  border:1px solid rgba(56,139,253,0.30);border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;
+  transition:background 0.15s,transform 0.1s;
 }
-button:hover{background:#3d3a6e;box-shadow:none}
+button:hover{background:#388bfd}
 button:active{transform:scale(0.98)}
 .error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.2);border-radius:8px;color:var(--danger);font-size:0.82rem}
 .error svg{flex-shrink:0;width:16px;height:16px}
@@ -399,7 +399,7 @@ var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
 @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @keyframes pulse{0%,100%{opacity:0.15}50%{opacity:0.25}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:800px;height:800px;background:radial-gradient(circle,rgba(99,102,241,0.08) 0%,transparent 65%);pointer-events:none;animation:pulse 6s ease-in-out infinite}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:800px;height:800px;background:radial-gradient(circle,transparent 0%,transparent 65%);pointer-events:none;animation:pulse 6s ease-in-out infinite}
 .container{position:relative;z-index:1;text-align:center;animation:fadeIn 0.6s ease-out}
 .logo{font-family:var(--mono);font-size:4.5rem;font-weight:700;letter-spacing:-2px;margin-bottom:12px;background:linear-gradient(135deg,var(--text) 0%,var(--accent-light) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .tagline{color:var(--text3);font-size:1rem;letter-spacing:0.5px;margin-bottom:40px}
@@ -407,7 +407,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .links a{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:8px;font-size:0.88rem;font-weight:500;text-decoration:none;transition:background 0.2s,transform 0.1s,box-shadow 0.2s}
 .links a:active{transform:scale(0.98)}
 .primary{background:var(--accent);color:#fff}
-.primary:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
+.primary:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(56,139,253,0.25)}
 .secondary{background:var(--surface);color:var(--text2);border:1px solid var(--border)}
 .secondary:hover{border-color:var(--accent);color:var(--text)}
 .version{margin-top:48px;color:var(--text3);font-family:var(--mono);font-size:0.72rem;opacity:0.6}
@@ -451,7 +451,7 @@ var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
 }
 @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center}
-.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(99,102,241,0.03) 0%,transparent 70%);pointer-events:none;z-index:0}
+.backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:600px;background:radial-gradient(circle,transparent 0%,transparent 70%);pointer-events:none;z-index:0}
 .card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:420px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2);animation:fadeIn 0.4s ease-out}
 .icon{margin-bottom:20px}
 .icon svg{width:48px;height:48px;color:var(--accent);opacity:0.8}
@@ -459,7 +459,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .title{font-size:1.25rem;font-weight:600;margin-bottom:12px}
 .desc{color:var(--text3);font-size:0.85rem;line-height:1.6;margin-bottom:32px}
 .back{display:inline-block;padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;text-decoration:none;cursor:pointer;transition:background 0.2s,transform 0.1s,box-shadow 0.2s}
-.back:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(99,102,241,0.25)}
+.back:hover{background:var(--accent-dim);box-shadow:0 4px 12px rgba(56,139,253,0.25)}
 .back:active{transform:scale(0.98)}
 .footer{margin-top:32px;color:var(--text3);font-size:0.72rem}
 </style>
@@ -1878,7 +1878,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .rules-tab:hover{color:var(--text)}
 .rules-tab.active{color:var(--text);border-bottom-color:var(--accent)}
 .rules-tab .count{font-size:var(--text-xs);font-family:var(--mono);background:var(--surface2);padding:2px var(--sp-2);border-radius:10px;color:var(--text3)}
-.rules-tab.active .count{background:rgba(99,102,241,0.15);color:var(--accent-light)}
+.rules-tab.active .count{background:rgba(56,139,253,0.15);color:var(--accent-light)}
 .cat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
 @media(max-width:768px){.cat-grid{grid-template-columns:1fr}}
 .cat-card{background:var(--surface);padding:var(--sp-5) var(--sp-5);cursor:pointer;transition:background var(--ease-default);text-decoration:none;color:inherit;display:block}
@@ -1914,7 +1914,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 {{if .Categories}}
 
 {{if or .LLMPendingCount .LLMActiveCount}}
-<div style="display:flex;align-items:center;gap:16px;padding:14px 20px;margin-bottom:20px;background:var(--surface);border:1px solid rgba(99,102,241,0.2);border-radius:10px">
+<div style="display:flex;align-items:center;gap:16px;padding:14px 20px;margin-bottom:20px;background:var(--surface);border:1px solid rgba(56,139,253,0.2);border-radius:10px">
   <div style="flex:1;min-width:0">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
       <span style="font-weight:600;font-size:0.85rem">AI-Generated Rules</span>
@@ -2101,7 +2101,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .ch-chip:hover{border-color:var(--accent-dim);color:var(--text)}
 .ch-chip input{position:absolute;opacity:0;pointer-events:none}
 .ch-check{display:none;font-size:0.65rem;color:var(--accent-light)}
-.ch-chip:has(input:checked){background:rgba(99,102,241,0.1);border-color:var(--accent);color:var(--accent-light)}
+.ch-chip:has(input:checked){background:rgba(56,139,253,0.1);border-color:var(--accent);color:var(--accent-light)}
 .ch-chip:has(input:checked) .ch-check{display:inline}
 </style>
 
@@ -2203,7 +2203,7 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
   <div class="enf-meta">
     {{if .Category}}<span class="enf-tag">{{.Category}}</span>{{end}}
     {{if .DefaultSeverity}}<span class="enf-tag sev-{{.DefaultSeverity}}">default: {{.DefaultSeverity}}</span>{{end}}
-    {{if .Notify}}{{range .Notify}}{{if not (contains . "://")}} <span class="enf-tag" style="background:rgba(99,102,241,0.1);color:var(--accent-light)">{{.}}</span>{{end}}{{end}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-wh-{{$.ID}}').style.display=document.getElementById('enf-wh-{{$.ID}}').style.display==='none'?'block':'none'">{{len .Notify}} webhook{{if gt (len .Notify) 1}}s{{end}} &#9662;</span>{{end}}
+    {{if .Notify}}{{range .Notify}}{{if not (contains . "://")}} <span class="enf-tag" style="background:rgba(56,139,253,0.1);color:var(--accent-light)">{{.}}</span>{{end}}{{end}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-wh-{{$.ID}}').style.display=document.getElementById('enf-wh-{{$.ID}}').style.display==='none'?'block':'none'">{{len .Notify}} webhook{{if gt (len .Notify) 1}}s{{end}} &#9662;</span>{{end}}
     {{if .Template}}<span class="enf-tag" style="cursor:pointer" onclick="document.getElementById('enf-tp-{{.ID}}').style.display=document.getElementById('enf-tp-{{.ID}}').style.display==='none'?'block':'none'">template &#9662;</span>{{end}}
   </div>
   {{if .Notify}}<div class="enf-urls" id="enf-wh-{{.ID}}" style="display:none">{{range .Notify}}{{.}}<br>{{end}}</div>{{end}}
@@ -3528,7 +3528,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 .tq-action.quarantine{background:var(--danger-muted);color:var(--danger)}
 .tq-action.monitor,.tq-action.allow{background:var(--surface2);color:var(--text3)}
 .tq-status{padding:3px 10px;border-radius:100px;font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:0.3px}
-.tq-status.new{background:rgba(99,102,241,0.12);color:var(--accent-light)}
+.tq-status.new{background:rgba(56,139,253,0.12);color:var(--accent-light)}
 .tq-status.dismissed{background:rgba(63,185,80,0.08);color:#3fb950}
 .tq-status.confirmed{background:rgba(248,81,73,0.08);color:#f85149}
 @media(max-width:768px){.tq-bar{flex-direction:column;gap:12px;align-items:flex-start}.tq-div{width:100%;height:1px;margin:0}}
@@ -3542,7 +3542,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 .prov-opt{position:relative;flex:1;padding:16px;border-radius:8px;border:2px solid var(--border);cursor:pointer;transition:border-color 0.15s,background 0.15s;text-align:center}
 .prov-opt:hover{border-color:var(--text3)}
 .prov-opt:focus-within{outline:2px solid var(--accent);outline-offset:2px}
-.prov-opt.sel{border-color:var(--accent);background:rgba(99,102,241,0.06)}
+.prov-opt.sel{border-color:var(--accent);background:rgba(56,139,253,0.06)}
 .prov-opt .pname{font-weight:600;font-size:0.88rem;margin-bottom:2px}
 .prov-opt .pdesc{font-size:0.7rem;color:var(--text3);line-height:1.4}
 .fw-step{display:flex;align-items:center;gap:6px;font-size:0.78rem;color:var(--text2)}
@@ -4205,7 +4205,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 .cs-evidence{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--text);white-space:pre-wrap;word-break:break-all;max-height:280px;overflow-y:auto}
 
 /* Generated rule */
-.cs-rule-block{background:var(--surface2);border:1px solid rgba(99,102,241,0.15);border-radius:10px;padding:14px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap}
+.cs-rule-block{background:var(--surface2);border:1px solid rgba(56,139,253,0.15);border-radius:10px;padding:14px 18px;font-family:var(--mono);font-size:0.72rem;line-height:1.7;color:var(--accent-light);white-space:pre-wrap}
 
 @media(max-width:960px){.cs-layout{grid-template-columns:1fr}.cs-banner{flex-direction:column}.cs-banner-score{min-width:unset;padding:14px}.cs-banner-body{border-left:none;border-top:1px solid var(--border)}.cs-banner-action{border-left:none;border-top:1px solid var(--border);padding:14px 22px}.cs-intent{grid-template-columns:1fr}.cs-intent-decl{border-right:none;border-bottom:1px solid var(--border)}}
 </style>
@@ -4323,7 +4323,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 
     <!-- Generated Rule -->
     {{if .RuleGenerated}}
-    <div class="ci-s" style="border-color:rgba(99,102,241,0.15)">
+    <div class="ci-s" style="border-color:rgba(56,139,253,0.15)">
       <h3 style="color:var(--accent-light)">Generated Rule</h3>
       <p style="font-size:0.78rem;color:var(--text2);margin-bottom:10px">Deterministic rule created from this analysis. Catches future matches in &lt;1ms.</p>
       <div class="cs-rule-block">{{.RuleGenerated}}</div>

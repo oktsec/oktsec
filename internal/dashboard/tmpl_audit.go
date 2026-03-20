@@ -146,7 +146,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 {{end}}
 
 {{if .LLMEnabled}}
-<div style="display:flex;align-items:center;gap:12px;padding:12px 20px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:10px;margin-bottom:var(--sp-5)">
+<div style="display:flex;align-items:center;gap:12px;padding:12px 20px;background:rgba(56,139,253,0.06);border:1px solid rgba(56,139,253,0.15);border-radius:10px;margin-bottom:var(--sp-5)">
   <span style="font-size:1.1rem">&#x1F9E0;</span>
   <div style="flex:1">
     <div style="font-size:0.82rem;font-weight:600;color:var(--text)">AI-Enhanced Analysis Active</div>

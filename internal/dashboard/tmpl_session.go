@@ -75,8 +75,8 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-ai-content a{color:var(--accent-light)}
 .st-ai-content .ai-label{display:inline-block;font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);background:rgba(139,124,247,0.1);margin-bottom:12px}
 .st-ai-actions{display:flex;gap:8px;margin-top:12px}
-.ss-ai-btn{padding:6px 12px;background:var(--accent-dim);color:var(--text-on-emphasis);border:none;border-radius:6px;font-size:var(--text-xs);cursor:pointer;font-weight:500}
-.ss-ai-btn:hover{background:var(--accent)}
+.ss-ai-btn{padding:6px 16px;background:#1f6feb;color:#fff;border:1px solid var(--accent-border);border-radius:6px;font-size:var(--text-sm);cursor:pointer;font-weight:500;transition:background 0.15s}
+.ss-ai-btn:hover{background:#388bfd}
 .ss-ai-btn:disabled{opacity:0.5;cursor:not-allowed}
 .ss-ai-btn.btn-outline{background:transparent;color:var(--accent);border:1px solid var(--accent-border)}
 </style>
