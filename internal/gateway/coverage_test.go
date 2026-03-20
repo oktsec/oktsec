@@ -199,7 +199,7 @@ func TestNewGateway(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	gw, err := NewGateway(cfg, logger)
+	gw, err := NewGateway(cfg, logger, nil)
 	require.NoError(t, err)
 
 	// Verify gateway was created with proper defaults
@@ -224,7 +224,7 @@ func TestNewGateway_BadDBPath(t *testing.T) {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	_, err := NewGateway(cfg, logger)
+	_, err := NewGateway(cfg, logger, nil)
 	assert.Error(t, err)
 }
 

@@ -68,15 +68,13 @@ type Gateway struct {
 
 // NewGateway creates a gateway from the given configuration.
 // Callers must call Start to begin serving and Shutdown to stop.
-// If sharedStore is provided, the gateway uses it instead of creating its own.
+// If sharedStore is non-nil, the gateway uses it instead of creating its own.
 // This avoids dual-store issues when proxy and gateway run in the same process.
-func NewGateway(cfg *config.Config, logger *slog.Logger, sharedStore ...*audit.Store) (*Gateway, error) {
+func NewGateway(cfg *config.Config, logger *slog.Logger, sharedStore *audit.Store) (*Gateway, error) {
 	scanner := engine.NewScanner(cfg.CustomRulesDir)
 
-	var auditStore *audit.Store
-	if len(sharedStore) > 0 && sharedStore[0] != nil {
-		auditStore = sharedStore[0]
-	} else {
+	auditStore := sharedStore
+	if auditStore == nil {
 		dbDSN := cfg.DBPath
 		if cfg.DBBackend == "postgres" || cfg.DBBackend == "postgresql" {
 			dbDSN = cfg.DBDSN
@@ -457,10 +455,10 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		// 4. Serialize arguments for scanning
 		content := extractToolContent(m.OriginalName, req)
 
-		// 5. Scan content
+		// 5. Scan content (with tool context for built-in exemptions)
 		scanCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		outcome, err := g.scanner.ScanContent(scanCtx, content)
+		outcome, err := g.scanner.ScanContentWithTool(scanCtx, content, m.OriginalName)
 		if err != nil {
 			g.logger.Error("scan failed", "error", err, "tool", m.OriginalName)
 			g.logAudit(msgID, agent, m.OriginalName, audit.StatusDelivered, audit.DecisionScanError, "[]", toolArgs, sessionID, start)
@@ -471,9 +469,9 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			outcome = &engine.ScanOutcome{Verdict: engine.VerdictClean}
 		}
 
-		// 6. Apply tool-scoped rule overrides (uses tool name to drop
-		// false positives, e.g. shell injection rules on Bash tool).
-		verdict.ApplyToolScopedOverrides(g.cfg.Rules, outcome, m.OriginalName)
+		// 6. Apply tool-scoped rule overrides (PostAguara: built-in
+		// exemptions already applied by Aguara via WithToolName).
+		verdict.ApplyToolScopedOverridesPostAguara(g.cfg.Rules, outcome, m.OriginalName)
 
 		// 6b. Apply agent scan profile if explicitly configured.
 		if agentCfg, ok := g.cfg.Agents[agent]; ok && agentCfg.ScanProfile != "" {
@@ -549,9 +547,9 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		if g.cfg.Gateway.ScanResponses && result != nil {
 			respContent := extractResultContent(result)
 			if respContent != "" {
-				respOutcome, err := g.scanner.ScanContent(scanCtx, respContent)
+				respOutcome, err := g.scanner.ScanContentWithTool(scanCtx, respContent, m.OriginalName)
 				if err == nil && respOutcome != nil {
-					verdict.ApplyToolScopedOverrides(g.cfg.Rules, respOutcome, m.OriginalName)
+					verdict.ApplyToolScopedOverridesPostAguara(g.cfg.Rules, respOutcome, m.OriginalName)
 					if respOutcome.Verdict == engine.VerdictBlock || respOutcome.Verdict == engine.VerdictQuarantine {
 						g.logger.Warn("backend response blocked",
 							"tool", m.OriginalName, "backend", m.BackendName, "verdict", respOutcome.Verdict)

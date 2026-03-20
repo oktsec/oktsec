@@ -114,17 +114,28 @@ func defaultOpenClawConfigPath() string {
 	return filepath.Join(home, ".openclaw", "openclaw.json")
 }
 
-func auditOpenClaw() []Finding {
+// openClawScanFunc is the function used to discover the OpenClaw config path.
+// Tests override this to avoid scanning real host configs.
+var openClawScanFunc = defaultOpenClawScan
+
+func defaultOpenClawScan() string {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, ".openclaw")
-	// Try both file names — OpenClaw config is JSON5 stored as .json
 	for _, name := range []string{"openclaw.json", "openclaw.json5"} {
 		p := filepath.Join(dir, name)
-		if findings := auditOpenClawAt(p); findings != nil {
-			return findings
+		if _, err := os.Stat(p); err == nil {
+			return p
 		}
 	}
-	return nil
+	return ""
+}
+
+func auditOpenClaw() []Finding {
+	p := openClawScanFunc()
+	if p == "" {
+		return nil
+	}
+	return auditOpenClawAt(p)
 }
 
 func auditOpenClawAt(configPath string) []Finding {

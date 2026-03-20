@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"slices"
 	"strings"
 	"time"
 )
@@ -62,19 +63,8 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		reasoningMap[reasoningEntries[i].AuditEntryID] = &reasoningEntries[i]
 	}
 
-	// Collect unique agents in the session
-	agentSet := make(map[string]bool)
-	for _, e := range entries {
-		agentSet[e.FromAgent] = true
-	}
-	agents := make([]string, 0, len(agentSet))
-	for a := range agentSet {
-		agents = append(agents, a)
-	}
-
 	trace := &SessionTrace{
 		SessionID: sessionID,
-		Agent:     strings.Join(agents, ", "),
 		ToolCount: len(entries),
 		StartedAt: entries[0].Timestamp,
 		EndedAt:   entries[len(entries)-1].Timestamp,
@@ -100,8 +90,10 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		}
 	}
 
+	agentSet := make(map[string]bool)
 	var prevTime time.Time
 	for _, e := range entries {
+		agentSet[e.FromAgent] = true
 		// Strip wrapping quotes from intent (hooks handler JSON-encodes simple strings)
 		intent := e.Intent
 		if len(intent) >= 2 && intent[0] == '"' && intent[len(intent)-1] == '"' {
@@ -141,10 +133,15 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 		trace.Steps = append(trace.Steps, step)
 	}
 
-	// Reverse steps so most recent appears first in the timeline
-	for i, j := 0, len(trace.Steps)-1; i < j; i, j = i+1, j-1 {
-		trace.Steps[i], trace.Steps[j] = trace.Steps[j], trace.Steps[i]
+	// Populate agent list after loop
+	agents := make([]string, 0, len(agentSet))
+	for a := range agentSet {
+		agents = append(agents, a)
 	}
+	trace.Agent = strings.Join(agents, ", ")
+
+	// Reverse steps so most recent appears first in the timeline
+	slices.Reverse(trace.Steps)
 
 	return trace, nil
 }
