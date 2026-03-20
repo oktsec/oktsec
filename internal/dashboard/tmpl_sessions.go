@@ -92,23 +92,20 @@ const sessionsBodyTmpl = `
 <table class="ss-table" id="ss-table">
   <thead>
     <tr>
-      <th style="width:18%">Session</th>
-      <th style="width:14%">Date</th>
-      <th style="width:8%">Duration</th>
-      <th style="width:22%">Agents</th>
-      <th style="width:6%" class="r">Events</th>
-      <th style="width:22%">Threats</th>
-      <th style="width:10%" class="r">Risk</th>
+      <th style="width:20%">Agents</th>
+      <th style="width:16%">Session</th>
+      <th style="width:20%">Threats</th>
+      <th style="width:7%" class="r">Events</th>
+      <th style="width:8%" class="r">Risk</th>
+      <th style="width:9%">Duration</th>
+      <th style="width:12%">Date</th>
     </tr>
   </thead>
   <tbody>
     {{range .Sessions}}
     <tr data-search="{{.SessionID}} {{.Agents}} {{if gt .Blocks 0}}blocked{{end}} {{if gt .Quarantines 0}}quarantined{{end}}">
-      <td><a href="/dashboard/sessions/{{.SessionID}}" class="ss-session-name" title="{{.SessionID}}">{{truncate .SessionID 24}}</a></td>
-      <td style="font-size:var(--text-xs);color:var(--text2);white-space:nowrap">{{fmtDate .StartedAt}}</td>
-      <td>{{if .Duration}}{{.Duration}}{{else}}0s{{end}}</td>
       <td class="ss-agents">{{range $i, $a := split .Agents ","}}{{if $i}} {{end}}<span class="pill">{{$a}}</span>{{end}}</td>
-      <td class="r">{{.EventCount}}</td>
+      <td><a href="/dashboard/sessions/{{.SessionID}}" class="ss-session-name" title="{{.SessionID}}">{{truncate .SessionID 24}}</a></td>
       <td>
         <div class="ss-threats">
           {{if gt .Blocks 0}}<span class="badge b-block">{{.Blocks}} blocked</span>{{end}}
@@ -117,9 +114,12 @@ const sessionsBodyTmpl = `
           {{if and (eq .Blocks 0) (eq .Quarantines 0) (eq .Flags 0)}}<span style="color:var(--text3)">&mdash;</span>{{end}}
         </div>
       </td>
+      <td class="r">{{.EventCount}}</td>
       <td class="r">
         <span class="ss-risk{{if ge .RiskScore 10}} r-high{{else if ge .RiskScore 5}} r-medium{{else if gt .RiskScore 0}} r-low{{else}} r-none{{end}}">{{.RiskScore}}</span>
       </td>
+      <td>{{if .Duration}}{{.Duration}}{{else}}0s{{end}}</td>
+      <td style="font-size:var(--text-xs);color:var(--text2);white-space:nowrap">{{fmtDate .StartedAt}}</td>
     </tr>
     {{end}}
   </tbody>
