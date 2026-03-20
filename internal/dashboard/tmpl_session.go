@@ -14,8 +14,9 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-stats{display:grid;grid-template-columns:repeat(4,1fr);margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
 .st-stat{padding:16px 20px}
 .st-stat+.st-stat{border-left:1px solid var(--border)}
-.st-stat .label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:2px}
-.st-stat .value{font-size:1.1rem;font-weight:600;color:var(--text)}
+.st-stat .label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:4px}
+.st-stat .value{font-size:1.2rem;font-weight:600;color:var(--text)}
+.st-stat{text-align:center}
 .st-stat .value.v-danger{color:var(--danger)}
 .st-stat .value.v-success{color:var(--success)}
 
@@ -69,6 +70,8 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-ai-meta{display:flex;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:0.68rem;color:var(--text3)}
 .st-ai-panel h3{font-size:var(--text-sm);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin:0 0 12px}
 .st-ai-content{padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:var(--text-sm);line-height:1.7;color:var(--text2)}
+.st-ai-content strong{color:var(--text)}
+.st-ai-content a{color:var(--accent-light)}
 .st-ai-content .ai-label{display:inline-block;font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);background:rgba(139,124,247,0.1);margin-bottom:12px}
 .st-ai-actions{display:flex;gap:8px;margin-top:12px}
 .ss-ai-btn{padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:var(--text-xs);cursor:pointer;font-weight:500}
