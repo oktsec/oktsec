@@ -37,9 +37,9 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-fix{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)}
 .a-fix:last-child{border-bottom:none}
 .a-fix-sev{min-width:60px;flex-shrink:0;padding-top:1px;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px;text-align:center;display:inline-block}
-.a-fix-sev.sev-critical{background:rgba(248,81,73,0.12);color:#f85149}
-.a-fix-sev.sev-high{background:rgba(248,81,73,0.08);color:#fb923c}
-.a-fix-sev.sev-medium{background:rgba(234,179,8,0.1);color:#d29922}
+.a-fix-sev.sev-critical{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
+.a-fix-sev.sev-high{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
+.a-fix-sev.sev-medium{background:var(--warn-muted);color:var(--warn);border:1px solid var(--warn-border)}
 .a-fix-body{flex:1;min-width:0}
 .a-fix-head{display:flex;align-items:baseline;gap:8px}
 .a-fix-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
@@ -69,10 +69,10 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .a-fi{display:flex;align-items:flex-start;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border)}
 .a-fi:last-child{border-bottom:none}
 .a-fi-sev{min-width:60px;flex-shrink:0;padding-top:1px;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px;text-align:center;display:inline-block}
-.a-fi-sev.sev-critical{background:rgba(248,81,73,0.12);color:#f85149}
-.a-fi-sev.sev-high{background:rgba(248,81,73,0.08);color:#fb923c}
-.a-fi-sev.sev-medium{background:rgba(234,179,8,0.1);color:#d29922}
-.a-fi-sev.sev-info,.a-fi-sev.sev-low{background:var(--surface2);color:var(--text3)}
+.a-fi-sev.sev-critical{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
+.a-fi-sev.sev-high{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
+.a-fi-sev.sev-medium{background:var(--warn-muted);color:var(--warn);border:1px solid var(--warn-border)}
+.a-fi-sev.sev-info,.a-fi-sev.sev-low{background:var(--surface2);color:var(--text3);border:1px solid var(--border)}
 .a-fi-body{flex:1;min-width:0}
 .a-fi-head{display:flex;align-items:baseline;gap:8px}
 .a-fi-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}

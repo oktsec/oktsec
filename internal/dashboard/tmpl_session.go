@@ -31,25 +31,25 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 
 .st-step{position:relative;margin-bottom:16px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:8px;transition:border-color 0.15s}
 .st-step:hover{border-color:var(--text3)}
-.st-step.s-blocked{border-left:3px solid var(--danger)}
-.st-step.s-quarantined{border-left:3px solid var(--warn)}
+.st-step.s-blocked{border-left:3px solid var(--danger);background:var(--danger-muted)}
+.st-step.s-quarantined{border-left:3px solid var(--warn);background:var(--warn-muted)}
 
 /* Timeline dot */
-.st-step::before{content:'';position:absolute;left:-25px;top:18px;width:10px;height:10px;border-radius:50%;background:var(--success);border:2px solid var(--bg)}
-.st-step.s-blocked::before{background:var(--danger)}
-.st-step.s-quarantined::before{background:var(--warn)}
+.st-step::before{content:'';position:absolute;left:-25px;top:18px;width:10px;height:10px;border-radius:50%;background:var(--success);border:2px solid var(--bg);box-shadow:0 0 6px var(--success-muted)}
+.st-step.s-blocked::before{background:var(--danger);box-shadow:0 0 6px var(--danger-muted)}
+.st-step.s-quarantined::before{background:var(--warn);box-shadow:0 0 6px var(--warn-muted)}
 
-.st-step.s-human{border-left:3px solid var(--accent)}
-.st-step.s-human::before{background:var(--accent)}
+.st-step.s-human{border-left:3px solid var(--purple)}
+.st-step.s-human::before{background:var(--purple);box-shadow:0 0 6px var(--purple-muted)}
 .st-role{font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
-.st-role.r-human{color:var(--accent);background:rgba(139,124,247,0.1)}
-.st-role.r-agent{color:var(--text3);background:var(--surface2)}
+.st-role.r-human{color:var(--purple);background:var(--purple-muted);border:1px solid var(--purple-border)}
+.st-role.r-agent{color:var(--text3);background:var(--surface2);border:1px solid var(--border)}
 .st-step-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
 .st-tool{font-weight:600;color:var(--text);font-size:var(--text-sm)}
 .st-verdict{font-size:var(--text-xs);padding:2px 8px;border-radius:4px;font-weight:500}
-.st-verdict.v-clean{color:var(--success);background:rgba(63,185,80,0.1)}
-.st-verdict.v-blocked{color:var(--danger);background:rgba(248,81,73,0.1)}
-.st-verdict.v-quarantined{color:var(--warn);background:rgba(210,153,34,0.1)}
+.st-verdict.v-clean{color:var(--success);background:var(--success-muted);border:1px solid var(--success-border)}
+.st-verdict.v-blocked{color:var(--danger);background:var(--danger-muted);border:1px solid var(--danger-border)}
+.st-verdict.v-quarantined{color:var(--warn);background:var(--warn-muted);border:1px solid var(--warn-border)}
 .st-time{font-size:var(--text-xs);color:var(--text3);margin-left:auto}
 .st-gap{font-size:var(--text-xs);color:var(--text3);opacity:0.7}
 .st-latency{font-size:var(--text-xs);color:var(--text3)}
@@ -61,6 +61,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-plan{font-size:var(--text-xs);color:var(--accent);font-weight:500;margin-left:8px}
 
 .st-link{font-size:var(--text-xs);color:var(--accent);text-decoration:none;margin-top:6px;display:inline-block}
+.st-link:hover{text-decoration:underline}
 .st-link:hover{text-decoration:underline}
 
 .st-empty{padding:40px;text-align:center;color:var(--text3)}
@@ -74,10 +75,10 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-ai-content a{color:var(--accent-light)}
 .st-ai-content .ai-label{display:inline-block;font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);background:rgba(139,124,247,0.1);margin-bottom:12px}
 .st-ai-actions{display:flex;gap:8px;margin-top:12px}
-.ss-ai-btn{padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:var(--text-xs);cursor:pointer;font-weight:500}
-.ss-ai-btn:hover{opacity:0.9}
+.ss-ai-btn{padding:6px 12px;background:var(--accent-dim);color:var(--text-on-emphasis);border:none;border-radius:6px;font-size:var(--text-xs);cursor:pointer;font-weight:500}
+.ss-ai-btn:hover{background:var(--accent)}
 .ss-ai-btn:disabled{opacity:0.5;cursor:not-allowed}
-.ss-ai-btn.btn-outline{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.ss-ai-btn.btn-outline{background:transparent;color:var(--accent);border:1px solid var(--accent-border)}
 </style>
 
 <div class="page-header" style="margin-bottom:8px">

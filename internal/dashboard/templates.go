@@ -316,10 +316,19 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   color-scheme:dark;
-  --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
-  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
-  --accent:#6366f1;--accent-light:#818cf8;--accent-dim:#4f46e5;
-  --danger:#f85149;--success:#3fb950;--warn:#d29922;
+  /* Canvas & Surfaces */
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;--border-muted:#21262d;
+  /* Text - WCAG AA validated */
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;--text-on-emphasis:#ffffff;
+  /* Accent / Info */
+  --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;--accent-border:rgba(56,139,253,0.30);
+  /* Semantic */
+  --danger:#f85149;--danger-emphasis:#da3633;--danger-muted:rgba(248,81,73,0.15);--danger-border:rgba(248,81,73,0.30);
+  --success:#3fb950;--success-emphasis:#238636;--success-muted:rgba(63,185,80,0.15);--success-border:rgba(63,185,80,0.30);
+  --warn:#d29922;--warn-emphasis:#9e6a03;--warn-muted:rgba(210,153,34,0.15);--warn-border:rgba(210,153,34,0.30);
+  /* Purple (agent/session identity) */
+  --purple:#bc8cff;--purple-emphasis:#8b5cf6;--purple-muted:rgba(188,140,255,0.15);--purple-border:rgba(188,140,255,0.30);
+  /* Typography */
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
