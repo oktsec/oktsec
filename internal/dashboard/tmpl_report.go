@@ -14,7 +14,7 @@ var reportTmpl = template.Must(template.New("report").Funcs(tmplFuncs).Parse(`<!
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;
   --border:#30363d;--border-subtle:#21262d;
   --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
-  --accent:#6366f1;--accent-light:#818cf8;
+  --accent:#58a6ff;--accent-light:#58a6ff;
   --danger:#f85149;--success:#3fb950;--warn:#d29922;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
@@ -32,9 +32,9 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);font-size:0.
 .grade-hero{display:flex;align-items:center;gap:32px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:28px 32px;margin-bottom:28px}
 .grade-circle{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:2rem;font-weight:800;flex-shrink:0}
 .grade-A{background:rgba(63,185,80,0.12);color:var(--success);border:2px solid rgba(63,185,80,0.3)}
-.grade-B{background:rgba(96,165,250,0.12);color:#60a5fa;border:2px solid rgba(96,165,250,0.3)}
+.grade-B{background:rgba(96,165,250,0.12);color:#58a6ff;border:2px solid rgba(96,165,250,0.3)}
 .grade-C{background:rgba(251,191,36,0.12);color:var(--warn);border:2px solid rgba(251,191,36,0.3)}
-.grade-D{background:rgba(251,146,60,0.12);color:#fb923c;border:2px solid rgba(251,146,60,0.3)}
+.grade-D{background:rgba(251,146,60,0.12);color:#f85149;border:2px solid rgba(251,146,60,0.3)}
 .grade-F{background:rgba(248,113,113,0.12);color:var(--danger);border:2px solid rgba(248,113,113,0.3)}
 .grade-info h2{font-size:1.1rem;font-weight:600;margin-bottom:4px}
 .grade-info .score-line{color:var(--text2);font-size:0.85rem}
@@ -56,7 +56,7 @@ th{text-align:left;color:var(--text3);font-size:0.68rem;text-transform:uppercase
 td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);color:var(--text2);font-family:var(--mono);font-size:0.78rem}
 
 /* Severity */
-.sev-critical{color:#f85149;font-weight:600}.sev-high{color:#fb923c;font-weight:600}.sev-medium{color:#60a5fa}.sev-low{color:var(--text3)}
+.sev-critical{color:#f85149;font-weight:600}.sev-high{color:#f85149;font-weight:600}.sev-medium{color:#58a6ff}.sev-low{color:var(--text3)}
 
 /* Risk bar */
 .risk-bar{height:6px;border-radius:3px;background:var(--surface2);min-width:60px;display:inline-block;vertical-align:middle}
@@ -70,7 +70,7 @@ td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);color:var(--te
 
 /* Finding */
 .finding{padding:10px 14px;border-left:3px solid var(--border);margin-bottom:8px;background:var(--surface);border-radius:0 6px 6px 0}
-.finding.critical{border-left-color:#f85149}.finding.high{border-left-color:#fb923c}.finding.medium{border-left-color:#60a5fa}.finding.low{border-left-color:var(--text3)}
+.finding.critical{border-left-color:#f85149}.finding.high{border-left-color:#f85149}.finding.medium{border-left-color:#58a6ff}.finding.low{border-left-color:var(--text3)}
 .finding .f-title{font-weight:600;font-size:0.82rem;margin-bottom:2px}
 .finding .f-detail{color:var(--text3);font-size:0.78rem}
 .finding .f-id{font-family:var(--mono);font-size:0.68rem;color:var(--text3)}
@@ -127,7 +127,7 @@ td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);color:var(--te
     <div class="rpt-stat"><div class="label">Delivered</div><div class="value" style="color:var(--success)">{{.Stats.Delivered}}</div></div>
     <div class="rpt-stat"><div class="label">Blocked</div><div class="value" style="color:var(--danger)">{{.Stats.Blocked}}</div></div>
     <div class="rpt-stat"><div class="label">Quarantined</div><div class="value" style="color:#c084fc">{{.Stats.Quarantined}}</div></div>
-    <div class="rpt-stat"><div class="label">Rejected</div><div class="value" style="color:#fb923c">{{.Stats.Rejected}}</div></div>
+    <div class="rpt-stat"><div class="label">Rejected</div><div class="value" style="color:#f85149">{{.Stats.Rejected}}</div></div>
   </div>
   <div style="display:flex;gap:32px;color:var(--text2);font-size:0.82rem">
     <div>Detection rate: <span style="font-family:var(--mono);font-weight:600">{{.DetectionRate}}%</span></div>
@@ -219,7 +219,7 @@ td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);color:var(--te
 <div class="rpt-section">
   <h3>Quarantine Queue</h3>
   <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden">
-    <div class="rpt-stat"><div class="label">Pending</div><div class="value" style="color:#fb923c">{{.QuarantineStats.Pending}}</div></div>
+    <div class="rpt-stat"><div class="label">Pending</div><div class="value" style="color:#f85149">{{.QuarantineStats.Pending}}</div></div>
     <div class="rpt-stat"><div class="label">Approved</div><div class="value" style="color:var(--success)">{{.QuarantineStats.Approved}}</div></div>
     <div class="rpt-stat"><div class="label">Rejected</div><div class="value" style="color:var(--danger)">{{.QuarantineStats.Rejected}}</div></div>
     <div class="rpt-stat"><div class="label">Expired</div><div class="value" style="color:var(--text3)">{{.QuarantineStats.Expired}}</div></div>
