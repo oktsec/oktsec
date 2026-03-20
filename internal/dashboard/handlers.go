@@ -1674,6 +1674,13 @@ func (s *Server) handleSessionAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Persist to DB as evidence
+	if store, ok := s.audit.(*audit.Store); ok {
+		if saveErr := store.SaveSessionAnalysis(sessionID, analysis); saveErr != nil {
+			s.logger.Warn("failed to save session analysis", "error", saveErr)
+		}
+	}
+
 	w.Header().Set("Content-Type", "text/plain")
 	_, _ = w.Write([]byte(analysis))
 }
@@ -1691,10 +1698,17 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load saved AI analysis if it exists
+	var savedAnalysis string
+	if store, ok := s.audit.(*audit.Store); ok {
+		savedAnalysis = store.QuerySessionAnalysis(sessionID)
+	}
+
 	data := map[string]any{
-		"Active":     "events",
-		"Trace":      trace,
-		"RequireSig": s.cfg.Identity.RequireSignature,
+		"Active":        "events",
+		"Trace":         trace,
+		"RequireSig":    s.cfg.Identity.RequireSignature,
+		"SavedAnalysis": savedAnalysis,
 	}
 	s.renderTemplate(w, sessionTraceTmpl, data)
 }

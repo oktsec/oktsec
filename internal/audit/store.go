@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -1350,6 +1351,33 @@ func parseTS(ts string) (time.Time, bool) {
 		return t, true
 	}
 	return time.Time{}, false
+}
+
+// QuerySessionAnalysis retrieves a saved AI analysis for a session.
+// Returns empty string if no analysis exists.
+func (s *Store) QuerySessionAnalysis(sessionID string) string {
+	var text string
+	err := s.db.QueryRow(
+		`SELECT reasoning FROM reasoning_log WHERE session_id = ? AND audit_entry_id = 'session-analysis' ORDER BY timestamp DESC LIMIT 1`,
+		sessionID,
+	).Scan(&text)
+	if err != nil {
+		return ""
+	}
+	return text
+}
+
+// SaveSessionAnalysis persists an AI session analysis as a reasoning entry.
+func (s *Store) SaveSessionAnalysis(sessionID, analysis string) error {
+	r := ReasoningEntry{
+		ID:            "sa-" + sessionID[:min(len(sessionID), 20)] + "-" + time.Now().Format("20060102150405"),
+		AuditEntryID:  "session-analysis",
+		SessionID:     sessionID,
+		Reasoning:     analysis,
+		ReasoningHash: fmt.Sprintf("%x", sha256.Sum256([]byte(analysis))),
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+	}
+	return s.LogReasoning(r)
 }
 
 // QueryEdgeRules returns the top triggered rules for a specific from→to edge.

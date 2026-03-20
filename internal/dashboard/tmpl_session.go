@@ -17,6 +17,11 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-stat .value.v-danger{color:var(--danger)}
 .st-stat .value.v-success{color:var(--success)}
 
+/* 2-column layout */
+.st-layout{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+.st-layout.no-analysis{grid-template-columns:1fr}
+@media(max-width:960px){.st-layout{grid-template-columns:1fr}}
+
 /* Timeline */
 .st-timeline{position:relative;padding-left:32px}
 .st-timeline::before{content:'';position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:var(--border)}
@@ -56,10 +61,17 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-link:hover{text-decoration:underline}
 
 .st-empty{padding:40px;text-align:center;color:var(--text3)}
+
+/* AI Analysis panel */
+.st-ai-panel{position:sticky;top:20px}
+.st-ai-panel h3{font-size:var(--text-sm);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin:0 0 12px}
+.st-ai-content{padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:var(--text-sm);line-height:1.7;color:var(--text2);white-space:pre-wrap}
+.st-ai-content .ai-label{display:inline-block;font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);background:rgba(139,124,247,0.1);margin-bottom:12px}
+.st-ai-actions{display:flex;gap:8px;margin-top:12px}
 .ss-ai-btn{padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:var(--text-xs);cursor:pointer;font-weight:500}
 .ss-ai-btn:hover{opacity:0.9}
 .ss-ai-btn:disabled{opacity:0.5;cursor:not-allowed}
-.ss-ai-result{margin-top:16px;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;font-size:var(--text-sm);line-height:1.6;color:var(--text2);white-space:pre-wrap}
+.ss-ai-btn.btn-outline{background:transparent;color:var(--accent);border:1px solid var(--accent)}
 </style>
 
 <div class="page-header" style="margin-bottom:8px">
@@ -76,23 +88,8 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/csv" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">CSV</a>
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/sarif" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">SARIF</a>
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/export" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">JSON</a>
-  <button class="ss-ai-btn" id="ai-analyze-btn" onclick="analyzeSession('{{.Trace.SessionID}}')">Analyze with AI</button>
+  {{if not .SavedAnalysis}}<button class="ss-ai-btn" id="ai-analyze-btn" onclick="analyzeSession('{{.Trace.SessionID}}')">Analyze with AI</button>{{end}}
 </div>
-<div id="ai-analysis-result" class="ss-ai-result" style="display:none"></div>
-<script>
-function analyzeSession(sid) {
-  var btn = document.getElementById('ai-analyze-btn');
-  var result = document.getElementById('ai-analysis-result');
-  btn.disabled = true;
-  btn.textContent = 'Analyzing...';
-  result.style.display = 'none';
-  fetch('/dashboard/api/sessions/' + sid + '/analyze', {method: 'POST'})
-    .then(function(r) { if (!r.ok) throw new Error(r.statusText); return r.text(); })
-    .then(function(text) { result.textContent = text; result.style.display = 'block'; })
-    .catch(function(e) { result.textContent = 'Analysis unavailable: ' + e.message; result.style.display = 'block'; })
-    .finally(function() { btn.disabled = false; btn.textContent = 'Analyze with AI'; });
-}
-</script>
 
 <div class="st-stats">
   <div class="st-stat">
@@ -113,33 +110,72 @@ function analyzeSession(sid) {
   </div>
 </div>
 
-{{if .Trace.Steps}}
-<div class="st-timeline">
-  {{range .Trace.Steps}}
-  <div class="st-step{{if eq .Verdict "blocked"}} s-blocked{{end}}{{if eq .Verdict "quarantined"}} s-quarantined{{end}}{{if eq .ToolName "message"}} s-human{{end}}">
-    <div class="st-step-header">
-      {{if eq .ToolName "message"}}<span class="st-role r-human">human</span>{{else}}<span class="st-role r-agent">agent</span>{{end}}
-      <span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)">{{.FromAgent}}</span>
-      <span class="st-tool">{{.ToolName}}</span>
-      <span class="st-verdict{{if eq .Verdict "blocked"}} v-blocked{{else if eq .Verdict "quarantined"}} v-quarantined{{else}} v-clean{{end}}">{{.Verdict}}</span>
-      {{if gt .PlanStep 0}}<span class="st-plan">Step {{.PlanStep}}/{{.PlanTotal}}</span>{{end}}
-      <span class="st-time" data-ts="{{.Timestamp}}">{{.Timestamp}}</span>
-      {{if gt .GapMs 1000}}<span class="st-gap">+{{printf "%.1f" (divf .GapMs 1000)}}s</span>{{else if gt .GapMs 0}}<span class="st-gap">+{{.GapMs}}ms</span>{{end}}
-      <span class="st-latency">{{.LatencyMs}}ms</span>
+<div class="st-layout{{if not .SavedAnalysis}} no-analysis{{end}}" id="st-layout">
+  <!-- Left: Timeline -->
+  <div>
+    {{if .Trace.Steps}}
+    <div class="st-timeline">
+      {{range .Trace.Steps}}
+      <div class="st-step{{if eq .Verdict "blocked"}} s-blocked{{end}}{{if eq .Verdict "quarantined"}} s-quarantined{{end}}{{if eq .ToolName "message"}} s-human{{end}}">
+        <div class="st-step-header">
+          {{if eq .ToolName "message"}}<span class="st-role r-human">human</span>{{else}}<span class="st-role r-agent">agent</span>{{end}}
+          <span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)">{{.FromAgent}}</span>
+          <span class="st-tool">{{.ToolName}}</span>
+          <span class="st-verdict{{if eq .Verdict "blocked"}} v-blocked{{else if eq .Verdict "quarantined"}} v-quarantined{{else}} v-clean{{end}}">{{.Verdict}}</span>
+          {{if gt .PlanStep 0}}<span class="st-plan">Step {{.PlanStep}}/{{.PlanTotal}}</span>{{end}}
+          <span class="st-time" data-ts="{{.Timestamp}}">{{.Timestamp}}</span>
+          {{if gt .GapMs 1000}}<span class="st-gap">+{{printf "%.1f" (divf .GapMs 1000)}}s</span>{{else if gt .GapMs 0}}<span class="st-gap">+{{.GapMs}}ms</span>{{end}}
+          <span class="st-latency">{{.LatencyMs}}ms</span>
+        </div>
+        {{if .ToolInput}}<div class="st-content">{{.ToolInput}}</div>{{end}}
+        {{if .Reasoning}}
+        <div class="st-reasoning">
+          <div class="label">Reasoning</div>
+          {{.Reasoning}}
+        </div>
+        {{end}}
+        <a href="/dashboard/events/{{.EventID}}" class="st-link">View event detail</a>
+      </div>
+      {{end}}
     </div>
-    {{if .ToolInput}}<div class="st-content">{{.ToolInput}}</div>{{end}}
-    {{if .Reasoning}}
-    <div class="st-reasoning">
-      <div class="label">Reasoning</div>
-      {{.Reasoning}}
-    </div>
+    {{else}}
+    <div class="st-empty">No events found for this session.</div>
     {{end}}
-    <a href="/dashboard/events/{{.EventID}}" class="st-link">View event detail</a>
+  </div>
+
+  <!-- Right: AI Analysis (shown when analysis exists) -->
+  {{if .SavedAnalysis}}
+  <div class="st-ai-panel">
+    <h3>AI Analysis</h3>
+    <div class="st-ai-content">
+      <span class="ai-label">AI Generated</span>
+      {{.SavedAnalysis}}
+    </div>
+    <div class="st-ai-actions">
+      <button class="ss-ai-btn btn-outline" onclick="analyzeSession('{{.Trace.SessionID}}')">Re-analyze</button>
+    </div>
   </div>
   {{end}}
 </div>
-{{else}}
-<div class="st-empty">No events found for this session.</div>
-{{end}}
+
+<script>
+function analyzeSession(sid) {
+  var btn = document.querySelector('.ss-ai-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Analyzing...'; }
+
+  fetch('/dashboard/api/sessions/' + sid + '/analyze', {method: 'POST'})
+    .then(function(r) { if (!r.ok) throw new Error(r.statusText); return r.text(); })
+    .then(function() { window.location.reload(); })
+    .catch(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Analyze with AI'; }
+      var layout = document.getElementById('st-layout');
+      layout.classList.remove('no-analysis');
+      var panel = document.createElement('div');
+      panel.className = 'st-ai-panel';
+      panel.innerHTML = '<h3>AI Analysis</h3><div class="st-ai-content" style="color:var(--danger)">Analysis failed: ' + e.message + '</div>';
+      layout.appendChild(panel);
+    });
+}
+</script>
 
 ` + layoutFoot))
