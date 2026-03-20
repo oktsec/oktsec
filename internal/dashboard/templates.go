@@ -93,9 +93,11 @@ var tmplFuncs = template.FuncMap{
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
 	"hasRules": func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"mdToHTML": simpleMarkdownToHTML,
 	"pageTitle": func(active string) string {
 		titles := map[string]string{
 			"events":    "Events",
+			"sessions":  "Sessions",
 			"audit":     "Security Posture",
 			"llm":       "AI Analysis",
 			"discovery": "Discovery",

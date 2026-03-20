@@ -13,12 +13,19 @@ var sessionsPageTmpl = template.Must(template.New("sessions").Funcs(tmplFuncs).P
 .ss-stat .value.v-danger{color:var(--danger)}
 .ss-stat .value.v-warn{color:var(--warning)}
 
-.ss-table{width:100%;border-collapse:collapse}
-.ss-table th{text-align:left;padding:8px 12px;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);border-bottom:1px solid var(--border)}
-.ss-table td{padding:10px 12px;border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--text2)}
+.ss-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.ss-table th{text-align:left;padding:10px 12px;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);border-bottom:1px solid var(--border)}
+.ss-table td{padding:12px 12px;border-bottom:1px solid var(--border);font-size:var(--text-sm);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ss-table tr:hover{background:var(--surface)}
 .ss-table a{color:var(--accent);text-decoration:none}
 .ss-table a:hover{text-decoration:underline}
+.ss-table .col-session{width:14%}
+.ss-table .col-started{width:16%}
+.ss-table .col-duration{width:10%}
+.ss-table .col-agents{width:22%}
+.ss-table .col-events{width:8%;text-align:right}
+.ss-table .col-threats{width:22%}
+.ss-table .col-risk{width:8%;text-align:right}
 
 .ss-risk{display:inline-block;padding:2px 8px;border-radius:4px;font-size:var(--text-xs);font-weight:600}
 .ss-risk.r-high{background:rgba(239,68,68,0.12);color:var(--danger)}
@@ -87,23 +94,23 @@ const sessionsBodyTmpl = `
 <table class="ss-table">
   <thead>
     <tr>
-      <th>Session</th>
-      <th>Started</th>
-      <th>Duration</th>
-      <th>Agents</th>
-      <th>Events</th>
-      <th>Threats</th>
-      <th>Risk</th>
+      <th class="col-session">Session</th>
+      <th class="col-started">Started</th>
+      <th class="col-duration">Duration</th>
+      <th class="col-agents">Agents</th>
+      <th class="col-events">Events</th>
+      <th class="col-threats">Threats</th>
+      <th class="col-risk">Risk</th>
     </tr>
   </thead>
   <tbody>
     {{range .Sessions}}
     <tr>
-      <td class="ss-id"><a href="/dashboard/sessions/{{.SessionID}}" title="{{.SessionID}}">{{truncate .SessionID 12}}</a></td>
-      <td title="{{.StartedAt}}">{{truncate .StartedAt 19}}</td>
+      <td class="ss-id"><a href="/dashboard/sessions/{{.SessionID}}" title="{{.SessionID}}">{{truncate .SessionID 16}}</a></td>
+      <td title="{{.StartedAt}}">{{truncate .StartedAt 16}}</td>
       <td>{{if .Duration}}{{.Duration}}{{else}}&mdash;{{end}}</td>
-      <td class="ss-agents">{{.Agents}}</td>
-      <td>{{.EventCount}}</td>
+      <td class="ss-agents" title="{{.Agents}}">{{.Agents}}</td>
+      <td style="text-align:right">{{.EventCount}}</td>
       <td>
         <div class="ss-threats">
           {{if gt .Blocks 0}}<span class="badge b-block">{{.Blocks}} blocked</span>{{end}}
@@ -112,7 +119,7 @@ const sessionsBodyTmpl = `
           {{if and (eq .Blocks 0) (eq .Quarantines 0) (eq .Flags 0)}}<span style="color:var(--text3)">&mdash;</span>{{end}}
         </div>
       </td>
-      <td>
+      <td style="text-align:right">
         <span class="ss-risk{{if ge .RiskScore 10}} r-high{{else if ge .RiskScore 5}} r-medium{{else if gt .RiskScore 0}} r-low{{else}} r-none{{end}}">{{.RiskScore}}</span>
       </td>
     </tr>

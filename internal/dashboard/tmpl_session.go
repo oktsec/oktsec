@@ -41,7 +41,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 .st-role{font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
 .st-role.r-human{color:var(--accent);background:rgba(139,124,247,0.1)}
 .st-role.r-agent{color:var(--text3);background:var(--surface2)}
-.st-step-header{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.st-step-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
 .st-tool{font-weight:600;color:var(--text);font-size:var(--text-sm)}
 .st-verdict{font-size:var(--text-xs);padding:2px 8px;border-radius:4px;font-weight:500}
 .st-verdict.v-clean{color:var(--success);background:rgba(63,185,80,0.1)}
@@ -65,7 +65,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 /* AI Analysis panel */
 .st-ai-panel{position:sticky;top:20px}
 .st-ai-panel h3{font-size:var(--text-sm);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin:0 0 12px}
-.st-ai-content{padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:var(--text-sm);line-height:1.7;color:var(--text2);white-space:pre-wrap}
+.st-ai-content{padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:var(--text-sm);line-height:1.7;color:var(--text2)}
 .st-ai-content .ai-label{display:inline-block;font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);background:rgba(139,124,247,0.1);margin-bottom:12px}
 .st-ai-actions{display:flex;gap:8px;margin-top:12px}
 .ss-ai-btn{padding:6px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;font-size:var(--text-xs);cursor:pointer;font-weight:500}
@@ -149,7 +149,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
     <h3>AI Analysis</h3>
     <div class="st-ai-content">
       <span class="ai-label">AI Generated</span>
-      {{.SavedAnalysis}}
+      {{mdToHTML .SavedAnalysis}}
     </div>
     <div class="st-ai-actions">
       <button class="ss-ai-btn btn-outline" onclick="analyzeSession('{{.Trace.SessionID}}')">Re-analyze</button>

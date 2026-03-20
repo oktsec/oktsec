@@ -1780,6 +1780,63 @@ func humanReadableDecision(decision string) string {
 	return decision
 }
 
+// simpleMarkdownToHTML converts basic markdown (bold, headers, lists, code)
+// to HTML for rendering AI analysis in the dashboard. No external dependencies.
+func simpleMarkdownToHTML(s string) template.HTML {
+	var out strings.Builder
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "## "):
+			out.WriteString("<h3 style=\"margin:16px 0 8px;font-size:0.85rem;color:var(--text)\">")
+			out.WriteString(template.HTMLEscapeString(strings.TrimPrefix(trimmed, "## ")))
+			out.WriteString("</h3>")
+		case strings.HasPrefix(trimmed, "# "):
+			out.WriteString("<h3 style=\"margin:16px 0 8px;font-size:0.9rem;color:var(--text)\">")
+			out.WriteString(template.HTMLEscapeString(strings.TrimPrefix(trimmed, "# ")))
+			out.WriteString("</h3>")
+		case strings.HasPrefix(trimmed, "- "):
+			content := boldify(template.HTMLEscapeString(strings.TrimPrefix(trimmed, "- ")))
+			out.WriteString("<div style=\"padding-left:16px;margin:4px 0\">&#8226; " + content + "</div>")
+		case trimmed == "":
+			out.WriteString("<div style=\"height:8px\"></div>")
+		default:
+			out.WriteString("<p style=\"margin:6px 0\">" + boldify(template.HTMLEscapeString(trimmed)) + "</p>")
+		}
+	}
+	return template.HTML(out.String())
+}
+
+// boldify converts **text** to <strong>text</strong> in already-escaped HTML.
+func boldify(s string) string {
+	for {
+		start := strings.Index(s, "**")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start+2:], "**")
+		if end == -1 {
+			break
+		}
+		end += start + 2
+		s = s[:start] + "<strong>" + s[start+2:end] + "</strong>" + s[end+2:]
+	}
+	// Inline code: `text`
+	for {
+		start := strings.Index(s, "`")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s[start+1:], "`")
+		if end == -1 {
+			break
+		}
+		end += start + 1
+		s = s[:start] + "<code style=\"background:var(--surface2);padding:1px 5px;border-radius:3px;font-size:0.85em\">" + s[start+1:end] + "</code>" + s[end+1:]
+	}
+	return s
+}
+
 // --- Rule detail handler ---
 
 func (s *Server) handleRuleDetail(w http.ResponseWriter, r *http.Request) {
