@@ -1714,7 +1714,7 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Active":        "events",
+		"Active":        "sessions",
 		"Trace":         trace,
 		"RequireSig":    s.cfg.Identity.RequireSignature,
 		"SavedAnalysis": savedAnalysis,

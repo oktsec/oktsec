@@ -154,11 +154,6 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
         <span>Analyzed: {{.AnalysisDate}}</span>
       </div>
     </div>
-    {{else}}
-    <div style="text-align:center;padding:40px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
-      <p style="color:var(--text3);margin:0 0 12px;font-size:var(--text-sm)">AI analysis not yet generated for this session</p>
-      <button class="ss-ai-btn" onclick="analyzeSession('{{.Trace.SessionID}}')">Analyze with AI</button>
-    </div>
     {{end}}
   </div>
 </div>
