@@ -14,18 +14,23 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 )
 
-const sessionAnalysisPrompt = `You are a security analyst reviewing an AI agent session for an enterprise security team. Your analysis will be read by a manager who needs to decide what to do.
+const sessionAnalysisPrompt = `You are a security analyst reviewing an AI agent session. Your analysis will be read by a manager who needs to decide what to do.
+
+Important context about roles:
+- Entries marked [HUMAN] are messages sent BY a human user TO the agent. If a human sends dangerous content (prompt injection, data exfiltration requests), the HUMAN is the threat actor, not the agent.
+- Entries marked [AGENT] are responses or tool calls from the AI agent. If an agent blocked or refused a dangerous request, the agent is PROTECTING the system. Do NOT recommend suspending an agent that correctly blocked an attack.
+- The "from" field tells you WHO sent the message. Blame the sender of malicious content.
 
 Write a structured analysis using these exact sections:
 
 **Risk Level:** CRITICAL, HIGH, MEDIUM, LOW, or CLEAN. One sentence why.
 
-**Summary:** 2-3 sentences max. What the user/agent was doing and whether the security findings are real threats or false positives.
+**Summary:** 2-3 sentences max. Who did what and whether the security findings are real threats or false positives. Be clear about who the threat actor is (human or agent).
 
 **Recommended actions:**
-Each action must be specific and tied to a configuration change. Use this format:
-- [Suspend agent NAME](/dashboard/agents/NAME) - reason
-- [Suspend user NAME](/dashboard/agents/NAME) - reason
+Each action must link to a specific oktsec dashboard page. Use this format:
+- [Suspend user NAME](/dashboard/agents/NAME) - reason (use when a HUMAN sent dangerous content)
+- [Suspend agent NAME](/dashboard/agents/NAME) - reason (use only when an AGENT behaved maliciously)
 - [Review quarantined messages](/dashboard/events?tab=quarantine) - reason
 - [Add rule for PATTERN](/dashboard/rules) - reason
 - No action needed - reason
@@ -36,18 +41,21 @@ Session data:
 - Tool calls: %d
 - Threats: %d (blocked/quarantined/flagged)
 
+Existing detection rules already loaded (do NOT suggest adding rules for patterns already covered):
+%s
+
 Timeline (most recent first):
 %s
 
 Rules:
 - Start directly with **Risk Level:**
-- Never use em dashes. Use hyphens instead
-- Do not use jargon like "red-team", "SOC", "IOC". Write for a startup CTO
-- If the user attempted something dangerous (reading system files, exfiltrating data, injecting prompts), recommend suspending the user/agent with a link
-- If blocks were false positives from normal file editing or content scanning, say "No action needed" clearly
-- Keep it short. The manager should be able to act in 30 seconds
-- 3-4 bullet points max in recommendations
-- Every recommendation should link to the relevant oktsec dashboard page where the action can be taken`
+- Never use em dashes (-). Use hyphens instead
+- Write for a startup CTO, not a security specialist
+- If a HUMAN sent dangerous content, recommend suspending the HUMAN, not the agent that blocked it
+- If blocks were false positives from normal content, say "No action needed"
+- Do NOT suggest adding a rule if the pattern is already covered by an existing rule listed above
+- Keep it short. 3-4 bullet points max in recommendations
+- Every recommendation must link to a dashboard page`
 
 // analyzeSession sends a session trace to the configured LLM for analysis.
 // Makes a direct API call using the LLM config, bypassing the security
@@ -66,7 +74,7 @@ func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) 
 		return "", fmt.Errorf("LLM API key not set")
 	}
 
-	// Build timeline text from trace steps
+	// Build timeline text with role tags
 	var sb strings.Builder
 	for i, step := range trace.Steps {
 		if i >= 30 {
@@ -77,11 +85,33 @@ func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) 
 		if verdict == "" {
 			verdict = "clean"
 		}
-		fmt.Fprintf(&sb, "- %s tool=%s verdict=%s", step.FromAgent, step.ToolName, verdict)
+		role := "[AGENT]"
+		if step.ToolName == "message" {
+			role = "[HUMAN]"
+		}
+		fmt.Fprintf(&sb, "- %s %s tool=%s verdict=%s", role, step.FromAgent, step.ToolName, verdict)
 		if step.ToolInput != "" {
 			fmt.Fprintf(&sb, " input=%q", step.ToolInput)
 		}
 		sb.WriteString("\n")
+	}
+
+	// Build existing rules summary so LLM doesn't suggest duplicates
+	var rulesSummary string
+	if s.scanner != nil {
+		rules := s.scanner.ListRules()
+		var rb strings.Builder
+		for i, r := range rules {
+			if i >= 30 {
+				fmt.Fprintf(&rb, "... and %d more rules\n", len(rules)-30)
+				break
+			}
+			fmt.Fprintf(&rb, "- %s: %s (%s)\n", r.ID, r.Name, r.Severity)
+		}
+		rulesSummary = rb.String()
+	}
+	if rulesSummary == "" {
+		rulesSummary = "(no rules loaded)\n"
 	}
 
 	prompt := fmt.Sprintf(sessionAnalysisPrompt,
@@ -89,6 +119,7 @@ func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) 
 		trace.Duration,
 		trace.ToolCount,
 		trace.Threats,
+		rulesSummary,
 		sb.String(),
 	)
 

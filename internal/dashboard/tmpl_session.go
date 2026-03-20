@@ -88,7 +88,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/csv" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">CSV</a>
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/sarif" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">SARIF</a>
   <a href="/dashboard/api/session/{{.Trace.SessionID}}/export" class="btn btn-sm btn-outline" style="font-size:var(--text-xs)">JSON</a>
-  {{if not .SavedAnalysis}}<button class="ss-ai-btn" id="ai-analyze-btn" onclick="analyzeSession('{{.Trace.SessionID}}')">Analyze with AI</button>{{end}}
+  <button class="ss-ai-btn" id="ai-analyze-btn" onclick="analyzeSession('{{.Trace.SessionID}}')">{{if .SavedAnalysis}}Re-analyze{{else}}Analyze with AI{{end}}</button>
 </div>
 
 <div class="st-stats">
