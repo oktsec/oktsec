@@ -72,7 +72,7 @@ func ProductInfoFor(name, configDir string) ProductInfo {
 	case "OpenClaw":
 		return ProductInfo{
 			Name:        "OpenClaw",
-			Description: "AI agent gateway — multi-channel personal assistant platform",
+			Description: "AI agent gateway  - multi-channel personal assistant platform",
 			ConfigPath:  defaultOpenClawConfigPath(),
 			DocsURL:     "https://docs.openclaw.ai/gateway/security",
 			Icon:        "\U0001f980",

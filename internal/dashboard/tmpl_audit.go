@@ -95,7 +95,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 {{if .Sandbox}}
 <div class="a-sandbox">
-  <strong>Sandbox</strong> &mdash; Sample OpenClaw config with intentional security issues.
+  <strong>Sandbox</strong> &middot; Sample OpenClaw config with intentional security issues.
   <a href="/dashboard/audit">Exit sandbox &rarr;</a>
 </div>
 {{end}}

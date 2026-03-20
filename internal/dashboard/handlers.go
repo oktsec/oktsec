@@ -349,7 +349,7 @@ func (s *Server) handleAuditSandbox(w http.ResponseWriter, r *http.Request) {
 	productInfos := map[string]auditcheck.ProductInfo{
 		"OpenClaw": {
 			Name:        "OpenClaw",
-			Description: "AI agent gateway — multi-channel personal assistant platform",
+			Description: "AI agent gateway, multi-channel personal assistant platform",
 			ConfigPath:  "~/.openclaw/openclaw.json",
 			DocsURL:     "https://docs.openclaw.ai/gateway/security",
 			Icon:        "\U0001f980",

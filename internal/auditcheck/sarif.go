@@ -6,7 +6,7 @@ import (
 	"sort"
 )
 
-// SARIF v2.1.0 types — minimal subset for audit output.
+// SARIF v2.1.0 types  - minimal subset for audit output.
 
 // SARIFLog is the top-level SARIF v2.1.0 report.
 type SARIFLog struct {
@@ -105,7 +105,7 @@ func BuildSARIF(findings []Finding, toolVersion string) SARIFLog {
 	for _, f := range findings {
 		msg := f.Title
 		if f.Detail != "" {
-			msg += " — " + f.Detail
+			msg += "  - " + f.Detail
 		}
 		results = append(results, SARIFResult{
 			RuleID:  f.CheckID,
