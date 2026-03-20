@@ -8,7 +8,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 /* Stat strip */
 .a-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:24px}
-.a-stat{background:var(--surface);padding:var(--sp-5) var(--sp-5)}
+.a-stat{background:var(--surface);padding:var(--sp-5) var(--sp-5);text-align:center}
 .a-stat-label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);font-weight:500;margin-bottom:var(--sp-2)}
 .a-stat-val{font-family:var(--sans);font-size:1.375rem;font-weight:700;color:var(--text);letter-spacing:-0.03em}
 .a-stat-val.v-crit{color:var(--danger)}
