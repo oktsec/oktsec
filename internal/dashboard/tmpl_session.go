@@ -11,7 +11,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 
 .st-actions{display:flex;gap:8px;margin-bottom:20px}
 
-.st-stats{display:flex;gap:24px;margin-bottom:24px;padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.st-stats{display:flex;gap:24px;margin-bottom:24px;padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;flex-wrap:wrap}
 .st-stat .label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:2px}
 .st-stat .value{font-size:1.1rem;font-weight:600;color:var(--text)}
 .st-stat .value.v-danger{color:var(--danger)}
@@ -64,6 +64,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 
 /* AI Analysis panel */
 .st-ai-panel{position:sticky;top:20px}
+.st-ai-meta{display:flex;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:0.68rem;color:var(--text3)}
 .st-ai-panel h3{font-size:var(--text-sm);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin:0 0 12px}
 .st-ai-content{padding:20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;font-size:var(--text-sm);line-height:1.7;color:var(--text2)}
 .st-ai-content .ai-label{display:inline-block;font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);background:rgba(139,124,247,0.1);margin-bottom:12px}
@@ -144,13 +145,22 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
   </div>
 
   <!-- Right: AI Analysis -->
-  {{if .SavedAnalysis}}
   <div class="st-ai-panel">
+    {{if .SavedAnalysis}}
     <div class="st-ai-content">
       {{mdToHTML .SavedAnalysis}}
+      <div class="st-ai-meta">
+        <span>Model: {{.AnalysisModel}}</span>
+        <span>Analyzed: {{.AnalysisDate}}</span>
+      </div>
     </div>
+    {{else}}
+    <div style="text-align:center;padding:40px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px">
+      <p style="color:var(--text3);margin:0 0 12px;font-size:var(--text-sm)">AI analysis not yet generated for this session</p>
+      <button class="ss-ai-btn" onclick="analyzeSession('{{.Trace.SessionID}}')">Analyze with AI</button>
+    </div>
+    {{end}}
   </div>
-  {{end}}
 </div>
 
 <script>

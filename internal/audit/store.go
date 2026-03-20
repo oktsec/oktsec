@@ -1353,26 +1353,34 @@ func parseTS(ts string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// SessionAnalysisResult holds a saved AI analysis with metadata.
+type SessionAnalysisResult struct {
+	Text      string
+	Model     string
+	Timestamp string
+}
+
 // QuerySessionAnalysis retrieves a saved AI analysis for a session.
-// Returns empty string if no analysis exists.
-func (s *Store) QuerySessionAnalysis(sessionID string) string {
-	var text string
+func (s *Store) QuerySessionAnalysis(sessionID string) *SessionAnalysisResult {
+	var text, model, ts string
 	err := s.db.QueryRow(
-		`SELECT reasoning FROM reasoning_log WHERE session_id = ? AND audit_entry_id = 'session-analysis' ORDER BY timestamp DESC LIMIT 1`,
+		`SELECT reasoning, COALESCE(tool_use_id,''), timestamp FROM reasoning_log WHERE session_id = ? AND audit_entry_id = 'session-analysis' ORDER BY timestamp DESC LIMIT 1`,
 		sessionID,
-	).Scan(&text)
-	if err != nil {
-		return ""
+	).Scan(&text, &model, &ts)
+	if err != nil || text == "" {
+		return nil
 	}
-	return text
+	return &SessionAnalysisResult{Text: text, Model: model, Timestamp: ts}
 }
 
 // SaveSessionAnalysis persists an AI session analysis as a reasoning entry.
-func (s *Store) SaveSessionAnalysis(sessionID, analysis string) error {
+// The model name is stored in ToolUseID for metadata tracking.
+func (s *Store) SaveSessionAnalysis(sessionID, analysis, model string) error {
 	r := ReasoningEntry{
 		ID:            "sa-" + sessionID[:min(len(sessionID), 20)] + "-" + time.Now().Format("20060102150405"),
 		AuditEntryID:  "session-analysis",
 		SessionID:     sessionID,
+		ToolUseID:     model,
 		Reasoning:     analysis,
 		ReasoningHash: fmt.Sprintf("%x", sha256.Sum256([]byte(analysis))),
 		Timestamp:     time.Now().UTC().Format(time.RFC3339),

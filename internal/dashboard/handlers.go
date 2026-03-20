@@ -1675,8 +1675,9 @@ func (s *Server) handleSessionAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to DB as evidence
+	model := s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
 	if store, ok := s.audit.(*audit.Store); ok {
-		if saveErr := store.SaveSessionAnalysis(sessionID, analysis); saveErr != nil {
+		if saveErr := store.SaveSessionAnalysis(sessionID, analysis, model); saveErr != nil {
 			s.logger.Warn("failed to save session analysis", "error", saveErr)
 		}
 	}
@@ -1699,9 +1700,17 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load saved AI analysis if it exists
-	var savedAnalysis string
+	var savedAnalysis, analysisModel, analysisDate string
 	if store, ok := s.audit.(*audit.Store); ok {
-		savedAnalysis = store.QuerySessionAnalysis(sessionID)
+		if result := store.QuerySessionAnalysis(sessionID); result != nil {
+			savedAnalysis = result.Text
+			analysisModel = result.Model
+			if t, err := time.Parse(time.RFC3339, result.Timestamp); err == nil {
+				analysisDate = t.Local().Format("Jan 02, 2006 15:04")
+			} else {
+				analysisDate = result.Timestamp
+			}
+		}
 	}
 
 	data := map[string]any{
@@ -1709,6 +1718,8 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 		"Trace":         trace,
 		"RequireSig":    s.cfg.Identity.RequireSignature,
 		"SavedAnalysis": savedAnalysis,
+		"AnalysisModel": analysisModel,
+		"AnalysisDate":  analysisDate,
 	}
 	s.renderTemplate(w, sessionTraceTmpl, data)
 }
