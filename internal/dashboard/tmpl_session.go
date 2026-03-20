@@ -20,7 +20,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 /* 2-column layout */
 .st-layout{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
 .st-layout.no-analysis{grid-template-columns:1fr}
-@media(max-width:960px){.st-layout{grid-template-columns:1fr}}
+@media(max-width:1200px){.st-layout{grid-template-columns:1fr}}
 
 /* Timeline */
 .st-timeline{position:relative;padding-left:32px}
@@ -110,8 +110,19 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
   </div>
 </div>
 
-<div class="st-layout{{if not .SavedAnalysis}} no-analysis{{end}}" id="st-layout">
-  <!-- Left: Timeline -->
+<!-- AI Analysis (full width, above timeline) -->
+{{if .SavedAnalysis}}
+<div class="st-ai-panel" style="margin-bottom:24px">
+  <div class="st-ai-content">
+    {{mdToHTML .SavedAnalysis}}
+  </div>
+  <div class="st-ai-actions">
+    <button class="ss-ai-btn btn-outline" onclick="analyzeSession('{{.Trace.SessionID}}')">Re-analyze</button>
+  </div>
+</div>
+{{end}}
+
+<div id="st-layout">
   <div>
     {{if .Trace.Steps}}
     <div class="st-timeline">
@@ -143,17 +154,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
     {{end}}
   </div>
 
-  <!-- Right: AI Analysis (shown when analysis exists) -->
-  {{if .SavedAnalysis}}
-  <div class="st-ai-panel">
-    <div class="st-ai-content">
-      {{mdToHTML .SavedAnalysis}}
-    </div>
-    <div class="st-ai-actions">
-      <button class="ss-ai-btn btn-outline" onclick="analyzeSession('{{.Trace.SessionID}}')">Re-analyze</button>
-    </div>
-  </div>
-  {{end}}
+
 </div>
 
 <script>
