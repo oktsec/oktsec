@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +25,15 @@ Designed for use as a Claude Code command hook.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// If --port wasn't explicitly set, read from config
+			if !cmd.Flags().Changed("port") {
+				cfgPath, found := config.ResolveConfigPath("", false)
+				if found {
+					if cfg, err := config.Load(cfgPath); err == nil && cfg.Gateway.Port > 0 {
+						port = cfg.Gateway.Port
+					}
+				}
+			}
 			return runHook(port)
 		},
 	}

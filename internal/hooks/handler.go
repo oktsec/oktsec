@@ -426,6 +426,12 @@ func formatBlockReason(outcome *engine.ScanOutcome) string {
 // resolveAgent maps a Claude Code agent_type to a known agent name from config.
 // Returns the matched agent name, or the slugified agent_type if no match.
 // Built-in types like "Explore", "Plan", "general-purpose" are kept as-is.
+// genericWords are excluded from fuzzy matching because they match too many agents.
+var genericWords = map[string]bool{
+	"agent": true, "test": true, "general": true, "purpose": true,
+	"main": true, "default": true, "new": true, "the": true,
+}
+
 func (h *Handler) resolveAgent(agentType string) string {
 	lower := strings.ToLower(agentType)
 
@@ -434,82 +440,99 @@ func (h *Handler) resolveAgent(agentType string) string {
 		return lower
 	}
 
-	// Keyword match: split agent_type into words and match against agent names.
+	// Exact match with common transformations.
+	dashed := strings.ReplaceAll(strings.ReplaceAll(lower, "_", "-"), " ", "-")
+	if _, ok := h.cfg.Agents[dashed]; ok {
+		return dashed
+	}
+
+	// Keyword match: only match if ALL significant parts of the config name
+	// are found in the agent_type. This prevents "test-agent" from matching
+	// because "agent" appears in everything.
 	words := strings.FieldsFunc(lower, func(r rune) bool {
 		return r == '-' || r == '_' || r == ' '
 	})
-	bestName := ""
-	bestScore := 0
 	for name := range h.cfg.Agents {
 		if name == "claude-code" {
 			continue
 		}
 		parts := strings.Split(name, "-")
-		score := 0
+		significantParts := 0
+		matchedParts := 0
 		for _, p := range parts {
-			if len(p) < 3 {
+			if len(p) < 3 || genericWords[p] {
 				continue
 			}
+			significantParts++
 			for _, w := range words {
 				if strings.Contains(w, p) || strings.Contains(p, w) {
-					score++
+					matchedParts++
 					break
 				}
 			}
 		}
-		if score > bestScore {
-			bestScore = score
-			bestName = name
+		// All significant parts must match
+		if significantParts > 0 && matchedParts == significantParts {
+			return name
 		}
-	}
-	if bestScore >= 2 {
-		return bestName
 	}
 
 	return lower
 }
 
-// extractSubagentName parses Agent tool_input to get a slug from the description field,
-// then tries to match it against a known agent from config.
+// extractSubagentName parses Agent tool_input to get the sub-agent name.
+// Prefers subagent_type field (set by Claude Code) over description slug.
 func (h *Handler) extractSubagentName(input json.RawMessage) string {
 	var payload struct {
-		Description string `json:"description"`
+		SubagentType string `json:"subagent_type"`
+		Description  string `json:"description"`
 	}
-	if json.Unmarshal(input, &payload) != nil || payload.Description == "" {
+	if json.Unmarshal(input, &payload) != nil {
 		return "subagent"
 	}
-	slug := slugify(payload.Description)
 
-	// Match against configured agents using bidirectional keyword overlap.
-	// "vuln" matches "vulnerability" and vice versa via prefix containment.
+	// Use subagent_type if available (e.g., "Explore", "Plan")
+	if payload.SubagentType != "" {
+		resolved := h.resolveAgent(payload.SubagentType)
+		if resolved != "" {
+			return resolved
+		}
+	}
+
+	if payload.Description == "" {
+		return "subagent"
+	}
+
+	// Try to match description against configured agents
 	descWords := strings.Fields(strings.ToLower(payload.Description))
-	bestName := ""
-	bestScore := 0
 	for name := range h.cfg.Agents {
 		if name == "claude-code" {
 			continue
 		}
 		parts := strings.Split(name, "-")
-		score := 0
+		significantParts := 0
+		matchedParts := 0
 		for _, p := range parts {
-			if len(p) < 3 {
+			if len(p) < 3 || genericWords[p] {
 				continue
 			}
+			significantParts++
 			for _, w := range descWords {
-				// Either the name part is in the word or the word is in the name part.
 				if strings.Contains(w, p) || strings.Contains(p, w) {
-					score++
+					matchedParts++
 					break
 				}
 			}
 		}
-		if score > bestScore {
-			bestScore = score
-			bestName = name
+		if significantParts > 0 && matchedParts == significantParts {
+			return name
 		}
 	}
-	if bestScore >= 2 {
-		return bestName
+
+	// Fallback: short slug from description (max 30 chars)
+	slug := slugify(payload.Description)
+	if len(slug) > 30 {
+		slug = slug[:30]
 	}
 	return slug
 }
