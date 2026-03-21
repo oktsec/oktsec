@@ -2450,7 +2450,7 @@ func (s *Server) handleSaveEgress(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse integrations (checkboxes)
-	r.ParseForm()
+	_ = r.ParseForm()
 	agent.Egress.Integrations = r.Form["integrations"]
 
 	// Parse allowed domains (space/comma separated)
