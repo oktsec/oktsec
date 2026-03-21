@@ -440,7 +440,7 @@ func (m Model) View() string {
 				prefix = ">"
 			}
 			agentDisplay := ev.Agent
-			if ev.AgentDepth > 0 {
+			if ev.AgentDepth > 0 && i > 0 && visible[i-1].Agent != ev.Agent {
 				agentDisplay = "  └ " + ev.Agent
 			}
 			line := fmt.Sprintf("%s%s %s %s %s %s",
