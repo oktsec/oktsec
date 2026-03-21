@@ -383,8 +383,8 @@ func (m Model) View() string {
 	}
 	cutoff := time.Now().Add(-5 * time.Minute)
 	agentCount := 0
-	for _, lastSeen := range m.agentLastSeen {
-		if lastSeen.After(cutoff) {
+	for name, lastSeen := range m.agentLastSeen {
+		if lastSeen.After(cutoff) && !strings.HasPrefix(name, "gateway/") {
 			agentCount++
 		}
 	}
