@@ -79,9 +79,12 @@ func (e *ToolEvent) normalize(r *http.Request) {
 		e.Event = "pre_tool_use" // default
 	}
 
-	// Agent from header (fallback for non-subagent tool calls)
-	if hdr := r.Header.Get("X-Oktsec-Agent"); hdr != "" {
-		e.Agent = hdr
+	// Agent identity: agent_type (sub-agent) takes precedence over header.
+	// Claude Code sends agent_type only when running inside a sub-agent.
+	if e.Agent == "" {
+		if hdr := r.Header.Get("X-Oktsec-Agent"); hdr != "" {
+			e.Agent = hdr
+		}
 	}
 	if e.Agent == "" {
 		e.Agent = "unknown"
@@ -265,10 +268,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	msgID := uuid.New().String()
 	toolArgs := truncateStr(string(ev.ToolInput), 2000)
 
-	// Resolve hierarchy: parent, root, depth.
-	originalAgent := ev.Agent
-	parentAgent, rootAgent, agentDepth := h.getSessionState(ev.SessionID, ev.Agent, ev.AgentType, ev.AgentID)
-
 	// Resolve the acting agent when running inside a subagent.
 	// Claude Code sends agent_type for tool calls within subagents.
 	if ev.AgentType != "" {
@@ -276,10 +275,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if resolved != "" {
 			ev.Agent = resolved
 		}
-		// Re-resolve hierarchy with the resolved name if different
-		if ev.Agent != originalAgent {
-			parentAgent, rootAgent, agentDepth = h.getSessionState(ev.SessionID, ev.Agent, ev.AgentType, ev.AgentID)
-		}
+	}
+
+	// Detect sub-agent: compare resolved agent name with the header value.
+	// The header (X-Oktsec-Agent) is always the root agent (e.g. "claude-code").
+	// If ev.Agent differs from header, this is a sub-agent.
+	headerAgent := r.Header.Get("X-Oktsec-Agent")
+	isSubAgent := headerAgent != "" && ev.Agent != headerAgent
+	agentType := ev.AgentType
+	if isSubAgent && agentType == "" {
+		agentType = ev.Agent // use resolved name as type indicator
+	}
+
+	// Resolve hierarchy: parent, root, depth.
+	parentAgent, rootAgent, agentDepth := h.getSessionState(ev.SessionID, ev.Agent, agentType, ev.AgentID)
+	if isSubAgent && parentAgent == "" {
+		parentAgent = headerAgent
+		rootAgent = headerAgent
+		agentDepth = 1
 	}
 
 	// For Agent tool calls, extract the subagent name from description
