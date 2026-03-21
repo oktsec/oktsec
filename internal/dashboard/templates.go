@@ -93,6 +93,13 @@ var tmplFuncs = template.FuncMap{
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
 	"hasRules":    func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"seq": func(n int) []int {
+		s := make([]int, n)
+		for i := range s {
+			s[i] = i
+		}
+		return s
+	},
 	"listContains": func(list []string, s string) bool {
 		for _, v := range list {
 			if v == s {

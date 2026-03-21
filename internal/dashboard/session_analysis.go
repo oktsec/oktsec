@@ -104,7 +104,29 @@ func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) 
 		rolesSummary.WriteString(name)
 		first = false
 	}
-	rolesSummary.WriteString("\n\nOnly recommend suspending names listed as Human users above. Never recommend suspending AI agents that correctly blocked attacks.\n\n")
+	rolesSummary.WriteString("\n\nOnly recommend suspending names listed as Human users above. Never recommend suspending AI agents that correctly blocked attacks.\n")
+
+	// Add hierarchy tree if available
+	if store, ok := s.audit.(*audit.Store); ok {
+		if hierarchy, err := store.QueryHierarchy(trace.SessionID); err == nil && len(hierarchy) > 0 {
+			rolesSummary.WriteString("\nAgent hierarchy for this session:\n")
+			for _, h := range hierarchy {
+				indent := strings.Repeat("  ", h.Depth)
+				role := "AGENT"
+				if h.Depth == 0 {
+					role = "ROOT"
+				}
+				blocked := ""
+				if h.BlockCount > 0 {
+					blocked = fmt.Sprintf(", %d blocked", h.BlockCount)
+				}
+				fmt.Fprintf(&rolesSummary, "%s- %s [%s, depth %d, %d tool calls%s]\n", indent, h.AgentName, role, h.Depth, h.ToolCount, blocked)
+			}
+			rolesSummary.WriteString("\n")
+		}
+	}
+
+	rolesSummary.WriteString("\n")
 
 	// Build timeline text with role tags
 	var sb strings.Builder

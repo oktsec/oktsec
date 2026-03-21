@@ -1703,6 +1703,7 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 
 	// Load saved AI analysis if it exists
 	var savedAnalysis, analysisModel, analysisDate string
+	var hierarchy []audit.HierarchyEntry
 	if store, ok := s.audit.(*audit.Store); ok {
 		if result := store.QuerySessionAnalysis(sessionID); result != nil {
 			savedAnalysis = result.Text
@@ -1713,6 +1714,7 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 				analysisDate = result.Timestamp
 			}
 		}
+		hierarchy, _ = store.QueryHierarchy(sessionID)
 	}
 
 	data := map[string]any{
@@ -1722,6 +1724,7 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 		"SavedAnalysis": savedAnalysis,
 		"AnalysisModel": analysisModel,
 		"AnalysisDate":  analysisDate,
+		"Hierarchy":     hierarchy,
 	}
 	s.renderTemplate(w, sessionTraceTmpl, data)
 }

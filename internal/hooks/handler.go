@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -118,14 +119,23 @@ type HookStore interface {
 	audit.AuditLogger
 	audit.ReasoningStore
 	audit.QuarantineManager
+	UpsertHierarchy(h audit.HierarchyEntry) error
+}
+
+// sessionState tracks agent hierarchy within a session.
+type sessionState struct {
+	rootAgent    string
+	agentDepths  map[string]int
+	agentParents map[string]string
 }
 
 // Handler processes tool-call events from any MCP client.
 type Handler struct {
-	scanner *engine.Scanner
-	store   HookStore
-	cfg     *config.Config
-	logger  *slog.Logger
+	scanner  *engine.Scanner
+	store    HookStore
+	cfg      *config.Config
+	logger   *slog.Logger
+	sessions sync.Map // session_id -> *sessionState
 }
 
 // NewHandler creates a hooks handler wired to the security pipeline.
@@ -136,6 +146,52 @@ func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, lo
 		cfg:     cfg,
 		logger:  logger,
 	}
+}
+
+// getSessionState returns or creates the session state for tracking agent hierarchy.
+func (h *Handler) getSessionState(sessionID, agentName, agentType, agentID string) (parentAgent, rootAgent string, depth int) {
+	if sessionID == "" {
+		return "", agentName, 0
+	}
+
+	val, _ := h.sessions.LoadOrStore(sessionID, &sessionState{
+		agentDepths:  make(map[string]int),
+		agentParents: make(map[string]string),
+	})
+	state := val.(*sessionState)
+
+	if agentType == "" {
+		// Root agent (no sub-agent context)
+		if state.rootAgent == "" {
+			state.rootAgent = agentName
+		}
+		state.agentDepths[agentName] = 0
+		return "", state.rootAgent, 0
+	}
+
+	// Sub-agent
+	if state.rootAgent == "" {
+		state.rootAgent = agentName // fallback
+	}
+
+	resolved := h.resolveAgent(agentType)
+	if resolved == "" {
+		resolved = agentType
+	}
+
+	if _, seen := state.agentDepths[resolved]; !seen {
+		// First time seeing this sub-agent in this session.
+		// Parent is the root agent (or last known non-sub-agent).
+		parent := state.rootAgent
+		parentDepth := 0
+		if d, ok := state.agentDepths[parent]; ok {
+			parentDepth = d
+		}
+		state.agentDepths[resolved] = parentDepth + 1
+		state.agentParents[resolved] = parent
+	}
+
+	return state.agentParents[resolved], state.rootAgent, state.agentDepths[resolved]
 }
 
 // maxBody limits hook payloads to 1 MB.
@@ -209,6 +265,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	msgID := uuid.New().String()
 	toolArgs := truncateStr(string(ev.ToolInput), 2000)
 
+	// Resolve hierarchy: parent, root, depth.
+	originalAgent := ev.Agent
+	parentAgent, rootAgent, agentDepth := h.getSessionState(ev.SessionID, ev.Agent, ev.AgentType, ev.AgentID)
+
 	// Resolve the acting agent when running inside a subagent.
 	// Claude Code sends agent_type for tool calls within subagents.
 	if ev.AgentType != "" {
@@ -216,10 +276,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if resolved != "" {
 			ev.Agent = resolved
 		}
+		// Re-resolve hierarchy with the resolved name if different
+		if ev.Agent != originalAgent {
+			parentAgent, rootAgent, agentDepth = h.getSessionState(ev.SessionID, ev.Agent, ev.AgentType, ev.AgentID)
+		}
 	}
 
 	// For Agent tool calls, extract the subagent name from description
-	// so the graph shows claude-code → subagent instead of claude-code → gateway/Agent.
+	// so the graph shows claude-code -> subagent instead of claude-code -> gateway/Agent.
 	toAgent := "gateway/" + ev.ToolName
 	if ev.ToolName == "Agent" {
 		toAgent = h.extractSubagentName(ev.ToolInput)
@@ -232,9 +296,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		delegationHash = fmt.Sprintf("%x", dh)
 	}
 
+	now := time.Now().UTC().Format(time.RFC3339)
+
 	h.store.Log(audit.Entry{
 		ID:                  msgID,
-		Timestamp:           time.Now().UTC().Format(time.RFC3339),
+		Timestamp:           now,
 		FromAgent:           ev.Agent,
 		ToAgent:             toAgent,
 		ToolName:            ev.ToolName,
@@ -246,7 +312,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Intent:              toolArgs,
 		SessionID:           ev.SessionID,
 		DelegationChainHash: delegationHash,
+		ParentAgent:         parentAgent,
+		AgentInstanceID:     ev.AgentID,
+		RootAgent:           rootAgent,
+		AgentDepth:          agentDepth,
 	})
+
+	// Update agent hierarchy table
+	if ev.SessionID != "" {
+		blockInc := 0
+		if status == audit.StatusBlocked || status == audit.StatusQuarantined {
+			blockInc = 1
+		}
+		_ = h.store.UpsertHierarchy(audit.HierarchyEntry{
+			ID:          ev.SessionID + ":" + ev.Agent,
+			SessionID:   ev.SessionID,
+			AgentName:   ev.Agent,
+			AgentID:     ev.AgentID,
+			ParentAgent: parentAgent,
+			RootAgent:   rootAgent,
+			Depth:       agentDepth,
+			SpawnedAt:   now,
+			LastSeen:    now,
+			ToolCount:   1,
+			BlockCount:  blockInc,
+		})
+	}
 
 	// Enqueue quarantined items for human review
 	if status == audit.StatusQuarantined {
