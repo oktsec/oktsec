@@ -150,7 +150,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
       {{range .Trace.Steps}}
       <div class="st-step{{if eq .Verdict "blocked"}} s-blocked{{end}}{{if eq .Verdict "quarantined"}} s-quarantined{{end}}{{if eq .ToolName "message"}} s-human{{end}}">
         <div class="st-step-header">
-          {{if eq .ToolName "message"}}<span class="st-role r-human">human</span>{{else}}<span class="st-role r-agent">agent</span>{{end}}
+          {{if eq .ToolName "message"}}<span class="st-role r-human">human</span>{{else if gt .AgentDepth 0}}<span class="st-role r-agent" style="color:var(--text3)">sub-agent</span>{{else}}<span class="st-role r-agent">agent</span>{{end}}
           <span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)">{{.FromAgent}}</span>
           <span class="st-tool">{{.ToolName}}</span>
           <span class="st-verdict{{if eq .Verdict "blocked"}} v-blocked{{else if eq .Verdict "quarantined"}} v-quarantined{{else}} v-clean{{end}}">{{.Verdict}}</span>

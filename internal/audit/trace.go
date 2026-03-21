@@ -23,18 +23,20 @@ type SessionTrace struct {
 
 // TraceStep is a single tool call in a session trace.
 type TraceStep struct {
-	ToolName   string `json:"tool_name"`
-	ToolInput  string `json:"tool_input"`
-	FromAgent  string `json:"from_agent"`
-	Reasoning  string `json:"reasoning,omitempty"`
-	Verdict    string `json:"verdict"`
-	Decision   string `json:"decision"`
-	Timestamp  string `json:"timestamp"`
-	GapMs      int64  `json:"gap_ms"`
-	LatencyMs  int64  `json:"latency_ms"`
-	EventID    string `json:"event_id"`
-	PlanStep   int    `json:"plan_step,omitempty"`
-	PlanTotal  int    `json:"plan_total,omitempty"`
+	ToolName    string `json:"tool_name"`
+	ToolInput   string `json:"tool_input"`
+	FromAgent   string `json:"from_agent"`
+	ParentAgent string `json:"parent_agent,omitempty"`
+	AgentDepth  int    `json:"agent_depth,omitempty"`
+	Reasoning   string `json:"reasoning,omitempty"`
+	Verdict     string `json:"verdict"`
+	Decision    string `json:"decision"`
+	Timestamp   string `json:"timestamp"`
+	GapMs       int64  `json:"gap_ms"`
+	LatencyMs   int64  `json:"latency_ms"`
+	EventID     string `json:"event_id"`
+	PlanStep    int    `json:"plan_step,omitempty"`
+	PlanTotal   int    `json:"plan_total,omitempty"`
 }
 
 // BuildSessionTrace constructs a timeline of tool calls for a session.
@@ -91,14 +93,16 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 			intent = intent[1 : len(intent)-1]
 		}
 		step := TraceStep{
-			ToolName:  e.ToolName,
-			ToolInput: truncateStr(intent, 200),
-			FromAgent: e.FromAgent,
-			Verdict:   e.Status,
-			Decision:  e.PolicyDecision,
-			Timestamp: e.Timestamp,
-			LatencyMs: e.LatencyMs,
-			EventID:   e.ID,
+			ToolName:    e.ToolName,
+			ToolInput:   truncateStr(intent, 200),
+			FromAgent:   e.FromAgent,
+			ParentAgent: e.ParentAgent,
+			AgentDepth:  e.AgentDepth,
+			Verdict:     e.Status,
+			Decision:    e.PolicyDecision,
+			Timestamp:   e.Timestamp,
+			LatencyMs:   e.LatencyMs,
+			EventID:     e.ID,
 		}
 
 		// Calculate gap from previous step
