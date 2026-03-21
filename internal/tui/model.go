@@ -52,6 +52,7 @@ type Model struct {
 	threatsFound  int
 	blockedCount  int
 	agentsSeen    map[string]bool
+	agentLastSeen map[string]time.Time
 	agentList     []string
 	sessionAgents map[string]string
 
@@ -91,6 +92,7 @@ func New(cfg Config) Model {
 	m := Model{
 		cfg:           cfg,
 		agentsSeen:    make(map[string]bool),
+		agentLastSeen: make(map[string]time.Time),
 		sessionAgents: make(map[string]string),
 		maxEvents:     500,
 		spinner:       s,
@@ -211,6 +213,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.totalScanned++
 			m.lastEventTime = time.Now()
 
+			now := time.Now()
 			if entry.ToAgent != "" && !strings.HasPrefix(entry.ToAgent, "gateway/") {
 				if entry.SessionID != "" {
 					m.sessionAgents[entry.SessionID] = entry.ToAgent
@@ -219,10 +222,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.agentsSeen[entry.ToAgent] = true
 					m.agentList = append(m.agentList, entry.ToAgent)
 				}
+				m.agentLastSeen[entry.ToAgent] = now
 			}
-			if entry.FromAgent != "" && !m.agentsSeen[entry.FromAgent] {
-				m.agentsSeen[entry.FromAgent] = true
-				m.agentList = append(m.agentList, entry.FromAgent)
+			if entry.FromAgent != "" {
+				if !m.agentsSeen[entry.FromAgent] {
+					m.agentsSeen[entry.FromAgent] = true
+					m.agentList = append(m.agentList, entry.FromAgent)
+				}
+				m.agentLastSeen[entry.FromAgent] = now
 			}
 
 			status := classifyStatus(entry)
@@ -356,7 +363,13 @@ func (m Model) View() string {
 	if currentMode == "enforce" {
 		mode = enforceStyle.Render("enforce")
 	}
-	agentCount := len(m.agentsSeen)
+	cutoff := time.Now().Add(-5 * time.Minute)
+	agentCount := 0
+	for _, lastSeen := range m.agentLastSeen {
+		if lastSeen.After(cutoff) {
+			agentCount++
+		}
+	}
 	if agentCount == 0 {
 		agentCount = m.cfg.AgentCount
 	}
