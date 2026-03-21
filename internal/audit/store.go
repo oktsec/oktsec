@@ -54,7 +54,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
 	entry_hash TEXT DEFAULT '',
 	proxy_signature TEXT DEFAULT '',
 	delegation_chain_hash TEXT DEFAULT '',
-	delegation_chain TEXT DEFAULT ''
+	delegation_chain TEXT DEFAULT '',
+	parent_agent TEXT DEFAULT '',
+	agent_instance_id TEXT DEFAULT '',
+	root_agent TEXT DEFAULT '',
+	agent_depth INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_log(status);
@@ -88,6 +92,23 @@ CREATE INDEX IF NOT EXISTS idx_quarantine_expires ON quarantine_queue(expires_at
 CREATE INDEX IF NOT EXISTS idx_audit_ts_agent_status ON audit_log(timestamp, from_agent, status);
 CREATE INDEX IF NOT EXISTS idx_audit_ts_from_to_status ON audit_log(timestamp, from_agent, to_agent, status);
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id) WHERE session_id <> '';
+
+CREATE TABLE IF NOT EXISTS agent_hierarchy (
+	id TEXT PRIMARY KEY,
+	session_id TEXT NOT NULL,
+	agent_name TEXT NOT NULL,
+	agent_id TEXT DEFAULT '',
+	parent_agent TEXT DEFAULT '',
+	root_agent TEXT DEFAULT '',
+	depth INTEGER DEFAULT 0,
+	spawned_at TEXT NOT NULL,
+	last_seen TEXT NOT NULL,
+	tool_count INTEGER DEFAULT 0,
+	block_count INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_hierarchy_session ON agent_hierarchy(session_id);
+CREATE INDEX IF NOT EXISTS idx_hierarchy_parent ON agent_hierarchy(parent_agent);
+CREATE INDEX IF NOT EXISTS idx_hierarchy_agent ON agent_hierarchy(agent_name);
 `
 
 // Hub broadcasts new audit entries to connected SSE clients.
@@ -313,6 +334,16 @@ func (s *Store) migrateSchema() {
 		s.logger.Warn("reasoning_log table creation skipped", "error", err)
 	}
 
+	// Add hierarchy columns to existing audit_log tables (idempotent).
+	for _, col := range []string{
+		"ALTER TABLE audit_log ADD COLUMN parent_agent TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN agent_instance_id TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN root_agent TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN agent_depth INTEGER DEFAULT 0",
+	} {
+		_, _ = s.db.Exec(col) // ignore "duplicate column" errors
+	}
+
 	// Backfill: old entries stored tool names in to_agent with empty tool_name.
 	// Move them to the proper column so tools don't appear as agents.
 	// Guard: skip if no rows need backfilling (avoids no-op work on every restart).
@@ -461,7 +492,7 @@ func (s *Store) Log(entry Entry) {
 
 // auditSelectCols is the shared SELECT column list for audit queries.
 // Update this constant (and the corresponding Scan calls) when adding columns.
-const auditSelectCols = "id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,'')"
+const auditSelectCols = "id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,''), COALESCE(parent_agent,''), COALESCE(agent_instance_id,''), COALESCE(root_agent,''), COALESCE(agent_depth,0)"
 
 // Query returns audit entries matching the given filters.
 func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
@@ -530,7 +561,7 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		var fp, rules sql.NullString
 		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 			&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-			&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain); err != nil {
+			&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain, &e.ParentAgent, &e.AgentInstanceID, &e.RootAgent, &e.AgentDepth); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		e.PubkeyFingerprint = fp.String
@@ -613,7 +644,7 @@ func (s *Store) QueryByID(id string) (*Entry, error) {
 	var fp, rules sql.NullString
 	if err := row.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 		&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-		&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain); err != nil {
+		&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain, &e.ParentAgent, &e.AgentInstanceID, &e.RootAgent, &e.AgentDepth); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -768,7 +799,7 @@ func (s *Store) writeLoop() {
 			continue
 		}
 
-		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, tool_name, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature, delegation_chain_hash, delegation_chain) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, tool_name, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature, delegation_chain_hash, delegation_chain, parent_agent, agent_instance_id, root_agent, agent_depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			s.logger.Error("audit batch prepare failed", "error", err)
 			_ = tx.Rollback()
@@ -783,6 +814,7 @@ func (s *Store) writeLoop() {
 				batch[i].SignatureVerified, batch[i].PubkeyFingerprint, batch[i].Status, batch[i].RulesTriggered,
 				batch[i].PolicyDecision, batch[i].LatencyMs, batch[i].Intent, batch[i].SessionID,
 				batch[i].PrevHash, batch[i].EntryHash, batch[i].ProxySignature, batch[i].DelegationChainHash, batch[i].DelegationChain,
+				batch[i].ParentAgent, batch[i].AgentInstanceID, batch[i].RootAgent, batch[i].AgentDepth,
 			)
 			if err != nil {
 				s.logger.Error("audit write failed", "id", batch[i].ID, "error", err)
@@ -1340,6 +1372,53 @@ func (s *Store) QuerySessions(since string, limit int) ([]SessionSummary, error)
 		result = append(result, ss)
 	}
 	return result, rows.Err()
+}
+
+// UpsertHierarchy inserts or updates an agent hierarchy entry for a session.
+func (s *Store) UpsertHierarchy(h HierarchyEntry) error {
+	_, err := s.db.Exec(`
+		INSERT INTO agent_hierarchy (id, session_id, agent_name, agent_id, parent_agent, root_agent, depth, spawned_at, last_seen, tool_count, block_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			last_seen = excluded.last_seen,
+			tool_count = agent_hierarchy.tool_count + 1,
+			block_count = CASE WHEN excluded.block_count > 0 THEN agent_hierarchy.block_count + 1 ELSE agent_hierarchy.block_count END`,
+		h.ID, h.SessionID, h.AgentName, h.AgentID, h.ParentAgent, h.RootAgent, h.Depth, h.SpawnedAt, h.LastSeen, h.ToolCount, h.BlockCount,
+	)
+	return err
+}
+
+// QueryHierarchy returns the agent tree for a session, ordered by depth.
+func (s *Store) QueryHierarchy(sessionID string) ([]HierarchyEntry, error) {
+	rows, err := s.db.Query(
+		`SELECT id, session_id, agent_name, COALESCE(agent_id,''), COALESCE(parent_agent,''), COALESCE(root_agent,''), depth, spawned_at, last_seen, tool_count, block_count
+		FROM agent_hierarchy WHERE session_id = ? ORDER BY depth, spawned_at`,
+		sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var result []HierarchyEntry
+	for rows.Next() {
+		var h HierarchyEntry
+		if err := rows.Scan(&h.ID, &h.SessionID, &h.AgentName, &h.AgentID, &h.ParentAgent, &h.RootAgent, &h.Depth, &h.SpawnedAt, &h.LastSeen, &h.ToolCount, &h.BlockCount); err != nil {
+			continue
+		}
+		result = append(result, h)
+	}
+	return result, rows.Err()
+}
+
+// QueryRootAgent returns the root agent (human/initiator) for a session.
+func (s *Store) QueryRootAgent(sessionID string) string {
+	var root string
+	_ = s.db.QueryRow(
+		`SELECT root_agent FROM agent_hierarchy WHERE session_id = ? AND depth = 0 LIMIT 1`,
+		sessionID,
+	).Scan(&root)
+	return root
 }
 
 // parseTS tries RFC3339Nano then RFC3339.

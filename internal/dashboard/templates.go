@@ -93,6 +93,13 @@ var tmplFuncs = template.FuncMap{
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
 	"hasRules":    func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"seq": func(n int) []int {
+		s := make([]int, n)
+		for i := range s {
+			s[i] = i
+		}
+		return s
+	},
 	"listContains": func(list []string, s string) bool {
 		for _, v := range list {
 			if v == s {
@@ -1522,6 +1529,30 @@ function adTab(name){
 
 <!-- Overview Tab -->
 <div id="ad-overview" class="ad-panel active">
+
+  <!-- Agent hierarchy -->
+  {{if or .ParentAgentName .SubAgents}}
+  <div class="card" style="padding:18px 20px;margin-bottom:var(--sp-5)">
+    {{if .ParentAgentName}}
+    <div style="font-size:var(--text-sm);color:var(--text2);margin-bottom:8px">
+      <span style="font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3)">Sub-agent of</span>
+      <a href="/dashboard/agents/{{.ParentAgentName}}" style="color:var(--accent);text-decoration:none;margin-left:8px;font-family:var(--mono)">{{.ParentAgentName}}</a>
+    </div>
+    {{end}}
+    {{if .SubAgents}}
+    <div style="font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:8px">Sub-agents spawned</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      {{range .SubAgents}}
+      <a href="/dashboard/agents/{{.AgentName}}" style="display:flex;align-items:center;gap:6px;padding:6px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;text-decoration:none;color:var(--text)">
+        <span style="font-family:var(--mono);font-size:var(--text-sm);font-weight:500">{{.AgentName}}</span>
+        <span style="font-size:var(--text-xs);color:var(--text3)">{{.ToolCount}} calls</span>
+        {{if gt .BlockCount 0}}<span style="font-size:var(--text-xs);color:var(--danger)">{{.BlockCount}} blocked</span>{{end}}
+      </a>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+  {{end}}
 
   <!-- Row 1: Sessions + Recent Messages -->
   <div class="ad-grid">

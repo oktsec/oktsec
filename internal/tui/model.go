@@ -26,19 +26,21 @@ type Config struct {
 
 // EventRow is a displayable event in the live feed.
 type EventRow struct {
-	Time      string
-	Agent     string
-	Tool      string
-	Status    string
-	Latency   string
-	Rule      string
-	RawRules  string
-	Decision  string
+	Time        string
+	Agent       string
+	Tool        string
+	Status      string
+	Latency     string
+	Rule        string
+	RawRules    string
+	Decision    string
 	EventID     string
 	SessionID   string
 	ToAgent     string
 	Content     string
 	ContentHash string
+	ParentAgent string
+	AgentDepth  int
 }
 
 // Model is the Bubbletea model for the oktsec TUI.
@@ -242,19 +244,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			row := EventRow{
-				Time:      parseTime(entry.Timestamp),
-				Agent:     agent,
-				Tool:      entry.ToolName,
-				Status:    status,
-				Latency:   fmt.Sprintf("%dms", entry.LatencyMs),
-				Rule:      formatRules(entry.RulesTriggered),
-				RawRules:  entry.RulesTriggered,
-				Decision:  entry.PolicyDecision,
-				EventID:   entry.ID,
-				SessionID: entry.SessionID,
-				ToAgent:   entry.ToAgent,
+				Time:        parseTime(entry.Timestamp),
+				Agent:       agent,
+				Tool:        entry.ToolName,
+				Status:      status,
+				Latency:     fmt.Sprintf("%dms", entry.LatencyMs),
+				Rule:        formatRules(entry.RulesTriggered),
+				RawRules:    entry.RulesTriggered,
+				Decision:    entry.PolicyDecision,
+				EventID:     entry.ID,
+				SessionID:   entry.SessionID,
+				ToAgent:     entry.ToAgent,
 				Content:     truncate(entry.Intent, 300),
 				ContentHash: entry.ContentHash,
+				ParentAgent: entry.ParentAgent,
+				AgentDepth:  entry.AgentDepth,
 			}
 			m.events = append(m.events, row)
 			if len(m.events) > m.maxEvents {
@@ -404,10 +408,14 @@ func (m Model) View() string {
 			if isCursor {
 				prefix = ">"
 			}
+			agentDisplay := ev.Agent
+			if ev.AgentDepth > 0 {
+				agentDisplay = "  └ " + ev.Agent
+			}
 			line := fmt.Sprintf("%s%s %s %s %s %s",
 				prefix,
 				dimStyle.Render(ev.Time),
-				agentStyle.Width(16).Render(truncate(ev.Agent, 16)),
+				agentStyle.Width(20).Render(truncate(agentDisplay, 20)),
 				renderStatus(ev.Status),
 				toolStyle.Width(10).Render(truncate(ev.Tool, 10)),
 				dimStyle.Render(ev.Latency),
@@ -483,31 +491,40 @@ func (m Model) renderDetail() string {
 		sessionID = dimStyle.Render(truncate(ev.SessionID, 36))
 	}
 
-	return "\n" + detailBox.Render(
-		lipgloss.JoinVertical(lipgloss.Left,
-			headerStyle.Render("EVENT DETAIL"),
-			"",
-			labelStyle.Render("Agent")+agentStyle.Render(ev.Agent),
-			labelStyle.Render("Target")+target,
-			labelStyle.Render("Tool")+toolStyle.Render(ev.Tool),
-			labelStyle.Render("Time")+mutedStyle.Render(ev.Time),
-			labelStyle.Render("Latency")+mutedStyle.Render(ev.Latency),
-			labelStyle.Render("Status")+renderStatus(ev.Status),
-			labelStyle.Render("Decision")+mutedStyle.Render(ev.Decision),
-			sep,
-			mutedStyle.Render("RULES"),
-			rulesContent,
-			sep,
-			mutedStyle.Render("CONTENT"),
-			contentPreview,
-			sep,
-			labelStyle.Render("Event ID")+eventID,
-			labelStyle.Render("Session")+sessionID,
-			labelStyle.Render("Hash")+dimStyle.Render(truncate(ev.ContentHash, 36)),
-			"",
-			dimStyle.Render("Esc or Enter to go back"),
-		),
-	) + "\n"
+	lines := []string{
+		headerStyle.Render("EVENT DETAIL"),
+		"",
+		labelStyle.Render("Agent") + agentStyle.Render(ev.Agent) + func() string {
+			if ev.AgentDepth > 0 {
+				return dimStyle.Render(fmt.Sprintf(" (sub-agent, depth %d)", ev.AgentDepth))
+			}
+			return ""
+		}(),
+	}
+	if ev.ParentAgent != "" {
+		lines = append(lines, labelStyle.Render("Parent")+agentStyle.Render(ev.ParentAgent))
+	}
+	lines = append(lines,
+		labelStyle.Render("Target")+target,
+		labelStyle.Render("Tool")+toolStyle.Render(ev.Tool),
+		labelStyle.Render("Time")+mutedStyle.Render(ev.Time),
+		labelStyle.Render("Latency")+mutedStyle.Render(ev.Latency),
+		labelStyle.Render("Status")+renderStatus(ev.Status),
+		labelStyle.Render("Decision")+mutedStyle.Render(ev.Decision),
+		sep,
+		mutedStyle.Render("RULES"),
+		rulesContent,
+		sep,
+		mutedStyle.Render("CONTENT"),
+		contentPreview,
+		sep,
+		labelStyle.Render("Event ID")+eventID,
+		labelStyle.Render("Session")+sessionID,
+		labelStyle.Render("Hash")+dimStyle.Render(truncate(ev.ContentHash, 36)),
+		"",
+		dimStyle.Render("Esc or Enter to go back"),
+	)
+	return "\n" + detailBox.Render(lipgloss.JoinVertical(lipgloss.Left, lines...)) + "\n"
 }
 
 // Helpers

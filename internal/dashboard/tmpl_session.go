@@ -67,6 +67,16 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
 
 .st-empty{padding:40px;text-align:center;color:var(--text3)}
 
+/* Agent tree */
+.st-tree{padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:20px}
+.st-tree-title{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:12px;font-weight:500}
+.st-tree-node{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:var(--text-sm)}
+.st-tree-node .icon{font-size:0.9rem}
+.st-tree-node .name{font-weight:500;color:var(--text);font-family:var(--mono);font-size:0.78rem}
+.st-tree-node .meta{font-size:var(--text-xs);color:var(--text3)}
+.st-tree-node .meta .blocks{color:var(--danger)}
+.st-tree-indent{display:inline-block;width:20px;border-left:1px solid var(--border);margin-left:9px}
+
 /* AI Analysis panel */
 .st-ai-panel{position:sticky;top:20px}
 .st-ai-meta{display:flex;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:0.68rem;color:var(--text3)}
@@ -118,6 +128,20 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
   </div>
 </div>
 
+{{if .Hierarchy}}
+<div class="st-tree">
+  <div class="st-tree-title">Agent Tree</div>
+  {{range .Hierarchy}}
+  <div class="st-tree-node">
+    {{range $i := (seq .Depth)}}<span class="st-tree-indent"></span>{{end}}
+    <span class="icon">{{if eq .Depth 0}}&#x1F464;{{else}}&#x1F916;{{end}}</span>
+    <span class="name">{{.AgentName}}</span>
+    <span class="meta">{{.ToolCount}} calls{{if gt .BlockCount 0}}, <span class="blocks">{{.BlockCount}} blocked</span>{{end}}</span>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
 <div class="st-layout{{if not .SavedAnalysis}} no-analysis{{end}}" id="st-layout">
   <!-- Left: Timeline -->
   <div>
@@ -126,7 +150,7 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
       {{range .Trace.Steps}}
       <div class="st-step{{if eq .Verdict "blocked"}} s-blocked{{end}}{{if eq .Verdict "quarantined"}} s-quarantined{{end}}{{if eq .ToolName "message"}} s-human{{end}}">
         <div class="st-step-header">
-          {{if eq .ToolName "message"}}<span class="st-role r-human">human</span>{{else}}<span class="st-role r-agent">agent</span>{{end}}
+          {{if eq .ToolName "message"}}<span class="st-role r-human">human</span>{{else if gt .AgentDepth 0}}<span class="st-role r-agent" style="color:var(--text3)">sub-agent</span>{{else}}<span class="st-role r-agent">agent</span>{{end}}
           <span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)">{{.FromAgent}}</span>
           <span class="st-tool">{{.ToolName}}</span>
           <span class="st-verdict{{if eq .Verdict "blocked"}} v-blocked{{else if eq .Verdict "quarantined"}} v-quarantined{{else}} v-clean{{end}}">{{.Verdict}}</span>

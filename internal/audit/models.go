@@ -23,6 +23,25 @@ type Entry struct {
 	ProxySignature      string `json:"proxy_signature,omitempty"`       // Ed25519 signature by proxy
 	DelegationChainHash string `json:"delegation_chain_hash,omitempty"` // SHA-256 of verified delegation chain
 	DelegationChain     string `json:"delegation_chain,omitempty"`      // human-readable chain: "human -> agent-a -> agent-b"
+	ParentAgent         string `json:"parent_agent,omitempty"`          // who spawned this agent (empty = root)
+	AgentInstanceID     string `json:"agent_instance_id,omitempty"`     // unique sub-agent instance ID from client
+	RootAgent           string `json:"root_agent,omitempty"`            // original initiator of the chain
+	AgentDepth          int    `json:"agent_depth,omitempty"`           // 0=root, 1=sub-agent, 2=sub-sub-agent
+}
+
+// HierarchyEntry tracks parent-child agent relationships within a session.
+type HierarchyEntry struct {
+	ID          string `json:"id"`
+	SessionID   string `json:"session_id"`
+	AgentName   string `json:"agent_name"`
+	AgentID     string `json:"agent_id,omitempty"`
+	ParentAgent string `json:"parent_agent"`
+	RootAgent   string `json:"root_agent"`
+	Depth       int    `json:"depth"`
+	SpawnedAt   string `json:"spawned_at"`
+	LastSeen    string `json:"last_seen"`
+	ToolCount   int    `json:"tool_count"`
+	BlockCount  int    `json:"block_count"`
 }
 
 // ReasoningEntry captures the model's chain-of-thought for a tool call.
