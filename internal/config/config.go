@@ -246,10 +246,15 @@ const (
 )
 
 // ContentTools are tools that handle file content (not execution).
-// Their arguments contain file content, search queries, etc.
+// Their arguments contain file content, search queries, prompts, etc.
+// Agent is included because its arguments are sub-agent prompts that
+// may contain code examples, URLs, or command patterns as documentation,
+// not as executable actions. The actual execution is scanned strictly
+// when the sub-agent calls Bash/Write/etc.
 var ContentTools = map[string]bool{
 	"Edit": true, "Write": true, "MultiEdit": true,
 	"Read": true, "Glob": true, "Grep": true, "NotebookEdit": true,
+	"Agent": true,
 }
 
 // DevWorkflowTools are tools used for developer workflow where arguments
