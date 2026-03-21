@@ -58,6 +58,19 @@ docker_manifests:
       - "ghcr.io/oktsec/oktsec:{{ .Version }}-amd64"
       - "ghcr.io/oktsec/oktsec:{{ .Version }}-arm64"
 
+brews:
+  - repository:
+      owner: oktsec
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: "https://oktsec.com"
+    description: "Runtime security for AI agents. Intercepts tool calls, scans with 217 rules, tamper-evident audit trail."
+    license: "Apache-2.0"
+    install: |
+      bin.install "oktsec"
+    test: |
+      system "#{bin}/oktsec", "version"
+
 checksum:
   name_template: checksums.txt
 
