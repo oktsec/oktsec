@@ -127,9 +127,11 @@ type HookStore interface {
 
 // sessionState tracks agent hierarchy within a session.
 type sessionState struct {
+	mu           sync.Mutex
 	rootAgent    string
 	agentDepths  map[string]int
 	agentParents map[string]string
+	lastAccess   time.Time
 }
 
 // Handler processes tool-call events from any MCP client.
@@ -143,12 +145,21 @@ type Handler struct {
 
 // NewHandler creates a hooks handler wired to the security pipeline.
 func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, logger *slog.Logger) *Handler {
-	return &Handler{
+	h := &Handler{
 		scanner: scanner,
 		store:   store,
 		cfg:     cfg,
 		logger:  logger,
 	}
+	// Periodic cleanup of old session states to prevent memory leaks.
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.cleanupSessions()
+		}
+	}()
+	return h
 }
 
 // getSessionState returns or creates the session state for tracking agent hierarchy.
@@ -160,8 +171,13 @@ func (h *Handler) getSessionState(sessionID, agentName, agentType, agentID strin
 	val, _ := h.sessions.LoadOrStore(sessionID, &sessionState{
 		agentDepths:  make(map[string]int),
 		agentParents: make(map[string]string),
+		lastAccess:   time.Now(),
 	})
 	state := val.(*sessionState)
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.lastAccess = time.Now()
 
 	if agentType == "" {
 		// Root agent (no sub-agent context)
@@ -183,8 +199,6 @@ func (h *Handler) getSessionState(sessionID, agentName, agentType, agentID strin
 	}
 
 	if _, seen := state.agentDepths[resolved]; !seen {
-		// First time seeing this sub-agent in this session.
-		// Parent is the root agent (or last known non-sub-agent).
 		parent := state.rootAgent
 		parentDepth := 0
 		if d, ok := state.agentDepths[parent]; ok {
@@ -195,6 +209,22 @@ func (h *Handler) getSessionState(sessionID, agentName, agentType, agentID strin
 	}
 
 	return state.agentParents[resolved], state.rootAgent, state.agentDepths[resolved]
+}
+
+// cleanupSessions removes session states older than 24 hours.
+// Called periodically to prevent memory leaks.
+func (h *Handler) cleanupSessions() {
+	cutoff := time.Now().Add(-24 * time.Hour)
+	h.sessions.Range(func(key, value any) bool {
+		state := value.(*sessionState)
+		state.mu.Lock()
+		old := state.lastAccess.Before(cutoff)
+		state.mu.Unlock()
+		if old {
+			h.sessions.Delete(key)
+		}
+		return true
+	})
 }
 
 // maxBody limits hook payloads to 1 MB.

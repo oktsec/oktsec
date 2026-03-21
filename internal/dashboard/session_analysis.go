@@ -195,6 +195,9 @@ func (s *Server) analyzeSession(ctx context.Context, trace *audit.SessionTrace) 
 	}
 }
 
+// analysisClient is a shared HTTP client with proper timeouts for LLM calls.
+var analysisClient = &http.Client{Timeout: 30 * time.Second}
+
 func (s *Server) callClaude(ctx context.Context, apiKey, model, prompt string) (string, error) {
 	if model == "" {
 		model = "claude-sonnet-4-6"
@@ -217,7 +220,7 @@ func (s *Server) callClaude(ctx context.Context, apiKey, model, prompt string) (
 	req.Header.Set("x-api-key", apiKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := analysisClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("claude request: %w", err)
 	}
@@ -263,7 +266,7 @@ func (s *Server) callOpenAI(ctx context.Context, apiKey, baseURL, model, prompt 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := analysisClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("openai request: %w", err)
 	}

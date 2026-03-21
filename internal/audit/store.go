@@ -1421,6 +1421,39 @@ func (s *Store) QueryRootAgent(sessionID string) string {
 	return root
 }
 
+// QuerySubAgents returns aggregated stats for sub-agents of a given parent.
+func (s *Store) QuerySubAgents(parentAgent string) ([]HierarchyEntry, error) {
+	rows, err := s.db.Query(
+		`SELECT agent_name, SUM(tool_count), SUM(block_count)
+		FROM agent_hierarchy WHERE parent_agent = ? GROUP BY agent_name ORDER BY SUM(tool_count) DESC`,
+		parentAgent,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var result []HierarchyEntry
+	for rows.Next() {
+		var h HierarchyEntry
+		if err := rows.Scan(&h.AgentName, &h.ToolCount, &h.BlockCount); err != nil {
+			continue
+		}
+		h.ParentAgent = parentAgent
+		result = append(result, h)
+	}
+	return result, rows.Err()
+}
+
+// QueryParentAgent returns the parent agent name, or empty if root.
+func (s *Store) QueryParentAgent(agentName string) string {
+	var parent string
+	_ = s.db.QueryRow(
+		`SELECT parent_agent FROM agent_hierarchy WHERE agent_name = ? AND parent_agent != '' LIMIT 1`,
+		agentName,
+	).Scan(&parent)
+	return parent
+}
+
 // parseTS tries RFC3339Nano then RFC3339.
 func parseTS(ts string) (time.Time, bool) {
 	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
