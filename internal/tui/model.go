@@ -491,42 +491,40 @@ func (m Model) renderDetail() string {
 		sessionID = dimStyle.Render(truncate(ev.SessionID, 36))
 	}
 
-	return "\n" + detailBox.Render(
-		lipgloss.JoinVertical(lipgloss.Left,
-			headerStyle.Render("EVENT DETAIL"),
-			"",
-			labelStyle.Render("Agent")+agentStyle.Render(ev.Agent)+func() string {
-				if ev.AgentDepth > 0 {
-					return dimStyle.Render(fmt.Sprintf(" (sub-agent, depth %d)", ev.AgentDepth))
-				}
-				return ""
-			}(),
-			func() string {
-				if ev.ParentAgent != "" {
-					return labelStyle.Render("Parent") + agentStyle.Render(ev.ParentAgent)
-				}
-				return ""
-			}(),
-			labelStyle.Render("Target")+target,
-			labelStyle.Render("Tool")+toolStyle.Render(ev.Tool),
-			labelStyle.Render("Time")+mutedStyle.Render(ev.Time),
-			labelStyle.Render("Latency")+mutedStyle.Render(ev.Latency),
-			labelStyle.Render("Status")+renderStatus(ev.Status),
-			labelStyle.Render("Decision")+mutedStyle.Render(ev.Decision),
-			sep,
-			mutedStyle.Render("RULES"),
-			rulesContent,
-			sep,
-			mutedStyle.Render("CONTENT"),
-			contentPreview,
-			sep,
-			labelStyle.Render("Event ID")+eventID,
-			labelStyle.Render("Session")+sessionID,
-			labelStyle.Render("Hash")+dimStyle.Render(truncate(ev.ContentHash, 36)),
-			"",
-			dimStyle.Render("Esc or Enter to go back"),
-		),
-	) + "\n"
+	lines := []string{
+		headerStyle.Render("EVENT DETAIL"),
+		"",
+		labelStyle.Render("Agent") + agentStyle.Render(ev.Agent) + func() string {
+			if ev.AgentDepth > 0 {
+				return dimStyle.Render(fmt.Sprintf(" (sub-agent, depth %d)", ev.AgentDepth))
+			}
+			return ""
+		}(),
+	}
+	if ev.ParentAgent != "" {
+		lines = append(lines, labelStyle.Render("Parent")+agentStyle.Render(ev.ParentAgent))
+	}
+	lines = append(lines,
+		labelStyle.Render("Target")+target,
+		labelStyle.Render("Tool")+toolStyle.Render(ev.Tool),
+		labelStyle.Render("Time")+mutedStyle.Render(ev.Time),
+		labelStyle.Render("Latency")+mutedStyle.Render(ev.Latency),
+		labelStyle.Render("Status")+renderStatus(ev.Status),
+		labelStyle.Render("Decision")+mutedStyle.Render(ev.Decision),
+		sep,
+		mutedStyle.Render("RULES"),
+		rulesContent,
+		sep,
+		mutedStyle.Render("CONTENT"),
+		contentPreview,
+		sep,
+		labelStyle.Render("Event ID")+eventID,
+		labelStyle.Render("Session")+sessionID,
+		labelStyle.Render("Hash")+dimStyle.Render(truncate(ev.ContentHash, 36)),
+		"",
+		dimStyle.Render("Esc or Enter to go back"),
+	)
+	return "\n" + detailBox.Render(lipgloss.JoinVertical(lipgloss.Left, lines...)) + "\n"
 }
 
 // Helpers

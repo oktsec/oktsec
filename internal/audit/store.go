@@ -492,7 +492,7 @@ func (s *Store) Log(entry Entry) {
 
 // auditSelectCols is the shared SELECT column list for audit queries.
 // Update this constant (and the corresponding Scan calls) when adding columns.
-const auditSelectCols = "id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,'')"
+const auditSelectCols = "id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,''), COALESCE(parent_agent,''), COALESCE(agent_instance_id,''), COALESCE(root_agent,''), COALESCE(agent_depth,0)"
 
 // Query returns audit entries matching the given filters.
 func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
@@ -561,7 +561,7 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		var fp, rules sql.NullString
 		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 			&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-			&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain); err != nil {
+			&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain, &e.ParentAgent, &e.AgentInstanceID, &e.RootAgent, &e.AgentDepth); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		e.PubkeyFingerprint = fp.String
@@ -644,7 +644,7 @@ func (s *Store) QueryByID(id string) (*Entry, error) {
 	var fp, rules sql.NullString
 	if err := row.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 		&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-		&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain); err != nil {
+		&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain, &e.ParentAgent, &e.AgentInstanceID, &e.RootAgent, &e.AgentDepth); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
