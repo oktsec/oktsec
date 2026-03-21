@@ -935,6 +935,8 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"CommPartners":   commPartners,
 		"Presets":        presetsList(),
 		"AgentSessions":  agentSessions(s.audit, name),
+		"SubAgents":      agentSubAgents(s.audit, name),
+		"ParentAgentName": agentParent(s.audit, name),
 	}
 
 	s.renderTemplate(w, agentDetailTmpl, data)
@@ -1812,6 +1814,47 @@ func agentSessions(store audit.AuditStore, agentName string) []audit.SessionSumm
 		}
 	}
 	return result
+}
+
+// agentSubAgents returns sub-agents spawned by this agent.
+func agentSubAgents(store audit.AuditStore, agentName string) []audit.HierarchyEntry {
+	s, ok := store.(*audit.Store)
+	if !ok {
+		return nil
+	}
+	rows, err := s.DB().Query(
+		`SELECT DISTINCT agent_name, SUM(tool_count) as tc, SUM(block_count) as bc
+		FROM agent_hierarchy WHERE parent_agent = ? GROUP BY agent_name ORDER BY tc DESC`,
+		agentName,
+	)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = rows.Close() }()
+	var result []audit.HierarchyEntry
+	for rows.Next() {
+		var h audit.HierarchyEntry
+		if err := rows.Scan(&h.AgentName, &h.ToolCount, &h.BlockCount); err != nil {
+			continue
+		}
+		h.ParentAgent = agentName
+		result = append(result, h)
+	}
+	return result
+}
+
+// agentParent returns the parent agent name if this is a sub-agent.
+func agentParent(store audit.AuditStore, agentName string) string {
+	s, ok := store.(*audit.Store)
+	if !ok {
+		return ""
+	}
+	var parent string
+	_ = s.DB().QueryRow(
+		`SELECT parent_agent FROM agent_hierarchy WHERE agent_name = ? AND parent_agent != '' LIMIT 1`,
+		agentName,
+	).Scan(&parent)
+	return parent
 }
 
 type presetInfo struct {
