@@ -14,6 +14,11 @@ import (
 )
 
 // Config holds initialization parameters for the TUI.
+// StatsQuerier provides DB-backed stats for accurate counters.
+type StatsQuerier interface {
+	QueryStats() (*audit.StatusCounts, error)
+}
+
 type Config struct {
 	Version    string
 	Mode       string           // "observe" or "enforce" (initial value)
@@ -21,6 +26,7 @@ type Config struct {
 	DashCode   string
 	AgentCount int
 	Hub        audit.EventHub
+	Stats      StatsQuerier     // DB-backed stats (optional, for accurate counters)
 	LiveCfg    *config.Config   // live config pointer — TUI reads current mode on each render
 }
 
@@ -59,6 +65,9 @@ type Model struct {
 	// Event feed
 	events    []EventRow
 	maxEvents int
+
+	// Tick counter for periodic DB refresh
+	tickCount int
 
 	// Interactive state
 	scrollPos   int
@@ -203,6 +212,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case tickMsg:
+		// Refresh stats from DB every 3 seconds for accurate counters
+		m.tickCount++
+		if m.tickCount%3 == 0 && m.cfg.Stats != nil {
+			if sc, err := m.cfg.Stats.QueryStats(); err == nil && sc != nil {
+				m.totalScanned = sc.Total
+				m.blockedCount = sc.Blocked + sc.Rejected
+				m.threatsFound = sc.Blocked + sc.Rejected + sc.Quarantined
+			}
+		}
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		})

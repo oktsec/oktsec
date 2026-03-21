@@ -562,6 +562,7 @@ func startServer(configPath string, opts runOpts) error {
 			DashCode:   srv.DashboardCode(),
 			AgentCount: len(cfg.Agents),
 			Hub:        auditStore,
+			Stats:      auditStore,
 			LiveCfg:    cfg,
 		})
 
