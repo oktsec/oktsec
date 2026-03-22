@@ -1,1 +1,39 @@
+name: Publish Python SDK
 
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Set version from tag
+        working-directory: sdk/python
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          sed -i "s/version = .*/version = \"$VERSION\"/" pyproject.toml
+
+      - name: Build
+        working-directory: sdk/python
+        run: python -m build
+
+      - name: Publish to PyPI
+        working-directory: sdk/python
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
