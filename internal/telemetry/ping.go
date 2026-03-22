@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	defaultPingURL = "https://oktsec.com/api/telemetry/ping"
+	defaultPingURL = "https://www.oktsec.com/api/telemetry/ping/"
 	pingTimeout    = 5 * time.Second
 	markerFile     = ".telemetry-sent"
 )
