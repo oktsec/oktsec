@@ -23,6 +23,7 @@ import (
 	"github.com/oktsec/oktsec/internal/hooks"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/proxy"
+	"github.com/oktsec/oktsec/internal/telemetry"
 	"github.com/oktsec/oktsec/internal/tui"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -55,7 +56,11 @@ If no config file exists, runs first-time setup automatically:
 If a config already exists, starts the server directly.
 
 Config is resolved in order: --config flag, $OKTSEC_CONFIG env var,
-./oktsec.yaml (local), ~/.oktsec/config.yaml (home).`,
+./oktsec.yaml (local), ~/.oktsec/config.yaml (home).
+
+Telemetry: oktsec sends a single anonymous ping per version to count
+installations. No user data is collected. Opt out with OKTSEC_NO_TELEMETRY=1
+or create ~/.oktsec/.no-telemetry. Details: https://oktsec.com/telemetry`,
 		Example: `  oktsec run
   oktsec run --port 9000
   oktsec run --enforce
@@ -517,6 +522,16 @@ func startServer(configPath string, opts runOpts) error {
 	go func() {
 		errCh <- srv.Start()
 	}()
+
+	// Anonymous install ping (once per installation, opt-out with OKTSEC_NO_TELEMETRY=1)
+	go telemetry.Ping(telemetry.Info{
+		Version: version,
+		Agents:  len(cfg.Agents),
+		Rules:   len(cfg.Rules),
+		Gateway: cfg.Gateway.Enabled,
+		LLM:     cfg.LLM.Enabled,
+		Enforce: cfg.Identity.RequireSignature,
+	}, filepath.Dir(configPath))
 
 	// Start embedded gateway if enabled (needed for hooks even without backends).
 	// Share the proxy's audit store so all events (proxy + gateway + hooks) feed
