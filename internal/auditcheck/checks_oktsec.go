@@ -275,7 +275,7 @@ func checkNoCustomRules(cfg *config.Config, _ string) []Finding {
 			Severity:    sev,
 			CheckID:     "ENG-001",
 			Title:       "Using default detection rules only",
-			Detail:      "oktsec ships with 188 built-in rules. Add custom rules specific to your environment for better coverage.",
+			Detail:      "oktsec ships with 230 built-in rules. Add custom rules specific to your environment for better coverage.",
 			Remediation: "custom_rules_dir: ./rules",
 			FixURL:      "/dashboard/rules",
 		}}

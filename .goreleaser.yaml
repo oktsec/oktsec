@@ -64,7 +64,7 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://oktsec.com"
-    description: "Runtime security for AI agents. Intercepts tool calls, scans with 217 rules, tamper-evident audit trail."
+    description: "Runtime security for AI agents. Intercepts tool calls, scans with 230 rules, tamper-evident audit trail."
     license: "Apache-2.0"
     install: |
       bin.install "oktsec"

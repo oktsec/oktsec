@@ -24,7 +24,7 @@
 
 ---
 
-See everything your AI agents execute. Monitors MCP tool calls and CLI operations in real-time - intercept, detect, block, audit. **217 detection rules** across 16 categories. Tamper-evident audit trail. Optional LLM threat intelligence. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline. Single binary. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+See everything your AI agents execute. Monitors MCP tool calls and CLI operations in real-time - intercept, detect, block, audit. **230 detection rules** across 16 categories. Tamper-evident audit trail. Optional LLM threat intelligence. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline. Single binary. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 
@@ -34,7 +34,7 @@ Oktsec sits between AI agents and enforces a 10-stage security pipeline:
 2. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing (ASI03).
 3. **Agent suspension** — Suspended agents are immediately rejected, no further processing (ASI10).
 4. **Policy** — YAML-based ACLs control which agent can message which. Default-deny mode rejects unknown senders (ASI03).
-5. **Content scanning** — 217 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, tool-call threats, supply chain risks, and more (ASI01, ASI02, ASI05).
+5. **Content scanning** — 230 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, tool-call threats, supply chain risks, and more (ASI01, ASI02, ASI05).
 6. **Intent validation** — Declared intent vs actual content alignment check. Detects agents that say one thing and do another (ASI01).
 7. **BlockedContent enforcement** — Per-agent category-based content blocking escalates verdicts when findings match blocked categories (ASI02).
 8. **Multi-message escalation** — Agents with repeated blocks get their verdicts escalated automatically (ASI01, ASI10).
@@ -211,12 +211,12 @@ Response:
 
 ## Hooks
 
-Oktsec intercepts tool calls from any MCP client that supports HTTP hooks — not just MCP traffic. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 217-rule security pipeline before execution.
+Oktsec intercepts tool calls from any MCP client that supports HTTP hooks — not just MCP traffic. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 230-rule security pipeline before execution.
 
 ```
 Claude Code (any tool call)
     │
-    ├── PreToolUse → POST /hooks/event → 217 rules → allow/block
+    ├── PreToolUse → POST /hooks/event → 230 rules → allow/block
     │
     ├── Tool executes (if allowed)
     │
@@ -254,7 +254,7 @@ Agent  ──►  Oktsec Gateway  ──►  Backend MCP Server(s)
              │
              ├─ Rate limit
              ├─ Agent ACL check
-             ├─ Content scan (217 rules)
+             ├─ Content scan (230 rules)
              ├─ Tool policies (spend limits, rate limits, approval)
              ├─ Rule overrides
              ├─ Verdict (allow/block/quarantine)
@@ -603,7 +603,7 @@ Available tools (6):
 
 | Tool | Description |
 |---|---|
-| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 217 threat patterns |
+| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 230 threat patterns |
 | `list_agents` | List all agents with their ACLs and content restrictions |
 | `audit_query` | Query the audit log with filters (status, agent, limit) |
 | `get_policy` | Get the security policy for a specific agent |
@@ -813,12 +813,13 @@ oktsec verify --config oktsec.yaml
 
 ## Detection rules
 
-Oktsec includes **217 detection rules** across 16 categories:
+Oktsec includes **230 detection rules** across 16 categories:
 
 | Source | Count | Categories |
 |--------|-------|------------|
 | [Aguara](https://github.com/garagon/aguara) | 178 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
 | Inter-agent protocol (IAP) | 15 | inter-agent |
+| IPI Arena (IPI) | 13 | inter-agent (from [arXiv:2603.15714](https://arxiv.org/abs/2603.15714)) |
 | Tool-call (TC) | 10 | tool-call |
 | OpenClaw (OCLAW) | 15 | openclaw-config |
 
@@ -862,7 +863,7 @@ Oktsec includes **217 detection rules** across 16 categories:
 15 rules in the `openclaw-config` category (OCLAW-001 through OCLAW-015), covering full tool profiles, exposed gateways, open DM policies, exec without sandbox, path traversal, missing authentication, hardcoded credentials, and more.
 
 ```bash
-oktsec rules                     # List all 217 rules
+oktsec rules                     # List all 230 rules
 oktsec rules --explain IAP-001   # Explain a specific rule
 oktsec rules --explain TC-001    # Explain a tool-call rule
 oktsec rules --explain OCLAW-001 # Explain an OpenClaw rule
