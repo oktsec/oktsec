@@ -4069,7 +4069,7 @@ tqApply();
   <div class="form-row" style="margin-bottom:0">
     <div class="form-group" style="flex:2">
       <label>Output directory</label>
-      <input type="text" name="rulegen_dir" value="{{.Cfg.RuleGen.OutputDir}}" placeholder="./llm-rules">
+      <input type="text" name="rulegen_dir" value="{{.Cfg.RuleGen.OutputDir}}" placeholder="./rules/generated">
     </div>
     <div class="form-group" style="flex:1">
       <label>Min confidence</label>

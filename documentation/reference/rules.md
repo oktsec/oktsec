@@ -1,18 +1,20 @@
 # Detection Rules
 
-Oktsec includes **175 detection rules** across 15 categories, compiled into the binary. No external files to deploy.
+Oktsec includes **230 detection rules** across 15 categories, compiled into the binary. No external files to deploy.
 
 ## Rule sources
 
 | Source | Count | Prefix | Description |
 |--------|-------|--------|-------------|
-| [Aguara](https://github.com/garagon/aguara) | 148 | `PI-`, `CL-`, `EX-`, `CE-`, etc. | Open-source detection engine for AI security threats |
-| Inter-agent protocol | 12 | `IAP-` | Oktsec-specific rules for agent-to-agent attacks |
+| [Aguara](https://github.com/garagon/aguara) | 178 | `PI-`, `CL-`, `EX-`, `CE-`, etc. | Open-source detection engine for AI security threats |
+| Inter-agent protocol | 15 | `IAP-` | Oktsec-specific rules for agent-to-agent attacks |
+| IPI Arena | 13 | `IPI-` | Rules from [IPI Arena](https://arxiv.org/abs/2603.15714) attack strategies (fake CoT, concealment, authority tags, user impersonation) |
+| Tool-call | 10 | `TC-` | Shell injection, parameter manipulation in tool arguments |
 | OpenClaw config | 15 | `OCLAW-` | Configuration security checks for OpenClaw installations |
 
 ## Aguara categories
 
-The 148 Aguara rules cover these categories:
+The 178 Aguara rules cover these categories:
 
 | Category | Description | Example threat |
 |----------|-------------|----------------|
@@ -202,7 +204,7 @@ Guidelines:
 ## CLI
 
 ```bash
-oktsec rules                     # List all 175 rules with severity
+oktsec rules                     # List all 230 rules with severity
 oktsec rules --explain IAP-001   # Show rule patterns, examples, and description
 ```
 

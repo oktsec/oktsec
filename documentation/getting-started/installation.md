@@ -9,7 +9,7 @@ curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bas
 Installs the latest binary to `~/.local/bin`. Customize with environment variables:
 
 ```bash
-VERSION=v0.8.1 curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
+VERSION=v0.12.0 curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
 INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
 ```
 

@@ -22,7 +22,7 @@ graph TB
         direction LR
         rl[Rate Limit] --> id[Identity<br>Ed25519]
         id --> acl[ACL]
-        acl --> scan[Content Scan<br>Aguara 175 rules]
+        acl --> scan[Content Scan<br>Aguara 230 rules]
         scan --> audit[(Audit Log<br>SQLite)]
     end
 ```
@@ -66,7 +66,7 @@ flowchart TD
     sus -->|yes| r403b[403 agent_suspended]
     sus -->|no| acl{ACL allows?}
     acl -->|no| r403c[403 acl_denied]
-    acl -->|yes| scan[Aguara Scan<br>175 rules]
+    acl -->|yes| scan[Aguara Scan<br>230 rules]
     scan --> bc[Blocked Content<br>per-agent categories]
     bc --> split[Split Injection<br>multi-message scan]
     split --> override[Rule Overrides<br>from config]
