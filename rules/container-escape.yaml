@@ -1,0 +1,275 @@
+id: CE-001
+name: "Docker socket probe"
+description: >
+  Detects attempts to access the Docker daemon socket from within a container.
+  Mounting or probing /var/run/docker.sock gives an attacker full control over
+  the host Docker engine, enabling container creation with host filesystem mounts.
+severity: high
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(docker\\.sock|--unix-socket.*docker)"
+examples:
+  true_positive:
+    - "curl --unix-socket /var/run/docker.sock http://localhost/containers/json"
+    - "ls -la /var/run/docker.sock"
+    - "mount /var/run/docker.sock /mnt/docker.sock"
+  false_positive:
+    - "Ensure Docker socket permissions are set to 660 in your hardening guide"
+    - "The docker daemon listens on tcp://0.0.0.0:2376 in production"
+---
+id: CE-002
+name: "Capability enumeration"
+description: >
+  Detects enumeration of Linux capabilities inside a container. Attackers
+  inspect capabilities to determine whether the container has elevated
+  privileges that could be leveraged for escape (e.g., CAP_SYS_ADMIN).
+severity: medium
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(capsh\\s+--print|/proc/self/status.*Cap|getpcaps\\s+\\d)"
+examples:
+  true_positive:
+    - "capsh --print | grep Current"
+    - "cat /proc/self/status | grep CapEff"
+    - "getpcaps 1"
+  false_positive:
+    - "Review the capabilities documentation at https://man7.org/linux/man-pages/man7/capabilities.7.html"
+    - "The security policy requires dropping all capabilities except NET_BIND_SERVICE"
+---
+id: CE-003
+name: "Host filesystem probe"
+description: >
+  Detects attempts to access the host filesystem from within a container via
+  /proc/1/root, /host/ mount paths, or nsenter targeting PID 1. These techniques
+  break out of the container filesystem namespace to read or write host files.
+severity: high
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(/proc/1/root|/host/|nsenter.*--target\\s+1)"
+examples:
+  true_positive:
+    - "ls /proc/1/root/etc/shadow"
+    - "cat /host/etc/passwd"
+    - "nsenter --target 1 --mount -- cat /etc/hostname"
+  false_positive:
+    - "The /proc filesystem provides process information in Linux"
+    - "Check container health via /proc/self/status"
+---
+id: CE-004
+name: "Cgroup escape preparation"
+description: >
+  Detects manipulation of cgroup release_agent or notify_on_release, which is
+  the core technique behind the CVE-2022-0492 container escape. Setting
+  release_agent allows arbitrary command execution on the host when a cgroup
+  becomes empty.
+severity: critical
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(release_agent|notify_on_release\\s*[=:])"
+examples:
+  true_positive:
+    - "echo 1 > /sys/fs/cgroup/memory/notify_on_release"
+    - "echo /cmd > /sys/fs/cgroup/memory/release_agent"
+    - "cat /sys/fs/cgroup/*/release_agent"
+  false_positive:
+    - "The cgroup v2 specification deprecates the release_agent mechanism"
+    - "Kubernetes uses cgroup limits for resource management"
+---
+id: CE-005
+name: "Kernel recon with exploit context"
+description: >
+  Detects kernel version reconnaissance (uname -r/-a) combined with exploit-related
+  keywords. While uname alone is benign, pairing it with terms like exploit, CVE,
+  or privilege escalation suggests an attacker fingerprinting the kernel for a
+  known vulnerability.
+severity: medium
+category: container-escape
+targets: []
+match_mode: all
+patterns:
+  - type: regex
+    value: "uname\\s+-[ra]"
+  - type: regex
+    value: "(?i)(exploit|cve-|vuln|escape|privilege)"
+examples:
+  true_positive:
+    - "Run uname -r to check the kernel version for CVE-2022-0847 exploit compatibility"
+    - "uname -a shows kernel 5.8 which is vulnerable to the DirtyPipe privilege escalation"
+  false_positive:
+    - "Run uname -r to verify the kernel version matches our deployment requirements"
+    - "The build script checks uname -a for platform detection"
+---
+id: CE-006
+name: "Namespace escape attempt"
+description: >
+  Detects attempts to escape Linux namespace isolation via nsenter targeting
+  the host init process, unshare with mount namespace manipulation, or direct
+  access to /proc/1/ns/ namespace file descriptors. These are classic container
+  breakout techniques.
+severity: high
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(nsenter\\s+--mount.*--target\\s+1|unshare.*--mount|/proc/1/ns/)"
+examples:
+  true_positive:
+    - "nsenter --mount --target 1 -- /bin/bash"
+    - "ls -la /proc/1/ns/mnt"
+    - "unshare --mount /bin/sh -c 'mount -t proc proc /proc'"
+  false_positive:
+    - "The unshare command is used for user namespace creation in rootless containers"
+    - "Document the Linux namespace architecture for the engineering wiki"
+---
+id: CE-007
+name: "Privileged container abuse"
+description: >
+  Detects actions that exploit a privileged container to access host block
+  devices or create device nodes. Mounting devtmpfs, creating block device
+  nodes with mknod, or running fdisk on host disks enables reading the host
+  filesystem directly.
+severity: critical
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(mount\\s+.*devtmpfs|mknod.*\\s+b\\s+|fdisk\\s+/dev/[shv]d)"
+examples:
+  true_positive:
+    - "mount -t devtmpfs devtmpfs /mnt"
+    - "mknod /dev/hostdisk b 8 0"
+    - "fdisk /dev/sda -l"
+  false_positive:
+    - "Check disk space with df -h /dev/sda1"
+    - "The storage driver uses block devices for persistent volumes"
+---
+id: CE-008
+name: "Runc exploit pattern"
+description: >
+  Detects the CVE-2019-5736 runc exploit pattern where /proc/self/exe is
+  overwritten or replaced. This exploit allows a malicious container to
+  overwrite the host runc binary and gain root-level code execution on the
+  host system.
+severity: critical
+category: container-escape
+targets: []
+match_mode: all
+patterns:
+  - type: regex
+    value: "/proc/self/exe"
+  - type: regex
+    value: "(?i)(overwrite|replace|copy|mv\\s)"
+examples:
+  true_positive:
+    - "Copy a malicious binary to overwrite /proc/self/exe on the host runc"
+    - "cp /tmp/payload /proc/self/exe to replace the runc binary"
+  false_positive:
+    - "The Go runtime reads /proc/self/exe to determine the executable path"
+    - "readlink /proc/self/exe returns the current binary location"
+---
+id: CE-009
+name: "Kernel module injection"
+description: >
+  Detects attempts to load malicious kernel modules from within a container.
+  Requires both a module loading command (insmod/modprobe) and a suspicious
+  file path or payload indicator. CAP_SYS_MODULE grants kernel-level execution.
+severity: high
+category: container-escape
+targets: []
+match_mode: all
+patterns:
+  - type: regex
+    value: "(?i)(insmod\\s+|modprobe\\s+)"
+  - type: regex
+    value: "(?i)(\\.ko\\b|/tmp/|/dev/shm/|rootkit|escape|exploit|payload|malicious)"
+examples:
+  true_positive:
+    - "insmod /tmp/rootkit.ko"
+    - "modprobe /dev/shm/escape.ko"
+    - "insmod ./exploit_module.ko parameters=1"
+  false_positive:
+    - "Run modprobe nf_tables to load the network filtering module"
+    - "Use modprobe to check if the vfio module is available"
+    - "The Dockerfile installs kernel headers but does not load modules"
+---
+id: CE-010
+name: "eBPF exploitation"
+description: >
+  Detects eBPF-related operations that may indicate exploitation attempts.
+  The bpf() syscall with BPF_PROG_LOAD or access to /sys/kernel/btf can be
+  used to load malicious eBPF programs that run in kernel context, enabling
+  container escapes and data exfiltration.
+severity: high
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(bpf\\(|BPF_PROG_LOAD|/sys/kernel/btf)"
+examples:
+  true_positive:
+    - "Use bpf() syscall with BPF_PROG_LOAD to inject tracing code into the kernel"
+    - "Read /sys/kernel/btf/vmlinux for kernel type information to build the exploit"
+    - "Load a BPF_PROG_LOAD program that hooks sys_execve"
+  false_positive:
+    - "Install bpftrace for production observability monitoring"
+    - "The eBPF-based networking stack provides efficient packet processing"
+---
+id: CE-011
+name: "Docker API abuse"
+description: >
+  Detects Docker commands that create or exec into containers with dangerous
+  flags like --privileged or --pid=host. These flags disable most container
+  isolation and effectively grant host-level access to the new container.
+severity: critical
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(docker\\s+run.*--privileged|docker\\s+.*--pid=host|docker\\s+exec.*--privileged)"
+examples:
+  true_positive:
+    - "docker run --privileged -v /:/host ubuntu chroot /host"
+    - "docker run --pid=host --privileged alpine nsenter -t 1 -m -u -n -i sh"
+    - "docker exec --privileged container_id mount /dev/sda1 /mnt"
+  false_positive:
+    - "docker run -d --name webapp -p 8080:80 nginx"
+    - "docker ps shows all running containers"
+---
+id: CE-012
+name: "Kernel memory exploit signatures"
+description: >
+  Detects patterns associated with kernel memory exploitation techniques such
+  as DirtyPipe (splice), /proc/self/mem writes, and madvise race conditions.
+  These are low-level primitives used in real-world container escape exploits
+  to corrupt kernel memory or overwrite read-only files.
+severity: critical
+category: container-escape
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)(splice\\s*\\(|/proc/self/mem|madvise.*MADV_DONTNEED)"
+examples:
+  true_positive:
+    - "The exploit uses splice() to write into the page cache of a read-only file"
+    - "Open /proc/self/mem and seek to the target address to overwrite it"
+    - "Call madvise with MADV_DONTNEED to trigger the race condition in DirtyCOW"
+  false_positive:
+    - "The splice syscall is used for efficient zero-copy data transfer between pipes"
+    - "Monitor memory usage via /proc/meminfo"

@@ -131,9 +131,9 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 </div>
 
 {{if .ChainCount}}
-<div class="a-alert" style="border-left-color:{{if .ChainValid}}var(--border){{else}}var(--danger){{end}};background:{{if .ChainValid}}transparent{{else}}rgba(248,81,73,0.04){{end}}">
-  {{if .ChainValid}}&#x2713;{{else}}&#x2717;{{end}}
-  <span>Audit chain: <strong style="color:{{if .ChainValid}}var(--text2){{else}}var(--danger){{end}}">{{if .ChainValid}}verified{{else}}broken{{end}}</strong> &middot; {{.ChainCount}} entries verified</span>
+<div class="a-alert" style="border-left-color:{{if .ChainValid}}{{if .SignatureVerified}}var(--border){{else}}rgba(210,153,34,0.5){{end}}{{else}}var(--danger){{end}};background:{{if .ChainValid}}{{if .SignatureVerified}}transparent{{else}}rgba(210,153,34,0.04){{end}}{{else}}rgba(248,81,73,0.04){{end}}">
+  {{if .ChainValid}}{{if .SignatureVerified}}&#x2713;{{else}}&#x2713;{{end}}{{else}}&#x2717;{{end}}
+  <span>{{if and .ChainValid .SignatureVerified}}Chain + Signatures: <strong style="color:var(--text2)">Verified</strong> &middot; {{.ChainCount}} entries verified{{if .SignatureFingerprint}} &middot; <span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)">{{slice .SignatureFingerprint 0 16}}...</span>{{end}}{{else if .ChainValid}}Chain: <strong style="color:var(--text2)">Valid</strong> | Signatures: <strong style="color:rgba(210,153,34,0.9)">Not verified</strong> <span style="color:var(--text3);font-size:var(--text-xs)">(no proxy key)</span> &middot; {{.ChainCount}} entries verified{{else}}Audit chain: <strong style="color:var(--danger)">broken</strong> &middot; {{.ChainCount}} entries verified{{end}}</span>
 </div>
 {{if and (not .ChainValid) .ChainReason}}
 <div class="card" style="border-color:rgba(248,81,73,0.2);margin-bottom:var(--sp-6)">

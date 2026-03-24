@@ -102,6 +102,9 @@ func newAuditCmd() *cobra.Command {
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "output as JSON")
 	cmd.Flags().BoolVar(&sarifOutput, "sarif", false, "output as SARIF v2.1.0")
+
+	cmd.AddCommand(newVerifyChainCmd())
+
 	return cmd
 }
 
