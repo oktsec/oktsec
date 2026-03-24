@@ -7,7 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/oktsec/oktsec/internal/config"
@@ -23,11 +25,12 @@ type MCPSession interface {
 
 // Backend wraps a single backend MCP server connection.
 type Backend struct {
-	Name    string
-	Config  config.MCPServerConfig
-	Tools   []*mcp.Tool
-	session MCPSession
-	logger  *slog.Logger
+	Name      string
+	Config    config.MCPServerConfig
+	Tools     []*mcp.Tool
+	session   MCPSession
+	proxyPort int // forward proxy port for egress sandbox (0 = not configured)
+	logger    *slog.Logger
 }
 
 // NewBackend creates a backend that will connect to the given MCP server.
@@ -37,6 +40,11 @@ func NewBackend(name string, cfg config.MCPServerConfig, logger *slog.Logger) *B
 		Config: cfg,
 		logger: logger,
 	}
+}
+
+// SetProxyPort sets the forward proxy port used for egress sandboxing.
+func (b *Backend) SetProxyPort(port int) {
+	b.proxyPort = port
 }
 
 // NewBackendWithSession creates a backend with a pre-connected session (for testing).
@@ -93,8 +101,33 @@ func (b *Backend) createSession(ctx context.Context) (MCPSession, error) {
 	case "stdio":
 		args := b.Config.Args
 		cmd := exec.CommandContext(ctx, b.Config.Command, args...)
+
+		// Egress sandbox: inject proxy env vars so all HTTP traffic from the
+		// child process routes through oktsec's forward proxy where egress
+		// policies (domain allow/block, content scanning) are enforced.
+		if b.Config.EgressSandbox {
+			port := b.proxyPort
+			if port == 0 {
+				port = 8083 // default forward proxy port
+			}
+			proxyAddr := fmt.Sprintf("http://127.0.0.1:%d", port)
+			// Start with host env so child has PATH, HOME, etc.
+			cmd.Env = os.Environ()
+			cmd.Env = setEnv(cmd.Env, "HTTP_PROXY", proxyAddr)
+			cmd.Env = setEnv(cmd.Env, "HTTPS_PROXY", proxyAddr)
+			cmd.Env = setEnv(cmd.Env, "http_proxy", proxyAddr)
+			cmd.Env = setEnv(cmd.Env, "https_proxy", proxyAddr)
+			cmd.Env = setEnv(cmd.Env, "NO_PROXY", "")
+			cmd.Env = setEnv(cmd.Env, "no_proxy", "")
+			b.logger.Info("egress sandbox active", "server", b.Name, "proxy", proxyAddr)
+		}
+
+		// Apply user's custom env vars (overrides sandbox vars if set)
 		for k, v := range b.Config.Env {
-			cmd.Env = append(cmd.Env, k+"="+v)
+			if cmd.Env == nil {
+				cmd.Env = os.Environ()
+			}
+			cmd.Env = setEnv(cmd.Env, k, v)
 		}
 		transport = &mcp.CommandTransport{Command: cmd}
 
@@ -110,4 +143,17 @@ func (b *Backend) createSession(ctx context.Context) (MCPSession, error) {
 		return nil, fmt.Errorf("connecting: %w", err)
 	}
 	return session, nil
+}
+
+// setEnv sets a key=value pair in an env slice, replacing an existing entry
+// for the same key or appending a new one.
+func setEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }

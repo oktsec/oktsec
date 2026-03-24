@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,7 @@ type StdioProxy struct {
 	enforce          bool
 	inspectResponses bool            // when true + enforce, block malicious server responses
 	allowedTools     map[string]bool // nil or empty = all tools allowed
+	Env              map[string]string // extra env vars injected into the child process
 	scanner          *engine.Scanner
 	audit            *audit.Store
 	logger           *slog.Logger
@@ -75,6 +77,14 @@ func (p *StdioProxy) SetAllowedTools(tools []string) {
 func (p *StdioProxy) Run(ctx context.Context, command string, args []string) error {
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Stderr = os.Stderr
+
+	// Inject extra env vars into the child process.
+	if len(p.Env) > 0 {
+		cmd.Env = os.Environ()
+		for k, v := range p.Env {
+			cmd.Env = stdioSetEnv(cmd.Env, k, v)
+		}
+	}
 
 	childIn, err := cmd.StdinPipe()
 	if err != nil {
@@ -379,4 +389,17 @@ func joinStrings(ss []string) string {
 		result += s
 	}
 	return result
+}
+
+// stdioSetEnv sets a key=value pair in an env slice, replacing an existing
+// entry for the same key or appending a new one.
+func stdioSetEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
