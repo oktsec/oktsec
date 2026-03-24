@@ -32,6 +32,12 @@ type Config struct {
 	Gateway        GatewayConfig                  `yaml:"gateway,omitempty"`
 	MCPServers     map[string]MCPServerConfig     `yaml:"mcp_servers,omitempty"`
 	LLM            LLMConfig                      `yaml:"llm,omitempty"`
+	Telemetry      TelemetryConfig                `yaml:"telemetry,omitempty"`
+}
+
+// TelemetryConfig controls the anonymous usage ping.
+type TelemetryConfig struct {
+	Disabled bool `yaml:"disabled,omitempty"` // set true to opt out of anonymous pings
 }
 
 // LLMConfig configures the async LLM analysis layer.

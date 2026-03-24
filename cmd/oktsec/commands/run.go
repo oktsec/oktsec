@@ -525,12 +525,13 @@ func startServer(configPath string, opts runOpts) error {
 
 	// Anonymous install ping (once per installation, opt-out with OKTSEC_NO_TELEMETRY=1)
 	go telemetry.Ping(telemetry.Info{
-		Version: version,
-		Agents:  len(cfg.Agents),
-		Rules:   len(cfg.Rules),
-		Gateway: cfg.Gateway.Enabled,
-		LLM:     cfg.LLM.Enabled,
-		Enforce: cfg.Identity.RequireSignature,
+		Version:        version,
+		Agents:         len(cfg.Agents),
+		Rules:          len(cfg.Rules),
+		Gateway:        cfg.Gateway.Enabled,
+		LLM:            cfg.LLM.Enabled,
+		Enforce:        cfg.Identity.RequireSignature,
+		ConfigDisabled: cfg.Telemetry.Disabled,
 	}, filepath.Dir(configPath))
 
 	// Start embedded gateway if enabled (needed for hooks even without backends).
