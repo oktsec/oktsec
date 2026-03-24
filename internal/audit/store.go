@@ -888,11 +888,11 @@ func (s *Store) QuarantineByID(id string) (*QuarantineItem, error) {
 
 // QuarantinePending returns pending quarantine items ordered by creation time.
 func (s *Store) QuarantinePending(limit int) ([]QuarantineItem, error) {
-	return s.QuarantineQuery(QStatusPending, "", limit)
+	return s.QuarantineQuery(QStatusPending, "", "", "", limit)
 }
 
 // QuarantineQuery returns quarantine items matching the given filters.
-func (s *Store) QuarantineQuery(status, agent string, limit int) ([]QuarantineItem, error) {
+func (s *Store) QuarantineQuery(status, agent, since, until string, limit int) ([]QuarantineItem, error) {
 	query := `SELECT id, audit_entry_id, content, from_agent, to_agent, status, COALESCE(reviewed_by,''), COALESCE(reviewed_at,''), expires_at, created_at, COALESCE(rules_triggered,''), COALESCE(signature,''), timestamp FROM quarantine_queue WHERE 1=1`
 	var args []any
 
@@ -903,6 +903,14 @@ func (s *Store) QuarantineQuery(status, agent string, limit int) ([]QuarantineIt
 	if agent != "" {
 		query += " AND (from_agent = ? OR to_agent = ?)"
 		args = append(args, agent, agent)
+	}
+	if since != "" {
+		query += " AND timestamp >= ?"
+		args = append(args, since)
+	}
+	if until != "" {
+		query += " AND timestamp <= ?"
+		args = append(args, until)
 	}
 
 	query += " ORDER BY created_at DESC"

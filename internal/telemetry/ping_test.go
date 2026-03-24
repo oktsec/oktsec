@@ -23,8 +23,8 @@ func TestPing_SendsOnce(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits++
 		lastQuery = r.URL.RawQuery
-		if r.Method != http.MethodHead {
-			t.Errorf("expected HEAD, got %s", r.Method)
+		if r.Method != http.MethodGet {
+			t.Errorf("expected GET, got %s", r.Method)
 		}
 	}))
 	defer srv.Close()
@@ -89,6 +89,21 @@ func TestPing_OptOut_Env(t *testing.T) {
 	pingWithURL(srv.URL, testInfo, t.TempDir())
 	if hits != 0 {
 		t.Errorf("expected 0 pings with opt-out, got %d", hits)
+	}
+}
+
+func TestPing_OptOut_Config(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+	}))
+	defer srv.Close()
+
+	disabled := testInfo
+	disabled.ConfigDisabled = true
+	pingWithURL(srv.URL, disabled, t.TempDir())
+	if hits != 0 {
+		t.Errorf("expected 0 pings with config disabled, got %d", hits)
 	}
 }
 

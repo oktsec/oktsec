@@ -1356,7 +1356,7 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
   <a href="/dashboard/agents/{{.Name}}" class="ag-card">
     <div class="ag-card-head">
       {{avatar .Name 28}}
-      <span class="ag-card-name">{{.Name}}</span>
+      <span class="ag-card-name">{{kebabToTitle .Name}}</span>
       {{if .Suspended}}<span class="badge-blocked" style="font-size:0.6rem;padding:2px 6px">SUSPENDED</span>{{end}}
       {{if .HasKey}}<span title="Key registered" style="color:var(--success);font-size:0.7rem;margin-left:auto">&#x1f512;</span>{{else}}<span title="No key" style="color:var(--text3);font-size:0.7rem;margin-left:auto">&#x1f513;</span>{{end}}
     </div>

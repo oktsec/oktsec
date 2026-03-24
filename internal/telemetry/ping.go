@@ -1,6 +1,6 @@
 // Package telemetry provides anonymous installation counting for oktsec.
 //
-// When oktsec starts for the first time, it sends a single anonymous HEAD
+// When oktsec starts for the first time, it sends a single anonymous GET
 // request to count active installations. The request includes only:
 //   - version (e.g. "0.11.2")
 //   - os/arch (e.g. "darwin", "arm64")
@@ -9,11 +9,13 @@
 // No user data, hostnames, IPs, secrets, agent names, or config details
 // are transmitted. All fields are counters or booleans.
 //
-// Opt out: set OKTSEC_NO_TELEMETRY=1 or create ~/.oktsec/.no-telemetry
+// Opt out: set telemetry.disabled: true in config, OKTSEC_NO_TELEMETRY=1,
+// or create ~/.oktsec/.no-telemetry
 package telemetry
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -24,19 +26,20 @@ import (
 )
 
 const (
-	defaultPingURL = "https://www.oktsec.com/api/telemetry/ping/"
+	defaultPingURL = "https://oktsec.com/api/telemetry/ping"
 	pingTimeout    = 5 * time.Second
 	markerFile     = ".telemetry-sent"
 )
 
 // Info holds anonymous, non-identifying deployment facts.
 type Info struct {
-	Version  string
-	Agents   int
-	Rules    int
-	Gateway  bool
-	LLM      bool
-	Enforce  bool
+	Version        string
+	Agents         int
+	Rules          int
+	Gateway        bool
+	LLM            bool
+	Enforce        bool
+	ConfigDisabled bool // mirrors config telemetry.disabled
 }
 
 // Ping sends a single anonymous ping if this installation has not pinged before.
@@ -47,7 +50,7 @@ func Ping(info Info, dataDir string) {
 }
 
 func pingWithURL(baseURL string, info Info, dataDir string) {
-	if isDisabled() {
+	if info.ConfigDisabled || isDisabled() {
 		return
 	}
 
@@ -70,10 +73,11 @@ func pingWithURL(baseURL string, info Info, dataDir string) {
 
 	u := fmt.Sprintf("%s?%s", baseURL, params.Encode())
 	client := &http.Client{Timeout: pingTimeout}
-	resp, err := client.Head(u)
+	resp, err := client.Get(u)
 	if err != nil {
 		return // silent fail
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 
 	// Mark as sent so we never ping again from this install

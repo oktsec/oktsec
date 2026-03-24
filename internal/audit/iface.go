@@ -63,7 +63,7 @@ type QuarantineManager interface {
 	Enqueue(item QuarantineItem) error
 	QuarantineByID(id string) (*QuarantineItem, error)
 	QuarantinePending(limit int) ([]QuarantineItem, error)
-	QuarantineQuery(status, agent string, limit int) ([]QuarantineItem, error)
+	QuarantineQuery(status, agent, since, until string, limit int) ([]QuarantineItem, error)
 	QuarantineApprove(id, reviewedBy string) error
 	QuarantineReject(id, reviewedBy string) error
 	QuarantineExpireOld() (int, error)

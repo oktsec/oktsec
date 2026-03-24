@@ -2724,7 +2724,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		if qStatusFilter == "" {
 			qStatusFilter = audit.QStatusPending
 		}
-		qItems, _ = s.audit.QuarantineQuery(qStatusFilter, filterAgent, 50)
+		qItems, _ = s.audit.QuarantineQuery(qStatusFilter, filterAgent, filterSince, filterUntil, 50)
 	case "blocked":
 		blockedEntries, _ = s.audit.Query(audit.QueryOpts{Statuses: []string{audit.StatusBlocked, audit.StatusRejected}, Agent: filterAgent, Since: filterSince, Until: filterUntil, Limit: 50})
 	default: // "all"

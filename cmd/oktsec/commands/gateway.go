@@ -9,10 +9,13 @@ import (
 	"syscall"
 	"time"
 
+	"path/filepath"
+
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/gateway"
 	"github.com/oktsec/oktsec/internal/hooks"
 	"github.com/oktsec/oktsec/internal/llm"
+	"github.com/oktsec/oktsec/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -126,6 +129,17 @@ func newGatewayCmd() *cobra.Command {
 			go func() {
 				errCh <- gw.Start(ctx)
 			}()
+
+			// Anonymous install ping (once per version, opt-out with OKTSEC_NO_TELEMETRY=1)
+			go telemetry.Ping(telemetry.Info{
+				Version:        version,
+				Agents:         len(cfg.Agents),
+				Rules:          len(cfg.Rules),
+				Gateway:        true,
+				LLM:            cfg.LLM.Enabled,
+				Enforce:        cfg.Identity.RequireSignature,
+				ConfigDisabled: cfg.Telemetry.Disabled,
+			}, filepath.Dir(cfgFile))
 
 			select {
 			case err := <-errCh:
