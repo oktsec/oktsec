@@ -126,6 +126,31 @@ func newGatewayForTest(cfg *config.Config, scanner *engine.Scanner, auditStore *
 // Start connects to all backends, discovers tools, and starts the HTTP server.
 // It blocks until the server is shut down.
 func (g *Gateway) Start(ctx context.Context) error {
+	// Dependency manifest rug-pull detection: hash manifests before
+	// connecting backends so operators see warnings before any code runs.
+	if g.cfg.Gateway.DepCheck {
+		store := newDepHashStore(defaultDepHashPath())
+		for name, srv := range g.cfg.MCPServers {
+			if srv.WorkingDir == "" {
+				continue
+			}
+			changes := store.Check(name, srv.WorkingDir)
+			for _, c := range changes {
+				if c.OldHash == "" {
+					g.logger.Info("dependency baseline recorded",
+						"server", c.ServerName, "file", c.File)
+				} else {
+					g.logger.Warn("dependency manifest changed",
+						"server", c.ServerName, "file", c.File,
+						"old", c.OldHash[:12], "new", c.NewHash[:12])
+				}
+			}
+		}
+		if err := store.Save(); err != nil {
+			g.logger.Warn("failed to save dependency hashes", "error", err)
+		}
+	}
+
 	// Connect backends
 	for name, cfg := range g.cfg.MCPServers {
 		b := NewBackend(name, cfg, g.logger)

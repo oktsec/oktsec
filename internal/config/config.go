@@ -319,16 +319,18 @@ type GatewayConfig struct {
 	Bind          string `yaml:"bind"`            // default 127.0.0.1
 	EndpointPath  string `yaml:"endpoint_path"`   // default /mcp
 	ScanResponses bool   `yaml:"scan_responses"`  // scan backend responses
+	DepCheck      bool   `yaml:"dep_check,omitempty"` // hash dependency manifests on startup
 }
 
 // MCPServerConfig defines a backend MCP server to proxy through the gateway.
 type MCPServerConfig struct {
-	Transport string            `yaml:"transport"`         // "stdio" or "http"
-	Command   string            `yaml:"command,omitempty"` // for stdio
-	Args      []string          `yaml:"args,omitempty"`
-	URL       string            `yaml:"url,omitempty"`     // for http
-	Headers   map[string]string `yaml:"headers,omitempty"`
-	Env       map[string]string `yaml:"env,omitempty"` // env vars for stdio
+	Transport  string            `yaml:"transport"`            // "stdio" or "http"
+	Command    string            `yaml:"command,omitempty"`    // for stdio
+	Args       []string          `yaml:"args,omitempty"`
+	URL        string            `yaml:"url,omitempty"`        // for http
+	Headers    map[string]string `yaml:"headers,omitempty"`
+	Env        map[string]string `yaml:"env,omitempty"`        // env vars for stdio
+	WorkingDir string            `yaml:"working_dir,omitempty"` // working directory for dep_check
 }
 
 // CategoryWebhook binds a rule category to default notification channels.

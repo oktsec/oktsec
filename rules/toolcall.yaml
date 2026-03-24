@@ -49,15 +49,40 @@ patterns:
     value: "(?i)/\\.netrc|/\\.pgpass|/\\.my\\.cnf"
   - type: regex
     value: "(?i)/\\.docker/config\\.json"
+  # Shell history
+  - type: regex
+    value: "(?i)/\\.(bash_history|zsh_history|sh_history|python_history|psql_history|mysql_history|node_repl_history)"
+  # Git credentials
+  - type: regex
+    value: "(?i)/\\.(gitconfig|git-credentials|git/credentials|git/config)"
+  # Package manager auth tokens
+  - type: regex
+    value: "(?i)/\\.(npmrc|pypirc|pip/pip\\.conf|yarnrc|cargo/credentials)"
+  # CI/CD credentials and configs
+  - type: regex
+    value: "(?i)/\\.(circleci|travis\\.yml|github/workflows|gitlab-ci|jenkins)"
+  # Crypto wallet files
+  - type: regex
+    value: "(?i)/\\.(bitcoin|ethereum|solana|metamask|electrum|exodus|coinbase)/|wallet\\.dat|keystore/UTC--"
+  # SSL/TLS private keys
+  - type: regex
+    value: "(?i)/(private[_-]?key\\.pem|server\\.key|ssl/private/|tls\\.key|\\.p12|\\.pfx)"
 examples:
   true_positive:
     - 'read_file {"path": "/Users/dev/.ssh/id_rsa"}'
     - 'read_file {"path": "/home/user/.aws/credentials"}'
     - 'read_file {"path": "/app/.env.production"}'
     - 'list_directory {"path": "/Users/dev/.ssh"}'
+    - 'read_file {"path": "/Users/dev/.bash_history"}'
+    - 'read_file {"path": "/home/user/.git-credentials"}'
+    - 'read_file {"path": "/home/user/.npmrc"}'
+    - 'read_file {"path": "/app/.circleci/config.yml"}'
+    - 'read_file {"path": "/home/user/.bitcoin/wallet.dat"}'
+    - 'read_file {"path": "/etc/ssl/private/server.key"}'
   false_positive:
     - 'read_file {"path": "/Users/dev/project/config.yaml"}'
     - 'read_file {"path": "/app/src/env.ts"}'
+    - 'read_file {"path": "/Users/dev/project/.github/README.md"}'
 ---
 id: TC-003
 name: "Write to system directory"
@@ -278,3 +303,38 @@ examples:
     - 'write_file {"path": "/tmp/payload", "content": "TVqQAAMAAAAEAAAA..."}'
   false_positive:
     - 'write_file {"path": "/app/data.json", "content": "{\"name\": \"test\"}"}'
+---
+id: TC-011
+name: "Persistence mechanism installation"
+description: >
+  Detects attempts to install persistence mechanisms through MCP tools.
+  Covers systemd user services, cron entries, shell profile modifications,
+  and known malware persistence paths. Based on litellm supply chain
+  attack persistence patterns.
+severity: critical
+category: tool-call
+targets: []
+match_mode: any
+patterns:
+  - type: regex
+    value: "(?i)/\\.config/systemd/user/.*\\.service"
+  - type: regex
+    value: "(?i)/\\.config/sysmon/"
+  - type: regex
+    value: "(?i)crontab\\s+(-e|-l|-).*(@reboot|\\*/)"
+  - type: regex
+    value: "(?i)write_file.*/(bashrc|zshrc|profile|bash_profile).*\\b(curl|wget|python|bash\\s+-c)\\b"
+  - type: regex
+    value: "(?i)write_file.*/etc/cron\\.d/"
+  - type: regex
+    value: "(?i)systemctl\\s+(--user\\s+)?enable"
+examples:
+  true_positive:
+    - 'write_file {"path": "/home/user/.config/systemd/user/sysmon.service", "content": "[Service]\nExecStart=/usr/bin/python3 ~/.config/sysmon/sysmon.py"}'
+    - 'write_file {"path": "/home/user/.config/sysmon/sysmon.py", "content": "import requests..."}'
+    - 'bash {"command": "crontab -l | echo @reboot python3 /tmp/backdoor.py | crontab -"}'
+    - 'bash {"command": "systemctl --user enable malicious.service"}'
+  false_positive:
+    - 'read_file {"path": "/home/user/.config/systemd/user/default.target"}'
+    - 'bash {"command": "systemctl status nginx"}'
+    - 'write_file {"path": "/home/user/.bashrc", "content": "export PATH=$PATH:/usr/local/go/bin"}'
