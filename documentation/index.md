@@ -42,7 +42,7 @@ Oktsec sits between agents and catches these threats **deterministically** — n
 
 ## How it works
 
-Every message passes through **9 security checks**, cheapest to most expensive. If any check fails, the message is rejected immediately.
+Every message passes through **10 security checks**, cheapest to most expensive. If any check fails, the message is rejected immediately.
 
 ```mermaid
 flowchart LR

@@ -63,7 +63,7 @@ resp, err := c.SendMessageWithMetadata(ctx, "recipient", "hello", map[string]str
 ```go
 health, err := c.Health(ctx)
 fmt.Println(health.Status)   // "ok"
-fmt.Println(health.Version)  // "0.8.1"
+fmt.Println(health.Version)  // "0.12.0"
 ```
 
 ## Response types

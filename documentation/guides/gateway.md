@@ -7,7 +7,7 @@ Agent  -->  Oktsec Gateway  -->  Backend MCP Server(s)
              |
              +-- Rate limit
              +-- Agent ACL check
-             +-- Content scan (175 rules)
+             +-- Content scan (230 rules)
              +-- Rule overrides
              +-- Verdict (allow/block/quarantine)
              +-- Audit log

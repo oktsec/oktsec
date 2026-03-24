@@ -107,7 +107,7 @@ Every field, its type, default, and behavior.
 
 | Type | Default | Description |
 |------|---------|-------------|
-| string | `""` | Directory for org-specific YAML detection rules. Loaded alongside the 175 built-in rules |
+| string | `""` | Directory for org-specific YAML detection rules. Loaded alongside the 230 built-in rules |
 
 ---
 
