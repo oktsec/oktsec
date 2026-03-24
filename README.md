@@ -24,7 +24,7 @@
 
 ---
 
-See everything your AI agents execute. Monitors MCP tool calls and CLI operations in real-time - intercept, detect, block, audit. **230 detection rules** across 16 categories. Tamper-evident audit trail. Optional LLM threat intelligence. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline. Single binary. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+See everything your AI agents execute. Monitors MCP tool calls and CLI operations in real-time - intercept, detect, block, audit. **255 detection rules** across 17 categories. Delegation chains with Ed25519-signed authorization tokens. Egress sandboxing for MCP server processes. Dependency auditing against OSV.dev. Tamper-evident audit trail with offline CLI verification. Optional LLM threat intelligence. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline. Single binary. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
 
 ## What it does
 
@@ -34,7 +34,7 @@ Oktsec sits between AI agents and enforces a 10-stage security pipeline:
 2. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing (ASI03).
 3. **Agent suspension** — Suspended agents are immediately rejected, no further processing (ASI10).
 4. **Policy** — YAML-based ACLs control which agent can message which. Default-deny mode rejects unknown senders (ASI03).
-5. **Content scanning** — 230 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, tool-call threats, supply chain risks, and more (ASI01, ASI02, ASI05).
+5. **Content scanning** — 255 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, tool-call threats, supply chain risks, and more (ASI01, ASI02, ASI05).
 6. **Intent validation** — Declared intent vs actual content alignment check. Detects agents that say one thing and do another (ASI01).
 7. **BlockedContent enforcement** — Per-agent category-based content blocking escalates verdicts when findings match blocked categories (ASI02).
 8. **Multi-message escalation** — Agents with repeated blocks get their verdicts escalated automatically (ASI01, ASI10).
@@ -211,12 +211,12 @@ Response:
 
 ## Hooks
 
-Oktsec intercepts tool calls from any MCP client that supports HTTP hooks — not just MCP traffic. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 230-rule security pipeline before execution.
+Oktsec intercepts tool calls from any MCP client that supports HTTP hooks — not just MCP traffic. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 255-rule security pipeline before execution.
 
 ```
 Claude Code (any tool call)
     │
-    ├── PreToolUse → POST /hooks/event → 230 rules → allow/block
+    ├── PreToolUse → POST /hooks/event → 255 rules → allow/block
     │
     ├── Tool executes (if allowed)
     │
@@ -254,7 +254,7 @@ Agent  ──►  Oktsec Gateway  ──►  Backend MCP Server(s)
              │
              ├─ Rate limit
              ├─ Agent ACL check
-             ├─ Content scan (230 rules)
+             ├─ Content scan (255 rules)
              ├─ Tool policies (spend limits, rate limits, approval)
              ├─ Rule overrides
              ├─ Verdict (allow/block/quarantine)
@@ -603,7 +603,7 @@ Available tools (6):
 
 | Tool | Description |
 |---|---|
-| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 230 threat patterns |
+| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 255 threat patterns |
 | `list_agents` | List all agents with their ACLs and content restrictions |
 | `audit_query` | Query the audit log with filters (status, agent, limit) |
 | `get_policy` | Get the security policy for a specific agent |
@@ -813,14 +813,15 @@ oktsec verify --config oktsec.yaml
 
 ## Detection rules
 
-Oktsec includes **230 detection rules** across 16 categories:
+Oktsec includes **255 detection rules** across 17 categories:
 
 | Source | Count | Categories |
 |--------|-------|------------|
-| [Aguara](https://github.com/garagon/aguara) | 178 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
-| Inter-agent protocol (IAP) | 15 | inter-agent |
+| [Aguara](https://github.com/garagon/aguara) built-in | 187 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, supply-chain-exfil, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
+| Inter-agent protocol (IAP) | 17 | inter-agent (includes IAP-016/017 for CVE exploit transfer) |
 | IPI Arena (IPI) | 13 | inter-agent (from [arXiv:2603.15714](https://arxiv.org/abs/2603.15714)) |
-| Tool-call (TC) | 10 | tool-call |
+| Container escape (CE) | 12 | container-escape (from [SandboxEscapeBench](https://arxiv.org/abs/2603.02277)) |
+| Tool-call (TC) | 11 | tool-call (includes TC-011 persistence detection) |
 | OpenClaw (OCLAW) | 15 | openclaw-config |
 
 ### Inter-agent protocol rules
@@ -842,6 +843,27 @@ Oktsec includes **230 detection rules** across 16 categories:
 | `IAP-013` | High | Authority impersonation with urgent action |
 | `IAP-014` | Critical | Sensitive data transfer to external endpoint |
 | `IAP-015` | High | Elevated privilege request for production |
+| `IAP-016` | High | CVE exploit knowledge transfer between agents |
+| `IAP-017` | High | Container escape instruction transfer |
+
+### Container escape rules
+
+12 rules derived from the [SandboxEscapeBench](https://arxiv.org/abs/2603.02277) paper (UK AI Security Institute). Detect reconnaissance and exploitation patterns frontier models use to escape Docker containers.
+
+| Rule | Severity | Description |
+|------|----------|-------------|
+| `CE-001` | High | Docker socket probe |
+| `CE-002` | Medium | Capability enumeration |
+| `CE-003` | High | Host filesystem probe |
+| `CE-004` | Critical | Cgroup escape preparation |
+| `CE-005` | Medium | Kernel recon with exploit context |
+| `CE-006` | High | Namespace escape attempt |
+| `CE-007` | Critical | Privileged container abuse |
+| `CE-008` | Critical | Runc exploit pattern (CVE-2019-5736) |
+| `CE-009` | High | Kernel module injection |
+| `CE-010` | High | eBPF exploitation |
+| `CE-011` | Critical | Docker API abuse |
+| `CE-012` | Critical | Kernel memory exploit signatures (Dirty Pipe/COW) |
 
 ### Tool-call rules
 
@@ -857,13 +879,15 @@ Oktsec includes **230 detection rules** across 16 categories:
 | `TC-008` | High | Suspicious URL pattern in fetch |
 | `TC-009` | High | Scope escape via absolute path |
 | `TC-010` | Medium | Excessive file content in write |
+| `TC-011` | Critical | Persistence mechanism installation (systemd, crontab, sysmon) |
 
 ### OpenClaw rules
 
 15 rules in the `openclaw-config` category (OCLAW-001 through OCLAW-015), covering full tool profiles, exposed gateways, open DM policies, exec without sandbox, path traversal, missing authentication, hardcoded credentials, and more.
 
 ```bash
-oktsec rules                     # List all 230 rules
+oktsec rules                     # List all 255 rules
+oktsec rules --explain CE-004    # Explain a container escape rule
 oktsec rules --explain IAP-001   # Explain a specific rule
 oktsec rules --explain TC-001    # Explain a tool-call rule
 oktsec rules --explain OCLAW-001 # Explain an OpenClaw rule
@@ -1057,14 +1081,14 @@ Oktsec is aligned with the [OWASP Top 10 for Agentic Applications](https://genai
 | ASI01 | Excessive Agency / Goal Hijack | **Strong** | Multi-message verdict escalation, content scanning, intent validation, LLM threat analysis |
 | ASI02 | Tool Misuse | **Strong** | Stdio enforcement, BlockedContent per-agent, rate limiting, tool-call rules, tool policies |
 | ASI03 | Privilege Escalation | **Strong** | Ed25519 identity, default-deny policy, ACLs, per-agent tool allowlists |
-| ASI04 | Supply Chain | Partial | Architecture limit (proxy, not package scanner) |
+| ASI04 | Supply Chain | **Strong** | Dependency auditing (OSV.dev), egress sandboxing, rug-pull detection, Aguara SC-EX rules, TC-002 credential coverage |
 | ASI05 | Unsafe Code Execution | **Strong** | Stdio enforcement blocks tool calls, tool-call rules (TC-001–TC-010), hooks interception |
 | ASI07 | Inter-Agent Communication | **Strong** | Signed messages, ACLs, content scanning, hash-chained audit trail, graph analysis |
 | ASI10 | Rogue Agents | **Strong** | Agent suspension, rate limiting, anomaly detection, auto-suspend, LLM triage |
 
 ## Built on
 
-- **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills (178 detection rules, context-aware scanning, Aho-Corasick pattern matching, tool exemptions, scan profiles)
+- **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills and supply chain threats (187 detection rules, context-aware scanning, supply chain exfiltration detection, incident response commands)
 - **[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)** — Official Tier 1 Go SDK for Model Context Protocol (v1, Linux Foundation governance, semver stability)
 - **Go stdlib** — `crypto/ed25519`, `net/http`, `log/slog`, `crypto/sha256`
 - **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** — Pure Go SQLite (no CGO)
