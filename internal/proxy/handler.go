@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -53,6 +55,7 @@ type Handler struct {
 	webhooks    *WebhookNotifier
 	rateLimiter *RateLimiter
 	window      *MessageWindow
+	sessions            *sessionStore
 	llmQueue            *llm.Queue              // nil if LLM disabled
 	signalDetector      *llm.SignalDetector     // nil if triage disabled
 	escalationTracker   *llm.EscalationTracker  // nil if LLM escalation disabled
@@ -70,14 +73,16 @@ func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluat
 		webhooks:    webhooks,
 		rateLimiter: NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
 		window:      NewMessageWindow(10, time.Hour),
+		sessions:    newSessionStore(sessionDefaultTTL),
 		logger:      logger,
 	}
 }
 
-// Close stops background goroutines (rate limiter eviction, message window eviction).
+// Close stops background goroutines (rate limiter eviction, message window eviction, session eviction).
 func (h *Handler) Close() {
 	h.rateLimiter.Stop()
 	h.window.Stop()
+	h.sessions.Stop()
 }
 
 // SetLLMQueue attaches the async LLM analysis queue to the handler.
@@ -130,6 +135,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Intent:      req.Intent,
 	}
 
+	// Session tracking (metadata enrichment only — never rejects)
+	if sid := r.Header.Get("X-Oktsec-Session"); sid != "" {
+		entry.SessionID = sid
+	} else {
+		entry.SessionID = h.sessions.Resolve(req.From)
+	}
+
 	// Step 1: Identity verification
 	sigStatus, verified, fingerprint := h.verifyIdentity(req)
 	entry.SignatureVerified = sigStatus
@@ -150,6 +162,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if sigStatus == 0 {
 		h.logger.Warn("unverified sender identity", "from", req.From, "to", req.To, "message_id", msgID)
+	}
+
+	// Step 1b: Delegation chain verification
+	if code, resp := h.checkDelegation(r, req.To, msgID, verified, &entry); resp != nil {
+		h.rejectAndLog(w, code, *resp, &entry, start)
+		return
 	}
 
 	// Step 2: Agent suspension check
@@ -596,6 +614,127 @@ func (h *Handler) verifyIdentity(req *MessageRequest) (sigStatus int, verified b
 	}
 
 	return 1, true, result.Fingerprint
+}
+
+// checkDelegation verifies the delegation chain from the X-Oktsec-Delegation
+// header and populates the audit entry. Returns an HTTP response if the
+// request should be rejected (invalid chain or missing when required).
+func (h *Handler) checkDelegation(r *http.Request, recipient, msgID string, verified bool, entry *audit.Entry) (int, *MessageResponse) {
+	header := r.Header.Get("X-Oktsec-Delegation")
+
+	if header == "" {
+		// No delegation header — only reject if required
+		if h.cfg.Identity.RequireDelegation {
+			resp := MessageResponse{
+				Status:         audit.StatusRejected,
+				MessageID:      msgID,
+				PolicyDecision: audit.DecisionDelegationRequired,
+				VerifiedSender: verified,
+			}
+			return http.StatusUnauthorized, &resp
+		}
+		return 0, nil
+	}
+
+	// Header present — always verify (invalid = reject regardless of RequireDelegation)
+	result := h.verifyDelegation(header, recipient)
+	if !result.Valid {
+		h.logger.Warn("delegation chain invalid",
+			"message_id", msgID, "reason", result.Reason)
+		resp := MessageResponse{
+			Status:         audit.StatusRejected,
+			MessageID:      msgID,
+			PolicyDecision: audit.DecisionDelegationInvalid,
+			VerifiedSender: verified,
+		}
+		return http.StatusForbidden, &resp
+	}
+
+	// Valid chain — populate audit entry
+	entry.DelegationChainHash = result.ChainHash
+	entry.RootAgent = result.Root
+	entry.AgentDepth = result.Depth
+
+	// Build human-readable chain summary
+	if result.Depth <= 2 {
+		entry.DelegationChain = result.Root + " -> " + result.Delegate
+	} else {
+		entry.DelegationChain = fmt.Sprintf("%s -> ... -> %s (%d hops)", result.Root, result.Delegate, result.Depth)
+	}
+
+	// ParentAgent is the delegator from the last token (the one that delegated to the current sender)
+	// For a chain like human -> A -> B, the ParentAgent of B is A.
+	// result.Root is the first delegator, result.Delegate is the final delegate.
+	// We parse the chain once more to get the parent from the last token.
+	entry.ParentAgent = h.extractParentAgent(header)
+
+	return 0, nil
+}
+
+// verifyDelegation decodes and verifies a base64-encoded delegation chain
+// from the X-Oktsec-Delegation HTTP header. Checks signature, expiry, scope,
+// depth, and chain linkage for every token in the chain.
+func (h *Handler) verifyDelegation(header, recipient string) identity.ChainVerifyResult {
+	data, err := base64.StdEncoding.DecodeString(header)
+	if err != nil {
+		return identity.ChainVerifyResult{Valid: false, Reason: "invalid base64 encoding"}
+	}
+
+	var chain identity.DelegationChain
+	if err := json.Unmarshal(data, &chain); err != nil {
+		return identity.ChainVerifyResult{Valid: false, Reason: "invalid chain JSON"}
+	}
+
+	if len(chain) == 0 {
+		return identity.ChainVerifyResult{Valid: false, Reason: "empty delegation chain"}
+	}
+
+	// Check that the final delegate's scope allows the recipient
+	last := chain[len(chain)-1]
+	if !scopeAllowsRecipient(last.Scope, recipient) {
+		return identity.ChainVerifyResult{
+			Valid:  false,
+			Reason: fmt.Sprintf("recipient %q not in delegation scope", recipient),
+		}
+	}
+
+	// Resolve public keys from the handler's keystore
+	resolver := func(agent string) ed25519.PublicKey {
+		pub, ok := h.keys.Get(agent)
+		if !ok {
+			return nil
+		}
+		return pub
+	}
+
+	return identity.VerifyChain(chain, resolver)
+}
+
+// extractParentAgent decodes the delegation header and returns the delegator
+// from the last token in the chain (the immediate parent of the current agent).
+func (h *Handler) extractParentAgent(header string) string {
+	data, err := base64.StdEncoding.DecodeString(header)
+	if err != nil {
+		return ""
+	}
+	var chain identity.DelegationChain
+	if err := json.Unmarshal(data, &chain); err != nil {
+		return ""
+	}
+	if len(chain) == 0 {
+		return ""
+	}
+	return chain[len(chain)-1].Delegator
+}
+
+// scopeAllowsRecipient checks if the recipient is covered by the scope list.
+func scopeAllowsRecipient(scope []string, recipient string) bool {
+	for _, s := range scope {
+		if s == "*" || s == recipient {
+			return true
+		}
+	}
+	return false
 }
 
 func sha256Hash(s string) string {

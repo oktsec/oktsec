@@ -55,8 +55,10 @@ const (
 	DecisionRecipientSuspended = "recipient_suspended"
 	DecisionIdentityRejected   = "identity_rejected"
 	DecisionSignatureRequired  = "signature_required"
-	DecisionRateLimited        = "rate_limited"
+	DecisionRateLimited          = "rate_limited"
 	DecisionToolNotAllowed       = "tool_not_allowed"
 	DecisionConstraintViolated   = "constraint_violated"
 	DecisionScanError            = "scan_error"
+	DecisionDelegationInvalid    = "delegation_invalid"
+	DecisionDelegationRequired   = "delegation_required"
 )

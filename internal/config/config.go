@@ -152,9 +152,10 @@ type ServerConfig struct {
 
 // IdentityConfig configures agent identity verification.
 type IdentityConfig struct {
-	KeysDir          string          `yaml:"keys_dir"`
-	RequireSignature bool            `yaml:"require_signature"`
-	Ephemeral        EphemeralConfig `yaml:"ephemeral,omitempty"`
+	KeysDir            string          `yaml:"keys_dir"`
+	RequireSignature   bool            `yaml:"require_signature"`
+	RequireDelegation  bool            `yaml:"require_delegation,omitempty"`
+	Ephemeral          EphemeralConfig `yaml:"ephemeral,omitempty"`
 }
 
 // EphemeralConfig controls task-scoped ephemeral key issuance.
