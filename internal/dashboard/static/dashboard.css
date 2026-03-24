@@ -445,7 +445,7 @@ input:checked + .toggle-slider::before{transform:translateX(16px);background:var
   background:var(--bg);color:var(--text);font-size:var(--text-sm);font-family:var(--sans);
   transition:border-color var(--ease-smooth);outline:none;
 }
-.filter-bar input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1)}
+.filter-bar input[type="date"]{color-scheme:dark}
 .filter-bar select:focus,.filter-bar input[type="date"]:focus{border-color:var(--accent)}
 .filter-bar .sep{color:var(--text3);font-size:var(--text-sm)}
 .filter-bar .spacer{flex:1}

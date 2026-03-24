@@ -44,7 +44,7 @@ func newQuarantineListCmd() *cobra.Command {
 			}
 			defer store.Close() //nolint:errcheck
 
-			items, err := store.QuarantineQuery(status, "", limit)
+			items, err := store.QuarantineQuery(status, "", "", "", limit)
 			if err != nil {
 				return err
 			}

@@ -343,7 +343,7 @@ func (h *handlers) quarantineList(args json.RawMessage) (*mcp.CallToolResult, er
 	}
 	status := mcputil.GetString(args, "status", audit.QStatusPending)
 
-	items, err := h.audit.QuarantineQuery(status, "", limit)
+	items, err := h.audit.QuarantineQuery(status, "", "", "", limit)
 	if err != nil {
 		return mcputil.NewToolResultError(fmt.Sprintf("query failed: %v", err)), nil
 	}

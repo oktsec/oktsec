@@ -298,7 +298,7 @@ func TestQuarantineQuery_FilterByAgent(t *testing.T) {
 		}
 	}
 
-	items, err := store.QuarantineQuery("", "alpha", 10)
+	items, err := store.QuarantineQuery("", "alpha", "", "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
