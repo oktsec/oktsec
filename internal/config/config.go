@@ -324,13 +324,14 @@ type GatewayConfig struct {
 
 // MCPServerConfig defines a backend MCP server to proxy through the gateway.
 type MCPServerConfig struct {
-	Transport  string            `yaml:"transport"`            // "stdio" or "http"
-	Command    string            `yaml:"command,omitempty"`    // for stdio
-	Args       []string          `yaml:"args,omitempty"`
-	URL        string            `yaml:"url,omitempty"`        // for http
-	Headers    map[string]string `yaml:"headers,omitempty"`
-	Env        map[string]string `yaml:"env,omitempty"`        // env vars for stdio
-	WorkingDir string            `yaml:"working_dir,omitempty"` // working directory for dep_check
+	Transport     string            `yaml:"transport"`               // "stdio" or "http"
+	Command       string            `yaml:"command,omitempty"`       // for stdio
+	Args          []string          `yaml:"args,omitempty"`
+	URL           string            `yaml:"url,omitempty"`           // for http
+	Headers       map[string]string `yaml:"headers,omitempty"`
+	Env           map[string]string `yaml:"env,omitempty"`           // env vars for stdio
+	WorkingDir    string            `yaml:"working_dir,omitempty"`   // working directory for dep_check
+	EgressSandbox bool             `yaml:"egress_sandbox,omitempty"` // force HTTP traffic through oktsec's forward proxy
 }
 
 // CategoryWebhook binds a rule category to default notification channels.

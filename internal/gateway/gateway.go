@@ -151,9 +151,20 @@ func (g *Gateway) Start(ctx context.Context) error {
 		}
 	}
 
+	// Resolve the forward proxy port for egress sandboxing.
+	proxyPort := g.cfg.ForwardProxy.Port
+	if proxyPort == 0 {
+		proxyPort = 8083
+	}
+
 	// Connect backends
 	for name, cfg := range g.cfg.MCPServers {
+		if cfg.EgressSandbox && !g.cfg.ForwardProxy.Enabled {
+			g.logger.Warn("egress_sandbox enabled but forward_proxy is not; child HTTP traffic may fail",
+				"server", name)
+		}
 		b := NewBackend(name, cfg, g.logger)
+		b.SetProxyPort(proxyPort)
 		if err := b.Connect(ctx); err != nil {
 			return fmt.Errorf("connecting backend %s: %w", name, err)
 		}
