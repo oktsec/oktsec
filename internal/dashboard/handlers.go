@@ -2,8 +2,10 @@ package dashboard
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/csv"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -301,7 +303,19 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 
 	// Verify audit chain integrity (lightweight — last 100 entries)
 	chainEntries, _ := s.audit.QueryChainEntries(100)
-	chainResult := audit.VerifyChain(chainEntries, nil)
+
+	// Load proxy public key for signature verification
+	var sigVerified bool
+	var sigFingerprint string
+	proxyPub, pubErr := identity.LoadPublicKey(s.cfg.Identity.KeysDir, "proxy")
+	if pubErr == nil {
+		h := sha256.Sum256(proxyPub)
+		sigFingerprint = hex.EncodeToString(h[:])
+	}
+	chainResult := audit.VerifyChain(chainEntries, proxyPub)
+	if pubErr == nil && chainResult.Valid && len(chainEntries) > 0 {
+		sigVerified = true
+	}
 
 	// LLM threat stats for the AI banner
 	var llmThreats, llmConfirmed int
@@ -322,11 +336,13 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		"TopFixes":    topFixes,
 		"TotalChecks": len(findings),
 		"HasCritical": summary.Critical > 0,
-		"ChainValid":    chainResult.Valid,
-		"ChainCount":    chainResult.Entries,
-		"ChainReason":   chainResult.Reason,
-		"ChainBrokenAt": chainResult.BrokenAt,
-		"ChainBrokenID": chainResult.BrokenID,
+		"ChainValid":            chainResult.Valid,
+		"ChainCount":            chainResult.Entries,
+		"ChainReason":           chainResult.Reason,
+		"ChainBrokenAt":         chainResult.BrokenAt,
+		"ChainBrokenID":         chainResult.BrokenID,
+		"SignatureVerified":     sigVerified,
+		"SignatureFingerprint":  sigFingerprint,
 		"LLMEnabled":    s.cfg.LLM.Enabled,
 		"LLMModel":      s.cfg.LLM.Model,
 		"LLMThreats":    llmThreats,
