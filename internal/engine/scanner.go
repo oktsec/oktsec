@@ -81,14 +81,17 @@ type ruleCache struct {
 }
 
 // Scanner wraps the Aguara engine for in-process content scanning.
+// Uses Aguara's cached Scanner API (v0.13.0+) for compiled-once, reuse-always scanning.
 type Scanner struct {
 	mu      sync.RWMutex
-	opts    []aguara.Option
-	tempDir string // temp dir for embedded IAP rules
-	cache   *ruleCache
+	cached  *aguara.Scanner // compiled scanner, reused across all requests
+	opts    []aguara.Option // kept for hot-reload (InvalidateCache rebuilds)
+	tempDir string          // temp dir for embedded IAP rules
+	cache   *ruleCache      // metadata cache for ListRules/ExplainRule
 }
 
 // NewScanner creates a scanner with oktsec's IAP rules + Aguara's built-in rules.
+// Rules are compiled once at startup and reused across all requests.
 // If customRulesDir is non-empty, rules from that directory are also loaded.
 func NewScanner(customRulesDir string, extraOpts ...aguara.Option) *Scanner {
 	s := &Scanner{}
@@ -105,6 +108,14 @@ func NewScanner(customRulesDir string, extraOpts ...aguara.Option) *Scanner {
 	}
 
 	s.opts = append(s.opts, extraOpts...)
+
+	// Build cached scanner (compile rules once)
+	cached, err := aguara.NewScanner(s.opts...)
+	if err == nil {
+		s.cached = cached
+	}
+	// If NewScanner fails, s.cached is nil and we fall back to per-request scanning
+
 	return s
 }
 
@@ -118,7 +129,13 @@ func (s *Scanner) ScanContent(ctx context.Context, content string) (*ScanOutcome
 // so that rules with file-type targets can match correctly.
 // NFKC normalization is handled internally by Aguara (v0.9.0+).
 func (s *Scanner) ScanContentAs(ctx context.Context, content, filename string) (*ScanOutcome, error) {
-	result, err := aguara.ScanContent(ctx, content, filename, s.opts...)
+	var result *aguara.ScanResult
+	var err error
+	if s.cached != nil {
+		result, err = s.cached.ScanContent(ctx, content, filename)
+	} else {
+		result, err = aguara.ScanContent(ctx, content, filename, s.opts...)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("aguara scan: %w", err)
 	}
@@ -134,12 +151,20 @@ func (s *Scanner) ScanContentWithTool(ctx context.Context, content, toolName str
 
 // ScanContentAsWithTool scans content with both filename and tool context.
 func (s *Scanner) ScanContentAsWithTool(ctx context.Context, content, filename, toolName string) (*ScanOutcome, error) {
-	opts := make([]aguara.Option, len(s.opts), len(s.opts)+1)
-	copy(opts, s.opts)
-	if toolName != "" {
-		opts = append(opts, aguara.WithToolName(toolName))
+	var result *aguara.ScanResult
+	var err error
+	if s.cached != nil && toolName != "" {
+		result, err = s.cached.ScanContentAs(ctx, content, filename, toolName)
+	} else if s.cached != nil {
+		result, err = s.cached.ScanContent(ctx, content, filename)
+	} else {
+		opts := make([]aguara.Option, len(s.opts), len(s.opts)+1)
+		copy(opts, s.opts)
+		if toolName != "" {
+			opts = append(opts, aguara.WithToolName(toolName))
+		}
+		result, err = aguara.ScanContent(ctx, content, filename, opts...)
 	}
-	result, err := aguara.ScanContent(ctx, content, filename, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("aguara scan: %w", err)
 	}
@@ -186,6 +211,9 @@ func (s *Scanner) Close() {
 
 // RulesCount returns the total number of loaded rules (Aguara + IAP).
 func (s *Scanner) RulesCount(ctx context.Context) int {
+	if s.cached != nil {
+		return s.cached.RulesLoaded()
+	}
 	result, err := aguara.ScanContent(ctx, "test", "test.md", s.opts...)
 	if err != nil {
 		return 0
@@ -208,10 +236,22 @@ func (s *Scanner) ensureCache() *ruleCache {
 		return s.cache
 	}
 
-	list := aguara.ListRules(s.opts...)
+	var list []aguara.RuleInfo
+	if s.cached != nil {
+		list = s.cached.ListRules()
+	} else {
+		list = aguara.ListRules(s.opts...)
+	}
 	details := make(map[string]*aguara.RuleDetail, len(list))
 	for _, ri := range list {
-		if d, err := aguara.ExplainRule(ri.ID, s.opts...); err == nil {
+		var d *aguara.RuleDetail
+		var err error
+		if s.cached != nil {
+			d, err = s.cached.ExplainRule(ri.ID)
+		} else {
+			d, err = aguara.ExplainRule(ri.ID, s.opts...)
+		}
+		if err == nil {
 			details[ri.ID] = d
 		}
 	}
@@ -220,18 +260,26 @@ func (s *Scanner) ensureCache() *ruleCache {
 }
 
 // InvalidateCache forces the next ListRules/ExplainRule call to reload from disk.
-// Also used by the LLM rule generator to trigger hot-reload after new rules are approved.
+// Also rebuilds the cached Aguara scanner with the current options.
+// Used by the LLM rule generator to trigger hot-reload after new rules are approved.
 func (s *Scanner) InvalidateCache() {
 	s.mu.Lock()
 	s.cache = nil
+	// Rebuild cached scanner with current opts
+	if cached, err := aguara.NewScanner(s.opts...); err == nil {
+		s.cached = cached
+	}
 	s.mu.Unlock()
 }
 
-// AddCustomRulesDir appends a custom rules directory and invalidates the cache.
+// AddCustomRulesDir appends a custom rules directory and rebuilds the scanner.
 func (s *Scanner) AddCustomRulesDir(dir string) {
 	s.mu.Lock()
 	s.opts = append(s.opts, aguara.WithCustomRules(dir))
 	s.cache = nil
+	if cached, err := aguara.NewScanner(s.opts...); err == nil {
+		s.cached = cached
+	}
 	s.mu.Unlock()
 }
 

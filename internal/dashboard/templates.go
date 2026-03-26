@@ -526,13 +526,13 @@ const layoutHead = `<!DOCTYPE html>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Rules
     </a>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-section-label">Analyze</div>
     <a href="/dashboard/audit" class="sidebar-item {{if eq .Active "audit"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
       Security Posture
     </a>
-  </div>
-  <div class="sidebar-section">
-    <div class="sidebar-section-label">Analyze</div>
     <a href="/dashboard/llm" class="sidebar-item {{if eq .Active "llm"}}active{{end}}">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><path d="M16 14H8a4 4 0 0 0-4 4v2h16v-2a4 4 0 0 0-4-4z"/><circle cx="12" cy="6" r="1"/><path d="M9 22v-2"/><path d="M15 22v-2"/></svg>
       AI Analysis
@@ -1230,11 +1230,12 @@ var recentPartialTmpl = template.Must(template.New("recent").Funcs(tmplFuncs).Pa
 var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs).Parse(`
 <div class="grid-2" style="gap:20px">
   <div class="card">
-    <h2>Node Threat Scores</h2>
-    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Higher scores mean more blocked or quarantined messages originating from this agent.</p>
+    <h2>Agent Risk Scores</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:4px">Higher scores mean more blocked or quarantined messages originating from this agent.</p>
+    <div style="font-size:0.68rem;color:var(--text3);margin-bottom:12px">Scale 0&ndash;100. <span style="color:var(--success)">&#9679;</span> Low &middot; <span style="color:var(--warn)">&#9679;</span> Medium &middot; <span style="color:var(--danger)">&#9679;</span> High</div>
     {{if .Nodes}}
     <table>
-      <thead><tr><th>Agent</th><th>Threat</th><th>Sent</th><th>Recv</th><th>Role</th></tr></thead>
+      <thead><tr><th>Agent</th><th>Risk</th><th>Sent</th><th>Received</th><th>Role</th></tr></thead>
       <tbody>
       {{range .Nodes}}
       <tr class="clickable" onclick="location.href='/dashboard/agents/{{.Name}}'">
@@ -1242,7 +1243,7 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
         <td><div style="display:flex;align-items:center;gap:8px"><div class="risk-bar" style="width:60px"><div class="risk-bar-fill {{if gt .ThreatScore 60.0}}risk-high{{else if gt .ThreatScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .ThreatScore}}%"></div></div><span>{{printf "%.1f" .ThreatScore}}</span></div></td>
         <td>{{.TotalSent}}</td>
         <td>{{.TotalRecv}}</td>
-        <td style="color:var(--text3)">{{if eq .Betweenness -1.0}}&#8212;{{else if gt .Betweenness 0.3}}Hub{{else if and (gt .TotalSent 0) (eq .TotalRecv 0)}}Producer{{else if and (eq .TotalSent 0) (gt .TotalRecv 0)}}Consumer{{else}}Peer{{end}}</td>
+        <td style="color:var(--text3)">{{if eq .Betweenness -1.0}}&#8212;{{else if gt .Betweenness 0.3}}Hub{{else if and (gt .TotalSent 0) (eq .TotalRecv 0)}}Sender{{else if and (eq .TotalSent 0) (gt .TotalRecv 0)}}Receiver{{else}}Peer{{end}}</td>
       </tr>
       {{end}}
       </tbody>
@@ -1250,17 +1251,16 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
     {{else}}<p class="empty">No agents detected</p>{{end}}
   </div>
   <div class="card">
-    <h2>Edge Health</h2>
-    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Percentage of messages on each connection that were delivered successfully.</p>
+    <h2>Connection Health</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Percentage of messages successfully delivered on each route.</p>
     {{if .Edges}}
     <table>
-      <thead><tr><th>From</th><th>To</th><th>Total</th><th>Health</th></tr></thead>
+      <thead><tr><th>From</th><th>To</th><th>Health</th></tr></thead>
       <tbody>
       {{range .Edges}}
       <tr>
         <td>{{.From}}</td>
         <td>{{.To}}</td>
-        <td>{{.Total}}</td>
         <td><div style="display:flex;align-items:center;gap:8px"><div class="risk-bar" style="width:60px"><div class="risk-bar-fill {{if lt .HealthScore 40.0}}risk-high{{else if lt .HealthScore 70.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .HealthScore}}%"></div></div><span>{{printf "%.0f" .HealthScore}}%</span></div></td>
       </tr>
       {{end}}
@@ -1271,11 +1271,11 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
 </div>
 {{if .ShadowEdges}}
 <div class="card">
-  <h2 style="color:var(--warn)">Shadow Edges</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not defined in ACL policy.</p>
+  <h2 style="color:var(--warn)">Unmonitored Routes</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not covered by any security rule.</p>
   <table>
-    <thead><tr><th>From</th><th>To</th><th>Messages</th></tr></thead>
-    <tbody>{{range .ShadowEdges}}<tr><td>{{.From}}</td><td>{{.To}}</td><td>{{.Total}}</td></tr>{{end}}</tbody>
+    <thead><tr><th>From</th><th>To</th><th>Messages</th><th></th></tr></thead>
+    <tbody>{{range .ShadowEdges}}<tr><td>{{.From}}</td><td>{{.To}}</td><td>{{.Total}}</td><td style="text-align:right"><a href="/dashboard/agents" style="color:var(--accent-light);font-size:0.75rem;text-decoration:none">Add rule &rarr;</a></td></tr>{{end}}</tbody>
   </table>
 </div>
 {{end}}`))
@@ -1284,7 +1284,7 @@ var graphEventsTmpl = template.Must(template.New("graph-events").Funcs(tmplFuncs
 {{range .}}
 <div style="padding:6px 0;border-left:3px solid {{if eq .Status "blocked"}}#f85149{{else if eq .Status "quarantined"}}#d29922{{else}}var(--border){{end}};padding-left:10px;margin-bottom:6px">
   <div style="color:var(--text3);font-size:0.68rem" data-ts="{{.Timestamp}}">{{.Timestamp}}</div>
-  {{if .ToolName}}<div style="display:flex;align-items:center;gap:5px">{{toolDot .ToolName}} <span style="color:var(--text3);font-size:0.7rem">{{if eq .Status "blocked"}}blocked{{else if eq .Status "quarantined"}}quarantined{{else}}processed{{end}}</span></div>
+  {{if .ToolName}}<div style="display:flex;align-items:center;gap:5px">{{if .FromAgent}}<span style="color:var(--text2);font-size:0.7rem;font-weight:500">{{.FromAgent}}:</span> {{end}}{{toolDot .ToolName}} <span style="color:var(--text3);font-size:0.7rem">{{if eq .Status "blocked"}}blocked{{else if eq .Status "quarantined"}}quarantined{{else}}processed{{end}}</span></div>
   {{else}}<span style="color:{{if eq .Status "blocked"}}#f85149{{else if eq .Status "quarantined"}}#d29922{{else}}var(--text2){{end}};font-weight:{{if ne .Status "delivered"}}600{{else}}400{{end}}">{{.FromAgent}} &rarr; {{.ToAgent}}</span>{{end}}
 </div>
 {{else}}
@@ -3238,55 +3238,71 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 .st-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .st-row .form-group{flex:1;min-width:140px}
 </style>
-<p class="page-desc">Security mode, protection settings, and advanced configuration.</p>
+<p class="page-desc">System status, access control, and threat response settings.</p>
 
-<!-- Security -->
+<!-- Section 1: System Status -->
 <div class="st-section">
-  <div class="st-section-hdr">Security</div>
+  <div class="st-section-hdr">System Status</div>
   <div class="st-item">
     <div class="st-item-info">
       <div class="st-item-name">Security Mode</div>
-      <div class="st-item-desc">{{if .RequireSig}}Every message must be signed. Unsigned messages are rejected.{{else}}Messages are scanned but signatures are not required.{{end}}</div>
+      <div class="st-item-desc">{{if .RequireSig}}All messages are verified before delivery. Suspicious content is blocked.{{else}}Messages are monitored but not blocked. Review activity in Events.{{end}}</div>
     </div>
     <div class="st-item-value">
-      <span class="val" style="{{if .RequireSig}}color:var(--success){{else}}color:var(--warn){{end}}">{{if .RequireSig}}enforce{{else}}observe{{end}}</span>
-      <form method="POST" action="/dashboard/mode/toggle"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to {{if .RequireSig}}observe{{else}}enforce{{end}} mode?')">Switch to {{if .RequireSig}}Observe{{else}}Enforce{{end}}</button></form>
+      <span class="val" style="{{if .RequireSig}}color:var(--success){{else}}color:var(--warn){{end}}">{{if .RequireSig}}Protection Active{{else}}Monitor Only{{end}}</span>
+      <form method="POST" action="/dashboard/mode/toggle"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to {{if .RequireSig}}monitor-only{{else}}active protection{{end}} mode?')">Switch to {{if .RequireSig}}Monitor Only{{else}}Active Protection{{end}}</button></form>
     </div>
   </div>
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">MCP Gateway</div>
+      <div class="st-item-desc">{{if .GatewayEnabled}}Accepting connections on port {{.GatewayPort}}{{else}}Gateway is not running. Enable it in your configuration file.{{end}}</div>
+    </div>
+    <div class="st-item-value">
+      <span class="val" style="{{if .GatewayEnabled}}color:var(--success){{else}}color:var(--text3){{end}}">{{if .GatewayEnabled}}active{{else}}inactive{{end}}</span>
+      {{if .GatewayEnabled}}<a href="/dashboard/gateway" class="btn btn-sm btn-outline" style="text-decoration:none">Configure &rarr;</a>{{end}}
+    </div>
+  </div>
+</div>
+
+<!-- Section 2: Access Control -->
+<div class="st-section">
+  <div class="st-section-hdr">Access Control</div>
   <div class="st-item">
     <div class="st-item-info">
       <div class="st-item-name">Default Policy</div>
-      <div class="st-item-desc">{{if eq .DefaultPolicy "deny"}}Agents can only message explicitly allowed targets.{{else}}All agents can message each other unless denied.{{end}}</div>
+      <div class="st-item-desc">{{if eq .DefaultPolicy "deny"}}Agents can only reach explicitly approved targets.{{else}}All agents can communicate freely unless specifically denied.{{end}}</div>
     </div>
     <div class="st-item-value">
-      <span class="val" style="{{if eq .DefaultPolicy "deny"}}color:var(--success){{else}}color:var(--warn){{end}}">{{if eq .DefaultPolicy "deny"}}deny{{else}}allow{{end}}</span>
-      <form method="POST" action="/dashboard/settings/default-policy"><input type="hidden" name="default_policy" value="{{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to default {{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}?')">Switch to {{if eq .DefaultPolicy "deny"}}Allow{{else}}Deny{{end}}</button></form>
+      <span class="val" style="{{if eq .DefaultPolicy "deny"}}color:var(--success){{else}}color:var(--warn){{end}}">{{if eq .DefaultPolicy "deny"}}Block unknown{{else}}Allow all{{end}}</span>
+      <form method="POST" action="/dashboard/settings/default-policy"><input type="hidden" name="default_policy" value="{{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to default {{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}?')">{{if eq .DefaultPolicy "deny"}}Allow All{{else}}Block Unknown{{end}}</button></form>
     </div>
-  </div>
-  <div class="st-item">
-    <div class="st-item-info">
-      <div class="st-item-name">Server</div>
-      <div class="st-item-desc">Port {{.ServerPort}} &middot; {{.ServerBind}} &middot; {{.LogLevel}} &middot; {{.WebhookCount}} notification channel{{if ne .WebhookCount 1}}s{{end}}</div>
-    </div>
-    <div class="st-item-value"><span style="font-size:0.68rem;color:var(--text3)">restart to change</span></div>
   </div>
   <div class="st-item" style="flex-wrap:wrap">
     <div class="st-item-info">
-      <div class="st-item-name">Trust Boundaries</div>
-      <div class="st-item-desc">Internal domains and CIDRs used by scope-based egress policies</div>
+      <div class="st-item-name">Internal Networks</div>
+      <div class="st-item-desc">Domains and networks considered inside your organization. Agents with internal scope can only reach these.</div>
     </div>
-    <div class="st-item-value"><span class="val">{{.TrustBoundariesCount}} defined</span></div>
+    <div class="st-item-value">
+      <span class="val">{{.TrustBoundariesCount}} defined</span>
+      <button type="button" class="btn btn-sm btn-outline" onclick="var el=document.getElementById('trust-boundaries-detail');el.open=!el.open">{{if .TrustBoundariesCount}}Edit{{else}}Configure{{end}}</button>
+    </div>
   </div>
-  {{if .TrustBoundariesInternal}}
-  <div style="padding:0 16px 12px;display:flex;flex-wrap:wrap;gap:6px">
-    {{range .TrustBoundariesInternal}}<code style="font-size:0.7rem;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px">{{.}}</code>{{end}}
-  </div>
-  {{end}}
+  <details id="trust-boundaries-detail" style="padding:0">
+  <summary style="display:none"></summary>
+  <form method="POST" action="/dashboard/settings/trust-boundaries" style="padding:0 16px 16px">
+    <textarea name="internal" rows="4" style="width:100%;font-size:0.75rem;font-family:var(--mono);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text1);resize:vertical" placeholder="One domain or CIDR per line, e.g.&#10;*.mycompany.com&#10;10.0.0.0/8&#10;github.com/myorg">{{range .TrustBoundariesInternal}}{{.}}&#10;{{end}}</textarea>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+      <span style="font-size:0.68rem;color:var(--text3)">One per line. Supports wildcards (*.example.com).</span>
+      <button type="submit" class="btn btn-sm btn-primary">Save</button>
+    </div>
+  </form>
+  </details>
 </div>
 
-<!-- Protection -->
+<!-- Section 3: Threat Response -->
 <div class="st-section">
-  <div class="st-section-hdr">Protection</div>
+  <div class="st-section-hdr">Threat Response</div>
   <form method="POST" action="/dashboard/settings/quarantine">
   <div class="st-item">
     <div class="st-item-info">
@@ -3305,7 +3321,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   <div class="st-item">
     <div class="st-item-info">
       <div class="st-item-name">Behavior Monitoring</div>
-      <div class="st-item-desc">Auto-suspend risky agents. Check every {{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}s, threshold {{printf "%.0f" .AnomalyRiskThreshold}}, min {{.AnomalyMinMessages}} msgs</div>
+      <div class="st-item-desc">Automatically pause agents that show suspicious behavior patterns</div>
     </div>
     <div class="st-item-value">
       <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
@@ -3320,10 +3336,10 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   <div class="st-item">
     <div class="st-item-info">
       <div class="st-item-name">Rate Limiting</div>
-      <div class="st-item-desc">Max {{.RateLimitPerAgent}} messages per agent per {{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}s window</div>
+      <div class="st-item-desc">Limit how many messages each agent can send per minute</div>
     </div>
     <div class="st-item-value">
-      <span class="val">{{.RateLimitPerAgent}}/{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}60{{end}}s</span>
+      <span class="val">{{.RateLimitPerAgent}} / min</span>
     </div>
   </div>
   <input type="hidden" name="per_agent" value="{{.RateLimitPerAgent}}">
@@ -3333,29 +3349,26 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   <form method="POST" action="/dashboard/settings/intent">
   <div class="st-item">
     <div class="st-item-info">
-      <div class="st-item-name">Intent Validation</div>
-      <div class="st-item-desc">Agents must declare intent. oktsec validates content matches declared purpose.</div>
+      <div class="st-item-name">Purpose Verification</div>
+      <div class="st-item-desc">Require agents to declare what they're doing. Flag mismatches between stated intent and actual content.</div>
     </div>
     <div class="st-item-value">
       <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
   </div>
   </form>
-</div>
 
-<!-- Advanced -->
-<div class="st-section">
-  <div class="st-section-hdr">Advanced</div>
   <form method="POST" action="/dashboard/settings/forward-proxy">
   <div class="st-item">
     <div class="st-item-info">
-      <div class="st-item-name">Egress Proxy</div>
-      <div class="st-item-desc">Intercept and scan outbound HTTP traffic from agents</div>
+      <div class="st-item-name">Outbound Traffic</div>
+      <div class="st-item-desc">Inspect and control what agents send outside your network</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .FPEnabled}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" {{if .FPEnabled}}checked{{end}} onchange="toggleEgressDetails();this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
   </div>
+  <div id="fp-details" style="{{if not .FPEnabled}}display:none;{{end}}">
   <div style="padding:14px 20px;border-bottom:1px solid var(--border)">
     <div style="display:flex;gap:20px;margin-bottom:16px">
       <label style="display:flex;align-items:center;gap:6px;font-size:0.78rem;cursor:pointer"><input type="checkbox" name="scan_requests" value="true" {{if .FPScanRequests}}checked{{end}}> Scan outgoing</label>
@@ -3384,23 +3397,31 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   <div style="display:flex;justify-content:flex-end;padding:10px 20px">
     <button type="submit" class="btn btn-sm">Save</button>
   </div>
+  </div>
   </form>
 </div>
 
-<!-- Infrastructure -->
+<!-- Section 4: Infrastructure -->
 <div class="st-section">
   <div class="st-section-hdr">Infrastructure</div>
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Server</div>
+      <div class="st-item-desc">Port {{.ServerPort}} &middot; {{.ServerBind}}</div>
+    </div>
+    <div class="st-item-value"><span style="font-size:0.68rem;color:var(--text3)">restart to change</span></div>
+  </div>
 
   <div class="st-item" style="flex-wrap:wrap">
     <div class="st-item-info">
       <div class="st-item-name">Database</div>
-      <div class="st-item-desc">{{if eq .DBBackend "PostgreSQL"}}Connected to PostgreSQL{{else}}Local SQLite database{{end}}</div>
+      <div class="st-item-desc" id="db-desc">{{if eq .DBBackend "PostgreSQL"}}Production database — requires a PostgreSQL server{{else}}Local file database — no server needed{{end}}</div>
     </div>
     <div class="st-item-value">
-      <select id="db-backend" style="font-size:0.82rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 10px;font-family:var(--mono)" onchange="dbBackendChanged()">
-        <option value="sqlite" {{if ne .DBBackend "PostgreSQL"}}selected{{end}}>SQLite</option>
-        <option value="postgres" {{if eq .DBBackend "PostgreSQL"}}selected{{end}}>PostgreSQL</option>
-      </select>
+      <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+        <button type="button" id="db-pill-sqlite" onclick="selectDB('sqlite')" style="padding:4px 14px;font-size:0.78rem;border:none;cursor:pointer;font-family:var(--mono);{{if ne .DBBackend "PostgreSQL"}}background:#1F6FEB;color:#fff{{else}}background:var(--bg);color:#8B949E;border:1px solid #30363D{{end}}">SQLite</button>
+        <button type="button" id="db-pill-postgres" onclick="selectDB('postgres')" style="padding:4px 14px;font-size:0.78rem;border:none;border-left:1px solid var(--border);cursor:pointer;font-family:var(--mono);{{if eq .DBBackend "PostgreSQL"}}background:#1F6FEB;color:#fff{{else}}background:var(--bg);color:#8B949E;border:1px solid #30363D{{end}}">PostgreSQL</button>
+      </div>
     </div>
   </div>
 
@@ -3416,6 +3437,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 
   <!-- PostgreSQL config (shown when postgres selected) -->
   <div id="db-pg-cfg" style="padding:14px 20px;border-bottom:1px solid var(--border){{if ne .DBBackend "PostgreSQL"}};display:none{{end}}">
+    <div style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">PostgreSQL connection</div>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:12px">
       <div>
         <label style="font-size:0.72rem;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:4px">Host</label>
@@ -3460,24 +3482,30 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   <div style="display:flex;justify-content:flex-end;padding:10px 20px;border-bottom:1px solid var(--border)">
     <button type="button" class="btn btn-sm" id="db-save-btn" onclick="saveDBConfig()">Save &amp; restart</button>
   </div>
-
-  <div class="st-item">
-    <div class="st-item-info">
-      <div class="st-item-name">MCP Gateway</div>
-      <div class="st-item-desc">{{if .GatewayEnabled}}Accepting connections on port {{.GatewayPort}}{{else}}Disabled{{end}}</div>
-    </div>
-    <div class="st-item-value">
-      <span class="val" style="{{if .GatewayEnabled}}color:var(--success){{else}}color:var(--text3){{end}}">{{if .GatewayEnabled}}active{{else}}off{{end}}</span>
-    </div>
-  </div>
 </div>
 
 <script>
-function dbBackendChanged() {
-  var v = document.getElementById('db-backend').value;
+function toggleEgressDetails() {
+  var cb = document.getElementById('fp-toggle');
+  var det = document.getElementById('fp-details');
+  det.style.display = cb.checked ? '' : 'none';
+}
+
+var _dbSelected = '{{if eq .DBBackend "PostgreSQL"}}postgres{{else}}sqlite{{end}}';
+function selectDB(v) {
+  _dbSelected = v;
   document.getElementById('db-sqlite-cfg').style.display = v === 'sqlite' ? '' : 'none';
   document.getElementById('db-pg-cfg').style.display = v === 'postgres' ? '' : 'none';
   document.getElementById('db-test-result').textContent = '';
+  var ps = document.getElementById('db-pill-sqlite');
+  var pp = document.getElementById('db-pill-postgres');
+  ps.style.background = v === 'sqlite' ? '#1F6FEB' : 'var(--bg)';
+  ps.style.color = v === 'sqlite' ? '#fff' : '#8B949E';
+  ps.style.border = v === 'sqlite' ? 'none' : '1px solid #30363D';
+  pp.style.background = v === 'postgres' ? '#1F6FEB' : 'var(--bg)';
+  pp.style.color = v === 'postgres' ? '#fff' : '#8B949E';
+  pp.style.border = v === 'postgres' ? 'none' : '1px solid #30363D';
+  document.getElementById('db-desc').textContent = v === 'sqlite' ? 'Local file database \u2014 no server needed' : 'Production database \u2014 requires a PostgreSQL server';
 }
 
 function buildPGDSN() {
@@ -3514,7 +3542,7 @@ function testDBConnection() {
 }
 
 function saveDBConfig() {
-  var backend = document.getElementById('db-backend').value;
+  var backend = _dbSelected;
   var body = {backend: backend};
   if (backend === 'postgres') {
     body.dsn = buildPGDSN();
@@ -4735,22 +4763,22 @@ updateExportLinks();
 ` + layoutFoot))
 
 var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Red nodes have high threat scores. Shadow edges indicate traffic outside ACL policy. Data covers the last {{.Range}}.</p>
+<p class="page-desc">Visual map of how your AI agents communicate and which tools they use. Red nodes indicate high risk. Dashed lines are unmonitored routes.</p>
 
 <div style="display:flex;gap:8px;margin-bottom:16px">
-  {{range $v := .Ranges}}<a href="/dashboard/graph?range={{$v}}" class="btn btn-sm{{if eq $v $.Range}} active{{end}}" style="{{if eq $v $.Range}}background:var(--accent-dim);color:#fff;border-color:var(--accent){{end}}">{{$v}}</a>{{end}}
+  {{range $v := .Ranges}}<a href="/dashboard/graph?range={{$v}}" class="btn btn-sm{{if eq $v $.Range}} active{{end}}" style="{{if eq $v $.Range}}background:#1F6FEB;color:#fff;border:none{{else}}background:transparent;color:#8B949E;border:1px solid #30363D{{end}}">{{$v}}</a>{{end}}
 </div>
 
 <div class="stats">
-  <div class="stat"><div class="label">Nodes</div><div class="value">{{.Graph.TotalNodes}}</div></div>
-  <div class="stat"><div class="label" data-tooltip="Connections with observed traffic between agents">Active Edges</div><div class="value">{{.Graph.TotalEdges}}</div></div>
-  <div class="stat"><div class="label" data-tooltip="Traffic between agents not defined in ACL policy — may indicate misconfiguration">Shadow Edges</div><div class="value{{if .Graph.ShadowEdges}} warn{{end}}">{{len .Graph.ShadowEdges}}</div></div>
-  <div class="stat"><div class="label" data-tooltip="ACL entries with no observed traffic — consider tightening permissions">Unused ACL</div><div class="value{{if .Graph.UnusedACL}} warn{{end}}">{{len .Graph.UnusedACL}}</div></div>
+  <div class="stat"><div class="label">Agents</div><div class="value">{{.Graph.TotalNodes}}</div></div>
+  <div class="stat"><div class="label" data-tooltip="Connections with observed traffic between agents">Active Connections</div><div class="value">{{.Graph.TotalEdges}}</div></div>
+  <div class="stat"><div class="label" data-tooltip="Traffic between agents not covered by any security rule">Unmonitored Routes</div><div class="value{{if .Graph.ShadowEdges}} warn{{end}}">{{len .Graph.ShadowEdges}}</div></div>
+  <div class="stat"><div class="label" data-tooltip="Security rules with no observed traffic — consider tightening permissions">Unused Rules</div><div class="value{{if .Graph.UnusedACL}} warn{{end}}">{{len .Graph.UnusedACL}}</div></div>
 </div>
 
 {{if and .Graph.ShadowEdges .RequireSig}}
 <div class="alert-banner warn">
-  <strong>{{len .Graph.ShadowEdges}} unregistered route{{if gt (len .Graph.ShadowEdges) 1}}s{{end}}</strong> — Traffic observed between agents without explicit ACL rules. Configure ACLs in Settings or agent profiles.
+  <strong>{{len .Graph.ShadowEdges}} connection{{if gt (len .Graph.ShadowEdges) 1}}s{{end}} are not covered by any security rule.</strong> <a href="/dashboard/agents" style="color:inherit;text-decoration:underline">Review agents &rarr;</a>
 </div>
 {{end}}
 
@@ -4775,12 +4803,11 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Tools</span><span id="gs-tools" style="font-weight:700;font-family:var(--mono)">--</span></div>
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Messages scanned</span><span id="gs-messages" style="font-weight:700;font-family:var(--mono)">--</span></div>
           <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Policy blocks</span><span id="gs-blocks" style="font-weight:700;font-family:var(--mono);color:#f85149">--</span></div>
-          <div style="display:flex;justify-content:space-between;padding:7px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px"><span style="color:var(--text3)">Audit entries</span><span id="gs-audit" style="font-weight:700;font-family:var(--mono)">--</span></div>
         </div>
       </div>
-      <div style="padding:16px 20px">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <span style="font-size:0.7rem;color:var(--text3);letter-spacing:0.05em;font-weight:600">EVENT LOG</span>
+          <h3 style="font-size:0.85rem;font-weight:700;margin:0">Events</h3>
           <span id="gw-event-count" style="font-size:0.7rem;color:var(--text3)"></span>
         </div>
         <div id="gw-events" style="font-size:0.75rem;font-family:var(--mono)"></div>
@@ -4789,14 +4816,16 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
   </div>
 </div>
 
+<h3 style="font-size:0.95rem;font-weight:700;margin:24px 0 16px 0;color:var(--text)">Agent &amp; Connection Details</h3>
 <div id="graph-tables">
 <div class="grid-2" style="gap:20px">
   <div class="card">
-    <h2>Node Threat Scores</h2>
-    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Higher scores mean more blocked or quarantined messages originating from this agent.</p>
+    <h2>Agent Risk Scores</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:4px">Higher scores mean more blocked or quarantined messages originating from this agent.</p>
+    <div style="font-size:0.68rem;color:var(--text3);margin-bottom:12px">Scale 0&ndash;100. <span style="color:var(--success)">&#9679;</span> Low &middot; <span style="color:var(--warn)">&#9679;</span> Medium &middot; <span style="color:var(--danger)">&#9679;</span> High</div>
     {{if .Graph.Nodes}}
     <table>
-      <thead><tr><th>Agent</th><th data-tooltip="Score based on ratio of blocked and quarantined messages">Threat</th><th>Sent</th><th>Recv</th><th data-tooltip="Agent's role in the communication network based on traffic patterns">Role</th></tr></thead>
+      <thead><tr><th>Agent</th><th data-tooltip="Score based on ratio of blocked and quarantined messages">Risk</th><th>Sent</th><th data-tooltip="Messages received by this agent">Received</th><th data-tooltip="Agent's role in the communication network based on traffic patterns">Role</th></tr></thead>
       <tbody>
       {{range .Graph.Nodes}}
       <tr class="clickable" onclick="location.href='/dashboard/agents/{{.Name}}'">
@@ -4811,7 +4840,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         </td>
         <td>{{.TotalSent}}</td>
         <td>{{.TotalRecv}}</td>
-        <td style="color:var(--text3)">{{if eq .Betweenness -1.0}}—{{else if gt .Betweenness 0.3}}Hub{{else if and (gt .TotalSent 0) (eq .TotalRecv 0)}}Producer{{else if and (eq .TotalSent 0) (gt .TotalRecv 0)}}Consumer{{else}}Peer{{end}}</td>
+        <td style="color:var(--text3)">{{if eq .Betweenness -1.0}}—{{else if gt .Betweenness 0.3}}Hub{{else if and (gt .TotalSent 0) (eq .TotalRecv 0)}}Sender{{else if and (eq .TotalSent 0) (gt .TotalRecv 0)}}Receiver{{else}}Peer{{end}}</td>
       </tr>
       {{end}}
       </tbody>
@@ -4820,17 +4849,16 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
   </div>
 
   <div class="card">
-    <h2>Edge Health</h2>
-    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Percentage of messages on each connection that were delivered successfully.</p>
+    <h2>Connection Health</h2>
+    <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Percentage of messages successfully delivered on each route.</p>
     {{if .Graph.Edges}}
     <table>
-      <thead><tr><th>From</th><th>To</th><th>Total</th><th data-tooltip="Ratio of delivered messages to total — lower scores indicate more blocked or quarantined traffic">Health</th></tr></thead>
+      <thead><tr><th>From</th><th>To</th><th data-tooltip="Ratio of delivered messages to total — lower scores indicate more blocked or quarantined traffic">Health</th></tr></thead>
       <tbody>
       {{range .Graph.Edges}}
       <tr class="clickable" hx-get="/dashboard/api/graph/edge?from={{.From}}&amp;to={{.To}}&amp;range={{$.Range}}" hx-target="#panel-content" hx-swap="innerHTML">
         <td>{{.From}}</td>
         <td>{{.To}}</td>
-        <td>{{.Total}}</td>
         <td>
           <div style="display:flex;align-items:center;gap:8px">
             <div class="risk-bar" style="width:60px">
@@ -4849,13 +4877,13 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 
 {{if .Graph.ShadowEdges}}
 <div class="card">
-  <h2 style="color:var(--warn)">Shadow Edges</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not defined in ACL policy. May indicate misconfiguration or unauthorized communication.</p>
+  <h2 style="color:var(--warn)">Unmonitored Routes</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not covered by any security rule.</p>
   <table>
-    <thead><tr><th>From</th><th>To</th><th>Messages</th></tr></thead>
+    <thead><tr><th>From</th><th>To</th><th>Messages</th><th></th></tr></thead>
     <tbody>
     {{range .Graph.ShadowEdges}}
-    <tr><td>{{.From}}</td><td>{{.To}}</td><td>{{.Total}}</td></tr>
+    <tr><td>{{.From}}</td><td>{{.To}}</td><td>{{.Total}}</td><td style="text-align:right"><a href="/dashboard/agents" style="color:var(--accent-light);font-size:0.75rem;text-decoration:none">Add rule &rarr;</a></td></tr>
     {{end}}
     </tbody>
   </table>
@@ -5038,7 +5066,7 @@ function toggleGraphSidebar() {
 
     // Column headers
     var headerFont='font-size:9px;fill:#52525b;font-family:ui-monospace,SFMono-Regular,monospace;letter-spacing:0.08em';
-    ['ORCHESTRATOR','AGENTS','TOOLS'].forEach(function(label,ci){
+    ['SOURCE','AGENTS','TOOLS'].forEach(function(label,ci){
       var hx=[COL1,COL2,COL3][ci];
       var ht=document.createElementNS(NS,'text');
       ht.setAttribute('x',hx); ht.setAttribute('y',24);
@@ -5470,11 +5498,11 @@ var gatewayTmpl = template.Must(template.New("gateway").Funcs(tmplFuncs).Parse(l
 .gw-panel{display:none}
 .gw-panel.active{display:block}
 </style>
-<p class="page-desc">The MCP gateway fronts backend MCP servers, applying security scanning and per-agent tool allowlists to every tool call.</p>
+<p class="page-desc">The Gateway is the secure checkpoint for all AI agent tool calls. Every tool your agents use passes through here for security scanning and access control.</p>
 
 <div class="gw-tabs" role="tablist">
   <button class="gw-tab {{if ne .Tab "discovery"}}active{{end}}" onclick="gwTab('config')">Configuration</button>
-  <button class="gw-tab {{if eq .Tab "discovery"}}active{{end}}" onclick="gwTab('discovery')">Discovery{{if .Discovered}} <span style="font-size:0.68rem;color:var(--text3)">({{len .Discovered}})</span>{{end}}</button>
+  <button class="gw-tab {{if eq .Tab "discovery"}}active{{end}}" onclick="gwTab('discovery')">Auto-detected{{if .Discovered}} <span style="font-size:0.68rem;color:var(--text3)">({{len .Discovered}})</span>{{end}}</button>
 </div>
 <script>
 function gwTab(name){
@@ -5490,77 +5518,72 @@ function gwTab(name){
 <div id="gw-config" class="gw-panel {{if ne .Tab "discovery"}}active{{end}}">
 <div class="card">
   <h2>Gateway Status</h2>
-  <p class="desc">
-    The gateway runs as a separate process (<code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:var(--accent-light)">oktsec gateway</code>). This dashboard manages its configuration.
-  </p>
-  <div style="display:flex;gap:24px;margin-bottom:12px">
-    <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Health</span>
-      <div style="margin-top:6px" id="gateway-health" hx-get="/dashboard/api/gateway/health" hx-trigger="load" hx-swap="innerHTML">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
+      <div style="color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Status</div>
+      <div id="gateway-health" hx-get="/dashboard/api/gateway/health" hx-trigger="load" hx-swap="innerHTML">
         <span style="color:var(--text3);font-size:0.85rem">checking...</span>
       </div>
     </div>
-    <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Listen</span>
-      <div style="font-size:1rem;font-weight:600;margin-top:4px;font-family:var(--mono)">{{if .Gateway.Bind}}{{.Gateway.Bind}}{{else}}127.0.0.1{{end}}:{{if .Gateway.Port}}{{.Gateway.Port}}{{else}}9090{{end}}</div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
+      <div style="color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Connected Servers</div>
+      <div style="font-size:1.2rem;font-weight:700">{{len .Servers}}</div>
     </div>
-    <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Endpoint</span>
-      <div style="font-size:1rem;font-weight:600;margin-top:4px;font-family:var(--mono)">{{if .Gateway.EndpointPath}}{{.Gateway.EndpointPath}}{{else}}/mcp{{end}}</div>
-    </div>
-    <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Backends</span>
-      <div style="font-size:1rem;font-weight:600;margin-top:4px">{{len .Servers}}</div>
-    </div>
-    <div>
-      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Dep Check</span>
-      <div style="font-size:1rem;font-weight:600;margin-top:4px">{{if .DepCheckEnabled}}<span style="color:var(--success)">active</span>{{else}}<span style="color:var(--text3)">off</span>{{end}}</div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
+      <div style="color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Listening on</div>
+      <div style="font-size:1.2rem;font-weight:700">Port {{if .Gateway.Port}}{{.Gateway.Port}}{{else}}9090{{end}}</div>
     </div>
   </div>
+  {{if eq (len .Servers) 0}}<div style="text-align:center;padding-bottom:8px"><a href="#add-server" class="btn btn-sm btn-outline" style="text-decoration:none">+ Add tool server</a></div>{{end}}
 </div>
 
 <div class="card">
   <h2>Configuration</h2>
-  <p class="desc">
-    Controls whether the gateway is active and how it processes MCP traffic. Changes are saved to <code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-size:var(--text-sm);font-family:var(--mono);color:var(--accent-light)">oktsec.yaml</code> and take effect on next gateway start.
-  </p>
+  <p class="desc">Changes take effect after the gateway restarts.</p>
   <form method="POST" action="/dashboard/gateway/settings">
-    <div style="display:flex;gap:32px;margin-bottom:20px">
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .Gateway.Enabled}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Gateway enabled</span>
+    <div style="display:flex;flex-direction:column;gap:0;margin-bottom:0">
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:14px 0;border-bottom:1px solid var(--border)">
+        <span class="toggle" style="margin-top:2px"><input type="checkbox" id="gw-master" name="enabled" value="true" {{if .Gateway.Enabled}}checked{{end}} onchange="var s=this.checked;document.getElementById('gw-secondary').style.opacity=s?'1':'0.4';document.getElementById('gw-secondary').style.pointerEvents=s?'auto':'none'"><span class="toggle-slider"></span></span>
+        <span><span style="font-size:0.88rem;font-weight:600;color:var(--text1)">Gateway active</span><div style="font-size:0.72rem;color:var(--text3);margin-top:2px">Route agent traffic through the security gateway</div></span>
       </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .Gateway.ScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Scan backend responses</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
-        <span class="toggle"><input type="checkbox" name="dep_check" value="true" {{if .Gateway.DepCheck}}checked{{end}}><span class="toggle-slider"></span></span>
-        <span style="font-size:0.85rem;color:var(--text2)">Dependency audit on startup</span>
-      </label>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Port</label>
-        <input type="number" name="port" value="{{.Gateway.Port}}" min="1" max="65535">
-      </div>
-      <div class="form-group">
-        <label>Bind Address</label>
-        <input type="text" name="bind" value="{{.Gateway.Bind}}" placeholder="127.0.0.1">
-      </div>
-      <div class="form-group">
-        <label>Endpoint Path</label>
-        <input type="text" name="endpoint_path" value="{{.Gateway.EndpointPath}}" placeholder="/mcp">
+      <div id="gw-secondary" style="display:flex;flex-direction:column;gap:0;{{if not .Gateway.Enabled}}opacity:0.4;pointer-events:none{{end}}">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:14px 0;border-bottom:1px solid var(--border)">
+          <span class="toggle" style="margin-top:2px"><input type="checkbox" name="scan_responses" value="true" {{if .Gateway.ScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
+          <span><span style="font-size:0.85rem;color:var(--text2)">Inspect tool responses</span><div style="font-size:0.72rem;color:var(--text3);margin-top:2px">Check what tools return to agents</div></span>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:14px 0;border-bottom:1px solid var(--border)">
+          <span class="toggle" style="margin-top:2px"><input type="checkbox" name="dep_check" value="true" {{if .Gateway.DepCheck}}checked{{end}}><span class="toggle-slider"></span></span>
+          <span><span style="font-size:0.85rem;color:var(--text2)">Verify tools on startup</span><div style="font-size:0.72rem;color:var(--text3);margin-top:2px">Check that connected tools are safe before accepting connections</div></span>
+        </label>
       </div>
     </div>
-    <button type="submit" class="btn btn-sm">Save Configuration</button>
+    <details style="margin-top:16px">
+      <summary style="font-size:0.72rem;color:var(--text3);cursor:pointer;user-select:none">Advanced connection settings</summary>
+      <div style="padding:12px 0">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Port</label>
+            <input type="number" name="port" value="{{.Gateway.Port}}" min="1" max="65535">
+          </div>
+          <div class="form-group">
+            <label>Bind Address</label>
+            <input type="text" name="bind" value="{{.Gateway.Bind}}" placeholder="127.0.0.1">
+          </div>
+          <div class="form-group">
+            <label>Endpoint Path</label>
+            <input type="text" name="endpoint_path" value="{{.Gateway.EndpointPath}}" placeholder="/mcp">
+          </div>
+        </div>
+      </div>
+    </details>
+    <button type="submit" class="btn btn-sm" style="margin-top:12px">Save Configuration</button>
   </form>
 </div>
 
-<div class="card">
-  <h2>Backend MCP Servers</h2>
+<div class="card" id="add-server">
+  <h2>Connected Tools</h2>
   <p class="desc">
-    Each backend server exposes MCP tools that agents can call through the gateway. The gateway auto-discovers tools from each server and applies security policies.
+    Add the tool servers your agents use. oktsec monitors all tool calls passing through them.
   </p>
   {{if .Servers}}
   <table>
@@ -5578,7 +5601,7 @@ function gwTab(name){
     </tbody>
   </table>
   {{else}}
-  <div class="empty">No MCP servers configured. Add one below to get started.</div>
+  <div class="empty">No tools connected yet. Add one below or import from the <a href="#" onclick="gwTab('discovery');return false" style="color:var(--accent-light);text-decoration:underline">Auto-detected</a> tab.</div>
   {{end}}
 
   <form method="POST" action="/dashboard/gateway/servers" class="inline-add">
@@ -5586,11 +5609,11 @@ function gwTab(name){
       <label>Name</label>
       <input type="text" name="name" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]*" placeholder="e.g. my-server">
     </div>
-    <div class="form-group" style="min-width:100px;flex:0.5">
+    <div class="form-group" style="min-width:180px;flex:0.7">
       <label>Transport</label>
-      <select name="transport" onchange="var s=this.value;document.getElementById('stdio-fields').style.display=s==='stdio'?'':'none';document.getElementById('http-fields').style.display=s==='http'?'':'none'">
-        <option value="stdio">stdio</option>
-        <option value="http">http</option>
+      <select name="transport" style="min-width:170px" onchange="var s=this.value;document.getElementById('stdio-fields').style.display=s==='stdio'?'':'none';document.getElementById('http-fields').style.display=s==='http'?'':'none'">
+        <option value="stdio">Local process (stdio)</option>
+        <option value="http">Remote server (HTTP)</option>
       </select>
     </div>
     <div class="form-group" style="flex:2" id="stdio-fields">
@@ -5609,20 +5632,21 @@ function gwTab(name){
 
 <div id="gw-discovery" class="gw-panel {{if eq .Tab "discovery"}}active{{end}}">
 <div class="card">
-  <h2>Discovered MCP Servers</h2>
+  <h2>Auto-detected Tools</h2>
   <p class="desc">
-    Servers found in local AI client configurations (Claude Desktop, Cursor, VS Code, Cline, Windsurf, etc.).
+    Tools found on this machine from AI client configurations (Claude Desktop, Cursor, VS Code, Cline, Windsurf, etc.).
   </p>
   {{if .Discovered}}
-  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Found {{len .Discovered}} unique server(s).</p>
+  <p style="color:var(--text3);font-size:0.78rem;margin-bottom:12px">Found {{len .Discovered}} tool server(s).</p>
   <table>
-    <thead><tr><th>Name</th><th>Client(s)</th><th>Command</th></tr></thead>
+    <thead><tr><th>Name</th><th>Client(s)</th><th>Command</th><th></th></tr></thead>
     <tbody>
     {{range .Discovered}}
     <tr>
       <td><strong>{{.Name}}</strong></td>
       <td>{{.Client}}</td>
       <td><code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{truncate .Command 80}}</code></td>
+      <td style="text-align:right"><button class="btn btn-sm btn-outline">Add to Gateway</button></td>
     </tr>
     {{end}}
     </tbody>
