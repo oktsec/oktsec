@@ -518,3 +518,98 @@ func TestApplyRuleOverrides(t *testing.T) {
 	assert.Equal(t, "PI-002", outcome.Findings[0].RuleID)
 	assert.Equal(t, engine.VerdictFlag, outcome.Verdict)
 }
+
+// --- Delegation scope verification tests ---
+
+func TestCheckResponseScope_AllowedToolReference(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "Successfully used Read to get the file contents"},
+		},
+	}
+	violation := checkResponseScope(result, []string{"Read", "Write"})
+	assert.Empty(t, violation, "reference to allowed tool should not trigger violation")
+}
+
+func TestCheckResponseScope_DisallowedToolReference(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "I ran a bash command to install the package"},
+		},
+	}
+	violation := checkResponseScope(result, []string{"Read", "Write"})
+	assert.NotEmpty(t, violation, "reference to disallowed tool should trigger violation")
+	assert.Contains(t, violation, "bash")
+}
+
+func TestCheckResponseScope_NoDelegationChain(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "bash exec deploy curl wget"},
+		},
+	}
+	// No allowed tools means no delegation restriction
+	violation := checkResponseScope(result, nil)
+	assert.Empty(t, violation, "nil allowed tools should skip check")
+}
+
+func TestCheckResponseScope_EmptyAllowedTools(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "bash exec deploy"},
+		},
+	}
+	violation := checkResponseScope(result, []string{})
+	assert.Empty(t, violation, "empty allowed tools should skip check")
+}
+
+func TestCheckResponseScope_EmptyResponse(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{},
+	}
+	violation := checkResponseScope(result, []string{"Read"})
+	assert.Empty(t, violation, "empty response should not trigger violation")
+}
+
+func TestCheckResponseScope_NilResult(t *testing.T) {
+	violation := checkResponseScope(nil, []string{"Read"})
+	assert.Empty(t, violation, "nil result should not trigger violation")
+}
+
+func TestCheckResponseScope_CaseInsensitive(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "Used BASH to run the script"},
+		},
+	}
+	// "Bash" is in allowed tools; indicator "bash" matches case-insensitively
+	violation := checkResponseScope(result, []string{"Bash", "Read"})
+	assert.Empty(t, violation, "case-insensitive match of allowed tool should not trigger violation")
+}
+
+func TestCheckResponseScope_MultipleViolations(t *testing.T) {
+	result := &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: "I used bash to deploy the application and sent a curl request"},
+		},
+	}
+	// Only Read is allowed -- bash, deploy, and curl are violations
+	violation := checkResponseScope(result, []string{"Read"})
+	assert.NotEmpty(t, violation, "should detect at least one violation")
+}
+
+func TestGateway_DelegationScopeDisabled(t *testing.T) {
+	cfg := defaultGatewayConfig()
+	// VerifyDelegationScope defaults to false -- no scope check even with delegation
+	gw := newTestGateway(t, cfg, map[string]*mcp.Server{
+		"echo": echoServer(),
+	})
+
+	handler := gw.makeHandler(gw.toolMap["echo"])
+	ctx := context.WithValue(context.Background(), agentContextKey, "test-agent")
+	// No delegation header, no scope check
+	req := makeHandlerRequest("echo", map[string]any{"text": "I ran bash and deployed via curl"})
+	result, err := handler(ctx, req)
+	require.NoError(t, err)
+	assert.False(t, result.IsError, "should succeed since scope check is disabled")
+}

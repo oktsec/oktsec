@@ -12,7 +12,7 @@ func TestEgressEvaluator_NoAgentConfig(t *testing.T) {
 		AllowedDomains: []string{"api.example.com"},
 		BlockedDomains: []string{"evil.com"},
 		ScanRequests:   true,
-	}, nil)
+	}, nil, nil)
 
 	p := eval.Resolve("unknown-agent")
 	assert.Equal(t, []string{"api.example.com"}, p.AllowedDomains)
@@ -27,7 +27,7 @@ func TestEgressEvaluator_AgentNoEgress(t *testing.T) {
 		ScanRequests:   true,
 	}, map[string]config.Agent{
 		"agent-a": {CanMessage: []string{"agent-b"}},
-	})
+	}, nil)
 
 	p := eval.Resolve("agent-a")
 	assert.Equal(t, []string{"global.com"}, p.AllowedDomains)
@@ -45,7 +45,7 @@ func TestEgressEvaluator_AdditiveDomains(t *testing.T) {
 				BlockedDomains: []string{"pastebin.com"},
 			},
 		},
-	})
+	}, nil)
 
 	p := eval.Resolve("researcher")
 	assert.Contains(t, p.AllowedDomains, "global.com")
@@ -65,7 +65,7 @@ func TestEgressEvaluator_GlobalBlocklistWins(t *testing.T) {
 				AllowedDomains: []string{"evil.com"}, // agent allows it, but global blocks
 			},
 		},
-	})
+	}, nil)
 
 	p := eval.Resolve("agent")
 	// evil.com is in both allowed (from agent) and blocked (from global)
@@ -92,7 +92,7 @@ func TestEgressEvaluator_BoolOverride(t *testing.T) {
 				// nil bools — should inherit global
 			},
 		},
-	})
+	}, nil)
 
 	p := eval.Resolve("override-both")
 	assert.False(t, p.ScanRequests)
@@ -117,7 +117,7 @@ func TestEgressEvaluator_RateLimit(t *testing.T) {
 				// no window — should default to 60
 			},
 		},
-	})
+	}, nil)
 
 	p := eval.Resolve("limited")
 	assert.Equal(t, 50, p.RateLimit)
@@ -135,7 +135,7 @@ func TestEgressEvaluator_BlockedCategories(t *testing.T) {
 				BlockedCategories: []string{"credentials", "pii"},
 			},
 		},
-	})
+	}, nil)
 
 	p := eval.Resolve("restricted")
 	assert.True(t, p.CategoryBlocked("credentials"))
@@ -209,4 +209,135 @@ func TestMergeUnique_Empty(t *testing.T) {
 
 	result = mergeUnique([]string{"a"}, nil)
 	assert.Equal(t, []string{"a"}, result)
+}
+
+// --- Trust boundary / scope tests ---
+
+func TestEgressEvaluator_ScopeInternal(t *testing.T) {
+	tb := &config.TrustBoundaries{
+		Internal: []string{"*.mycompany.com", "10.0.0.0/8", "github.com/myorg"},
+	}
+	eval := NewEgressEvaluator(&config.ForwardProxyConfig{}, map[string]config.Agent{
+		"agent-a": {
+			Egress: &config.EgressPolicy{
+				Scope: "internal",
+			},
+		},
+	}, tb)
+
+	p := eval.Resolve("agent-a")
+	assert.Equal(t, []string{"*.mycompany.com", "10.0.0.0/8", "github.com/myorg"}, p.AllowedDomains)
+}
+
+func TestEgressEvaluator_ScopeInternalPlusExtras(t *testing.T) {
+	tb := &config.TrustBoundaries{
+		Internal: []string{"*.mycompany.com", "10.0.0.0/8"},
+	}
+	eval := NewEgressEvaluator(&config.ForwardProxyConfig{}, map[string]config.Agent{
+		"agent-b": {
+			Egress: &config.EgressPolicy{
+				Scope: "internal+pypi.org,npmjs.com",
+			},
+		},
+	}, tb)
+
+	p := eval.Resolve("agent-b")
+	assert.Contains(t, p.AllowedDomains, "*.mycompany.com")
+	assert.Contains(t, p.AllowedDomains, "10.0.0.0/8")
+	assert.Contains(t, p.AllowedDomains, "pypi.org")
+	assert.Contains(t, p.AllowedDomains, "npmjs.com")
+	assert.Len(t, p.AllowedDomains, 4)
+}
+
+func TestEgressEvaluator_AllowedDomainsPrecedeOverScope(t *testing.T) {
+	tb := &config.TrustBoundaries{
+		Internal: []string{"*.mycompany.com", "10.0.0.0/8"},
+	}
+	eval := NewEgressEvaluator(&config.ForwardProxyConfig{}, map[string]config.Agent{
+		"agent-c": {
+			Egress: &config.EgressPolicy{
+				Scope:          "internal",
+				AllowedDomains: []string{"specific.api.com"},
+			},
+		},
+	}, tb)
+
+	p := eval.Resolve("agent-c")
+	// allowed_domains takes precedence: scope is ignored
+	assert.Equal(t, []string{"specific.api.com"}, p.AllowedDomains)
+}
+
+func TestEgressEvaluator_ScopeEmptyTrustBoundaries(t *testing.T) {
+	// Empty trust_boundaries with scope "internal" = no domains resolved from scope
+	eval := NewEgressEvaluator(&config.ForwardProxyConfig{}, map[string]config.Agent{
+		"agent-d": {
+			Egress: &config.EgressPolicy{
+				Scope: "internal",
+			},
+		},
+	}, nil)
+
+	p := eval.Resolve("agent-d")
+	// No trust boundaries defined, scope resolves to nothing
+	assert.Empty(t, p.AllowedDomains)
+}
+
+func TestEgressEvaluator_NoScope_BackwardsCompatible(t *testing.T) {
+	tb := &config.TrustBoundaries{
+		Internal: []string{"*.mycompany.com"},
+	}
+	eval := NewEgressEvaluator(&config.ForwardProxyConfig{
+		AllowedDomains: []string{"global.com"},
+	}, map[string]config.Agent{
+		"legacy": {
+			Egress: &config.EgressPolicy{
+				AllowedDomains: []string{"extra.com"},
+			},
+		},
+	}, tb)
+
+	p := eval.Resolve("legacy")
+	// Trust boundaries exist but agent has no scope: existing behavior unchanged
+	assert.Contains(t, p.AllowedDomains, "global.com")
+	assert.Contains(t, p.AllowedDomains, "extra.com")
+	assert.Len(t, p.AllowedDomains, 2)
+}
+
+func TestEgressEvaluator_ScopeWithGlobalDomains(t *testing.T) {
+	tb := &config.TrustBoundaries{
+		Internal: []string{"internal.corp.com"},
+	}
+	eval := NewEgressEvaluator(&config.ForwardProxyConfig{
+		AllowedDomains: []string{"global.com"},
+	}, map[string]config.Agent{
+		"mixed": {
+			Egress: &config.EgressPolicy{
+				Scope: "internal+pypi.org",
+			},
+		},
+	}, tb)
+
+	p := eval.Resolve("mixed")
+	// Global domains + scope-resolved domains (internal + extras)
+	assert.Contains(t, p.AllowedDomains, "global.com")
+	assert.Contains(t, p.AllowedDomains, "internal.corp.com")
+	assert.Contains(t, p.AllowedDomains, "pypi.org")
+	assert.Len(t, p.AllowedDomains, 3)
+}
+
+func TestEgressEvaluator_ScopeInternalEmptyInternal(t *testing.T) {
+	// trust_boundaries defined but internal list is empty
+	tb := &config.TrustBoundaries{
+		Internal: []string{},
+	}
+	eval := NewEgressEvaluator(&config.ForwardProxyConfig{}, map[string]config.Agent{
+		"agent": {
+			Egress: &config.EgressPolicy{
+				Scope: "internal",
+			},
+		},
+	}, tb)
+
+	p := eval.Resolve("agent")
+	assert.Empty(t, p.AllowedDomains)
 }

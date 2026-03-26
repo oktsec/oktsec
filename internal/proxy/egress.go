@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"log/slog"
 	"net"
 	"strings"
 
@@ -21,13 +22,15 @@ type ResolvedEgressPolicy struct {
 
 // EgressEvaluator merges global forward proxy config with per-agent egress policies.
 type EgressEvaluator struct {
-	global *config.ForwardProxyConfig
-	agents map[string]config.Agent
+	global          *config.ForwardProxyConfig
+	agents          map[string]config.Agent
+	trustBoundaries *config.TrustBoundaries
 }
 
-// NewEgressEvaluator creates an evaluator from the global config and agents map.
-func NewEgressEvaluator(global *config.ForwardProxyConfig, agents map[string]config.Agent) *EgressEvaluator {
-	return &EgressEvaluator{global: global, agents: agents}
+// NewEgressEvaluator creates an evaluator from the global config, agents map,
+// and optional trust boundaries (nil is safe).
+func NewEgressEvaluator(global *config.ForwardProxyConfig, agents map[string]config.Agent, tb *config.TrustBoundaries) *EgressEvaluator {
+	return &EgressEvaluator{global: global, agents: agents, trustBoundaries: tb}
 }
 
 // Resolve merges the global forward proxy config with the agent's egress policy.
@@ -51,6 +54,13 @@ func (e *EgressEvaluator) Resolve(agentName string) *ResolvedEgressPolicy {
 	if len(eg.Integrations) > 0 {
 		presetDomains := config.ResolveIntegrationDomains(eg.Integrations)
 		p.AllowedDomains = mergeUnique(p.AllowedDomains, presetDomains)
+	}
+
+	// Resolve scope-based trust boundaries (only when allowed_domains is empty).
+	// Explicit allowed_domains takes precedence over scope.
+	if len(eg.AllowedDomains) == 0 && eg.Scope != "" {
+		scopeDomains := e.resolveScope(eg.Scope)
+		p.AllowedDomains = mergeUnique(p.AllowedDomains, scopeDomains)
 	}
 
 	// Per-agent domains are additive to global + presets
@@ -85,6 +95,40 @@ func (e *EgressEvaluator) Resolve(agentName string) *ResolvedEgressPolicy {
 	}
 
 	return p
+}
+
+// resolveScope expands an egress scope string into a list of allowed domains.
+// Supported formats:
+//   - "internal"                  → trust_boundaries.internal domains
+//   - "internal+extra.com,other"  → internal domains + the extra domains
+func (e *EgressEvaluator) resolveScope(scope string) []string {
+	var domains []string
+
+	base := scope
+	var extras string
+	if idx := strings.Index(scope, "+"); idx >= 0 {
+		base = scope[:idx]
+		extras = scope[idx+1:]
+	}
+
+	if base == "internal" {
+		if e.trustBoundaries != nil && len(e.trustBoundaries.Internal) > 0 {
+			domains = append(domains, e.trustBoundaries.Internal...)
+		} else {
+			slog.Warn("egress scope references 'internal' but trust_boundaries.internal is empty")
+		}
+	}
+
+	if extras != "" {
+		for _, d := range strings.Split(extras, ",") {
+			d = strings.TrimSpace(d)
+			if d != "" {
+				domains = append(domains, d)
+			}
+		}
+	}
+
+	return domains
 }
 
 // DomainAllowed checks a host against the resolved policy.

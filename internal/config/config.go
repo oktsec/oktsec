@@ -10,14 +10,22 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// TrustBoundaries defines named network scopes that agents can reference
+// via the egress "scope" field, avoiding repetitive domain lists.
+// "internal" is the only named scope; everything else is implicitly external.
+type TrustBoundaries struct {
+	Internal []string `yaml:"internal,omitempty"` // domains/CIDRs considered internal
+}
+
 // Config is the top-level oktsec configuration.
 type Config struct {
-	Version        string                         `yaml:"version"`
-	Server         ServerConfig                   `yaml:"server"`
-	Identity       IdentityConfig                 `yaml:"identity"`
-	DefaultPolicy  string                         `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
-	Agents         map[string]Agent               `yaml:"agents"`
-	Rules          []RuleAction                   `yaml:"rules"`
+	Version          string                         `yaml:"version"`
+	Server           ServerConfig                   `yaml:"server"`
+	Identity         IdentityConfig                 `yaml:"identity"`
+	TrustBoundaries  TrustBoundaries                `yaml:"trust_boundaries,omitempty"`
+	DefaultPolicy    string                         `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
+	Agents           map[string]Agent               `yaml:"agents"`
+	Rules            []RuleAction                   `yaml:"rules"`
 	Webhooks         []Webhook                      `yaml:"webhooks"`
 	CategoryWebhooks []CategoryWebhook              `yaml:"category_webhooks,omitempty"`
 	DBBackend        string                         `yaml:"db_backend,omitempty"`  // "sqlite" (default) or "postgres"
@@ -61,6 +69,7 @@ type LLMConfig struct {
 
 	Analyze          LLMAnalyzeConfig  `yaml:"analyze,omitempty"`
 	Triage           LLMTriageConfig   `yaml:"triage,omitempty"`
+	TwoStage         bool              `yaml:"two_stage,omitempty"`          // enable two-stage classification (fast check + full analysis)
 	MinContentLength int              `yaml:"min_content_length,omitempty"` // skip short messages
 
 	Budget     LLMBudgetConfig     `yaml:"budget,omitempty"`
@@ -218,6 +227,7 @@ type ToolPolicy struct {
 type EgressPolicy struct {
 	AllowedDomains    []string            `yaml:"allowed_domains,omitempty"`
 	BlockedDomains    []string            `yaml:"blocked_domains,omitempty"`
+	Scope             string              `yaml:"scope,omitempty"` // "internal" or "internal+domain1,domain2"; uses trust_boundaries
 	ToolRestrictions  map[string][]string `yaml:"tool_restrictions,omitempty"` // tool -> allowed domains (empty = no egress for that tool)
 	ScanRequests      *bool               `yaml:"scan_requests,omitempty"`
 	ScanResponses     *bool               `yaml:"scan_responses,omitempty"`
@@ -314,12 +324,13 @@ type ForwardProxyConfig struct {
 
 // GatewayConfig configures the MCP gateway mode.
 type GatewayConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	Port          int    `yaml:"port"`            // default 9090
-	Bind          string `yaml:"bind"`            // default 127.0.0.1
-	EndpointPath  string `yaml:"endpoint_path"`   // default /mcp
-	ScanResponses bool   `yaml:"scan_responses"`  // scan backend responses
-	DepCheck      bool   `yaml:"dep_check,omitempty"` // hash dependency manifests on startup
+	Enabled                bool   `yaml:"enabled"`
+	Port                   int    `yaml:"port"`                      // default 9090
+	Bind                   string `yaml:"bind"`                      // default 127.0.0.1
+	EndpointPath           string `yaml:"endpoint_path"`             // default /mcp
+	ScanResponses          bool   `yaml:"scan_responses"`            // scan backend responses
+	DepCheck               bool   `yaml:"dep_check,omitempty"`       // hash dependency manifests on startup
+	VerifyDelegationScope  bool   `yaml:"verify_delegation_scope,omitempty"` // check response stays within delegated tool/agent scope
 }
 
 // MCPServerConfig defines a backend MCP server to proxy through the gateway.

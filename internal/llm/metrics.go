@@ -63,6 +63,13 @@ var (
 		Help:      "Number of times LLM budget limit was hit.",
 	})
 
+	llmStage1Total = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "oktsec",
+		Subsystem: "llm",
+		Name:      "stage1_total",
+		Help:      "Two-stage classification Stage 1 results (clean skips full analysis, flagged proceeds).",
+	}, []string{"result"})
+
 	llmFallbackTotal = promauto.NewCounter(prometheus.CounterOpts{
 		Namespace: "oktsec",
 		Subsystem: "llm",

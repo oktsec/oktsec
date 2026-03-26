@@ -46,6 +46,7 @@ func SetupQueue(cfg config.LLMConfig, logger *slog.Logger) (*Queue, *SignalDetec
 		Workers:      cfg.MaxConcurrent,
 		BufferSize:   cfg.QueueSize,
 		MaxDailyReqs: cfg.MaxDailyReqs,
+		TwoStage:     cfg.TwoStage,
 	}
 	queue := NewQueue(analyzer, queueCfg, logger)
 
@@ -63,6 +64,10 @@ func SetupQueue(cfg config.LLMConfig, logger *slog.Logger) (*Queue, *SignalDetec
 	if cfg.Triage.Enabled {
 		sd = NewSignalDetector(cfg.Triage)
 		logger.Info("llm triage enabled", "sample_rate", cfg.Triage.SampleRate)
+	}
+
+	if cfg.TwoStage {
+		logger.Info("llm two-stage classification enabled")
 	}
 
 	logger.Info("llm analysis enabled",

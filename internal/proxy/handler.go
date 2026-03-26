@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,6 +44,8 @@ type MessageResponse struct {
 	VerifiedSender bool                    `json:"verified_sender"`
 	QuarantineID   string                  `json:"quarantine_id,omitempty"`
 	ExpiresAt      string                  `json:"expires_at,omitempty"`
+	Remediation    string                  `json:"remediation,omitempty"`
+	Suggestion     string                  `json:"suggestion,omitempty"`
 }
 
 // Handler processes /v1/message requests through the full pipeline.
@@ -60,21 +63,25 @@ type Handler struct {
 	signalDetector      *llm.SignalDetector     // nil if triage disabled
 	escalationTracker   *llm.EscalationTracker  // nil if LLM escalation disabled
 	logger              *slog.Logger
+
+	denialMu           sync.Mutex
+	consecutiveDenials map[string]int // key: "agent:session"
 }
 
 // NewHandler creates a message handler with all dependencies.
 func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluator, scanner *engine.Scanner, auditStore *audit.Store, webhooks *WebhookNotifier, logger *slog.Logger) *Handler {
 	return &Handler{
-		cfg:         cfg,
-		keys:        keys,
-		policy:      pol,
-		scanner:     scanner,
-		audit:       auditStore,
-		webhooks:    webhooks,
-		rateLimiter: NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
-		window:      NewMessageWindow(10, time.Hour),
-		sessions:    newSessionStore(sessionDefaultTTL),
-		logger:      logger,
+		cfg:                cfg,
+		keys:               keys,
+		policy:             pol,
+		scanner:            scanner,
+		audit:              auditStore,
+		webhooks:           webhooks,
+		rateLimiter:        NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
+		window:             NewMessageWindow(10, time.Hour),
+		sessions:           newSessionStore(sessionDefaultTTL),
+		logger:             logger,
+		consecutiveDenials: make(map[string]int),
 	}
 }
 
@@ -258,7 +265,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.notifyIfSevere(outcome.Verdict, status, msgID, req, outcome.Findings)
 	h.notifyByRuleOverrides(msgID, req, outcome.Findings)
 
-	writeJSON(w, httpStatus, MessageResponse{
+	resp := MessageResponse{
 		Status:         status,
 		MessageID:      msgID,
 		PolicyDecision: policyDecision,
@@ -266,7 +273,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		VerifiedSender: verified,
 		QuarantineID:   qr.ID,
 		ExpiresAt:      qr.ExpiresAt,
-	})
+	}
+
+	// Add remediation guidance for block/quarantine verdicts
+	if outcome.Verdict == engine.VerdictBlock || outcome.Verdict == engine.VerdictQuarantine {
+		resp.Remediation = topRemediation(outcome.Findings)
+		resp.Suggestion = suggestionForDecision(policyDecision)
+		h.recordDenial(req.From, entry.SessionID)
+	} else {
+		h.resetDenials(req.From, entry.SessionID)
+	}
+
+	writeJSON(w, httpStatus, resp)
 
 	// Stage 10: Async LLM analysis (non-blocking, after response sent)
 	if h.llmQueue != nil {
@@ -372,6 +390,13 @@ func (h *Handler) rejectAndLog(w http.ResponseWriter, httpStatus int, resp Messa
 	entry.PolicyDecision = resp.PolicyDecision
 	entry.LatencyMs = time.Since(start).Milliseconds()
 	h.audit.Log(*entry)
+
+	// Add suggestion guidance for the policy decision
+	resp.Suggestion = suggestionForDecision(resp.PolicyDecision)
+
+	// Track consecutive denials per agent+session
+	h.recordDenial(entry.FromAgent, entry.SessionID)
+
 	writeJSON(w, httpStatus, resp)
 }
 
@@ -735,6 +760,100 @@ func scopeAllowsRecipient(scope []string, recipient string) bool {
 		}
 	}
 	return false
+}
+
+// topRemediation returns the remediation text from the highest-severity
+// finding. Severity order: critical > high > medium > low > info.
+func topRemediation(findings []engine.FindingSummary) string {
+	if len(findings) == 0 {
+		return ""
+	}
+	best := findings[0]
+	for _, f := range findings[1:] {
+		if severityRank(f.Severity) > severityRank(best.Severity) {
+			best = f
+		}
+	}
+	return best.Remediation
+}
+
+// severityRank returns a numeric rank for severity comparison.
+func severityRank(s string) int {
+	switch strings.ToLower(s) {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// suggestionForDecision returns generic guidance for the given policy decision
+// so agents know what to try instead of retrying the same blocked action.
+func suggestionForDecision(decision string) string {
+	switch decision {
+	case audit.DecisionContentBlocked:
+		return "Review the flagged patterns and rephrase without shell metacharacters, credential references, or injection patterns."
+	case audit.DecisionContentQuarantined:
+		return "The message has been held for human review. Rephrase to avoid suspicious patterns, or wait for an operator to release it."
+	case audit.DecisionIdentityRejected:
+		return "Provide a valid Ed25519 signature. Verify the signing key matches the registered public key for this agent."
+	case audit.DecisionSignatureRequired:
+		return "This proxy requires signed messages. Include an Ed25519 signature in the request."
+	case audit.DecisionDelegationInvalid:
+		return "Provide a valid delegation chain with current, non-expired tokens."
+	case audit.DecisionDelegationRequired:
+		return "This proxy requires delegation chains. Include a valid X-Oktsec-Delegation header."
+	case audit.DecisionACLDenied:
+		return "This agent is not authorized to message this recipient. Check the ACL configuration."
+	case audit.DecisionAgentSuspended:
+		return "This agent has been suspended. Contact an administrator to restore access."
+	case audit.DecisionRecipientSuspended:
+		return "The recipient agent is suspended. Try a different recipient or contact an administrator."
+	default:
+		return ""
+	}
+}
+
+// denialKey builds a key for the consecutive denial tracker from agent + session.
+func denialKey(agent, session string) string {
+	return agent + ":" + session
+}
+
+// recordDenial increments the consecutive denial counter for an agent session.
+// Logs a warning when the agent has been repeatedly blocked (3+ times).
+func (h *Handler) recordDenial(agent, session string) {
+	h.denialMu.Lock()
+	defer h.denialMu.Unlock()
+	key := denialKey(agent, session)
+	h.consecutiveDenials[key]++
+	count := h.consecutiveDenials[key]
+	if count >= 3 {
+		h.logger.Warn("agent repeatedly blocked",
+			"agent", agent,
+			"session", session,
+			"consecutive_denials", count,
+		)
+	}
+}
+
+// resetDenials resets the consecutive denial counter on successful delivery.
+func (h *Handler) resetDenials(agent, session string) {
+	h.denialMu.Lock()
+	defer h.denialMu.Unlock()
+	delete(h.consecutiveDenials, denialKey(agent, session))
+}
+
+// consecutiveDenialCount returns the current count for testing.
+func (h *Handler) consecutiveDenialCount(agent, session string) int {
+	h.denialMu.Lock()
+	defer h.denialMu.Unlock()
+	return h.consecutiveDenials[denialKey(agent, session)]
 }
 
 func sha256Hash(s string) string {

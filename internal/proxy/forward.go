@@ -35,7 +35,7 @@ type ForwardProxy struct {
 }
 
 // NewForwardProxy creates a forward proxy with scanning and audit capabilities.
-func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter *RateLimiter, agents map[string]config.Agent, logger *slog.Logger) *ForwardProxy {
+func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter *RateLimiter, agents map[string]config.Agent, logger *slog.Logger, tb *config.TrustBoundaries) *ForwardProxy {
 	// When an upstream proxy is configured (e.g., inside Docker Sandbox),
 	// the transport dials the proxy, not the target. Use standard dialer
 	// for proxy connections; SSRF checks are applied at handler level.
@@ -52,7 +52,7 @@ func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, au
 		scanner:       scanner,
 		audit:         auditStore,
 		rateLimiter:   rateLimiter,
-		egressEval:    NewEgressEvaluator(cfg, agents),
+		egressEval:    NewEgressEvaluator(cfg, agents, tb),
 		agentLimiters: make(map[string]*RateLimiter),
 		logger:        logger,
 		upstreamProxy: upstream,

@@ -18,6 +18,9 @@ type Queue struct {
 	onResult func(AnalysisResult)
 	onError  func(AnalysisRequest, error)
 
+	// Two-stage classification
+	twoStage bool
+
 	// Cost control
 	maxDaily   int64
 	dailyCount atomic.Int64
@@ -26,10 +29,12 @@ type Queue struct {
 	budget     *BudgetTracker
 
 	// Stats
-	completed atomic.Int64
-	dropped   atomic.Int64
-	totalMs   atomic.Int64
-	errCount  atomic.Int64
+	completed     atomic.Int64
+	dropped       atomic.Int64
+	totalMs       atomic.Int64
+	errCount      atomic.Int64
+	stage1Clean   atomic.Int64
+	stage1Flagged atomic.Int64
 
 	// Lifecycle
 	workers int
@@ -42,6 +47,7 @@ type QueueConfig struct {
 	Workers      int   // concurrent analysis workers (default: 3)
 	BufferSize   int   // channel buffer (default: 100)
 	MaxDailyReqs int64 // 0 = unlimited
+	TwoStage     bool  // enable two-stage classification (fast check + full analysis)
 }
 
 // NewQueue creates an analysis queue.
@@ -58,6 +64,7 @@ func NewQueue(analyzer Analyzer, cfg QueueConfig, logger *slog.Logger) *Queue {
 		ch:         make(chan AnalysisRequest, cfg.BufferSize),
 		logger:     logger,
 		workers:    cfg.Workers,
+		twoStage:   cfg.TwoStage,
 		maxDaily:   cfg.MaxDailyReqs,
 		dailyReset: nextMidnight(),
 	}
@@ -163,6 +170,36 @@ func (q *Queue) worker(ctx context.Context) {
 func (q *Queue) process(ctx context.Context, req AnalysisRequest) {
 	q.dailyCount.Add(1)
 
+	// Stage 1: Fast check (if two-stage is enabled and provider supports it)
+	if q.twoStage {
+		if fc, ok := q.analyzer.(FastChecker); ok {
+			suspicious, err := fc.FastCheck(ctx, req)
+			if err != nil {
+				// Log error, fall through to full analysis as safety net
+				q.logger.Warn("stage 1 fast check failed, running full analysis",
+					"message_id", req.MessageID,
+					"error", err,
+				)
+				llmStage1Total.WithLabelValues("error").Inc()
+			} else if !suspicious {
+				// Stage 1 says clean — skip Stage 2
+				q.stage1Clean.Add(1)
+				llmStage1Total.WithLabelValues("clean").Inc()
+				q.logger.Debug("stage 1 cleared message, skipping full analysis",
+					"message_id", req.MessageID,
+				)
+				return
+			} else {
+				q.stage1Flagged.Add(1)
+				llmStage1Total.WithLabelValues("flagged").Inc()
+				q.logger.Info("stage 1 flagged message, running full analysis",
+					"message_id", req.MessageID,
+				)
+			}
+		}
+	}
+
+	// Stage 2: Full analysis
 	result, err := q.analyzer.Analyze(ctx, req)
 	if err != nil {
 		q.errCount.Add(1)
@@ -216,14 +253,16 @@ func (q *Queue) Stop() {
 
 // QueueStats holds queue statistics.
 type QueueStats struct {
-	Pending    int    `json:"pending"`
-	Completed  int64  `json:"completed"`
-	Errors     int64  `json:"errors"`
-	Dropped    int64  `json:"dropped"`
-	DailyCount int64  `json:"daily_count"`
-	DailyLimit int64  `json:"daily_limit"`
-	AvgLatency int64  `json:"avg_latency_ms"`
-	Provider   string `json:"provider"`
+	Pending       int    `json:"pending"`
+	Completed     int64  `json:"completed"`
+	Errors        int64  `json:"errors"`
+	Dropped       int64  `json:"dropped"`
+	DailyCount    int64  `json:"daily_count"`
+	DailyLimit    int64  `json:"daily_limit"`
+	AvgLatency    int64  `json:"avg_latency_ms"`
+	Provider      string `json:"provider"`
+	Stage1Clean   int64  `json:"stage1_clean,omitempty"`
+	Stage1Flagged int64  `json:"stage1_flagged,omitempty"`
 }
 
 // Stats returns queue statistics.
@@ -234,14 +273,16 @@ func (q *Queue) Stats() QueueStats {
 		avgMs = q.totalMs.Load() / completed
 	}
 	return QueueStats{
-		Pending:    len(q.ch),
-		Completed:  completed,
-		Errors:     q.errCount.Load(),
-		Dropped:    q.dropped.Load(),
-		DailyCount: q.dailyCount.Load(),
-		DailyLimit: q.maxDaily,
-		AvgLatency: avgMs,
-		Provider:   q.analyzer.Name(),
+		Pending:       len(q.ch),
+		Completed:     completed,
+		Errors:        q.errCount.Load(),
+		Dropped:       q.dropped.Load(),
+		DailyCount:    q.dailyCount.Load(),
+		DailyLimit:    q.maxDaily,
+		AvgLatency:    avgMs,
+		Provider:      q.analyzer.Name(),
+		Stage1Clean:   q.stage1Clean.Load(),
+		Stage1Flagged: q.stage1Flagged.Load(),
 	}
 }
 
