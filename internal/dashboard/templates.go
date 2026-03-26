@@ -1025,6 +1025,7 @@ a.ov-metric:hover{background:var(--surface2)}
       <span class="k">AI analysis</span>
       <span class="v {{if gt .LLMThreats 5}}warn{{else if gt .LLMThreats 0}}text-secondary{{end}}">{{.LLMThreats}} <span style="color:var(--text3);font-size:var(--text-xs);font-weight:400">findings</span></span>
     </a>
+    {{if .LLMTwoStage}}<div class="ov-metric"><span class="k">Stage 1 savings</span><span class="v"><span style="color:var(--success)">{{.LLMStage1Clean}}</span> skipped full analysis</span></div>{{end}}
     {{end}}
   </div>
 </div>
@@ -3269,6 +3270,18 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     </div>
     <div class="st-item-value"><span style="font-size:0.68rem;color:var(--text3)">restart to change</span></div>
   </div>
+  <div class="st-item" style="flex-wrap:wrap">
+    <div class="st-item-info">
+      <div class="st-item-name">Trust Boundaries</div>
+      <div class="st-item-desc">Internal domains and CIDRs used by scope-based egress policies</div>
+    </div>
+    <div class="st-item-value"><span class="val">{{.TrustBoundariesCount}} defined</span></div>
+  </div>
+  {{if .TrustBoundariesInternal}}
+  <div style="padding:0 16px 12px;display:flex;flex-wrap:wrap;gap:6px">
+    {{range .TrustBoundariesInternal}}<code style="font-size:0.7rem;padding:2px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px">{{.}}</code>{{end}}
+  </div>
+  {{end}}
 </div>
 
 <!-- Protection -->
@@ -4049,6 +4062,12 @@ tqApply();
       <label style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;border:1px solid {{if .Cfg.Analyze.Blocked}}var(--danger){{else}}var(--border){{end}};cursor:pointer;{{if .Cfg.Analyze.Blocked}}background:rgba(239,68,68,0.06){{end}}">
         <span class="toggle"><input type="checkbox" name="analyze_blocked" value="true" {{if .Cfg.Analyze.Blocked}}checked{{end}}><span class="toggle-slider"></span></span>
         <div><div style="font-size:0.82rem;font-weight:500">Blocked</div></div>
+      </label>
+    </div>
+    <div style="margin-top:14px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="two_stage" value="true" {{if .Cfg.TwoStage}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Two-stage classification (fast filter before full analysis)</span>
       </label>
     </div>
   </div>
@@ -5493,6 +5512,10 @@ function gwTab(name){
       <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Backends</span>
       <div style="font-size:1rem;font-weight:600;margin-top:4px">{{len .Servers}}</div>
     </div>
+    <div>
+      <span style="color:var(--text3);font-size:0.72rem;text-transform:uppercase;letter-spacing:1px">Dep Check</span>
+      <div style="font-size:1rem;font-weight:600;margin-top:4px">{{if .DepCheckEnabled}}<span style="color:var(--success)">active</span>{{else}}<span style="color:var(--text3)">off</span>{{end}}</div>
+    </div>
   </div>
 </div>
 
@@ -5510,6 +5533,10 @@ function gwTab(name){
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
         <span class="toggle"><input type="checkbox" name="scan_responses" value="true" {{if .Gateway.ScanResponses}}checked{{end}}><span class="toggle-slider"></span></span>
         <span style="font-size:0.85rem;color:var(--text2)">Scan backend responses</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span class="toggle"><input type="checkbox" name="dep_check" value="true" {{if .Gateway.DepCheck}}checked{{end}}><span class="toggle-slider"></span></span>
+        <span style="font-size:0.85rem;color:var(--text2)">Dependency audit on startup</span>
       </label>
     </div>
     <div class="form-row">
@@ -5537,13 +5564,14 @@ function gwTab(name){
   </p>
   {{if .Servers}}
   <table>
-    <thead><tr><th>Name</th><th>Transport</th><th>Target</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Transport</th><th>Target</th><th>Sandbox</th><th></th></tr></thead>
     <tbody>
     {{range .Servers}}
     <tr id="server-row-{{.Name}}" class="clickable" onclick="window.location='/dashboard/gateway/servers/{{.Name}}'">
       <td style="font-weight:600"><a href="/dashboard/gateway/servers/{{.Name}}" style="color:var(--accent-light);text-decoration:none">{{.Name}}</a></td>
       <td><span class="badge-{{if eq .Transport "stdio"}}delivered{{else}}quarantined{{end}}" style="font-size:0.7rem">{{.Transport}}</span></td>
       <td style="color:var(--text3);font-family:var(--mono);font-size:0.8rem">{{if eq .Transport "stdio"}}{{.Command}}{{else}}{{.URL}}{{end}}</td>
+      <td>{{if .EgressSandbox}}<span style="color:var(--success)">&#9679;</span>{{else}}<span style="color:var(--text3)">&mdash;</span>{{end}}</td>
       <td style="text-align:right" onclick="event.stopPropagation()"><button class="btn btn-sm btn-danger" hx-delete="/dashboard/gateway/servers/{{.Name}}" hx-confirm="Delete server {{.Name}}?" hx-target="#server-row-{{.Name}}" hx-swap="outerHTML swap:200ms">delete</button></td>
     </tr>
     {{end}}
@@ -5630,6 +5658,8 @@ var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tm
     {{if .Server.Headers}}<tr><td style="color:var(--text3);font-weight:600">Headers</td><td>{{range $k, $v := .Server.Headers}}<code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.78rem">{{$k}}: {{$v}}</code><br>{{end}}</td></tr>{{end}}
     {{end}}
     {{if .Server.Env}}<tr><td style="color:var(--text3);font-weight:600">Env vars</td><td>{{range $k, $v := .Server.Env}}<code style="background:var(--surface);padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.78rem">{{$k}}={{$v}}</code><br>{{end}}</td></tr>{{end}}
+    {{if .Server.EgressSandbox}}<tr><td style="color:var(--text3);font-weight:600">Egress Sandbox</td><td><span style="color:var(--success);font-weight:600">enabled</span> &middot; HTTP traffic routes through proxy</td></tr>{{else}}<tr><td style="color:var(--text3);font-weight:600">Egress Sandbox</td><td><span style="color:var(--text3)">disabled</span></td></tr>{{end}}
+    {{if .Server.WorkingDir}}<tr><td style="color:var(--text3);font-weight:600">Working Dir</td><td><code style="font-size:0.72rem">{{.Server.WorkingDir}}</code></td></tr>{{end}}
     </tbody>
   </table>
 </div>

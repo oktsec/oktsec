@@ -2835,6 +2835,9 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"PGSSLMode":            parsePGField(s.cfg.DBDSN, "sslmode"),
 		"GatewayEnabled":       s.cfg.Gateway.Enabled,
 		"GatewayPort":          s.cfg.Gateway.Port,
+
+		"TrustBoundariesInternal": s.cfg.TrustBoundaries.Internal,
+		"TrustBoundariesCount":    len(s.cfg.TrustBoundaries.Internal),
 	}
 
 	s.renderTemplate(w, settingsTmpl, data)
@@ -3220,6 +3223,7 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 	s.cfg.LLM.Analyze.Flagged = r.FormValue("analyze_flagged") == "true"
 	s.cfg.LLM.Analyze.Quarantined = r.FormValue("analyze_quarantined") == "true"
 	s.cfg.LLM.Analyze.Blocked = r.FormValue("analyze_blocked") == "true"
+	s.cfg.LLM.TwoStage = r.FormValue("two_stage") == "true"
 
 	// Budget limits
 	if v := r.FormValue("budget_daily"); v != "" {
@@ -3585,6 +3589,12 @@ func (s *Server) populateLLMStats(data map[string]any) {
 		data["LLMAvgRisk"] = 0.0
 		data["LLMTokens"] = 0
 		data["LLMRulesGen"] = 0
+	}
+	data["LLMTwoStage"] = s.cfg.LLM.TwoStage
+	if s.llmQueue != nil {
+		qs := s.llmQueue.Stats()
+		data["LLMStage1Clean"] = qs.Stage1Clean
+		data["LLMStage1Flagged"] = qs.Stage1Flagged
 	}
 }
 
@@ -4013,20 +4023,22 @@ type toolInventoryServer struct {
 // --- Gateway handlers ---
 
 type mcpServerRow struct {
-	Name      string
-	Transport string
-	Command   string
-	URL       string
+	Name          string
+	Transport     string
+	Command       string
+	URL           string
+	EgressSandbox bool
 }
 
 func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 	var servers []mcpServerRow
 	for name, srv := range s.cfg.MCPServers {
 		servers = append(servers, mcpServerRow{
-			Name:      name,
-			Transport: srv.Transport,
-			Command:   srv.Command,
-			URL:       srv.URL,
+			Name:          name,
+			Transport:     srv.Transport,
+			Command:       srv.Command,
+			URL:           srv.URL,
+			EgressSandbox: srv.EgressSandbox,
 		})
 	}
 	sort.Slice(servers, func(i, j int) bool { return servers[i].Name < servers[j].Name })
@@ -4060,11 +4072,12 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 
 	gw := s.cfg.Gateway
 	data := map[string]any{
-		"Active":     "gateway",
-		"Gateway":    gw,
-		"Servers":    servers,
-		"Discovered": discovered,
-		"Tab":        r.URL.Query().Get("tab"),
+		"Active":          "gateway",
+		"Gateway":         gw,
+		"Servers":         servers,
+		"Discovered":      discovered,
+		"Tab":             r.URL.Query().Get("tab"),
+		"DepCheckEnabled": s.cfg.Gateway.DepCheck,
 	}
 	s.renderTemplate(w, gatewayTmpl, data)
 }
@@ -4075,6 +4088,7 @@ func (s *Server) handleSaveGatewaySettings(w http.ResponseWriter, r *http.Reques
 
 	s.cfg.Gateway.Enabled = nowEnabled
 	s.cfg.Gateway.ScanResponses = r.FormValue("scan_responses") == "true"
+	s.cfg.Gateway.DepCheck = r.FormValue("dep_check") == "true"
 
 	if p := strings.TrimSpace(r.FormValue("port")); p != "" {
 		if port, err := strconv.Atoi(p); err == nil && port > 0 && port <= 65535 {
