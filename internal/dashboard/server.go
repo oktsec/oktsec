@@ -361,6 +361,7 @@ func (s *Server) routes() {
 
 	// Settings sections
 	s.mux.HandleFunc("POST /dashboard/settings/default-policy", s.handleSaveDefaultPolicy)
+	s.mux.HandleFunc("POST /dashboard/settings/trust-boundaries", s.handleSaveTrustBoundaries)
 	s.mux.HandleFunc("POST /dashboard/settings/rate-limit", s.handleSaveRateLimit)
 	s.mux.HandleFunc("POST /dashboard/settings/anomaly", s.handleSaveAnomaly)
 	s.mux.HandleFunc("POST /dashboard/settings/intent", s.handleSaveIntent)
