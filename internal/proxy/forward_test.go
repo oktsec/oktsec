@@ -28,7 +28,7 @@ func newTestForwardProxyWithAgents(t *testing.T, cfg *config.ForwardProxyConfig,
 	scanner := engine.NewScanner("")
 	t.Cleanup(func() { scanner.Close() })
 	rl := NewRateLimiter(0, 60)
-	fp := NewForwardProxy(cfg, scanner, store, rl, agents, logger)
+	fp := NewForwardProxy(cfg, scanner, store, rl, agents, logger, nil)
 	// Override transport to allow localhost connections in tests
 	// (safeDialContext blocks loopback IPs by design)
 	fp.transport = &http.Transport{}

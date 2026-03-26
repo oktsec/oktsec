@@ -59,6 +59,7 @@ const (
 	DecisionToolNotAllowed       = "tool_not_allowed"
 	DecisionConstraintViolated   = "constraint_violated"
 	DecisionScanError            = "scan_error"
-	DecisionDelegationInvalid    = "delegation_invalid"
-	DecisionDelegationRequired   = "delegation_required"
+	DecisionDelegationInvalid        = "delegation_invalid"
+	DecisionDelegationRequired       = "delegation_required"
+	DecisionDelegationScopeViolation = "delegation_scope_violation"
 )

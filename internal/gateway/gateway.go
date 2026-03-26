@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -413,11 +414,13 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 
 		// 1d. Verify delegation chain if present
 		var delegationChainHash, delegationChainSummary string
+		var delegationAllowedTools []string
 		if delHeader, _ := ctx.Value(delegationContextKey).(string); delHeader != "" {
 			chainResult := g.verifyDelegationHeader(delHeader)
 			if chainResult.Valid {
 				delegationChainHash = chainResult.ChainHash
 				delegationChainSummary = chainResult.Root + " -> " + chainResult.Delegate
+				delegationAllowedTools = chainResult.Tools
 				if chainResult.Depth > 2 {
 					delegationChainSummary = fmt.Sprintf("%s -> ... -> %s (%d hops)", chainResult.Root, chainResult.Delegate, chainResult.Depth)
 				}
@@ -612,6 +615,17 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 						return toolError("backend response blocked by oktsec"), nil
 					}
 				}
+			}
+		}
+
+		// 14. Verify response stays within delegated scope (best-effort)
+		if delegationChainSummary != "" && g.cfg.Gateway.VerifyDelegationScope && result != nil {
+			if violation := checkResponseScope(result, delegationAllowedTools); violation != "" {
+				g.logger.Warn("subagent response outside delegated scope",
+					"agent", agent, "tool", m.OriginalName, "violation", violation)
+				g.logAudit(msgID, agent, m.OriginalName, audit.StatusDelivered,
+					audit.DecisionDelegationScopeViolation, "[]", toolArgs, sessionID, start,
+					delegationChainHash, delegationChainSummary)
 			}
 		}
 
@@ -866,6 +880,51 @@ func extractResultContent(result *mcp.CallToolResult) string {
 		content += "\n" + p
 	}
 	return content
+}
+
+// toolExecutionIndicators are common tool/action names that may appear in
+// backend responses indicating which operations the subagent performed.
+// Matching is case-insensitive and heuristic (best-effort detection).
+var toolExecutionIndicators = []string{
+	"bash", "shell", "exec", "execute", "terminal",
+	"write", "edit", "read", "glob", "grep",
+	"delete", "remove", "mkdir", "chmod", "chown",
+	"curl", "wget", "fetch", "http_request",
+	"sql", "query", "database",
+	"send_email", "send_message", "notify",
+	"deploy", "publish", "release",
+}
+
+// checkResponseScope checks if a backend response references tool executions
+// outside the delegated allowed tools list. This is a best-effort heuristic
+// check on the response content -- the backend already executed the action,
+// so the value is visibility and logging, not enforcement.
+func checkResponseScope(result *mcp.CallToolResult, allowedTools []string) string {
+	if len(allowedTools) == 0 || result == nil {
+		return "" // no tool restrictions in delegation
+	}
+
+	content := extractResultContent(result)
+	if content == "" {
+		return ""
+	}
+	contentLower := strings.ToLower(content)
+
+	// Build a set of allowed tool names (lowercased) for fast lookup
+	allowedSet := make(map[string]bool, len(allowedTools))
+	for _, t := range allowedTools {
+		allowedSet[strings.ToLower(t)] = true
+	}
+
+	for _, indicator := range toolExecutionIndicators {
+		if !strings.Contains(contentLower, indicator) {
+			continue
+		}
+		if !allowedSet[indicator] {
+			return fmt.Sprintf("response references tool '%s' not in delegated allowed tools %v", indicator, allowedTools)
+		}
+	}
+	return ""
 }
 
 // injectAgentParam adds an optional _oktsec_agent property to a tool's InputSchema.

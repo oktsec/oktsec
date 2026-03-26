@@ -207,21 +207,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 
 	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		// Only animate spinner when there's recent activity (last 30s)
+		if time.Since(m.lastEventTime) < 30*time.Second || m.lastEventTime.IsZero() {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
+		// Idle: skip spinner updates to save CPU
+		return m, nil
 
 	case tickMsg:
-		// Refresh stats from DB every 3 seconds for accurate counters
 		m.tickCount++
-		if m.tickCount%3 == 0 && m.cfg.Stats != nil {
+		// Refresh stats from DB every 3 seconds, but only when there's recent activity (last 60s)
+		if m.tickCount%3 == 0 && m.cfg.Stats != nil && time.Since(m.lastEventTime) < 60*time.Second {
 			if sc, err := m.cfg.Stats.QueryStats(); err == nil && sc != nil {
 				m.totalScanned = sc.Total
 				m.blockedCount = sc.Blocked + sc.Rejected
 				m.threatsFound = sc.Blocked + sc.Rejected + sc.Quarantined
 			}
 		}
-		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		// When idle, slow down tick to every 5 seconds instead of every 1 second
+		interval := time.Second
+		if time.Since(m.lastEventTime) > 30*time.Second && !m.lastEventTime.IsZero() {
+			interval = 5 * time.Second
+		}
+		return m, tea.Tick(interval, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		})
 
@@ -293,7 +303,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		return m, waitForEvent(m.sub)
+		cmds := []tea.Cmd{waitForEvent(m.sub)}
+		// Re-activate spinner if it was paused (waking from idle)
+		if time.Since(m.lastEventTime) < 2*time.Second {
+			cmds = append(cmds, m.spinner.Tick)
+		}
+		return m, tea.Batch(cmds...)
 	}
 
 	return m, nil

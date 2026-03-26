@@ -66,11 +66,12 @@ type ScanOutcome struct {
 
 // FindingSummary is a simplified finding for the proxy response.
 type FindingSummary struct {
-	RuleID   string `json:"rule_id"`
-	Name     string `json:"name"`
-	Severity string `json:"severity"`
-	Category string `json:"category,omitempty"`
-	Match    string `json:"match,omitempty"`
+	RuleID      string `json:"rule_id"`
+	Name        string `json:"name"`
+	Severity    string `json:"severity"`
+	Category    string `json:"category,omitempty"`
+	Match       string `json:"match,omitempty"`
+	Remediation string `json:"remediation,omitempty"`
 }
 
 // ruleCache holds pre-loaded rule metadata.
@@ -153,11 +154,12 @@ func buildOutcome(result *aguara.ScanResult) *ScanOutcome {
 
 	for _, f := range result.Findings {
 		summary := FindingSummary{
-			RuleID:   f.RuleID,
-			Name:     f.RuleName,
-			Severity: f.Severity.String(),
-			Category: f.Category,
-			Match:    truncate(redactMatch(f.MatchedText), 200),
+			RuleID:      f.RuleID,
+			Name:        f.RuleName,
+			Severity:    f.Severity.String(),
+			Category:    f.Category,
+			Match:       truncate(redactMatch(f.MatchedText), 200),
+			Remediation: f.Remediation,
 		}
 		outcome.Findings = append(outcome.Findings, summary)
 

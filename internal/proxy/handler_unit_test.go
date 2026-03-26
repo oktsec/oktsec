@@ -338,3 +338,137 @@ func TestHandler_ApplyRuleOverrides_QuarantineOverride(t *testing.T) {
 		t.Errorf("verdict = %s, want quarantine", outcome.Verdict)
 	}
 }
+
+// --- Remediation guidance tests ---
+
+func TestTopRemediation_Empty(t *testing.T) {
+	got := topRemediation(nil)
+	if got != "" {
+		t.Errorf("topRemediation(nil) = %q, want empty", got)
+	}
+}
+
+func TestTopRemediation_SingleFinding(t *testing.T) {
+	findings := []engine.FindingSummary{
+		{RuleID: "IAP-001", Severity: "high", Remediation: "Do not override system prompts."},
+	}
+	got := topRemediation(findings)
+	if got != "Do not override system prompts." {
+		t.Errorf("topRemediation = %q, want remediation text", got)
+	}
+}
+
+func TestTopRemediation_HighestSeverityWins(t *testing.T) {
+	findings := []engine.FindingSummary{
+		{RuleID: "IAP-002", Severity: "medium", Remediation: "Medium fix."},
+		{RuleID: "IAP-001", Severity: "critical", Remediation: "Critical fix."},
+		{RuleID: "IAP-003", Severity: "high", Remediation: "High fix."},
+	}
+	got := topRemediation(findings)
+	if got != "Critical fix." {
+		t.Errorf("topRemediation = %q, want 'Critical fix.'", got)
+	}
+}
+
+func TestTopRemediation_NoRemediationText(t *testing.T) {
+	findings := []engine.FindingSummary{
+		{RuleID: "IAP-001", Severity: "high"},
+	}
+	got := topRemediation(findings)
+	if got != "" {
+		t.Errorf("topRemediation = %q, want empty (no remediation text)", got)
+	}
+}
+
+func TestSeverityRank(t *testing.T) {
+	tests := map[string]int{
+		"critical": 4,
+		"high":     3,
+		"medium":   2,
+		"low":      1,
+		"info":     0,
+		"":         0,
+	}
+	for sev, want := range tests {
+		got := severityRank(sev)
+		if got != want {
+			t.Errorf("severityRank(%q) = %d, want %d", sev, got, want)
+		}
+	}
+}
+
+func TestSuggestionForDecision(t *testing.T) {
+	tests := []struct {
+		decision string
+		wantNon  bool // true if we expect non-empty suggestion
+	}{
+		{"content_blocked", true},
+		{"content_quarantined", true},
+		{"identity_rejected", true},
+		{"signature_required", true},
+		{"delegation_invalid", true},
+		{"delegation_required", true},
+		{"acl_denied", true},
+		{"agent_suspended", true},
+		{"recipient_suspended", true},
+		{"allow", false},
+		{"content_flagged", false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		got := suggestionForDecision(tc.decision)
+		if tc.wantNon && got == "" {
+			t.Errorf("suggestionForDecision(%q) = empty, want non-empty", tc.decision)
+		}
+		if !tc.wantNon && got != "" {
+			t.Errorf("suggestionForDecision(%q) = %q, want empty", tc.decision, got)
+		}
+	}
+}
+
+func TestConsecutiveDenials_IncrementAndReset(t *testing.T) {
+	ts := newTestSetup(t, false)
+	h := ts.handler
+
+	// Initially zero
+	if c := h.consecutiveDenialCount("agent-a", "sess-1"); c != 0 {
+		t.Errorf("initial count = %d, want 0", c)
+	}
+
+	// Increment
+	h.recordDenial("agent-a", "sess-1")
+	h.recordDenial("agent-a", "sess-1")
+	if c := h.consecutiveDenialCount("agent-a", "sess-1"); c != 2 {
+		t.Errorf("after 2 denials = %d, want 2", c)
+	}
+
+	// Different agent/session is independent
+	h.recordDenial("agent-b", "sess-1")
+	if c := h.consecutiveDenialCount("agent-b", "sess-1"); c != 1 {
+		t.Errorf("agent-b count = %d, want 1", c)
+	}
+
+	// Reset on success
+	h.resetDenials("agent-a", "sess-1")
+	if c := h.consecutiveDenialCount("agent-a", "sess-1"); c != 0 {
+		t.Errorf("after reset = %d, want 0", c)
+	}
+
+	// agent-b unaffected by agent-a reset
+	if c := h.consecutiveDenialCount("agent-b", "sess-1"); c != 1 {
+		t.Errorf("agent-b after agent-a reset = %d, want 1", c)
+	}
+}
+
+func TestConsecutiveDenials_WarningAt3(t *testing.T) {
+	ts := newTestSetup(t, false)
+	h := ts.handler
+
+	// Should not panic; warning is logged at count >= 3
+	for i := 0; i < 5; i++ {
+		h.recordDenial("agent-a", "sess-1")
+	}
+	if c := h.consecutiveDenialCount("agent-a", "sess-1"); c != 5 {
+		t.Errorf("count = %d, want 5", c)
+	}
+}

@@ -115,6 +115,7 @@ type Config struct {
 	Timeout       string  `yaml:"timeout,omitempty"` // duration string: "30s", "1m"
 
 	Analyze          AnalyzeConfig  `yaml:"analyze,omitempty"`
+	TwoStage         bool           `yaml:"two_stage,omitempty"`
 	MinContentLength int            `yaml:"min_content_length,omitempty"`
 
 	RuleGen RuleGenConfig  `yaml:"rulegen,omitempty"`
