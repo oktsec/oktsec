@@ -160,6 +160,12 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	go func() { defer wg.Done(); avgLatency, _ = s.audit.QueryAvgLatency() }()
 	go func() { defer wg.Done(); memPoisonCount, _ = s.audit.CountRulePrefix("MEM-") }()
 
+	var guardEventCount int
+	if s.cfg.Guard.Enabled {
+		wg.Add(1)
+		go func() { defer wg.Done(); guardEventCount, _ = s.audit.CountByPolicyDecision("filesystem_alert") }()
+	}
+
 	// Group 3: chain verification (lightweight — last 100 entries only) + health score + LLM stats
 	var chainResult audit.ChainVerifyResult
 	var score int
@@ -209,6 +215,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		{"Escalation", true},
 		{"Audit", true},
 		{"Anomaly", true},
+		{"Guard", s.cfg.Guard.Enabled},
 	}
 
 	ruleCount := 0
@@ -239,6 +246,8 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"PipelineStages":  pipelineStages,
 		"RuleCount":       ruleCount,
 		"MemPoisonCount":  memPoisonCount,
+		"GuardEnabled":    s.cfg.Guard.Enabled,
+		"GuardAlerts":     guardEventCount,
 	}
 
 	s.populateLLMStats(data)

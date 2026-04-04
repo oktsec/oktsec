@@ -334,6 +334,24 @@ func checkPrivateKeyPermissions(cfg *config.Config, configDir string) []Finding 
 	return findings
 }
 
+func checkGuardEnabled(cfg *config.Config, _ string) []Finding {
+	if cfg.Guard.Enabled {
+		return nil
+	}
+	sev := High
+	if isObserveMode(cfg) {
+		sev = Info
+	}
+	return []Finding{{
+		Severity:    sev,
+		CheckID:     "GRD-001",
+		Title:       "Filesystem guard is off",
+		Detail:      "The guard monitors AI tool config files (.claude/, .cursor/, shell profiles) for unauthorized modifications. Enable it to detect memory poisoning attacks that bypass the proxy.",
+		Remediation: "guard.enabled: true",
+		FixURL:      "/dashboard/settings?tab=pipeline",
+	}}
+}
+
 func checkMemoryPoisoningRules(cfg *config.Config, _ string) []Finding {
 	if len(cfg.Agents) == 0 {
 		return nil

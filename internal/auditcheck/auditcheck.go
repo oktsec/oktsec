@@ -139,6 +139,7 @@ func RunChecks(cfg *config.Config, configDir string) ([]Finding, []string, map[s
 		checkNoCustomRules,
 		checkForwardProxyNoScanResponses,
 		checkPrivateKeyPermissions,
+		checkGuardEnabled,
 		checkMemoryPoisoningRules,
 		checkAuditDatabase,
 	}

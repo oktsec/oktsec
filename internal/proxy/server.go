@@ -15,10 +15,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"encoding/json"
+
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/dashboard"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/guard"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/netutil"
@@ -44,6 +47,8 @@ type Server struct {
 	escalationTracker  *llm.EscalationTracker  // nil if LLM escalation disabled
 	logger             *slog.Logger
 	anomalyCancel context.CancelFunc
+	guardCancel   context.CancelFunc
+	guardInst     *guard.Guard   // nil if guard disabled
 	fwdSrv        *http.Server   // forward proxy (nil if disabled)
 	fwdLn         net.Listener   // forward proxy listener
 }
@@ -504,6 +509,27 @@ func (s *Server) Start() error {
 		}()
 	}
 
+	// Start filesystem guard if configured
+	if s.cfg.Guard.Enabled {
+		g, err := guard.New(s.scanner, s.handleGuardEvent, s.logger)
+		if err != nil {
+			s.logger.Error("guard init failed", "error", err)
+		} else {
+			for _, p := range guard.DefaultWatchPaths() {
+				_ = g.Watch(p)
+			}
+			g.SetExtraPaths(s.cfg.Guard.WatchPaths)
+			for _, p := range s.cfg.Guard.WatchPaths {
+				_ = g.Watch(p)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			s.guardInst = g
+			s.guardCancel = cancel
+			go func() { _ = g.Run(ctx) }()
+			s.logger.Info("guard started", "paths", g.WatchCount())
+		}
+	}
+
 	// SIGHUP handler for hot-reloading keys (Unix only)
 	if runtime.GOOS != "windows" && s.cfg.Identity.KeysDir != "" {
 		sighup := make(chan os.Signal, 1)
@@ -523,6 +549,65 @@ func (s *Server) Start() error {
 	return s.srv.Serve(s.ln)
 }
 
+// GuardWatchCount returns the number of paths the guard is watching, or 0 if disabled.
+func (s *Server) GuardWatchCount() int {
+	if s.guardInst == nil {
+		return 0
+	}
+	return s.guardInst.WatchCount()
+}
+
+// handleGuardEvent processes filesystem change events from the guard.
+func (s *Server) handleGuardEvent(e guard.Event) {
+	rulesJSON := "[]"
+	if len(e.Findings) > 0 {
+		data, _ := json.Marshal(e.Findings)
+		rulesJSON = string(data)
+	}
+
+	status := "delivered"
+	policyDecision := "filesystem_clean"
+	if e.Verdict != engine.VerdictClean {
+		status = "blocked"
+		policyDecision = "filesystem_alert"
+	}
+
+	s.audit.Log(audit.Entry{
+		ID:             fmt.Sprintf("guard-%d", e.Timestamp.UnixNano()),
+		Timestamp:      e.Timestamp.Format(time.RFC3339),
+		FromAgent:      "guard",
+		ToAgent:        e.Path,
+		ContentHash:    e.Hash,
+		Status:         status,
+		RulesTriggered: rulesJSON,
+		PolicyDecision: policyDecision,
+	})
+
+	if len(e.Findings) > 0 && s.webhooks != nil {
+		severity := "medium"
+		for _, f := range e.Findings {
+			if f.Severity == "critical" {
+				severity = "critical"
+				break
+			}
+			if f.Severity == "high" {
+				severity = "high"
+			}
+		}
+		s.webhooks.Notify(WebhookEvent{
+			Event:     "guard_file_changed",
+			From:      "guard",
+			To:        e.Path,
+			Severity:  severity,
+			Rule:      e.Findings[0].RuleID,
+			RuleName:  e.Findings[0].Name,
+			Category:  "memory-poisoning",
+			Detail:    fmt.Sprintf("File %s modified. %d rules triggered.", e.Path, len(e.Findings)),
+			Timestamp: e.Timestamp.Format(time.RFC3339),
+		})
+	}
+}
+
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.logger.Debug("shutting down")
@@ -534,6 +619,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 	if s.anomalyCancel != nil {
 		s.anomalyCancel()
+	}
+	if s.guardCancel != nil {
+		s.guardCancel()
 	}
 	if s.fwdSrv != nil {
 		_ = s.fwdSrv.Shutdown(ctx)
