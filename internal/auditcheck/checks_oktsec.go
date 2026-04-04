@@ -334,6 +334,31 @@ func checkPrivateKeyPermissions(cfg *config.Config, configDir string) []Finding 
 	return findings
 }
 
+func checkMemoryPoisoningRules(cfg *config.Config, _ string) []Finding {
+	if len(cfg.Agents) == 0 {
+		return nil
+	}
+	for _, agent := range cfg.Agents {
+		for _, bc := range agent.BlockedContent {
+			if bc == "memory-poisoning" {
+				return nil
+			}
+		}
+	}
+	sev := High
+	if isObserveMode(cfg) {
+		sev = Info
+	}
+	return []Finding{{
+		Severity:    sev,
+		CheckID:     "MEM-001",
+		Title:       "No agents block memory-poisoning content",
+		Detail:      "Memory poisoning attacks use AI tool config writes to persistently compromise agent behavior. Add \"memory-poisoning\" to blocked_content for agents that should not write to AI tool configuration directories.",
+		Remediation: "agents.<name>.blocked_content: [\"memory-poisoning\"]",
+		FixURL:      "/dashboard/agents",
+	}}
+}
+
 func checkAuditDatabase(_ *config.Config, configDir string) []Finding {
 	dbPath := filepath.Join(configDir, "oktsec.db")
 	info, err := os.Stat(dbPath)

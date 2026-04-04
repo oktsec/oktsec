@@ -56,6 +56,7 @@ type AuditQuerier interface {
 	QueryAgentRisk(since string) ([]AgentRisk, error)
 	QueryEdgeStats(since string) ([]EdgeStat, error)
 	QueryToolStats(since string) ([]ToolStat, error)
+	CountRulePrefix(prefix string) (int, error)
 }
 
 // QuarantineManager handles the quarantine queue for human review.

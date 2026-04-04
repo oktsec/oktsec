@@ -150,12 +150,15 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	var unsignedByAgent []audit.UnsignedByAgent
 	var avgLatency int
 
-	wg.Add(5)
+	var memPoisonCount int
+
+	wg.Add(6)
 	go func() { defer wg.Done(); topRules, _ = s.audit.QueryTopRules(5, "") }()
 	go func() { defer wg.Done(); agentRisks, _ = s.audit.QueryAgentRisk("") }()
 	go func() { defer wg.Done(); unsigned, totalRecent, _ = s.audit.QueryUnsignedRate() }()
 	go func() { defer wg.Done(); unsignedByAgent, _ = s.audit.QueryUnsignedByAgent() }()
 	go func() { defer wg.Done(); avgLatency, _ = s.audit.QueryAvgLatency() }()
+	go func() { defer wg.Done(); memPoisonCount, _ = s.audit.CountRulePrefix("MEM-") }()
 
 	// Group 3: chain verification (lightweight — last 100 entries only) + health score + LLM stats
 	var chainResult audit.ChainVerifyResult
@@ -235,6 +238,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"ChainReason":     chainResult.Reason,
 		"PipelineStages":  pipelineStages,
 		"RuleCount":       ruleCount,
+		"MemPoisonCount":  memPoisonCount,
 	}
 
 	s.populateLLMStats(data)
@@ -3450,6 +3454,18 @@ func (s *Server) handleSaveQuarantine(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
 }
 
+func (s *Server) handleSaveTrustBoundaries(w http.ResponseWriter, r *http.Request) {
+	s.cfg.TrustBoundaries.Internal = parseDomainList(r.FormValue("internal"))
+	if s.cfgPath != "" {
+		if err := s.saveConfig(); err != nil {
+			s.logger.Error("failed to save config after trust boundaries update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
+}
+
 // parseDomainList splits a newline-delimited textarea value into a trimmed domain slice.
 func parseDomainList(raw string) []string {
 	var domains []string
@@ -4265,7 +4281,7 @@ func (s *Server) handleGatewayHealthCheck(w http.ResponseWriter, r *http.Request
 	}
 
 	if len(s.cfg.MCPServers) == 0 {
-		fmt.Fprint(w, pill("var(--warn)", "#000", "no backends"))
+		fmt.Fprint(w, pill("var(--warn)", "#000", "no backends")+` <a href="#add-server" style="color:var(--warn);text-decoration:underline">Add a server</a>`)
 		return
 	}
 

@@ -425,3 +425,65 @@ func TestQueryUnsignedByAgent(t *testing.T) {
 		}
 	}
 }
+
+func TestCountRulePrefix(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	memRules := `[{"rule_id":"MEM-001","name":"AI tool memory file write","severity":"critical"}]`
+	iapRules := `[{"rule_id":"IAP-007","name":"Tool description prompt injection","severity":"critical"}]`
+	mixedRules := `[{"rule_id":"MEM-003","name":"Shell alias injection","severity":"critical"},{"rule_id":"TC-011","name":"Persistence","severity":"critical"}]`
+
+	store.Log(Entry{ID: "m1", Timestamp: now, FromAgent: "a", ToAgent: "b", ContentHash: "h1", Status: "blocked", PolicyDecision: "content_blocked", RulesTriggered: memRules})
+	store.Log(Entry{ID: "m2", Timestamp: now, FromAgent: "a", ToAgent: "b", ContentHash: "h2", Status: "blocked", PolicyDecision: "content_blocked", RulesTriggered: iapRules})
+	store.Log(Entry{ID: "m3", Timestamp: now, FromAgent: "a", ToAgent: "b", ContentHash: "h3", Status: "blocked", PolicyDecision: "content_blocked", RulesTriggered: mixedRules})
+	store.Flush()
+
+	// MEM- prefix should match 2 entries (m1 and m3)
+	count, err := store.CountRulePrefix("MEM-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("CountRulePrefix(MEM-) = %d, want 2", count)
+	}
+
+	// IAP- prefix should match 1 entry (m2)
+	count, err = store.CountRulePrefix("IAP-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("CountRulePrefix(IAP-) = %d, want 1", count)
+	}
+
+	// TC- prefix should match 1 entry (m3)
+	count, err = store.CountRulePrefix("TC-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("CountRulePrefix(TC-) = %d, want 1", count)
+	}
+
+	// Nonexistent prefix should return 0
+	count, err = store.CountRulePrefix("NONE-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("CountRulePrefix(NONE-) = %d, want 0", count)
+	}
+}
+
+func TestCountRulePrefix_EmptyDB(t *testing.T) {
+	store := newTestStore(t)
+
+	count, err := store.CountRulePrefix("MEM-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("CountRulePrefix on empty DB = %d, want 0", count)
+	}
+}

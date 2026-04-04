@@ -168,7 +168,7 @@ func TestServer_DashboardPages(t *testing.T) {
 		{"/dashboard/graph", "Graph"},
 		{"/dashboard/rules", "Rules"},
 		{"/dashboard/audit", "SECURITY POSTURE"},
-		{"/dashboard/gateway?tab=discovery", "Discovery"},
+		{"/dashboard/gateway?tab=discovery", "Auto-detected"},
 		{"/dashboard/settings", "Settings"},
 	}
 
@@ -235,8 +235,8 @@ func TestServer_DiscoveryPage(t *testing.T) {
 		t.Errorf("gateway discovery tab: status = %d, want 200", w2.Code)
 	}
 	body := w2.Body.String()
-	if !strings.Contains(body, "Discovery") {
-		t.Error("gateway page should contain 'Discovery' tab")
+	if !strings.Contains(body, "Auto-detected") {
+		t.Error("gateway page should contain 'Auto-detected' tab")
 	}
 }
 
@@ -1049,7 +1049,7 @@ func TestServer_SettingsPageRender(t *testing.T) {
 		t.Fatalf("settings: status = %d, want 200", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Security Mode", "Quarantine", "Egress Proxy"} {
+	for _, want := range []string{"Security Mode", "Quarantine", "Outbound Traffic"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings page missing section %q", want)
 		}

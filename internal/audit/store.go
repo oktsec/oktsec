@@ -1150,6 +1150,18 @@ func (s *Store) QueryTopRules(limit int, since string) ([]RuleStat, error) {
 	return result, rows.Err()
 }
 
+// CountRulePrefix counts audit log entries in the last 24h where rules_triggered
+// contains any rule ID matching the given prefix (e.g., "MEM-").
+func (s *Store) CountRulePrefix(prefix string) (int, error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM audit_log WHERE timestamp >= ? AND rules_triggered LIKE ?`,
+		cutoff, `%"rule_id":"`+prefix+`%`,
+	).Scan(&count)
+	return count, err
+}
+
 // QueryAgentRisk computes risk scores for all agents based on the last 24 hours.
 // If since is non-empty, it is used as the cutoff instead of the default 24h.
 func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {

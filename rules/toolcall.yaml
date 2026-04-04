@@ -325,6 +325,8 @@ patterns:
   - type: regex
     value: "(?i)write_file.*/(bashrc|zshrc|profile|bash_profile).*\\b(curl|wget|python|bash\\s+-c)\\b"
   - type: regex
+    value: "(?i)write_file.*(bashrc|zshrc|bash_profile).+alias\\s+(claude|cursor|copilot|windsurf|cline|aider|amp)\\s*="
+  - type: regex
     value: "(?i)write_file.*/etc/cron\\.d/"
   - type: regex
     value: "(?i)systemctl\\s+(--user\\s+)?enable"
