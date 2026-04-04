@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -236,6 +237,12 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 
 		cookie, err := r.Cookie(sessionCookieName)
 		if err != nil || !a.ValidateSession(cookie.Value) {
+			if strings.HasPrefix(r.URL.Path, "/dashboard/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":"session expired"}`))
+				return
+			}
 			http.Redirect(w, r, "/dashboard/login", http.StatusFound)
 			return
 		}
