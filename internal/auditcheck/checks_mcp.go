@@ -103,6 +103,27 @@ func auditMCPServersFromResult(result *discover.Result) []Finding {
 			"Remove unused MCP server configurations")
 	}
 
+	// MCP-006: Suspicious env var values (commands in env)
+	suspiciousEnvCmds := []string{"curl", "wget", "nc", "ncat", "bash -c",
+		"python -c", "python3 -c", "node -e", "base64 -d"}
+	for _, cr := range result.Clients {
+		for _, srv := range cr.Servers {
+			for key, val := range srv.Env {
+				valLower := strings.ToLower(val)
+				for _, sus := range suspiciousEnvCmds {
+					if strings.Contains(valLower, sus) {
+						f(High, "MCP-006",
+							fmt.Sprintf("Suspicious command in MCP env: %s", srv.Name),
+							fmt.Sprintf("Server %q in %s has env var %q containing %q  - may indicate a compromised MCP configuration injecting commands via environment.",
+								srv.Name, discover.ClientDisplayName(cr.Client), key, sus),
+							"Review the MCP server environment variables and remove any embedded commands")
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// MCP-005: Summary (always emitted)
 	f(Info, "MCP-005",
 		"MCP discovery summary",
