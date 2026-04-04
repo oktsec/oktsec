@@ -41,6 +41,7 @@ type Config struct {
 	MCPServers     map[string]MCPServerConfig     `yaml:"mcp_servers,omitempty"`
 	LLM            LLMConfig                      `yaml:"llm,omitempty"`
 	Telemetry      TelemetryConfig                `yaml:"telemetry,omitempty"`
+	Guard          GuardConfig                    `yaml:"guard,omitempty"`
 }
 
 // TelemetryConfig controls the anonymous usage ping.
@@ -300,6 +301,12 @@ type AnomalyConfig struct {
 	RiskThreshold  float64 `yaml:"risk_threshold"` // risk score to trigger alert (0-100)
 	MinMessages    int     `yaml:"min_messages"`   // min messages before evaluating risk
 	AutoSuspend    bool    `yaml:"auto_suspend"`   // suspend agent when threshold exceeded
+}
+
+// GuardConfig controls filesystem monitoring for AI tool config integrity.
+type GuardConfig struct {
+	Enabled    bool     `yaml:"enabled"`               // watch AI tool configs for changes
+	WatchPaths []string `yaml:"watch_paths,omitempty"` // extra paths beyond defaults
 }
 
 // AlertingConfig controls alert notification behavior.

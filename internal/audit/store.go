@@ -1162,6 +1162,17 @@ func (s *Store) CountRulePrefix(prefix string) (int, error) {
 	return count, err
 }
 
+// CountByPolicyDecision counts audit log entries in the last 24h with the given policy_decision.
+func (s *Store) CountByPolicyDecision(decision string) (int, error) {
+	cutoff := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM audit_log WHERE timestamp >= ? AND policy_decision = ?`,
+		cutoff, decision,
+	).Scan(&count)
+	return count, err
+}
+
 // QueryAgentRisk computes risk scores for all agents based on the last 24 hours.
 // If since is non-empty, it is used as the cutoff instead of the default 24h.
 func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {

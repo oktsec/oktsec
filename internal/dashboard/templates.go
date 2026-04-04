@@ -1024,6 +1024,10 @@ a.ov-metric:hover{background:var(--surface2)}
       <span class="k">Memory poisoning</span>
       <span class="v">{{if gt .MemPoisonCount 0}}<span style="color:var(--danger)">{{.MemPoisonCount}} detected</span>{{else}}<span style="color:var(--success)">clear</span>{{end}}</span>
     </a>
+    <div class="ov-metric">
+      <span class="k">File guard</span>
+      <span class="v">{{if .GuardEnabled}}{{if gt .GuardAlerts 0}}<span style="color:var(--danger)">{{.GuardAlerts}} alerts</span>{{else}}<span style="color:var(--success)">watching</span>{{end}}{{else}}<span style="color:var(--text3)">off</span>{{end}}</span>
+    </div>
     {{if .LLMEnabled}}
     <a href="/dashboard/llm" class="ov-metric">
       <span class="k">AI analysis</span>

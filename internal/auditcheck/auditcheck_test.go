@@ -51,6 +51,9 @@ func secureBaseline() *config.Config {
 			RiskThreshold: 80,
 			MinMessages:   10,
 		},
+		Guard: config.GuardConfig{
+			Enabled: true,
+		},
 	}
 }
 
