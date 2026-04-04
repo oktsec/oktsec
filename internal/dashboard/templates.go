@@ -177,7 +177,8 @@ var tmplFuncs = template.FuncMap{
 			return 0
 		}
 	},
-	"add":    func(a, b int) int { return a + b },
+	"add":      func(a, b int) int { return a + b },
+	"isFixable": func(checkID string) bool { _, ok := fixableChecks[checkID]; return ok },
 	"safeJS":   func(s string) template.JS { return template.JS(s) },
 	"contains": strings.Contains,
 	"printf":   fmt.Sprintf,
