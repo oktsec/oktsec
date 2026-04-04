@@ -284,9 +284,10 @@ func ApplyScanProfile(profile string, outcome *engine.ScanOutcome, toolName stri
 // configured an explicit override for the rule.
 var BuiltinToolExemptions = map[string][]string{
 	"TC-005":         {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent"}, // Shell patterns in content/agent tools are not injection
+	"IAP-011":        {"Bash"},                                               // bash -c, eval(), subprocess — expected in shell commands
 	"MCPCFG_002":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent"}, // Shell metacharacters in content/agent tools
-	"MCPCFG_004":     {"WebFetch", "Fetch", "WebSearch"},                     // Remote URLs — expected in web tools
 	"MCPCFG_006":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"}, // Inline code execution in content tools
+	"MCPCFG_004":     {"WebFetch", "Fetch", "WebSearch"},                     // Remote URLs — expected in web tools
 	"THIRDPARTY_001": {"WebFetch", "Fetch", "WebSearch"},                     // Runtime URL — expected in web tools
 }
 
