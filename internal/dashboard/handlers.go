@@ -262,6 +262,61 @@ type auditProductGroup struct {
 }
 
 // topRemediations returns up to n critical/high findings that have remediation text.
+// fixableChecks maps check IDs to functions that apply the recommended fix.
+// Only additive/enabling fixes - never disables security or removes agents.
+var fixableChecks = map[string]func(cfg *config.Config) string{
+	"SIG-001": func(cfg *config.Config) string {
+		cfg.Identity.RequireSignature = true
+		return "Enabled message signing"
+	},
+	"ACL-001": func(cfg *config.Config) string {
+		cfg.DefaultPolicy = "deny"
+		return "Set default policy to deny"
+	},
+	"RET-001": func(cfg *config.Config) string {
+		cfg.Quarantine.Enabled = true
+		return "Enabled quarantine queue"
+	},
+	"MON-001": func(cfg *config.Config) string {
+		cfg.RateLimit.PerAgent = 100
+		cfg.RateLimit.WindowS = 60
+		return "Set rate limit to 100/min"
+	},
+	"MON-003": func(cfg *config.Config) string {
+		cfg.Anomaly.RiskThreshold = 80
+		cfg.Anomaly.MinMessages = 10
+		return "Enabled anomaly detection"
+	},
+	"RET-002": func(cfg *config.Config) string {
+		cfg.Quarantine.RetentionDays = 90
+		return "Set audit retention to 90 days"
+	},
+	"GRD-001": func(cfg *config.Config) string {
+		cfg.Guard.Enabled = true
+		return "Enabled filesystem guard"
+	},
+	"MEM-001": func(cfg *config.Config) string {
+		for name, agent := range cfg.Agents {
+			has := false
+			for _, bc := range agent.BlockedContent {
+				if bc == "memory-poisoning" {
+					has = true
+					break
+				}
+			}
+			if !has {
+				agent.BlockedContent = append(agent.BlockedContent, "memory-poisoning")
+				cfg.Agents[name] = agent
+			}
+		}
+		return "Added memory-poisoning blocking"
+	},
+	"NET-002": func(cfg *config.Config) string {
+		cfg.ForwardProxy.ScanResponses = true
+		return "Enabled egress response scanning"
+	},
+}
+
 func topRemediations(findings []auditcheck.Finding, n int) []auditcheck.Finding {
 	var out []auditcheck.Finding
 	for _, sev := range []auditcheck.Severity{auditcheck.Critical, auditcheck.High} {
@@ -314,6 +369,25 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 
 	topFixes := topRemediations(findings, 3)
 
+	fixableCount := 0
+	for _, f := range findings {
+		if _, ok := fixableChecks[f.CheckID]; ok && f.Severity > auditcheck.Info {
+			fixableCount++
+		}
+	}
+
+	// Sort findings: critical first, then high, then fixable before non-fixable
+	allSorted := make([]auditcheck.Finding, len(findings))
+	copy(allSorted, findings)
+	sort.SliceStable(allSorted, func(i, j int) bool {
+		if allSorted[i].Severity != allSorted[j].Severity {
+			return allSorted[i].Severity > allSorted[j].Severity
+		}
+		_, fi := fixableChecks[allSorted[i].CheckID]
+		_, fj := fixableChecks[allSorted[j].CheckID]
+		return fi && !fj
+	})
+
 	// Verify audit chain integrity (lightweight — last 100 entries)
 	chainEntries, _ := s.audit.QueryChainEntries(100)
 
@@ -346,8 +420,10 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		"Grade":       grade,
 		"Groups":      groups,
 		"Summary":     summary,
-		"TopFixes":    topFixes,
-		"TotalChecks": len(findings),
+		"TopFixes":      topFixes,
+		"FixableCount":  fixableCount,
+		"AllFindings":   allSorted,
+		"TotalChecks":   len(findings),
 		"HasCritical": summary.Critical > 0,
 		"ChainValid":            chainResult.Valid,
 		"ChainCount":            chainResult.Entries,
@@ -360,6 +436,22 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		"LLMModel":      s.cfg.LLM.Model,
 		"LLMThreats":    llmThreats,
 		"LLMConfirmed":  llmConfirmed,
+		"SavedAnalysis": func() string {
+			if store, ok := s.audit.(*audit.Store); ok {
+				if r := store.QuerySessionAnalysis("posture-analysis"); r != nil {
+					return r.Text
+				}
+			}
+			return ""
+		}(),
+		"AnalysisModel": func() string {
+			if store, ok := s.audit.(*audit.Store); ok {
+				if r := store.QuerySessionAnalysis("posture-analysis"); r != nil {
+					return r.Model
+				}
+			}
+			return ""
+		}(),
 	}
 
 	s.renderTemplate(w, auditTmpl, data)
@@ -395,16 +487,22 @@ func (s *Server) handleAuditSandbox(w http.ResponseWriter, r *http.Request) {
 	}}
 
 	data := map[string]any{
-		"Active":      "audit",
-		"RequireSig":  s.cfg.Identity.RequireSignature,
-		"Score":       score,
-		"Grade":       grade,
-		"Groups":      groups,
-		"Summary":     summary,
-		"TopFixes":    topRemediations(findings, 3),
-		"TotalChecks": len(findings),
-		"HasCritical": summary.Critical > 0,
-		"Sandbox":     true,
+		"Active":       "audit",
+		"RequireSig":   s.cfg.Identity.RequireSignature,
+		"Score":        score,
+		"Grade":        grade,
+		"Groups":       groups,
+		"Summary":      summary,
+		"TopFixes":     topRemediations(findings, 3),
+		"FixableCount": 0,
+		"AllFindings":  findings,
+		"TotalChecks":  len(findings),
+		"HasCritical":        summary.Critical > 0,
+		"Sandbox":            true,
+		"LLMEnabled":         s.cfg.LLM.Enabled,
+		"ChainValid":         false,
+		"ChainCount":         0,
+		"SignatureVerified":  false,
 	}
 
 	s.renderTemplate(w, auditTmpl, data)
@@ -4005,6 +4103,233 @@ func (s *Server) handleAuditClear(w http.ResponseWriter, r *http.Request) {
 	// They auto-register again when the gateway receives traffic.
 	s.cfg.Agents = make(map[string]config.Agent)
 	s.renderJSON(w, map[string]string{"status": "cleared"})
+}
+
+// handleAuditFix applies an auto-fix for a single finding and returns an HTML
+// fragment that HTMX swaps in place of the finding row + OOB score update.
+func (s *Server) handleAuditFix(w http.ResponseWriter, r *http.Request) {
+	checkID := r.PathValue("checkID")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	fixer, ok := fixableChecks[checkID]
+	if !ok {
+		fmt.Fprintf(w, `<div class="ps-finding" id="f-%s"><div class="ps-f-body" style="color:var(--danger)">No auto-fix available for %s</div></div>`,
+			template.HTMLEscapeString(checkID), template.HTMLEscapeString(checkID))
+		return
+	}
+	desc := fixer(s.cfg)
+	if err := s.saveConfig(); err != nil {
+		fmt.Fprintf(w, `<div class="ps-finding" id="f-%s"><div class="ps-f-body" style="color:var(--danger)">Error: %s</div></div>`,
+			template.HTMLEscapeString(checkID), template.HTMLEscapeString(err.Error()))
+		return
+	}
+	s.logger.Info("auto-fix applied", "check", checkID, "action", desc)
+
+	findings, _, _ := s.cachedRunChecks()
+	score, grade := auditcheck.ComputeHealthScore(findings)
+
+	// Fixed row
+	fmt.Fprintf(w, `<div class="ps-finding ps-fixed" id="f-%s">
+<div class="ps-f-sev"><span class="ps-sev sev-fixed">FIXED</span></div>
+<div class="ps-f-body"><span class="ps-f-title">%s</span></div>
+<div class="ps-f-act"><span style="color:var(--success);font-size:1.1rem">&#10003;</span></div>
+</div>`, template.HTMLEscapeString(checkID), template.HTMLEscapeString(desc))
+	// OOB score update
+	s.writeScoreOOB(w, score, grade)
+}
+
+// handleAuditFixAll applies all available auto-fixes and returns an HTML summary.
+func (s *Server) handleAuditFixAll(w http.ResponseWriter, r *http.Request) {
+	findings, _, _ := s.cachedRunChecks()
+	var applied []string
+	for _, f := range findings {
+		if f.Severity <= auditcheck.Info {
+			continue
+		}
+		if fixer, ok := fixableChecks[f.CheckID]; ok {
+			applied = append(applied, fixer(s.cfg))
+		}
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if len(applied) == 0 {
+		fmt.Fprint(w, `<div style="padding:24px;text-align:center;color:var(--text3)">No fixable findings.</div>`)
+		return
+	}
+	if err := s.saveConfig(); err != nil {
+		fmt.Fprintf(w, `<div style="padding:24px;color:var(--danger)">Error: %s</div>`, template.HTMLEscapeString(err.Error()))
+		return
+	}
+	s.logger.Info("auto-fix-all applied", "count", len(applied))
+
+	newFindings, _, _ := s.cachedRunChecks()
+	score, grade := auditcheck.ComputeHealthScore(newFindings)
+
+	// Celebration
+	fmt.Fprintf(w, `<div class="ps-celebrate">
+<div class="ps-celebrate-score">%d</div>
+<div class="ps-celebrate-grade">Grade %s</div>
+<div class="ps-celebrate-msg">%d fixes applied. <a href="/dashboard/audit">Reload to see remaining findings.</a></div>
+</div>`, score, grade, len(applied))
+	s.writeScoreOOB(w, score, grade)
+}
+
+// handleAuditEnrich calls the LLM to generate one-line risk descriptions for each finding.
+func (s *Server) handleAuditEnrich(w http.ResponseWriter, r *http.Request) {
+	cfg := s.cfg.LLM
+	if !cfg.Enabled {
+		http.Error(w, "LLM not configured", http.StatusServiceUnavailable)
+		return
+	}
+	apiKey := cfg.APIKey
+	if apiKey == "" && cfg.APIKeyEnv != "" {
+		apiKey = os.Getenv(cfg.APIKeyEnv)
+	}
+	if apiKey == "" {
+		http.Error(w, "LLM API key not set", http.StatusServiceUnavailable)
+		return
+	}
+
+	allFindings, _, _ := s.cachedRunChecks()
+	var findings []auditcheck.Finding
+	for _, f := range allFindings {
+		if f.Severity <= auditcheck.Info {
+			continue
+		}
+		findings = append(findings, f)
+	}
+
+	score, grade := auditcheck.ComputeHealthScore(findings)
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "You are a security advisor. Deployment: %d agents, policy=%s, score=%d/%s.\n\n",
+		len(s.cfg.Agents), s.cfg.DefaultPolicy, score, grade)
+	sb.WriteString("Findings:\n")
+	for _, f := range findings {
+		fixable := ""
+		if _, ok := fixableChecks[f.CheckID]; ok {
+			fixable = " [AUTO-FIXABLE]"
+		}
+		fmt.Fprintf(&sb, "- %s [%s]: %s. Detail: %s%s\n", f.CheckID, f.Severity, f.Title, f.Detail, fixable)
+		if f.Remediation != "" {
+			fmt.Fprintf(&sb, "  Remediation: %s\n", f.Remediation)
+		}
+	}
+	sb.WriteString("\nReturn JSON:\n")
+	sb.WriteString(`{"summary":"Max 2 sentences. First: what is the single biggest risk. Second: what to do first.","findings":[{"id":"XXX","risk":"What attack this enables and the exact fix (config key=value or command to run). Max 25 words."},...]}`)
+	sb.WriteString("\n\nRules: no markdown, plain English, specific config keys and values. Summary max 40 words. Valid JSON only, no preamble, no explanation outside JSON.")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	var result string
+	var err error
+	switch cfg.Provider {
+	case "claude":
+		result, err = s.callClaude(ctx, apiKey, cfg.Model, sb.String())
+	case "openai":
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
+		}
+		result, err = s.callOpenAI(ctx, apiKey, baseURL, cfg.Model, sb.String())
+	default:
+		err = fmt.Errorf("unsupported provider %q", cfg.Provider)
+	}
+
+	var summary string
+	riskMap := make(map[string]string)
+	if err == nil {
+		start := strings.Index(result, "{")
+		end := strings.LastIndex(result, "}")
+		if start >= 0 && end > start {
+			var parsed struct {
+				Summary  string `json:"summary"`
+				Findings []struct {
+					ID   string `json:"id"`
+					Risk string `json:"risk"`
+				} `json:"findings"`
+			}
+			if jsonErr := json.Unmarshal([]byte(result[start:end+1]), &parsed); jsonErr == nil {
+				summary = parsed.Summary
+				for _, r := range parsed.Findings {
+					riskMap[r.ID] = r.Risk
+				}
+			}
+		}
+	}
+
+	// Persist only the summary (per-finding risks are shown inline)
+	if store, ok := s.audit.(*audit.Store); ok && summary != "" {
+		_ = store.SaveSessionAnalysis("posture-analysis", summary, cfg.Model)
+	}
+
+	// Render: global summary + enriched findings
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if summary != "" {
+		fmt.Fprintf(w, `<div class="ps-ai-summary">
+<div class="ps-ai-hdr"><span>AI Assessment</span><span class="ps-ai-model">%s</span></div>
+<div class="ps-ai-text">%s</div>
+</div>`, template.HTMLEscapeString(cfg.Model), template.HTMLEscapeString(summary))
+	}
+	for _, f := range findings {
+		risk := riskMap[f.CheckID]
+		s.writeEnrichedFinding(w, f, risk)
+	}
+}
+
+func (s *Server) writeScoreOOB(w http.ResponseWriter, score int, grade string) {
+	color := "var(--danger)"
+	if score >= 90 {
+		color = "var(--success)"
+	} else if score >= 60 {
+		color = "var(--warn)"
+	}
+	fmt.Fprintf(w, `<div id="posture-score" hx-swap-oob="true" class="ps-hero-score">
+<div class="ps-ring" style="--pct:%d;--clr:%s"><span class="ps-num">%d</span></div>
+<div class="ps-grade-label">Grade %s</div>
+</div>`, score, color, score, grade)
+}
+
+func (s *Server) writeEnrichedFinding(w http.ResponseWriter, f auditcheck.Finding, risk string) {
+	sevClass := strings.ToLower(f.Severity.String())
+	riskHTML := ""
+	if risk != "" {
+		riskHTML = fmt.Sprintf(`<div class="ps-f-risk">%s</div>`, template.HTMLEscapeString(risk))
+	}
+	remHTML := ""
+	fixBtn := ""
+	if _, ok := fixableChecks[f.CheckID]; ok {
+		fixBtn = fmt.Sprintf(`<button class="ps-fix-btn" hx-post="/dashboard/api/audit/fix/%s" hx-target="#f-%s" hx-swap="outerHTML">Fix</button>`, f.CheckID, f.CheckID)
+	} else {
+		if f.Remediation != "" {
+			remHTML = fmt.Sprintf(`<div class="ps-f-rem"><code>%s</code></div>`, template.HTMLEscapeString(f.Remediation))
+		}
+		if f.FixURL != "" {
+			fixBtn = fmt.Sprintf(`<a href="%s" class="ps-cfg-btn">Configure</a>`, f.FixURL)
+		}
+	}
+
+	fmt.Fprintf(w, `<div class="ps-finding%s" id="f-%s">
+<div class="ps-f-sev"><span class="ps-sev sev-%s">%s</span></div>
+<div class="ps-f-body">
+<span class="ps-f-title">%s</span>
+<div class="ps-f-detail">%s</div>
+%s%s
+</div>
+<div class="ps-f-act">%s</div>
+</div>`,
+		func() string {
+			if _, ok := fixableChecks[f.CheckID]; ok {
+				return " ps-fixable"
+			}
+			return ""
+		}(),
+		f.CheckID, sevClass, f.Severity,
+		template.HTMLEscapeString(f.Title),
+		template.HTMLEscapeString(f.Detail),
+		riskHTML,
+		remHTML,
+		fixBtn)
 }
 
 func (s *Server) handleEdgeDetail(w http.ResponseWriter, r *http.Request) {

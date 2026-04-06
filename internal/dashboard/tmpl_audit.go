@@ -4,257 +4,175 @@ import "html/template"
 
 var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-/* ── Audit page ─────────────────────────────────────────── */
+/* ── Security Posture v2 ───────────────────────────────── */
 
-/* Stat strip */
-.a-stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:24px}
-.a-stat{background:var(--surface);padding:var(--sp-5) var(--sp-5);text-align:center}
-.a-stat-label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);font-weight:500;margin-bottom:var(--sp-2)}
-.a-stat-val{font-family:var(--sans);font-size:1.375rem;font-weight:700;color:var(--text);letter-spacing:-0.03em}
-.a-stat-val.v-crit{color:var(--danger)}
-.a-stat-val.v-high{color:var(--text2)}
-.a-stat-val.v-med{color:var(--text2)}
-.a-stat-val.v-dim{color:var(--text2)}
-.a-grade{display:block;font-size:0.6875rem;font-weight:500;color:var(--text3);font-family:var(--mono);margin-top:4px;letter-spacing:0.3px}
+/* Hero */
+.ps-hero{display:flex;align-items:center;gap:36px;padding:32px 36px;background:linear-gradient(135deg,var(--surface) 0%,rgba(139,92,246,0.03) 100%);border:1px solid var(--border);border-radius:14px;margin-bottom:24px;position:relative;overflow:hidden}
+.ps-hero::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent-light),transparent);opacity:0.4}
+.ps-hero-score{display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0}
+.ps-ring{width:110px;height:110px;border-radius:50%;background:conic-gradient(var(--clr,var(--success)) calc(var(--pct,0) * 1%),var(--surface2) 0);display:flex;align-items:center;justify-content:center;position:relative;box-shadow:0 0 24px rgba(0,0,0,0.2)}
+.ps-ring::before{content:'';position:absolute;inset:8px;border-radius:50%;background:var(--surface)}
+.ps-num{position:relative;font-size:2rem;font-weight:800;font-family:var(--sans);letter-spacing:-0.04em;color:var(--text)}
+.ps-grade-label{font-size:0.6875rem;color:var(--text3);font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase}
+.ps-hero-body{flex:1}
+.ps-hero-title{font-size:1.125rem;font-weight:700;color:var(--text);margin-bottom:4px;letter-spacing:-0.02em}
+.ps-hero-sub{font-size:0.8125rem;color:var(--text3);margin-bottom:6px}
+.ps-hero-detail{display:flex;gap:16px;margin-bottom:16px;font-size:0.72rem;color:var(--text3)}
+.ps-hero-detail span{display:flex;align-items:center;gap:4px}
+.ps-hero-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.ps-fix-all{padding:11px 28px;background:linear-gradient(135deg,#238636,#2ea043);border:none;border-radius:8px;color:#fff;font-size:0.8125rem;font-weight:600;cursor:pointer;transition:all 0.2s;font-family:var(--sans);letter-spacing:-0.01em;box-shadow:0 2px 8px rgba(35,134,54,0.3)}
+.ps-fix-all:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(35,134,54,0.4)}
+.ps-fix-all:disabled{opacity:0.6;cursor:wait;transform:none}
+.ps-resolved{font-size:0.75rem;color:var(--success);display:flex;align-items:center;gap:6px;margin-top:8px}
 
-/* Alert strip */
-.a-alert{display:flex;align-items:center;gap:10px;padding:12px 16px;border-left:3px solid var(--danger);background:rgba(248,81,73,0.04);margin-bottom:24px;font-size:0.8125rem;color:var(--text2);border-radius:0 10px 10px 0}
-.a-alert strong{color:#f85149;font-weight:600}
-.a-alert a{margin-left:auto;color:var(--text3);font-size:0.75rem;text-decoration:none;white-space:nowrap}
-.a-alert a:hover{color:var(--text2)}
+/* Status bar */
+.ps-status{display:flex;justify-content:space-between;align-items:center;padding:10px 0;margin-bottom:20px;border-bottom:1px solid var(--border);font-size:0.75rem;color:var(--text3)}
+.ps-status a,.ps-status button{font-size:0.75rem}
 
-/* Sandbox strip */
-.a-sandbox{display:flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--border);border-radius:10px;margin-bottom:20px;font-size:0.8125rem;color:var(--text3)}
-.a-sandbox strong{color:var(--text2);font-weight:500}
-.a-sandbox a{color:var(--text2);text-decoration:none;margin-left:auto;font-weight:500}
-.a-sandbox a:hover{color:var(--text)}
-
-/* Section */
-.a-sec{margin-bottom:24px}
-.a-sec-title{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
-
-/* Priority fix row */
-.a-fix{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)}
-.a-fix:last-child{border-bottom:none}
-.a-fix-sev{min-width:60px;flex-shrink:0;padding-top:1px;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px;text-align:center;display:inline-block}
-.a-fix-sev.sev-critical{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
-.a-fix-sev.sev-high{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
-.a-fix-sev.sev-medium{background:var(--warn-muted);color:var(--warn);border:1px solid var(--warn-border)}
-.a-fix-body{flex:1;min-width:0}
-.a-fix-head{display:flex;align-items:baseline;gap:8px}
-.a-fix-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
-.a-fix-title{font-size:0.8125rem;color:var(--text);font-weight:500}
-.a-fix-rem{display:flex;align-items:center;gap:6px;margin-top:6px}
-.a-fix-rem code{font-family:var(--mono);font-size:0.75rem;color:var(--text2)}
-.a-cp{background:transparent;border:1px solid var(--border);color:var(--text3);border-radius:4px;padding:2px 8px;font-size:0.6875rem;cursor:pointer;transition:all 0.12s;font-family:var(--mono);white-space:nowrap}
-.a-cp:hover{border-color:var(--border-hover);color:var(--text2);background:var(--surface2)}
-
-/* Product block */
-.a-prod{border:1px solid var(--border);border-radius:10px;margin-bottom:16px;overflow:hidden;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,0.2)}
-.a-prod-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
-.a-prod-icon{font-size:1.3rem;line-height:1;margin-top:1px}
-.a-prod-name{font-size:0.875rem;font-weight:600;letter-spacing:-0.01em}
-.a-prod-desc{font-size:0.75rem;color:var(--text3);margin-top:2px;line-height:1.4}
-.a-prod-path{font-family:var(--mono);font-size:0.6875rem;color:var(--text3);margin-top:6px;display:flex;align-items:center;gap:6px}
-.a-prod-path code{color:var(--text2)}
-.a-prod-counts{display:flex;gap:12px;margin-left:auto;flex-shrink:0;align-items:center}
-.a-prod-counts span{font-size:0.6875rem;font-family:var(--mono);font-weight:500}
+/* AI Assessment */
+.ps-ai-summary{padding:20px 24px;background:var(--surface);border:1px solid var(--accent-border);border-radius:12px;margin-bottom:20px;position:relative}
+.ps-ai-summary::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:3px;background:var(--accent-light);border-radius:2px}
+.ps-ai-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.ps-ai-hdr span:first-child{font-size:0.8125rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px}
+.ps-ai-model{font-size:0.65rem;color:var(--text3);font-family:var(--mono);font-weight:400;padding:2px 8px;background:var(--surface2);border-radius:4px}
+.ps-ai-text{font-size:0.8125rem;color:var(--text2);line-height:1.65}
 
 /* Findings */
-.a-fd summary{cursor:pointer;padding:10px 20px;font-size:0.8125rem;color:var(--text3);list-style:none;font-weight:500;display:flex;align-items:center;gap:5px;transition:background 0.1s;border-bottom:1px solid var(--border)}
-.a-fd summary:hover{background:rgba(255,255,255,0.02)}
-.a-fd summary::-webkit-details-marker{display:none}
-.a-fd summary::before{content:'\203A';font-size:0.9rem;transition:transform 0.12s;font-weight:400;color:var(--text3)}
-.a-fd[open] summary::before{transform:rotate(90deg)}
-.a-fi{display:flex;align-items:flex-start;gap:10px;padding:12px 20px;border-bottom:1px solid var(--border)}
-.a-fi:last-child{border-bottom:none}
-.a-fi-sev{min-width:60px;flex-shrink:0;padding-top:1px;font-size:0.7rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px;text-align:center;display:inline-block}
-.a-fi-sev.sev-critical{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
-.a-fi-sev.sev-high{background:var(--danger-muted);color:var(--danger);border:1px solid var(--danger-border)}
-.a-fi-sev.sev-medium{background:var(--warn-muted);color:var(--warn);border:1px solid var(--warn-border)}
-.a-fi-sev.sev-info,.a-fi-sev.sev-low{background:var(--surface2);color:var(--text3);border:1px solid var(--border)}
-.a-fi-body{flex:1;min-width:0}
-.a-fi-head{display:flex;align-items:baseline;gap:8px}
-.a-fi-id{font-family:var(--mono);font-size:0.8125rem;font-weight:600;color:var(--text2)}
-.a-fi-title{font-size:0.8125rem;color:var(--text);font-weight:500}
-.a-fi-detail{font-size:0.75rem;color:var(--text3);margin-top:4px;line-height:1.5}
-.a-fi-fix{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
-.a-fi-fix code{font-family:var(--mono);font-size:0.75rem;color:var(--text2)}
-.a-fi-link{font-size:0.75rem;color:#58a6ff;text-decoration:none;margin-left:4px}
-.a-fi-link:hover{text-decoration:underline}
+.ps-section-title{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3);font-weight:600;margin-bottom:12px;padding-left:2px}
+.ps-findings{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
+.ps-finding{display:flex;align-items:flex-start;gap:14px;padding:16px 20px;border-bottom:1px solid var(--border);transition:background 0.15s}
+.ps-finding:last-child{border-bottom:none}
+.ps-finding:hover{background:rgba(255,255,255,0.01)}
+.ps-fixable{border-left:3px solid var(--success)}
+.ps-fixed{background:rgba(63,185,80,0.04);border-left:3px solid var(--success)}
+.ps-f-sev{flex-shrink:0;min-width:70px;padding-top:2px}
+.ps-sev{display:inline-block;font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px;text-align:center}
+.ps-sev.sev-critical{background:rgba(248,81,73,0.12);color:#f85149;border:1px solid rgba(248,81,73,0.25)}
+.ps-sev.sev-high{background:rgba(248,81,73,0.08);color:#f85149;border:1px solid rgba(248,81,73,0.2)}
+.ps-sev.sev-medium{background:rgba(210,153,34,0.1);color:#d29922;border:1px solid rgba(210,153,34,0.25)}
+.ps-sev.sev-low,.ps-sev.sev-info{background:var(--surface2);color:var(--text3);border:1px solid var(--border)}
+.ps-sev.sev-fixed{background:rgba(63,185,80,0.12);color:var(--success);border:1px solid rgba(63,185,80,0.3)}
+.ps-f-body{flex:1;min-width:0}
+.ps-f-title{font-size:0.8125rem;font-weight:600;color:var(--text);line-height:1.4}
+.ps-f-product{display:inline-block;font-size:0.6rem;font-weight:500;color:var(--text3);background:var(--surface2);padding:1px 6px;border-radius:3px;margin-left:8px;vertical-align:middle;font-family:var(--mono);letter-spacing:0.3px}
+.ps-f-detail{font-size:0.75rem;color:var(--text3);margin-top:5px;line-height:1.55}
+.ps-f-risk{font-size:0.75rem;color:var(--accent-light);margin-top:6px;padding:6px 10px;background:rgba(139,92,246,0.04);border-radius:6px;border-left:2px solid var(--accent-light);line-height:1.5}
+.ps-f-rem{margin-top:8px}
+.ps-f-rem code{font-family:var(--mono);font-size:0.7rem;color:var(--text2);background:var(--bg);padding:4px 10px;border-radius:4px;border:1px solid var(--border);display:inline-block}
+.ps-f-act{flex-shrink:0;display:flex;align-items:center;padding-top:2px}
 
-/* Footer */
-.a-foot{text-align:center;padding:24px 0;color:var(--text3);font-size:0.6875rem;font-family:var(--mono)}
-.a-foot a{color:var(--text2);text-decoration:none}
-.a-foot a:hover{color:var(--text)}
+/* Buttons */
+.ps-fix-btn{padding:6px 18px;background:rgba(35,134,54,0.1);border:1px solid #238636;color:#3fb950;border-radius:6px;font-size:0.72rem;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:var(--sans)}
+.ps-fix-btn:hover{background:rgba(35,134,54,0.2);box-shadow:0 0 8px rgba(63,185,80,0.15)}
+.ps-cfg-btn{padding:6px 14px;border:1px solid var(--border);color:var(--text3);border-radius:6px;font-size:0.72rem;font-weight:500;text-decoration:none;transition:all 0.15s}
+.ps-cfg-btn:hover{border-color:var(--border-hover);color:var(--text2);background:var(--surface2)}
+.ps-enrich-btn{padding:7px 18px;background:rgba(139,92,246,0.06);border:1px solid var(--accent-border);color:var(--accent-light);border-radius:6px;font-size:0.75rem;font-weight:500;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:6px}
+.ps-enrich-btn:hover{background:rgba(139,92,246,0.12);border-color:var(--accent-light)}
+
+/* Celebration */
+.ps-celebrate{text-align:center;padding:40px;background:linear-gradient(135deg,rgba(35,134,54,0.06),rgba(63,185,80,0.03));border:1px solid rgba(63,185,80,0.2);border-radius:14px;margin-bottom:24px}
+.ps-celebrate-score{font-size:3rem;font-weight:800;color:var(--success);font-family:var(--sans);letter-spacing:-0.04em}
+.ps-celebrate-grade{font-size:0.875rem;color:var(--text3);font-family:var(--mono);margin-top:4px}
+.ps-celebrate-msg{font-size:0.8125rem;color:var(--text2);margin-top:16px}
+.ps-celebrate-msg a{color:var(--accent-light);text-decoration:none}
+
+/* Loading */
+.htmx-indicator{display:none}
+.htmx-request .htmx-indicator,.htmx-request.htmx-indicator{display:inline}
+.ps-spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent-light);border-radius:50%;animation:spin 0.6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Info toggle */
+.ps-info-toggle{font-size:0.72rem;color:var(--text3);cursor:pointer;padding:8px 0;display:flex;align-items:center;gap:6px;background:none;border:none;font-family:var(--sans)}
+.ps-info-toggle:hover{color:var(--text2)}
+.ps-info-items{display:none}
+.ps-info-items.open{display:block}
 
 @media(max-width:768px){
-  .a-stats{grid-template-columns:repeat(2,1fr)}
-  .a-prod-head{flex-direction:column}
-  .a-prod-counts{margin-left:0}
-}
-@media(max-width:480px){
-  .a-stats{grid-template-columns:1fr}
+  .ps-hero{flex-direction:column;text-align:center;gap:20px;padding:24px}
+  .ps-hero-detail{justify-content:center}
+  .ps-findings .ps-finding{flex-wrap:wrap}
 }
 </style>
 
-<p class="page-desc">Security audit of your deployment. Score based on {{.TotalChecks}} checks across oktsec and detected products.</p>
+<p class="page-desc">Security posture across {{.TotalChecks}} checks. {{if gt .FixableCount 0}}{{.FixableCount}} can be auto-fixed.{{end}}</p>
 
 {{if .Sandbox}}
-<div class="a-sandbox">
-  <strong>Sandbox</strong> &middot; Sample OpenClaw config with intentional security issues.
-  <a href="/dashboard/audit">Exit sandbox &rarr;</a>
+<div style="display:flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--border);border-radius:10px;margin-bottom:20px;font-size:0.8125rem;color:var(--text3)">
+  <strong style="color:var(--text2)">Sandbox</strong> &middot; Sample config with intentional security issues.
+  <a href="/dashboard/audit" style="margin-left:auto;color:var(--text2);text-decoration:none;font-weight:500">Exit sandbox &rarr;</a>
 </div>
 {{end}}
 
-<div class="a-stats">
-  <div class="a-stat">
-    <div class="a-stat-label">Posture Score</div>
-    <div class="a-stat-val">{{.Score}}<span class="a-grade">Grade {{.Grade}}</span></div>
-  </div>
-  <div class="a-stat">
-    <div class="a-stat-label">Critical</div>
-    <div class="a-stat-val{{if gt .Summary.Critical 0}} v-crit{{end}}">{{.Summary.Critical}}</div>
-  </div>
-  <div class="a-stat">
-    <div class="a-stat-label">High</div>
-    <div class="a-stat-val v-high">{{.Summary.High}}</div>
-  </div>
-  <div class="a-stat">
-    <div class="a-stat-label">Medium</div>
-    <div class="a-stat-val v-med">{{.Summary.Medium}}</div>
-  </div>
-  <div class="a-stat">
-    <div class="a-stat-label">Info</div>
-    <div class="a-stat-val v-dim">{{.Summary.Info}}</div>
-  </div>
-</div>
-
-{{if .ChainCount}}
-<div class="a-alert" style="border-left-color:{{if .ChainValid}}{{if .SignatureVerified}}var(--border){{else}}rgba(210,153,34,0.5){{end}}{{else}}var(--danger){{end}};background:{{if .ChainValid}}{{if .SignatureVerified}}transparent{{else}}rgba(210,153,34,0.04){{end}}{{else}}rgba(248,81,73,0.04){{end}}">
-  {{if .ChainValid}}{{if .SignatureVerified}}&#x2713;{{else}}&#x2713;{{end}}{{else}}&#x2717;{{end}}
-  <span>{{if and .ChainValid .SignatureVerified}}Chain + Signatures: <strong style="color:var(--text2)">Verified</strong> &middot; {{.ChainCount}} entries verified{{if .SignatureFingerprint}} &middot; <span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)">{{slice .SignatureFingerprint 0 16}}...</span>{{end}}{{else if .ChainValid}}Chain: <strong style="color:var(--text2)">Valid</strong> | Signatures: <strong style="color:rgba(210,153,34,0.9)">Not verified</strong> <span style="color:var(--text3);font-size:var(--text-xs)">(no proxy key)</span> &middot; {{.ChainCount}} entries verified{{else}}Audit chain: <strong style="color:var(--danger)">broken</strong> &middot; {{.ChainCount}} entries verified{{end}}</span>
-</div>
-{{if and (not .ChainValid) .ChainReason}}
-<div class="card" style="border-color:rgba(248,81,73,0.2);margin-bottom:var(--sp-6)">
-  <div style="color:var(--danger);font-weight:600;margin-bottom:var(--sp-2);font-size:var(--text-md)">Chain integrity failure</div>
-  <div style="color:var(--text2);font-size:var(--text-sm);line-height:1.6;margin-bottom:var(--sp-2)"><strong>Reason:</strong> {{.ChainReason}}</div>
-  {{if .ChainBrokenID}}<div style="color:var(--text2);font-size:var(--text-sm)"><strong>Broken at entry:</strong> <code>{{.ChainBrokenID}}</code> (position {{.ChainBrokenAt}} of {{.ChainCount}})</div>{{end}}
-  <div style="color:var(--text3);font-size:var(--text-xs);margin-top:var(--sp-2)">This typically occurs when the database is modified externally, entries are deleted, or the proxy restarts with a different signing key.</div>
-</div>
-{{end}}
-{{end}}
-
-{{if .LLMEnabled}}
-<div style="display:flex;align-items:center;gap:12px;padding:12px 20px;background:rgba(56,139,253,0.06);border:1px solid rgba(56,139,253,0.15);border-radius:10px;margin-bottom:var(--sp-5)">
-  <span style="font-size:1.1rem">&#x1F9E0;</span>
-  <div style="flex:1">
-    <div style="font-size:0.82rem;font-weight:600;color:var(--text)">AI-Enhanced Analysis Active</div>
-    <div style="font-size:0.72rem;color:var(--text3);margin-top:2px">Messages are being analyzed by <span style="font-family:var(--mono);color:var(--accent-light)">{{.LLMModel}}</span> for threats that rules can't detect.{{if .LLMThreats}} {{.LLMThreats}} analyses completed{{if .LLMConfirmed}}, {{.LLMConfirmed}} confirmed threats{{end}}.{{end}}</div>
-  </div>
-  <a href="/dashboard/llm" class="btn btn-sm btn-outline" style="font-size:0.72rem;border-color:var(--accent-border);color:var(--accent-light);white-space:nowrap">View AI Analysis</a>
-</div>
-{{end}}
-
-{{if .HasCritical}}
-<div class="a-alert">
-  <strong>{{.Summary.Critical}} critical {{if eq .Summary.Critical 1}}finding{{else}}findings{{end}}</strong> require immediate action
-</div>
-{{end}}
-
-{{if .TopFixes}}
-<div class="a-prod" id="remediations">
-  <div class="a-prod-head" style="border-bottom:1px solid var(--border)">
-    <div class="a-prod-icon">&#x1F6E1;</div>
-    <div style="flex:1;min-width:0">
-      <div class="a-prod-name">Priority Remediations</div>
-      <div class="a-prod-desc">Top critical and high findings that need immediate attention.</div>
+<!-- Hero -->
+<div class="ps-hero">
+  <div class="ps-hero-score" id="posture-score">
+    <div class="ps-ring" style="--pct:{{.Score}};--clr:{{if ge .Score 90}}var(--success){{else if ge .Score 60}}var(--warn){{else}}var(--danger){{end}}">
+      <span class="ps-num">{{.Score}}</span>
     </div>
-    <div class="a-prod-counts"><span style="color:var(--text2)">{{len .TopFixes}} {{if eq (len .TopFixes) 1}}fix{{else}}fixes{{end}}</span></div>
+    <div class="ps-grade-label">Grade {{.Grade}}</div>
   </div>
-  {{range .TopFixes}}
-  <div class="a-fi">
-    <span class="a-fi-sev sev-{{lower (printf "%s" .Severity)}}">{{.Severity}}</span>
-    <div class="a-fi-body">
-      <div class="a-fi-head">
-        <span class="a-fi-id">{{.CheckID}}</span>
-        <span class="a-fi-title">{{.Title}}</span>
-      </div>
-      {{if .Remediation}}
-      <div class="a-fi-fix">
-        <code>{{.Remediation}}</code>
-        <button class="a-cp" onclick="copyText('{{.Remediation}}',this)">copy</button>
-        {{if .FixURL}}<a href="{{.FixURL}}" class="a-fi-link">Fix this &rarr;</a>{{end}}
-      </div>
-      {{end}}
+  <div class="ps-hero-body">
+    <div class="ps-hero-title">{{if ge .Score 90}}Deployment secured{{else if ge .Score 60}}Deployment needs attention{{else}}Critical security gaps detected{{end}}</div>
+    <div class="ps-hero-detail">
+      {{if gt .Summary.Critical 0}}<span><span class="ps-hero-dot" style="background:var(--danger)"></span>{{.Summary.Critical}} critical</span>{{end}}
+      {{if gt .Summary.High 0}}<span><span class="ps-hero-dot" style="background:var(--danger)"></span>{{.Summary.High}} high</span>{{end}}
+      {{if gt .Summary.Medium 0}}<span><span class="ps-hero-dot" style="background:var(--warn)"></span>{{.Summary.Medium}} medium</span>{{end}}
+      {{if gt .Summary.Info 0}}<span><span class="ps-hero-dot" style="background:var(--text3)"></span>{{.Summary.Info}} info</span>{{end}}
     </div>
+    {{if gt .FixableCount 0}}
+    <button class="ps-fix-all"
+      hx-post="/dashboard/api/audit/fix-all"
+      hx-target="#posture-findings"
+      hx-swap="innerHTML"
+      hx-confirm="Apply {{.FixableCount}} safe fixes? This enables security features in your config.">Fix {{.FixableCount}} {{if eq .FixableCount 1}}issue{{else}}issues{{end}} automatically</button>
+    {{end}}
   </div>
+</div>
+
+<!-- Status bar -->
+<div class="ps-status">
+  <div>
+    Audit trail: {{formatNum .ChainCount}} entries{{if .ChainValid}}, integrity verified{{end}}
+  </div>
+  {{if .LLMEnabled}}
+  <button class="ps-enrich-btn" hx-post="/dashboard/api/audit/enrich" hx-target="#posture-findings" hx-swap="innerHTML" hx-indicator="#enrich-spin">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 0-4 4v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2h-2V6a4 4 0 0 0-4-4z"/></svg>
+    {{if .SavedAnalysis}}Re-analyze with AI{{else}}Analyze with AI{{end}}
+  </button>
+  <span id="enrich-spin" class="htmx-indicator" style="margin-left:6px"><span class="ps-spinner"></span></span>
   {{end}}
 </div>
-{{end}}
 
-{{range .Groups}}
-<div class="a-prod">
-  <div class="a-prod-head">
-    {{if .Info.Icon}}<div class="a-prod-icon">{{.Info.Icon}}</div>{{end}}
-    <div style="flex:1;min-width:0">
-      <div class="a-prod-name">{{.Info.Name}}</div>
-      {{if .Info.Description}}<div class="a-prod-desc">{{.Info.Description}}</div>{{end}}
-      {{if .Info.ConfigPath}}
-      <div class="a-prod-path">
-        Config: <code>{{.Info.ConfigPath}}</code>
-        <button class="a-cp" onclick="copyText('{{.Info.ConfigPath}}',this)">copy</button>
-      </div>
-      {{end}}
-      {{if .Info.DocsURL}}<div style="font-size:0.68rem;margin-top:3px"><a href="{{.Info.DocsURL}}" target="_blank" rel="noopener" style="color:var(--text3);text-decoration:none">{{.Info.DocsURL}}</a></div>{{end}}
-    </div>
-    <div class="a-prod-counts">
-      {{if .Summary.Critical}}<span style="color:var(--danger)">{{.Summary.Critical}} critical</span>{{end}}
-      {{if .Summary.High}}<span style="color:var(--text2)">{{.Summary.High}} high</span>{{end}}
-      {{if .Summary.Medium}}<span style="color:var(--text2)">{{.Summary.Medium}} medium</span>{{end}}
-      {{if .Summary.Info}}<span style="color:var(--text3)">{{.Summary.Info}} info</span>{{end}}
-    </div>
+<!-- Findings -->
+<div class="ps-section-title">Findings</div>
+<div class="ps-findings" id="posture-findings">
+{{if .SavedAnalysis}}
+<div class="ps-ai-summary" style="margin:16px 20px;border-radius:10px">
+  <div class="ps-ai-hdr">
+    <span>AI Assessment</span>
+    <span class="ps-ai-model">{{.AnalysisModel}}</span>
   </div>
-
-  <details class="a-fd"{{if or .Summary.Critical .Summary.High}} open{{end}}>
-    <summary>{{len .Findings}} {{if eq (len .Findings) 1}}finding{{else}}findings{{end}}</summary>
-    {{range .Findings}}
-    <div class="a-fi">
-      <span class="a-fi-sev sev-{{lower (printf "%s" .Severity)}}">{{.Severity}}</span>
-      <div class="a-fi-body">
-        <div class="a-fi-head">
-          <span class="a-fi-id">{{.CheckID}}</span>
-          <span class="a-fi-title">{{.Title}}</span>
-        </div>
-        <div class="a-fi-detail">{{.Detail}}</div>
-        {{if .Remediation}}
-        <div class="a-fi-fix">
-          <code>{{.Remediation}}</code>
-          <button class="a-cp" onclick="copyText('{{.Remediation}}',this)">copy</button>
-          {{if .FixURL}}<a href="{{.FixURL}}" class="a-fi-link">Fix this →</a>{{end}}
-        </div>
-        {{end}}
-      </div>
-    </div>
-    {{end}}
-  </details>
+  <div class="ps-ai-text">{{.SavedAnalysis}}</div>
 </div>
 {{end}}
-
-<div class="a-foot">
-  {{.TotalChecks}} findings &middot;
-  {{.Summary.Critical}} critical &middot; {{.Summary.High}} high &middot; {{.Summary.Medium}} medium &middot; {{.Summary.Info}} info
-  {{if not .Sandbox}}<br><a href="/dashboard/audit/sandbox">Try sandbox demo &rarr;</a>{{end}}
+{{range .AllFindings}}{{if ne (printf "%s" .Severity) "INFO"}}
+<div class="ps-finding{{if isFixable .CheckID}} ps-fixable{{end}}" id="f-{{.CheckID}}">
+  <div class="ps-f-sev"><span class="ps-sev sev-{{lower (printf "%s" .Severity)}}">{{.Severity}}</span></div>
+  <div class="ps-f-body">
+    <span class="ps-f-title">{{.Title}}{{if .Product}}<span class="ps-f-product">{{.Product}}</span>{{end}}</span>
+    {{if .Detail}}<div class="ps-f-detail">{{.Detail}}</div>{{end}}
+    {{if not (isFixable .CheckID)}}{{if .Remediation}}<div class="ps-f-rem"><code>{{.Remediation}}</code></div>{{end}}{{end}}
+  </div>
+  <div class="ps-f-act">
+    {{if isFixable .CheckID}}
+    <button class="ps-fix-btn" hx-post="/dashboard/api/audit/fix/{{.CheckID}}" hx-target="#f-{{.CheckID}}" hx-swap="outerHTML">Fix</button>
+    {{else if .FixURL}}
+    <a href="{{.FixURL}}" class="ps-cfg-btn">Configure</a>
+    {{end}}
+  </div>
+</div>
+{{end}}{{end}}
 </div>
 
-<script>
-function copyText(text, btn) {
-  navigator.clipboard.writeText(text).then(function() {
-    var orig = btn.textContent;
-    btn.textContent = 'copied';
-    btn.style.color = 'var(--success)';
-    setTimeout(function() { btn.textContent = orig; btn.style.color = ''; }, 1200);
-  });
-}
-</script>
 ` + layoutFoot))

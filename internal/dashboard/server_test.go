@@ -711,8 +711,8 @@ func TestServer_AuditPageProductInfo(t *testing.T) {
 		t.Fatalf("audit page: status = %d, want 200", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Runtime security for AI agents") {
-		t.Error("audit page should contain Oktsec product description")
+	if !strings.Contains(body, "Security posture") {
+		t.Error("audit page should contain posture heading")
 	}
 	// "Priority Remediations" section only shown when there are critical/high
 	// findings — the test config triggers some, so at least verify the page
