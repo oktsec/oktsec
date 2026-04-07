@@ -39,10 +39,10 @@ var credentialPatterns = []*regexp.Regexp{
 func redactMatch(s string) string {
 	for _, re := range credentialPatterns {
 		s = re.ReplaceAllStringFunc(s, func(match string) string {
-			if len(match) > 10 {
-				return match[:10] + "***"
+			if len(match) > 4 {
+				return match[:4] + "***"
 			}
-			return match[:4] + "***"
+			return "***"
 		})
 	}
 	return s

@@ -77,9 +77,9 @@ func (g *RuleGenerator) Generate(threat ThreatFinding, provider, messageID strin
 		return nil, nil
 	}
 
-	// Validate the regex pattern
-	if _, err := regexp.Compile(threat.Suggestion.Pattern); err != nil {
-		return nil, fmt.Errorf("invalid regex from LLM %q: %w", threat.Suggestion.Pattern, err)
+	// Validate the regex pattern (with ReDoS protection)
+	if err := validateRegexSafety(threat.Suggestion.Pattern); err != nil {
+		return nil, fmt.Errorf("unsafe regex from LLM %q: %w", threat.Suggestion.Pattern, err)
 	}
 
 	id := fmt.Sprintf("LLM-%03d", g.counter.Add(1))
@@ -183,6 +183,61 @@ func (g *RuleGenerator) ListActive() ([]GeneratedRule, error) {
 // ListDisabled returns all disabled LLM-generated rules.
 func (g *RuleGenerator) ListDisabled() ([]GeneratedRule, error) {
 	return g.listByStatus("disabled")
+}
+
+// validateRegexSafety rejects LLM-generated regex patterns that are too long
+// or contain nested quantifiers. Defense-in-depth: Go's RE2 is immune to ReDoS,
+// but generated rules may be consumed by non-RE2 engines.
+func validateRegexSafety(pattern string) error {
+	if len(pattern) > 256 {
+		return fmt.Errorf("regex pattern too long (%d chars, max 256)", len(pattern))
+	}
+	if hasNestedQuantifiers(pattern) {
+		return fmt.Errorf("regex contains nested quantifiers (ReDoS risk): %s", pattern)
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("invalid regex: %w", err)
+	}
+	return nil
+}
+
+// hasNestedQuantifiers detects capturing groups with nested quantifiers like
+// (a+)+, (a*)+ that cause catastrophic backtracking in non-RE2 engines.
+// Non-capturing groups (?:...) are excluded since they are common and safe.
+func hasNestedQuantifiers(pattern string) bool {
+	for i := 0; i < len(pattern); i++ {
+		if pattern[i] != '(' {
+			continue
+		}
+		// Skip non-capturing groups (?:...), lookaheads (?=...), etc.
+		if i+1 < len(pattern) && pattern[i+1] == '?' {
+			continue
+		}
+		// Find matching close paren
+		depth := 1
+		hasInnerQuantifier := false
+		for j := i + 1; j < len(pattern) && depth > 0; j++ {
+			switch pattern[j] {
+			case '(':
+				depth++
+			case ')':
+				depth--
+				if depth == 0 && hasInnerQuantifier {
+					// Check if the group itself is quantified
+					if j+1 < len(pattern) && (pattern[j+1] == '+' || pattern[j+1] == '*') {
+						return true
+					}
+				}
+			case '+', '*':
+				if depth == 1 {
+					hasInnerQuantifier = true
+				}
+			case '\\':
+				j++ // skip escaped char
+			}
+		}
+	}
+	return false
 }
 
 func (g *RuleGenerator) listByStatus(status string) ([]GeneratedRule, error) {
