@@ -20,7 +20,7 @@ func ReadFile(path string) ([]byte, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	return io.ReadAll(f)
 }
@@ -36,7 +36,7 @@ func ReadFileMax(path string, maxBytes int64) ([]byte, error) {
 		}
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {
