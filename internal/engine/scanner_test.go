@@ -251,19 +251,19 @@ func TestRedactMatch(t *testing.T) {
 	}{
 		{
 			"Found: sk-ant-api03-abc123def456ghi789jkl",
-			"Found: sk-ant-api***",
+			"Found: sk-a***",
 		},
 		{
 			"Token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
-			"Token: ghp_ABCDEF***",
+			"Token: ghp_***",
 		},
 		{
 			"Key: AKIAIOSFODNN7EXAMPLE",
-			"Key: AKIAIOSFOD***",
+			"Key: AKIA***",
 		},
 		{
 			"Slack: xoxb-1234567890-abcdefghij",
-			"Slack: xoxb-12345***",
+			"Slack: xoxb***",
 		},
 		{
 			"No secrets here, just a normal message",
@@ -271,7 +271,7 @@ func TestRedactMatch(t *testing.T) {
 		},
 		{
 			"PEM: -----BEGIN RSA PRIVATE KEY-----",
-			"PEM: -----BEGIN***",
+			"PEM: ----***",
 		},
 	}
 	for _, tc := range tests {

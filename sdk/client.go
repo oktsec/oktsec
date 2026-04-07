@@ -21,7 +21,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -175,7 +174,8 @@ type Keypair struct {
 // Expects <dir>/<name>.key (private) and optionally <dir>/<name>.pub (public).
 func LoadKeypair(dir, name string) (*Keypair, error) {
 	privPath := filepath.Join(dir, name+".key")
-	privPEM, err := os.ReadFile(privPath)
+
+	privPEM, err := readFileNoFollow(privPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading private key: %w", err)
 	}
