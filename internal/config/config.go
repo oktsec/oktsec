@@ -42,6 +42,12 @@ type Config struct {
 	LLM            LLMConfig                      `yaml:"llm,omitempty"`
 	Telemetry      TelemetryConfig                `yaml:"telemetry,omitempty"`
 	Guard          GuardConfig                    `yaml:"guard,omitempty"`
+	Audit          AuditExportConfig              `yaml:"audit,omitempty"`
+}
+
+// AuditExportConfig controls production event export for rule test cases.
+type AuditExportConfig struct {
+	ExportBlocked bool `yaml:"export_blocked,omitempty"` // save blocked/quarantined content as testcases
 }
 
 // TelemetryConfig controls the anonymous usage ping.
@@ -191,6 +197,17 @@ type Agent struct {
 	Location        string                  `yaml:"location,omitempty"`
 	Tags            []string                `yaml:"tags,omitempty"`
 	Egress          *EgressPolicy           `yaml:"egress,omitempty"`
+
+	// Concurrency and delegation caps. Zero means "use gateway default".
+	MaxConcurrentCalls int `yaml:"max_concurrent_calls,omitempty"` // 0 = default (5), <0 = unlimited
+	MaxDelegationDepth int `yaml:"max_delegation_depth,omitempty"` // 0 = default (3), <0 = unlimited
+
+	// KeyVersion lets operators rotate Ed25519 keys without changing agent
+	// names. Clients must include X-Oktsec-Key-Version on signed messages
+	// when this is set; signatures from a different version are rejected.
+	// Zero keeps legacy (pre-v0.15.0) behaviour: no version in the signed
+	// payload, any loaded key accepted.
+	KeyVersion int64 `yaml:"key_version,omitempty"`
 }
 
 // ToolConstraintConfig defines per-tool parameter and usage limits.
@@ -290,9 +307,15 @@ var MinimalEnforceRules = map[string]bool{
 }
 
 // RateLimitConfig controls per-agent message rate limiting.
+//
+// The per-IP limiter is the first line of defense: it runs *before* JSON
+// parsing so unauthenticated attackers can't force 10MB body parses just by
+// rotating payloads. PerAgent still runs after parse because the agent name
+// lives inside the body.
 type RateLimitConfig struct {
-	PerAgent int `yaml:"per_agent"` // max messages per window (0 = disabled)
-	WindowS  int `yaml:"window"`    // window size in seconds (default: 60)
+	PerAgent int `yaml:"per_agent"`       // max messages per window per agent (0 = disabled)
+	WindowS  int `yaml:"window"`          // window size in seconds (default: 60)
+	PerIP    int `yaml:"per_ip,omitempty"` // max requests per window per source IP (0 = disabled, default: 10x per_agent)
 }
 
 // AnomalyConfig controls automatic risk-based alerting and suspension.

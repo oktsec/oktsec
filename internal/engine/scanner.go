@@ -8,44 +8,59 @@ import (
 	"path/filepath"
 	"regexp"
 	"sync"
+	"sync/atomic"
 
 	"github.com/garagon/aguara"
 	"github.com/oktsec/oktsec/rules"
 )
 
-// credentialPatterns matches known API key and secret formats for redaction.
-// When a credential is detected in match text, it's truncated to prevent
-// secrets from leaking through API responses, audit trail, or webhooks.
-var credentialPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`sk-ant-[a-zA-Z0-9_-]{10,}`),
-	regexp.MustCompile(`sk-[a-zA-Z0-9_-]{10,}`),
-	regexp.MustCompile(`ghp_[a-zA-Z0-9]{10,}`),
-	regexp.MustCompile(`gho_[a-zA-Z0-9]{10,}`),
-	regexp.MustCompile(`ghs_[a-zA-Z0-9]{10,}`),
-	regexp.MustCompile(`ghr_[a-zA-Z0-9]{10,}`),
-	regexp.MustCompile(`github_pat_[a-zA-Z0-9_]{10,}`),
-	regexp.MustCompile(`AKIA[0-9A-Z]{4,}`),
-	regexp.MustCompile(`xox[bpas]-[a-zA-Z0-9-]{10,}`),
-	regexp.MustCompile(`glpat-[a-zA-Z0-9_-]{10,}`),
-	regexp.MustCompile(`sk_live_[a-zA-Z0-9]{10,}`),
-	regexp.MustCompile(`sk_test_[a-zA-Z0-9]{10,}`),
-	regexp.MustCompile(`SG\.[a-zA-Z0-9_-]{10,}`),
-	regexp.MustCompile(`-----BEGIN[A-Z ]*PRIVATE KEY-----`),
-	regexp.MustCompile(`eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}`),
+// credentialPattern ties a regex to a symbolic credential type. Replacement
+// emits a typed placeholder (e.g. "[REDACTED:ANTHROPIC_KEY:len=48]") instead
+// of echoing a prefix of the secret — previous behaviour exposed the first 10
+// chars, which is enough to GitHub-search or fingerprint a rotated key.
+type credentialPattern struct {
+	re       *regexp.Regexp
+	credType string
 }
 
-// redactMatch replaces known credential patterns with truncated versions
-// to prevent secrets from leaking through API responses or audit trail.
+var credentialPatterns = []credentialPattern{
+	{regexp.MustCompile(`sk-ant-[a-zA-Z0-9_-]{10,}`), "ANTHROPIC_KEY"},
+	{regexp.MustCompile(`ghp_[a-zA-Z0-9]{10,}`), "GITHUB_PAT"},
+	{regexp.MustCompile(`gho_[a-zA-Z0-9]{10,}`), "GITHUB_OAUTH"},
+	{regexp.MustCompile(`ghs_[a-zA-Z0-9]{10,}`), "GITHUB_SERVER_TOKEN"},
+	{regexp.MustCompile(`ghr_[a-zA-Z0-9]{10,}`), "GITHUB_REFRESH"},
+	{regexp.MustCompile(`github_pat_[a-zA-Z0-9_]{10,}`), "GITHUB_PAT_FGT"},
+	{regexp.MustCompile(`AKIA[0-9A-Z]{4,}`), "AWS_ACCESS_KEY"},
+	{regexp.MustCompile(`xox[bpas]-[a-zA-Z0-9-]{10,}`), "SLACK_TOKEN"},
+	{regexp.MustCompile(`glpat-[a-zA-Z0-9_-]{10,}`), "GITLAB_PAT"},
+	{regexp.MustCompile(`sk_live_[a-zA-Z0-9]{10,}`), "STRIPE_LIVE"},
+	{regexp.MustCompile(`sk_test_[a-zA-Z0-9]{10,}`), "STRIPE_TEST"},
+	{regexp.MustCompile(`SG\.[a-zA-Z0-9_-]{10,}`), "SENDGRID_KEY"},
+	{regexp.MustCompile(`-----BEGIN[A-Z ]*PRIVATE KEY-----`), "PEM_PRIVATE_KEY"},
+	{regexp.MustCompile(`eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{20,}`), "JWT"},
+	{regexp.MustCompile(`sk-[a-zA-Z0-9_-]{10,}`), "OPENAI_KEY"},
+}
+
+// redactMatch replaces known credential patterns with typed placeholders.
+// The placeholder records length but never the content, so credential search
+// engines (GitHub dorks, Have-I-Been-Pwned etc.) can't fingerprint from audit
+// trail leakage. Exported callers see only [REDACTED:TYPE:len=N].
 func redactMatch(s string) string {
-	for _, re := range credentialPatterns {
+	for _, cp := range credentialPatterns {
+		re := cp.re
+		credType := cp.credType
 		s = re.ReplaceAllStringFunc(s, func(match string) string {
-			if len(match) > 4 {
-				return match[:4] + "***"
-			}
-			return "***"
+			return fmt.Sprintf("[REDACTED:%s:len=%d]", credType, len(match))
 		})
 	}
 	return s
+}
+
+// RedactContent replaces known credential patterns with truncated versions.
+// Exported for use by testcase export and other callers that need to sanitize
+// content before writing to disk.
+func RedactContent(s string) string {
+	return redactMatch(s)
 }
 
 // ScanVerdict is the proxy's decision based on scan findings.
@@ -81,13 +96,19 @@ type ruleCache struct {
 }
 
 // Scanner wraps the Aguara engine for in-process content scanning.
-// Uses Aguara's cached Scanner API (v0.13.0+) for compiled-once, reuse-always scanning.
+//
+// Uses Aguara's cached Scanner API (v0.13.0+) for compiled-once, reuse-always
+// scanning. The hot-loaded objects (compiled scanner + metadata cache) live
+// behind atomic.Pointer so ScanContent() is lock-free on the fast path —
+// critical at high RPS where an RWMutex becomes a visible contention point.
+// writeMu serializes *rebuilds* only.
 type Scanner struct {
-	mu      sync.RWMutex
-	cached  *aguara.Scanner // compiled scanner, reused across all requests
-	opts    []aguara.Option // kept for hot-reload (InvalidateCache rebuilds)
-	tempDir string          // temp dir for embedded IAP rules
-	cache   *ruleCache      // metadata cache for ListRules/ExplainRule
+	writeMu sync.Mutex
+	cached  atomic.Pointer[aguara.Scanner] // compiled scanner, reused across all requests
+	opts    []aguara.Option                // kept for hot-reload (InvalidateCache rebuilds)
+	optsMu  sync.Mutex                     // guards opts during rebuild
+	tempDir string                         // temp dir for embedded IAP rules
+	cache   atomic.Pointer[ruleCache]      // metadata cache for ListRules/ExplainRule
 }
 
 // NewScanner creates a scanner with oktsec's IAP rules + Aguara's built-in rules.
@@ -109,12 +130,11 @@ func NewScanner(customRulesDir string, extraOpts ...aguara.Option) *Scanner {
 
 	s.opts = append(s.opts, extraOpts...)
 
-	// Build cached scanner (compile rules once)
-	cached, err := aguara.NewScanner(s.opts...)
-	if err == nil {
-		s.cached = cached
+	// Build cached scanner (compile rules once). On failure we leave the
+	// pointer nil and fall back to per-request scanning.
+	if cached, err := aguara.NewScanner(s.opts...); err == nil {
+		s.cached.Store(cached)
 	}
-	// If NewScanner fails, s.cached is nil and we fall back to per-request scanning
 
 	return s
 }
@@ -131,10 +151,10 @@ func (s *Scanner) ScanContent(ctx context.Context, content string) (*ScanOutcome
 func (s *Scanner) ScanContentAs(ctx context.Context, content, filename string) (*ScanOutcome, error) {
 	var result *aguara.ScanResult
 	var err error
-	if s.cached != nil {
-		result, err = s.cached.ScanContent(ctx, content, filename)
+	if cached := s.cached.Load(); cached != nil {
+		result, err = cached.ScanContent(ctx, content, filename)
 	} else {
-		result, err = aguara.ScanContent(ctx, content, filename, s.opts...)
+		result, err = aguara.ScanContent(ctx, content, filename, s.optsCopy()...)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("aguara scan: %w", err)
@@ -153,13 +173,14 @@ func (s *Scanner) ScanContentWithTool(ctx context.Context, content, toolName str
 func (s *Scanner) ScanContentAsWithTool(ctx context.Context, content, filename, toolName string) (*ScanOutcome, error) {
 	var result *aguara.ScanResult
 	var err error
-	if s.cached != nil && toolName != "" {
-		result, err = s.cached.ScanContentAs(ctx, content, filename, toolName)
-	} else if s.cached != nil {
-		result, err = s.cached.ScanContent(ctx, content, filename)
-	} else {
-		opts := make([]aguara.Option, len(s.opts), len(s.opts)+1)
-		copy(opts, s.opts)
+	cached := s.cached.Load()
+	switch {
+	case cached != nil && toolName != "":
+		result, err = cached.ScanContentAs(ctx, content, filename, toolName)
+	case cached != nil:
+		result, err = cached.ScanContent(ctx, content, filename)
+	default:
+		opts := s.optsCopy()
 		if toolName != "" {
 			opts = append(opts, aguara.WithToolName(toolName))
 		}
@@ -169,6 +190,16 @@ func (s *Scanner) ScanContentAsWithTool(ctx context.Context, content, filename, 
 		return nil, fmt.Errorf("aguara scan: %w", err)
 	}
 	return buildOutcome(result), nil
+}
+
+// optsCopy returns a defensive copy of the current options so callers in the
+// lock-free path don't alias a slice that InvalidateCache might grow.
+func (s *Scanner) optsCopy() []aguara.Option {
+	s.optsMu.Lock()
+	defer s.optsMu.Unlock()
+	out := make([]aguara.Option, len(s.opts))
+	copy(out, s.opts)
+	return out
 }
 
 // buildOutcome converts Aguara scan results into a proxy verdict.
@@ -211,10 +242,10 @@ func (s *Scanner) Close() {
 
 // RulesCount returns the total number of loaded rules (Aguara + IAP).
 func (s *Scanner) RulesCount(ctx context.Context) int {
-	if s.cached != nil {
-		return s.cached.RulesLoaded()
+	if cached := s.cached.Load(); cached != nil {
+		return cached.RulesLoaded()
 	}
-	result, err := aguara.ScanContent(ctx, "test", "test.md", s.opts...)
+	result, err := aguara.ScanContent(ctx, "test", "test.md", s.optsCopy()...)
 	if err != nil {
 		return 0
 	}
@@ -222,65 +253,71 @@ func (s *Scanner) RulesCount(ctx context.Context) int {
 }
 
 // ensureCache builds the rule cache if it hasn't been built yet.
+// Readers are lock-free via atomic.Pointer; only the builder takes writeMu
+// to serialize rebuilds.
 func (s *Scanner) ensureCache() *ruleCache {
-	s.mu.RLock()
-	c := s.cache
-	s.mu.RUnlock()
-	if c != nil {
+	if c := s.cache.Load(); c != nil {
 		return c
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.cache != nil {
-		return s.cache
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if c := s.cache.Load(); c != nil {
+		return c
 	}
 
+	cached := s.cached.Load()
+	opts := s.optsCopy()
+
 	var list []aguara.RuleInfo
-	if s.cached != nil {
-		list = s.cached.ListRules()
+	if cached != nil {
+		list = cached.ListRules()
 	} else {
-		list = aguara.ListRules(s.opts...)
+		list = aguara.ListRules(opts...)
 	}
 	details := make(map[string]*aguara.RuleDetail, len(list))
 	for _, ri := range list {
 		var d *aguara.RuleDetail
 		var err error
-		if s.cached != nil {
-			d, err = s.cached.ExplainRule(ri.ID)
+		if cached != nil {
+			d, err = cached.ExplainRule(ri.ID)
 		} else {
-			d, err = aguara.ExplainRule(ri.ID, s.opts...)
+			d, err = aguara.ExplainRule(ri.ID, opts...)
 		}
 		if err == nil {
 			details[ri.ID] = d
 		}
 	}
-	s.cache = &ruleCache{list: list, details: details}
-	return s.cache
+	c := &ruleCache{list: list, details: details}
+	s.cache.Store(c)
+	return c
 }
 
 // InvalidateCache forces the next ListRules/ExplainRule call to reload from disk.
 // Also rebuilds the cached Aguara scanner with the current options.
 // Used by the LLM rule generator to trigger hot-reload after new rules are approved.
 func (s *Scanner) InvalidateCache() {
-	s.mu.Lock()
-	s.cache = nil
-	// Rebuild cached scanner with current opts
-	if cached, err := aguara.NewScanner(s.opts...); err == nil {
-		s.cached = cached
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.cache.Store(nil)
+	if cached, err := aguara.NewScanner(s.optsCopy()...); err == nil {
+		s.cached.Store(cached)
 	}
-	s.mu.Unlock()
 }
 
 // AddCustomRulesDir appends a custom rules directory and rebuilds the scanner.
 func (s *Scanner) AddCustomRulesDir(dir string) {
-	s.mu.Lock()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.optsMu.Lock()
 	s.opts = append(s.opts, aguara.WithCustomRules(dir))
-	s.cache = nil
-	if cached, err := aguara.NewScanner(s.opts...); err == nil {
-		s.cached = cached
+	optsSnap := make([]aguara.Option, len(s.opts))
+	copy(optsSnap, s.opts)
+	s.optsMu.Unlock()
+	s.cache.Store(nil)
+	if cached, err := aguara.NewScanner(optsSnap...); err == nil {
+		s.cached.Store(cached)
 	}
-	s.mu.Unlock()
 }
 
 // ListRules returns metadata for all loaded rules (Aguara built-in + IAP + custom).

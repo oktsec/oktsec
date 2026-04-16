@@ -65,10 +65,11 @@ func runVerifyChain(dbPath, keyPath string, limit int, jsonOutput bool) error {
 		return exitError(2, fmt.Sprintf("audit database not found: %s", dbPath))
 	}
 
-	// Open store read-only by using query_only pragma via the DSN.
-	// NewStore opens the DB and runs migrations, but query_only prevents writes.
+	// Open the store read-only. NewStoreReadOnly skips the auto-repair /
+	// rebuild paths so any tampered row remains visible to VerifyChain.
+	// PRAGMA query_only=ON is also applied as a second line of defense.
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	store, err := audit.NewStore(dbPath, logger)
+	store, err := audit.NewStoreReadOnly(dbPath, logger)
 	if err != nil {
 		return exitError(2, fmt.Sprintf("opening audit db: %v", err))
 	}

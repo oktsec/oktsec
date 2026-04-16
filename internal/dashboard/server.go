@@ -40,6 +40,9 @@ type Server struct {
 	llmQueue *llm.Queue
 	ruleGen  *llm.RuleGenerator
 
+	// Gateway tool classification callback (set when gateway runs in-process)
+	gwToolsFunc func() []GatewayToolInfo
+
 	// Cached rule category map (built once on first use)
 	ruleCatMu  sync.Mutex
 	ruleCatMap map[string]string
@@ -121,14 +124,31 @@ func (s *Server) SetRuleGenerator(rg *llm.RuleGenerator) {
 	s.ruleGen = rg
 }
 
+// GatewayToolInfo holds tool classification data for the dashboard.
+type GatewayToolInfo struct {
+	FrontendName string
+	BackendName  string
+	Description  string
+	ImpactTier   string
+	Generality   string
+	RiskTier     string
+}
+
+// SetGatewayToolsFunc sets the callback for retrieving gateway tool classifications.
+func (s *Server) SetGatewayToolsFunc(fn func() []GatewayToolInfo) {
+	s.gwToolsFunc = fn
+}
+
 // AccessCode returns the one-time access code displayed in the terminal.
 func (s *Server) AccessCode() string {
 	return s.auth.AccessCode()
 }
 
-// Handler returns the dashboard HTTP handler with auth middleware applied.
+// Handler returns the dashboard HTTP handler with auth + CSRF middleware applied.
+// csrfGuard runs outside auth so cross-origin POSTs that happen to carry no
+// session still get a clean 403 rather than bouncing through login.
 func (s *Server) Handler() http.Handler {
-	return s.auth.Middleware(s.mux)
+	return csrfGuard(s.auth.Middleware(s.mux))
 }
 
 // startGateway spawns `oktsec gateway` as a child process. Caller must hold gwMu.
@@ -368,6 +388,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /dashboard/settings/rate-limit", s.handleSaveRateLimit)
 	s.mux.HandleFunc("POST /dashboard/settings/anomaly", s.handleSaveAnomaly)
 	s.mux.HandleFunc("POST /dashboard/settings/intent", s.handleSaveIntent)
+	s.mux.HandleFunc("POST /dashboard/settings/testcase-export", s.handleSaveTestcaseExport)
 	s.mux.HandleFunc("POST /dashboard/settings/forward-proxy", s.handleSaveForwardProxy)
 	s.mux.HandleFunc("POST /dashboard/settings/quarantine", s.handleSaveQuarantine)
 

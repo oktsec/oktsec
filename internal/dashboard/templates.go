@@ -3367,6 +3367,18 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   </div>
   </form>
 
+  <form method="POST" action="/dashboard/settings/testcase-export">
+  <div class="st-item">
+    <div class="st-item-info">
+      <div class="st-item-name">Testcase Export</div>
+      <div class="st-item-desc">Save blocked and quarantined content as test cases for detection rule validation. Files are stored locally in ~/.oktsec/testcases/</div>
+    </div>
+    <div class="st-item-value">
+      <span class="toggle"><input type="checkbox" name="export_blocked" value="true" {{if .ExportBlocked}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+    </div>
+  </div>
+  </form>
+
   <form method="POST" action="/dashboard/settings/forward-proxy">
   <div class="st-item">
     <div class="st-item-info">
@@ -5611,6 +5623,23 @@ function gwTab(name){
   </table>
   {{else}}
   <div class="empty">No tools connected yet. Add one below or import from the <a href="#" onclick="gwTab('discovery');return false" style="color:var(--accent-light);text-decoration:underline">Auto-detected</a> tab.</div>
+  {{end}}
+
+  {{if .Tools}}
+  <h3 style="margin-top:var(--sp-6);margin-bottom:var(--sp-3)">Individual Tools</h3>
+  <table>
+    <thead><tr><th>Tool</th><th>Backend</th><th>Impact</th><th>Risk</th></tr></thead>
+    <tbody>
+    {{range .Tools}}
+    <tr>
+      <td style="font-weight:600">{{.FrontendName}}</td>
+      <td style="color:var(--text3)">{{.BackendName}}</td>
+      <td>{{.ImpactTier}}</td>
+      <td>{{if eq .RiskTier "low"}}<span style="background:var(--success);color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem">low</span>{{else if eq .RiskTier "medium"}}<span style="background:#f0ad4e;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem">medium</span>{{else if eq .RiskTier "high"}}<span style="background:#f08040;color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem">high</span>{{else if eq .RiskTier "critical"}}<span style="background:var(--danger);color:#fff;padding:2px 8px;border-radius:4px;font-size:0.7rem">critical</span>{{else}}{{.RiskTier}}{{end}}</td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
   {{end}}
 
   <form method="POST" action="/dashboard/gateway/servers" class="inline-add">

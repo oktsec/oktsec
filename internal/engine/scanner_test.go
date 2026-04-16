@@ -3,8 +3,55 @@ package engine
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 )
+
+// TestScanner_ConcurrentScanAndInvalidate stresses the atomic.Pointer fast
+// path: N goroutines scan while another thread keeps calling InvalidateCache.
+// Race detector + concurrent readers/writers ensure no torn reads.
+func TestScanner_ConcurrentScanAndInvalidate(t *testing.T) {
+	s := NewScanner("")
+	defer s.Close()
+
+	ctx := context.Background()
+	const readers = 32
+	const iters = 50
+
+	var readerWg sync.WaitGroup
+	stop := make(chan struct{})
+	invalidatorDone := make(chan struct{})
+
+	go func() {
+		defer close(invalidatorDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				s.InvalidateCache()
+			}
+		}
+	}()
+
+	for i := 0; i < readers; i++ {
+		readerWg.Add(1)
+		go func() {
+			defer readerWg.Done()
+			for j := 0; j < iters; j++ {
+				if _, err := s.ScanContent(ctx, "concurrent scan payload"); err != nil {
+					t.Errorf("ScanContent error: %v", err)
+					return
+				}
+				_ = s.ListRules()
+			}
+		}()
+	}
+
+	readerWg.Wait()
+	close(stop)
+	<-invalidatorDone
+}
 
 func TestScanContent_Clean(t *testing.T) {
 	s := NewScanner("")
@@ -251,19 +298,19 @@ func TestRedactMatch(t *testing.T) {
 	}{
 		{
 			"Found: sk-ant-api03-abc123def456ghi789jkl",
-			"Found: sk-a***",
+			"Found: [REDACTED:ANTHROPIC_KEY:len=34]",
 		},
 		{
 			"Token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
-			"Token: ghp_***",
+			"Token: [REDACTED:GITHUB_PAT:len=36]",
 		},
 		{
 			"Key: AKIAIOSFODNN7EXAMPLE",
-			"Key: AKIA***",
+			"Key: [REDACTED:AWS_ACCESS_KEY:len=20]",
 		},
 		{
 			"Slack: xoxb-1234567890-abcdefghij",
-			"Slack: xoxb***",
+			"Slack: [REDACTED:SLACK_TOKEN:len=26]",
 		},
 		{
 			"No secrets here, just a normal message",
@@ -271,13 +318,37 @@ func TestRedactMatch(t *testing.T) {
 		},
 		{
 			"PEM: -----BEGIN RSA PRIVATE KEY-----",
-			"PEM: ----***",
+			"PEM: [REDACTED:PEM_PRIVATE_KEY:len=31]",
 		},
 	}
 	for _, tc := range tests {
 		got := redactMatch(tc.input)
 		if got != tc.want {
 			t.Errorf("redactMatch(%q)\n  got  %q\n  want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+// Property-style check: the redacted output must never contain an 8-char
+// substring of the original secret, regardless of credential type.
+func TestRedactMatch_NoSecretLeak(t *testing.T) {
+	secrets := []string{
+		"sk-ant-api03-AAABBBCCCDDDEEEFFFGGGHHHIIIJJJ",
+		"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef01234567",
+		"xoxb-1234567890-abcdefghij-XXXXXXXXXXXX",
+		"sk_live_ABCDEFGHIJKLMNOPQR",
+		"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc",
+	}
+	for _, secret := range secrets {
+		redacted := redactMatch("prefix " + secret + " suffix")
+		if len(secret) < 12 {
+			continue
+		}
+		for i := 0; i+8 <= len(secret); i++ {
+			chunk := secret[i : i+8]
+			if strings.Contains(redacted, chunk) {
+				t.Fatalf("redacted output leaks 8-char chunk %q from %q\n  got: %s", chunk, secret, redacted)
+			}
 		}
 	}
 }

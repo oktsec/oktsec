@@ -549,6 +549,23 @@ func startServer(configPath string, opts runOpts) error {
 			gw.SetCfgPath(configPath)
 			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
 			gw.SetHooksHandler(hh)
+			// Wire tool classification to dashboard
+			gwRef := gw
+			srv.Dashboard().SetGatewayToolsFunc(func() []dashboard.GatewayToolInfo {
+				var tools []dashboard.GatewayToolInfo
+				for _, ti := range gwRef.ListToolInfo() {
+					tools = append(tools, dashboard.GatewayToolInfo{
+						FrontendName: ti.FrontendName,
+						BackendName:  ti.BackendName,
+						Description:  ti.Description,
+						ImpactTier:   string(ti.Classification.ImpactTier),
+						Generality:   string(ti.Classification.Generality),
+						RiskTier:     string(ti.Classification.RiskTier),
+					})
+				}
+				return tools
+			})
+
 			go func() {
 				if e := gw.Start(ctx); e != nil {
 					logger.Error("gateway error", "error", e)

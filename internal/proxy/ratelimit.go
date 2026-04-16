@@ -8,6 +8,20 @@ import (
 	"time"
 )
 
+// RateStore is the pluggable contract for sliding-window rate limiting.
+// The default implementation, *RateLimiter, keeps state in-memory with
+// sharded locks. A future RedisRateStore can satisfy this interface to share
+// state across replicas (see DOCS/oktsec/engineering for the roadmap). Every
+// call site now depends on this interface, not the concrete type, so the
+// swap is drop-in.
+type RateStore interface {
+	// Allow returns true when the key is within the sliding window budget.
+	// Implementations must be safe for concurrent use.
+	Allow(key string) bool
+	// Stop releases any background goroutines / connections.
+	Stop()
+}
+
 const rlShardCount = 64
 
 // rlShard is one partition of the rate limiter's state.
@@ -18,12 +32,16 @@ type rlShard struct {
 
 // RateLimiter implements a sliding-window rate limit per agent.
 // Internally it uses sharded locks to reduce contention at high request rates.
+// Satisfies RateStore.
 type RateLimiter struct {
 	limit  int
 	window time.Duration
 	shards [rlShardCount]rlShard
 	done   chan struct{}
 }
+
+// Compile-time assertion that the default in-memory limiter satisfies RateStore.
+var _ RateStore = (*RateLimiter)(nil)
 
 // NewRateLimiter creates a rate limiter. If limit <= 0, Allow always returns true.
 func NewRateLimiter(limit int, windowSeconds int) *RateLimiter {

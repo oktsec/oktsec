@@ -8,10 +8,13 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 )
+
+var urlParse = url.Parse
 
 const (
 	sessionCookieName = "oktsec_session"
@@ -224,9 +227,12 @@ func (a *Auth) cleanStaleAttemptsLocked() {
 }
 
 // Middleware protects dashboard routes, redirecting unauthenticated requests to login.
-// CSRF note: the session cookie uses SameSite=Strict, which prevents cross-origin
-// cookie sends. Combined with localhost-only binding, CSRF risk is effectively
-// mitigated without dedicated tokens.
+//
+// CSRF defense is layered:
+//  1. Session cookie uses SameSite=Strict and HttpOnly.
+//  2. csrfGuard verifies Origin/Referer on state-changing methods.
+//  3. Dashboard binds to localhost, but (2) still matters because SameSite
+//     does not block DNS-rebinding or legacy browsers without SameSite support.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Allow login page without auth
@@ -248,6 +254,73 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// csrfGuard rejects state-changing requests whose Origin (or Referer as fallback)
+// doesn't match the Host the server is serving. It is a cheap Origin/Referer
+// check — not a token — because (a) the dashboard is localhost-bound, (b) the
+// session cookie is SameSite=Strict, and (c) HTMX callers don't carry a token
+// today. The guard adds defense against DNS-rebinding and against any future
+// mistake that exposes the dashboard beyond loopback.
+//
+// Safe methods (GET/HEAD/OPTIONS) and the login endpoint are exempt — login
+// carries no cookie yet, and the access code check is the real gate there.
+func csrfGuard(next http.Handler) http.Handler {
+	safe := map[string]struct{}{
+		http.MethodGet: {}, http.MethodHead: {}, http.MethodOptions: {},
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := safe[r.Method]; ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/dashboard/login" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !sameOriginRequest(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":"cross-origin request rejected"}`))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sameOriginRequest returns true when Origin / Referer either match the
+// request Host or are both absent.
+//
+// Why "absent = allowed": browsers always send Origin on state-changing
+// cross-origin requests, so a missing Origin means a non-browser client
+// (curl, a test, a server-to-server tool). A CSRF attack is by definition
+// cross-origin *through a browser*, so it cannot produce the absent case.
+// Present-but-mismatching, however, is exactly the browser-CSRF signal we
+// want to reject.
+func sameOriginRequest(r *http.Request) bool {
+	target := r.Host
+	if target == "" {
+		return true // no Host to compare against — let downstream reject
+	}
+
+	check := func(raw string) (matched, present bool) {
+		if raw == "" {
+			return false, false
+		}
+		u, err := urlParse(raw)
+		if err != nil || u.Host == "" {
+			return false, true
+		}
+		return u.Host == target, true
+	}
+
+	if matched, present := check(r.Header.Get("Origin")); present {
+		return matched
+	}
+	if matched, present := check(r.Header.Get("Referer")); present {
+		return matched
+	}
+	return true
 }
 
 // clientIP extracts the client IP address from the request.

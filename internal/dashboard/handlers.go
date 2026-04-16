@@ -2944,6 +2944,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		"PGUser":               parsePGField(s.cfg.DBDSN, "user"),
 		"PGDatabase":           parsePGField(s.cfg.DBDSN, "database"),
 		"PGSSLMode":            parsePGField(s.cfg.DBDSN, "sslmode"),
+		"ExportBlocked":        s.cfg.Audit.ExportBlocked,
 		"GatewayEnabled":       s.cfg.Gateway.Enabled,
 		"GatewayPort":          s.cfg.Gateway.Port,
 
@@ -3508,6 +3509,18 @@ func (s *Server) handleSaveIntent(w http.ResponseWriter, r *http.Request) {
 	if s.cfgPath != "" {
 		if err := s.saveConfig(); err != nil {
 			s.logger.Error("failed to save config after intent update", "error", err)
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	http.Redirect(w, r, "/dashboard/settings", http.StatusFound)
+}
+
+func (s *Server) handleSaveTestcaseExport(w http.ResponseWriter, r *http.Request) {
+	s.cfg.Audit.ExportBlocked = r.FormValue("export_blocked") == "true"
+	if s.cfgPath != "" {
+		if err := s.saveConfig(); err != nil {
+			s.logger.Error("failed to save config after testcase export update", "error", err)
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
 		}
@@ -4420,6 +4433,11 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(discovered, func(i, j int) bool { return discovered[i].Name < discovered[j].Name })
 
+	var tools []GatewayToolInfo
+	if s.gwToolsFunc != nil {
+		tools = s.gwToolsFunc()
+	}
+
 	gw := s.cfg.Gateway
 	data := map[string]any{
 		"Active":          "gateway",
@@ -4428,6 +4446,7 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 		"Discovered":      discovered,
 		"Tab":             r.URL.Query().Get("tab"),
 		"DepCheckEnabled": s.cfg.Gateway.DepCheck,
+		"Tools":           tools,
 	}
 	s.renderTemplate(w, gatewayTmpl, data)
 }

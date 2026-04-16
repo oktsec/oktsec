@@ -26,16 +26,16 @@ type ForwardProxy struct {
 	cfg             *config.ForwardProxyConfig
 	scanner         *engine.Scanner
 	audit           *audit.Store
-	rateLimiter     *RateLimiter
+	rateLimiter     RateStore
 	egressEval      *EgressEvaluator
-	agentLimiters   map[string]*RateLimiter
+	agentLimiters   map[string]RateStore
 	logger          *slog.Logger
 	transport       *http.Transport
 	upstreamProxy   bool // true when HTTP_PROXY/HTTPS_PROXY is set
 }
 
 // NewForwardProxy creates a forward proxy with scanning and audit capabilities.
-func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter *RateLimiter, agents map[string]config.Agent, logger *slog.Logger, tb *config.TrustBoundaries) *ForwardProxy {
+func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter RateStore, agents map[string]config.Agent, logger *slog.Logger, tb *config.TrustBoundaries) *ForwardProxy {
 	// When an upstream proxy is configured (e.g., inside Docker Sandbox),
 	// the transport dials the proxy, not the target. Use standard dialer
 	// for proxy connections; SSRF checks are applied at handler level.
@@ -53,7 +53,7 @@ func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, au
 		audit:         auditStore,
 		rateLimiter:   rateLimiter,
 		egressEval:    NewEgressEvaluator(cfg, agents, tb),
-		agentLimiters: make(map[string]*RateLimiter),
+		agentLimiters: make(map[string]RateStore),
 		logger:        logger,
 		upstreamProxy: upstream,
 		transport: &http.Transport{

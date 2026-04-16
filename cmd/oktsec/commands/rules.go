@@ -62,5 +62,10 @@ func newRulesCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&explain, "explain", "", "explain a specific rule by ID")
+
+	cmd.AddCommand(
+		newRulesTestgenCmd(),
+		newRulesValidateCmd(),
+	)
 	return cmd
 }
