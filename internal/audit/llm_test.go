@@ -272,11 +272,15 @@ func TestQueryAgentRiskBlendedScoring(t *testing.T) {
 		t.Fatal("risky-bot not found in results")
 	}
 
-	// Audit-only score: (3*3 + 0*2) / 10 * 100 = 90 (clamped to 90, under 100)
-	// LLM avg risk: 80
-	// Blended: 90*0.6 + 80*0.4 = 54 + 32 = 86
-	if rb.RiskScore < 85 || rb.RiskScore > 87 {
-		t.Errorf("blended RiskScore = %f, want ~86", rb.RiskScore)
+	// Under the recalibrated scoring (see QueryAgentRisk):
+	//   audit_score = confidence * (80*blockRatio + 40*quarRatio)
+	//               = 1.0 * (80 * 3/10 + 0) = 24
+	//   blended     = 24*0.6 + 80*0.4 = 46.4
+	// The 90-style score the old formula produced was too hot for what
+	// amounts to "a handful of blocks on a moderately-active agent".
+	// Keep an assertion band so small weight tweaks don't churn the test.
+	if rb.RiskScore < 44 || rb.RiskScore > 49 {
+		t.Errorf("blended RiskScore = %f, want ~46 (audit 24 × 0.6 + LLM 80 × 0.4)", rb.RiskScore)
 	}
 	if rb.LLMAvgRisk != 80 {
 		t.Errorf("LLMAvgRisk = %f, want 80", rb.LLMAvgRisk)

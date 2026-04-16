@@ -720,7 +720,13 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 				if row.Disabled {
 					cat.Disabled++
 				}
-				switch ri.Severity {
+				// Aguara emits severities in uppercase ("CRITICAL", "HIGH"…)
+				// while audit.Severity* constants are lowercase. Normalizing
+				// here means the category counter — which drives the
+				// severity pills in the Rules catalog cards — actually
+				// populates instead of silently landing in the default
+				// branch and leaving every card footer empty.
+				switch strings.ToLower(ri.Severity) {
 				case audit.SeverityCritical:
 					cat.Critical++
 				case audit.SeverityHigh:
@@ -934,7 +940,9 @@ func (s *Server) handleCategoryRules(w http.ResponseWriter, r *http.Request) {
 			if row.Disabled {
 				cat.Disabled++
 			}
-			switch ri.Severity {
+			// Severity strings come in as uppercase from the scanner;
+			// fold to lowercase to match audit.Severity* constants.
+			switch strings.ToLower(ri.Severity) {
 			case audit.SeverityCritical:
 				cat.Critical++
 			case audit.SeverityHigh:

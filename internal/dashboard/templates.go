@@ -1656,7 +1656,15 @@ function adTab(name){
         {{range .Entries}}
         <tr class="ad-msg clickable" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML">
           <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
-          <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
+          <td>
+            {{/* Tool-call hooks are logged with from==to==agent; show the tool
+                 instead of a same-name loop. If the row lacks a tool and the
+                 destination matches the current agent, label it "(internal)"
+                 so readers don't misread it as a bug. */}}
+            {{if .ToolName}}{{toolDot .ToolName}}
+            {{else if eq .ToAgent $.Name}}<span style="color:var(--text3);font-style:italic">(internal)</span>
+            {{else}}{{agentCell .ToAgent}}{{end}}
+          </td>
           <td>
             {{if eq .Status "delivered"}}<span class="badge-delivered">delivered</span>
             {{else if eq .Status "blocked"}}<span class="badge-blocked">blocked</span>
