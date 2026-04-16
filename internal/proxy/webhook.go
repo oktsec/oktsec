@@ -199,44 +199,72 @@ func (n *WebhookNotifier) shouldCooldown(event, agent string) bool {
 	return false
 }
 
+// retryBackoffs is the schedule between delivery attempts. The first send
+// is immediate; subsequent entries are the sleep before each retry. Picked
+// so total wall-clock worst case is ~31s — long enough to ride out a short
+// downstream hiccup, short enough that a stuck alert doesn't backlog the
+// dispatcher goroutine forever.
+var retryBackoffs = []time.Duration{0, 1 * time.Second, 5 * time.Second, 25 * time.Second}
+
+// isRetryable decides whether a webhook attempt should be tried again.
+// Transport-level failures (DNS, connection reset, timeout) and 5xx are
+// retryable. 4xx means the client got the request and chose to refuse — no
+// amount of retrying fixes that, so fail fast to DLQ.
+func isRetryable(status int, err error) bool {
+	if err != nil {
+		return true
+	}
+	return status >= 500
+}
+
+// deliver runs the retry loop and returns the terminal alert status:
+//
+//	"sent"    — request got a 2xx/3xx response within the budget
+//	"failed"  — request got a 4xx (permanent client error, no DLQ)
+//	"dlq"     — every attempt failed transiently; goes to the dead-letter log
+func (n *WebhookNotifier) deliver(url string, body []byte, contentType string) string {
+	var lastStatus int
+	var lastErr error
+	for i, wait := range retryBackoffs {
+		if wait > 0 {
+			time.Sleep(wait)
+		}
+		resp, err := n.client.Post(url, contentType, bytes.NewReader(body))
+		if err == nil {
+			lastStatus = resp.StatusCode
+			_ = resp.Body.Close()
+			if resp.StatusCode < 400 {
+				if i > 0 {
+					n.logger.Info("webhook recovered after retry", "url", url, "attempt", i+1)
+				}
+				return "sent"
+			}
+			if !isRetryable(resp.StatusCode, nil) {
+				n.logger.Warn("webhook rejected (non-retryable)", "url", url, "status", resp.StatusCode)
+				return "failed"
+			}
+			lastErr = fmt.Errorf("status %d", resp.StatusCode)
+		} else {
+			lastErr = err
+		}
+		n.logger.Warn("webhook delivery attempt failed", "url", url, "attempt", i+1, "error", lastErr)
+	}
+	n.logger.Error("webhook exhausted retries, sending to DLQ", "url", url, "last_status", lastStatus, "last_error", lastErr)
+	return "dlq"
+}
+
 func (n *WebhookNotifier) send(url, channel string, event WebhookEvent) {
-	status := "sent"
 	body, err := json.Marshal(event)
 	if err != nil {
 		n.logger.Error("webhook marshal failed", "error", err)
 		n.logAlert(event, channel, "failed")
 		return
 	}
-
-	resp, err := n.client.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
-		n.logAlert(event, channel, "failed")
-		return
-	}
-	_ = resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		n.logger.Warn("webhook returned error", "url", url, "status", resp.StatusCode)
-		status = "failed"
-	}
-	n.logAlert(event, channel, status)
+	n.logAlert(event, channel, n.deliver(url, body, "application/json"))
 }
 
 func (n *WebhookNotifier) sendRaw(url, channel, body string, event WebhookEvent) {
-	status := "sent"
-	resp, err := n.client.Post(url, "application/json", strings.NewReader(body))
-	if err != nil {
-		n.logger.Warn("webhook delivery failed", "url", url, "error", err)
-		n.logAlert(event, channel, "failed")
-		return
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		n.logger.Warn("webhook returned error", "url", url, "status", resp.StatusCode)
-		status = "failed"
-	}
-	n.logAlert(event, channel, status)
+	n.logAlert(event, channel, n.deliver(url, []byte(body), "application/json"))
 }
 
 func (n *WebhookNotifier) logAlert(event WebhookEvent, channel, status string) {

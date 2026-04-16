@@ -8,7 +8,23 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
+
+// tracing wraps the handler with OpenTelemetry span creation + W3C
+// traceparent propagation. When tracing isn't initialized, otelhttp falls
+// through to the global noop provider — no perf cost beyond the middleware
+// call itself.
+//
+// Spans are named by route (via WithSpanNameFormatter) so dashboards can
+// group per-endpoint instead of bucketing everything under one path.
+func tracing(next http.Handler) http.Handler {
+	return otelhttp.NewHandler(next, "oktsec.http",
+		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+			return r.Method + " " + r.URL.Path
+		}),
+	)
+}
 
 type contextKey string
 

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"crypto/ed25519"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,7 +26,52 @@ func newKeysCmd() *cobra.Command {
 		newKeysListCmd(),
 		newKeysRotateCmd(),
 		newKeysRevokeCmd(),
+		newKeysListRevokedCmd(),
 	)
+	return cmd
+}
+
+func newKeysListRevokedCmd() *cobra.Command {
+	var jsonOut bool
+	cmd := &cobra.Command{
+		Use:   "list-revoked",
+		Short: "List revoked keys (CRL) with agent, timestamp and reason",
+		Long: `Prints the revocation list from the audit DB. This is the same data the
+proxy uses to reject messages signed by revoked keys. Use --json to feed it
+into an external auditor or SIEM.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+			store, err := audit.NewStoreReadOnly(defaultDBPath(), logger)
+			if err != nil {
+				return fmt.Errorf("opening audit db: %w", err)
+			}
+			defer func() { _ = store.Close() }()
+
+			revoked, err := store.ListRevokedKeys()
+			if err != nil {
+				return fmt.Errorf("listing revoked keys: %w", err)
+			}
+
+			if jsonOut {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				return enc.Encode(revoked)
+			}
+
+			if len(revoked) == 0 {
+				fmt.Println("No revoked keys.")
+				return nil
+			}
+			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintf(tw, "FINGERPRINT\tAGENT\tREVOKED_AT\tREASON\n") //nolint:errcheck
+			for _, rk := range revoked {
+				fmt.Fprintf(tw, "%s...\t%s\t%s\t%s\n", //nolint:errcheck
+					truncateFingerprint(rk.Fingerprint), rk.AgentName, rk.RevokedAt, rk.Reason)
+			}
+			return tw.Flush()
+		},
+	}
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "output as JSON (machine-readable CRL)")
 	return cmd
 }
 
@@ -129,12 +175,36 @@ func newKeysRotateCmd() *cobra.Command {
 				return fmt.Errorf("saving keypair: %w", err)
 			}
 
+			// Bump the agent's key_version so v2 signatures from the old
+			// key are rejected. Without this bump rotation is cosmetic:
+			// the proxy would still accept legacy v1 signatures signed
+			// by whoever captured the old private key. See
+			// internal/identity/signer.go (SignMessageV2) for the
+			// canonical payload that includes the version.
+			newVersion := int64(0)
+			if agentCfg, ok := cfg.Agents[agent]; ok {
+				agentCfg.KeyVersion = agentCfg.KeyVersion + 1
+				if agentCfg.KeyVersion == 0 {
+					agentCfg.KeyVersion = 1
+				}
+				newVersion = agentCfg.KeyVersion
+				cfg.Agents[agent] = agentCfg
+				if cfgFile != "" {
+					if err := cfg.Save(cfgFile); err != nil {
+						return fmt.Errorf("persisting new key_version: %w", err)
+					}
+				}
+			}
+
 			fp := identity.Fingerprint(ed25519.PublicKey(kp.PublicKey))
 			fmt.Printf("Rotated keypair for %s\n", agent)
 			fmt.Printf("  New fingerprint: %s\n", fp)
+			if newVersion > 0 {
+				fmt.Printf("  New key_version: %d (clients must echo X-Oktsec-Key-Version)\n", newVersion)
+			}
 			fmt.Printf("  Old keys moved to: %s/\n", revokedDir)
 			fmt.Println()
-			fmt.Println("Restart oktsec to load the new key.")
+			fmt.Println("Send SIGHUP or restart oktsec to load the new key.")
 			return nil
 		},
 	}

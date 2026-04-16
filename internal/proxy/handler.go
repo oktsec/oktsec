@@ -90,16 +90,43 @@ func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluat
 		scanner:            scanner,
 		audit:              auditStore,
 		webhooks:           webhooks,
-		rateLimiter:        NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
+		rateLimiter:        buildRateStore(cfg.RateLimit.PerAgent, cfg, logger, "agent"),
 		window:             NewMessageWindow(10, time.Hour),
 		sessions:           newSessionStore(sessionDefaultTTL),
 		logger:             logger,
 		consecutiveDenials: make(map[string]int),
 	}
 	if perIP > 0 {
-		h.ipLimiter = NewRateLimiter(perIP, cfg.RateLimit.WindowS)
+		h.ipLimiter = buildRateStore(perIP, cfg, logger, "ip")
 	}
 	return h
+}
+
+// buildRateStore picks the configured rate-limit backend. Falls back to
+// in-memory on any error so the server starts successfully even when
+// Redis is briefly unavailable — the WARN makes it obvious in logs.
+func buildRateStore(limit int, cfg *config.Config, logger *slog.Logger, label string) RateStore {
+	switch cfg.RateLimit.Backend {
+	case "redis":
+		opts, err := redisParseURL(cfg.RateLimit.RedisURL)
+		if err != nil {
+			logger.Warn("rate limiter: invalid redis_url, falling back to memory", "label", label, "error", err)
+			return NewRateLimiter(limit, cfg.RateLimit.WindowS)
+		}
+		window := time.Duration(cfg.RateLimit.WindowS) * time.Second
+		if window <= 0 {
+			window = time.Minute
+		}
+		store, err := NewRedisRateStore(opts, limit, window, logger)
+		if err != nil {
+			logger.Warn("rate limiter: redis unreachable, falling back to memory", "label", label, "error", err)
+			return NewRateLimiter(limit, cfg.RateLimit.WindowS)
+		}
+		logger.Info("rate limiter: using redis backend", "label", label, "limit", limit)
+		return store
+	default:
+		return NewRateLimiter(limit, cfg.RateLimit.WindowS)
+	}
 }
 
 // Close stops background goroutines (rate limiter eviction, message window eviction, session eviction).
