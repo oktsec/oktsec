@@ -1298,7 +1298,26 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 	var result []AgentRisk
 	for _, ar := range agents {
 		if ar.Total > 0 {
-			ar.RiskScore = float64(ar.Blocked*3+ar.Quarantined*2) / float64(ar.Total) * 100
+			// The previous formula — (blocked*3+quar*2)/total*100 — was
+			// trivially saturated: a single blocked message on a low-
+			// traffic agent produced 300, clamped to 100. Every freshly-
+			// auto-registered agent with one failed ping looked as
+			// dangerous as a truly compromised one, which kills trust in
+			// the score on the Agents page.
+			//
+			// Ratio-weighted instead, with a confidence factor so low-
+			// sample agents don't dominate the ranking:
+			//   confidence = min(1, total / 10)     — need ~10 msgs to stand fully behind the score
+			//   raw        = 80*blockRatio + 40*quarRatio   — caps around 80 for "everything blocked"
+			//   final      = confidence * raw       — 0-80 normally, 90 reserved for pathological combos
+			total := float64(ar.Total)
+			confidence := total / 10.0
+			if confidence > 1 {
+				confidence = 1
+			}
+			blockRatio := float64(ar.Blocked) / total
+			quarRatio := float64(ar.Quarantined) / total
+			ar.RiskScore = confidence * (80*blockRatio + 40*quarRatio)
 		}
 		result = append(result, *ar)
 	}
@@ -1306,7 +1325,8 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 	// Wait for LLM risk query and enrich results
 	wg.Wait()
 	for i := range result {
-		// Clamp audit score to 0-100
+		// Clamp to 0-100 — LLM enrichment can push the score above the
+		// audit-derived bucket, but never past the presentation cap.
 		if result[i].RiskScore > 100 {
 			result[i].RiskScore = 100
 		}

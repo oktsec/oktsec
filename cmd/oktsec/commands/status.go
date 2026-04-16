@@ -45,7 +45,14 @@ func newStatusCmd() *cobra.Command {
 				}
 			}
 
-			// Health score
+			// Health score. RunChecks returns findings for oktsec itself
+			// *and* for every external tool it detects (OpenClaw, MCP
+			// servers, NanoClaw, …). The status CLI should report on
+			// oktsec first; folding third-party misconfigurations into
+			// the headline score pins an otherwise-healthy oktsec
+			// install at a C just because the operator has a legacy
+			// OpenClaw config elsewhere on disk. Those findings are
+			// still surfaced on the dashboard Security Posture page.
 			configDir := filepath.Dir(cfgFile)
 			if configDir == "." {
 				if wd, err := os.Getwd(); err == nil {
@@ -53,8 +60,19 @@ func newStatusCmd() *cobra.Command {
 				}
 			}
 			findings, detected, _ := auditcheck.RunChecks(cfg, configDir)
-			score, grade := auditcheck.ComputeHealthScore(findings)
+			var ownFindings, envFindings []auditcheck.Finding
+			for _, f := range findings {
+				if f.Product == "" || f.Product == "oktsec" {
+					ownFindings = append(ownFindings, f)
+				} else {
+					envFindings = append(envFindings, f)
+				}
+			}
+			score, grade := auditcheck.ComputeHealthScore(ownFindings)
 			fmt.Printf("  Health:        %d/100 (%s)\n", score, grade)
+			if len(envFindings) > 0 {
+				fmt.Printf("  Environment:   %d finding(s) across detected tools (see dashboard audit page)\n", len(envFindings))
+			}
 			if len(detected) > 0 {
 				fmt.Printf("  Detected:      %s\n", joinDetected(detected))
 			}

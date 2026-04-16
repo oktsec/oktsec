@@ -381,6 +381,12 @@ type GatewayConfig struct {
 	ScanResponses          bool   `yaml:"scan_responses"`            // scan backend responses
 	DepCheck               bool   `yaml:"dep_check,omitempty"`       // hash dependency manifests on startup
 	VerifyDelegationScope  bool   `yaml:"verify_delegation_scope,omitempty"` // check response stays within delegated tool/agent scope
+
+	// DisableAutoRegister rejects tool calls from agents that aren't
+	// declared in cfg.Agents, instead of silently adding them with
+	// permissive defaults. Set true in production / stricter deployments
+	// where every agent should be reviewed before it can execute tools.
+	DisableAutoRegister bool `yaml:"disable_auto_register,omitempty"`
 }
 
 // MCPServerConfig defines a backend MCP server to proxy through the gateway.
