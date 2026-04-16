@@ -373,3 +373,122 @@ func containsStr(s, sub string) bool {
 	}
 	return false
 }
+
+// Tests for retry + DLQ behavior.
+//
+// These override retryBackoffs to short values so the suite stays fast.
+// Scheduling the real 1s/5s/25s ladder is covered by the isRetryable +
+// "sent/failed/dlq" branch tests below.
+
+func withShortBackoffs(t *testing.T) {
+	t.Helper()
+	orig := retryBackoffs
+	retryBackoffs = []time.Duration{0, time.Millisecond, time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { retryBackoffs = orig })
+}
+
+func TestWebhookRetry_RecoversAfterTransientFailure(t *testing.T) {
+	withShortBackoffs(t)
+	var attempts int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			w.WriteHeader(http.StatusBadGateway) // retryable
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	n := &WebhookNotifier{client: ts.Client(), logger: logger, lastSent: make(map[string]time.Time)}
+
+	var gotStatus string
+	n.OnAlert(func(_ WebhookEvent, _ string, status string) { gotStatus = status })
+
+	// Rewrite transport so ts.Client() can reach our httptest server even
+	// though WebhookNotifier normally uses SafeDialContext (which blocks 127.0.0.1).
+	n.client = ts.Client()
+
+	n.send(ts.URL, "test", WebhookEvent{Event: "rule_triggered"})
+
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+	if gotStatus != "sent" {
+		t.Fatalf("expected final status=sent after recovery, got %q", gotStatus)
+	}
+}
+
+func TestWebhookRetry_GivesUpToDLQ(t *testing.T) {
+	withShortBackoffs(t)
+	var attempts int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusServiceUnavailable) // always retryable, always fails
+	}))
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	n := &WebhookNotifier{client: ts.Client(), logger: logger, lastSent: make(map[string]time.Time)}
+	var gotStatus string
+	n.OnAlert(func(_ WebhookEvent, _ string, status string) { gotStatus = status })
+
+	n.send(ts.URL, "test", WebhookEvent{Event: "rule_triggered"})
+
+	if attempts != len(retryBackoffs) {
+		t.Fatalf("expected %d attempts (all retries exhausted), got %d", len(retryBackoffs), attempts)
+	}
+	if gotStatus != "dlq" {
+		t.Fatalf("expected final status=dlq after exhausting retries, got %q", gotStatus)
+	}
+}
+
+func TestWebhookRetry_4xxFailsFast(t *testing.T) {
+	withShortBackoffs(t)
+	var attempts int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusUnauthorized) // non-retryable
+	}))
+	defer ts.Close()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	n := &WebhookNotifier{client: ts.Client(), logger: logger, lastSent: make(map[string]time.Time)}
+	var gotStatus string
+	n.OnAlert(func(_ WebhookEvent, _ string, status string) { gotStatus = status })
+
+	n.send(ts.URL, "test", WebhookEvent{Event: "rule_triggered"})
+
+	if attempts != 1 {
+		t.Fatalf("4xx must not retry — expected 1 attempt, got %d", attempts)
+	}
+	if gotStatus != "failed" {
+		t.Fatalf("expected final status=failed on 4xx, got %q", gotStatus)
+	}
+}
+
+func TestIsRetryable(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		err    error
+		want   bool
+	}{
+		{"transport error", 0, net.ErrClosed, true},
+		{"500 server error", 500, nil, true},
+		{"503 unavailable", 503, nil, true},
+		{"401 unauthorized", 401, nil, false},
+		{"404 not found", 404, nil, false},
+		{"200 ok", 200, nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isRetryable(tc.status, tc.err); got != tc.want {
+				t.Errorf("isRetryable(%d, %v) = %v, want %v", tc.status, tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+var _ = os.Stdout // keep os import if unused elsewhere

@@ -236,6 +236,20 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 		}
 		writeJSON(w, http.StatusOK, item)
 	})
+	// CRL endpoint: external auditors / SIEMs can poll this to sync the
+	// revocation list. Kept behind the API key like every other /v1/ route.
+	apiMux.HandleFunc("GET /v1/revoked-keys", func(w http.ResponseWriter, r *http.Request) {
+		revoked, err := auditStore.ListRevokedKeys()
+		if err != nil {
+			logger.Error("list revoked keys failed", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal error"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"count":   len(revoked),
+			"revoked": revoked,
+		})
+	})
 	// Audit chain verification endpoint
 	apiMux.HandleFunc("GET /v1/audit/verify", func(w http.ResponseWriter, r *http.Request) {
 		entries, qErr := auditStore.QueryChainEntries(10000)
@@ -302,6 +316,8 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	h = logging(logger)(h)
 	h = recovery(logger)(h)
 	h = requestID(h)
+	// Tracing outermost so every other middleware runs inside a span.
+	h = tracing(h)
 
 	// Bind to 127.0.0.1 by default (localhost only).
 	// Use server.bind config or --bind flag to change.

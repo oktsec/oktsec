@@ -22,6 +22,7 @@ import (
 	"github.com/oktsec/oktsec/internal/gateway"
 	"github.com/oktsec/oktsec/internal/hooks"
 	"github.com/oktsec/oktsec/internal/identity"
+	"github.com/oktsec/oktsec/internal/observability"
 	"github.com/oktsec/oktsec/internal/proxy"
 	"github.com/oktsec/oktsec/internal/telemetry"
 	"github.com/oktsec/oktsec/internal/tui"
@@ -500,6 +501,24 @@ func startServer(configPath string, opts runOpts) error {
 		}
 	}
 	logger := slog.New(slog.NewTextHandler(logWriter, &slog.HandlerOptions{Level: level}))
+
+	// OpenTelemetry. Always initialized so traceparent headers propagate
+	// even when local recording is off; tracingCfg.Enabled is what gates
+	// the exporter. Shutdown is deferred so batched spans flush on exit.
+	tracingShutdown, err := observability.Init(observability.TracingConfig{
+		Enabled:       cfg.Telemetry.Tracing.Enabled,
+		Exporter:      cfg.Telemetry.Tracing.Exporter,
+		SamplingRatio: cfg.Telemetry.Tracing.SamplingRatio,
+		ServiceName:   cfg.Telemetry.Tracing.ServiceName,
+	}, logger)
+	if err != nil {
+		logger.Warn("tracing init failed, continuing without recording", "error", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = tracingShutdown(ctx)
+	}()
 
 	dashboard.Version = version
 	proxy.Version = version

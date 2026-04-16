@@ -50,9 +50,21 @@ type AuditExportConfig struct {
 	ExportBlocked bool `yaml:"export_blocked,omitempty"` // save blocked/quarantined content as testcases
 }
 
-// TelemetryConfig controls the anonymous usage ping.
+// TelemetryConfig controls anonymous usage ping and OpenTelemetry tracing.
 type TelemetryConfig struct {
-	Disabled bool `yaml:"disabled,omitempty"` // set true to opt out of anonymous pings
+	Disabled bool          `yaml:"disabled,omitempty"` // set true to opt out of anonymous pings
+	Tracing  TracingConfig `yaml:"tracing,omitempty"`
+}
+
+// TracingConfig configures OpenTelemetry export. When enabled=false we
+// still install the W3C traceparent propagator, so incoming trace
+// contexts flow through to downstream services even without local
+// recording.
+type TracingConfig struct {
+	Enabled       bool    `yaml:"enabled,omitempty"`
+	Exporter      string  `yaml:"exporter,omitempty"`       // "stdout" (default) | "none"
+	SamplingRatio float64 `yaml:"sampling_ratio,omitempty"` // 0.0-1.0, default 1.0
+	ServiceName   string  `yaml:"service_name,omitempty"`
 }
 
 // LLMConfig configures the async LLM analysis layer.
@@ -316,6 +328,14 @@ type RateLimitConfig struct {
 	PerAgent int `yaml:"per_agent"`       // max messages per window per agent (0 = disabled)
 	WindowS  int `yaml:"window"`          // window size in seconds (default: 60)
 	PerIP    int `yaml:"per_ip,omitempty"` // max requests per window per source IP (0 = disabled, default: 10x per_agent)
+
+	// Backend selects the rate-limit storage. "memory" (default) keeps
+	// state per-replica. "redis" shares state across replicas so the
+	// limit is global — required when the proxy runs behind a load
+	// balancer, otherwise an attacker multiplies the limit by rotating
+	// backend instances.
+	Backend  string `yaml:"backend,omitempty"`   // "memory" (default) | "redis"
+	RedisURL string `yaml:"redis_url,omitempty"` // redis://user:pass@host:port/db
 }
 
 // AnomalyConfig controls automatic risk-based alerting and suspension.
