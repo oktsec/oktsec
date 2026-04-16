@@ -379,6 +379,11 @@ func (s *Server) AuditStore() *audit.Store {
 	return s.audit
 }
 
+// Dashboard returns the dashboard server for external wiring.
+func (s *Server) Dashboard() *dashboard.Server {
+	return s.dashboard
+}
+
 // SetAuditStore replaces the audit store (used to share a single store
 // between proxy and gateway so all events feed into one Hub).
 func (s *Server) SetAuditStore(store *audit.Store) {
