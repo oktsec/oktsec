@@ -62,4 +62,6 @@ const (
 	DecisionDelegationInvalid        = "delegation_invalid"
 	DecisionDelegationRequired       = "delegation_required"
 	DecisionDelegationScopeViolation = "delegation_scope_violation"
+	DecisionDelegationDepthExceeded  = "delegation_depth_exceeded"
+	DecisionConcurrencyExceeded      = "concurrency_exceeded"
 )

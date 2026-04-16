@@ -38,9 +38,19 @@ const delegationContextKey contextKey = "oktsec-delegation"
 
 // toolMapping maps a frontend tool name to its backend.
 type toolMapping struct {
-	BackendName  string
-	OriginalName string
-	Backend      *Backend
+	BackendName    string
+	OriginalName   string
+	Backend        *Backend
+	Classification ToolClassification
+}
+
+// ToolInfo holds information about a gateway tool for external consumers.
+type ToolInfo struct {
+	FrontendName   string
+	BackendName    string
+	OriginalName   string
+	Description    string
+	Classification ToolClassification
 }
 
 // Gateway is the MCP security gateway server.
@@ -54,7 +64,8 @@ type Gateway struct {
 	scanner           *engine.Scanner
 	audit             *audit.Store
 	webhooks          *proxy.WebhookNotifier
-	rateLimiter       *proxy.RateLimiter
+	rateLimiter       proxy.RateStore
+	concurrency       *concurrencyLimiter
 	policyEnforcer    *ToolPolicyEnforcer
 	constraintChecker *ConstraintChecker
 	llmQueue          *llm.Queue
@@ -100,10 +111,11 @@ func NewGateway(cfg *config.Config, logger *slog.Logger, sharedStore *audit.Stor
 		audit:             auditStore,
 		webhooks:          webhooks,
 		rateLimiter:       rateLimiter,
+		concurrency:       newConcurrencyLimiter(cfg),
 		policyEnforcer:    NewToolPolicyEnforcer(),
 		constraintChecker: NewConstraintChecker(agentConstraints, agentChainRules),
-		logger:           logger,
-		registeredAgents: make(map[string]bool),
+		logger:            logger,
+		registeredAgents:  make(map[string]bool),
 	}, nil
 }
 
@@ -118,6 +130,7 @@ func newGatewayForTest(cfg *config.Config, scanner *engine.Scanner, auditStore *
 		audit:             auditStore,
 		webhooks:          proxy.NewWebhookNotifier(nil, logger),
 		rateLimiter:       proxy.NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS),
+		concurrency:       newConcurrencyLimiter(cfg),
 		policyEnforcer:    NewToolPolicyEnforcer(),
 		constraintChecker: NewConstraintChecker(agentConstraints, agentChainRules),
 		logger:            logger,
@@ -323,13 +336,36 @@ func (g *Gateway) buildToolMap() error {
 				frontendName = backendName + "_" + t.Name
 			}
 			g.toolMap[frontendName] = toolMapping{
-				BackendName:  backendName,
-				OriginalName: t.Name,
-				Backend:      b,
+				BackendName:    backendName,
+				OriginalName:   t.Name,
+				Backend:        b,
+				Classification: ClassifyTool(t.Name, t.Description),
 			}
 		}
 	}
 	return nil
+}
+
+// ListToolInfo returns classification info for all tools in the gateway.
+func (g *Gateway) ListToolInfo() []ToolInfo {
+	var tools []ToolInfo
+	for frontendName, m := range g.toolMap {
+		desc := ""
+		for _, t := range m.Backend.Tools {
+			if t.Name == m.OriginalName {
+				desc = t.Description
+				break
+			}
+		}
+		tools = append(tools, ToolInfo{
+			FrontendName:   frontendName,
+			BackendName:    m.BackendName,
+			OriginalName:   m.OriginalName,
+			Description:    desc,
+			Classification: m.Classification,
+		})
+	}
+	return tools
 }
 
 // filterPoisonedTools scans every tool description through the security engine
@@ -418,6 +454,15 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		if delHeader, _ := ctx.Value(delegationContextKey).(string); delHeader != "" {
 			chainResult := g.verifyDelegationHeader(delHeader)
 			if chainResult.Valid {
+				// Enforce per-agent delegation depth cap. Crossing this line
+				// is how a rogue agent tries to fan out into a sub-tree of
+				// delegated children; we stop it at the gateway.
+				if maxDepth := resolveDelegationDepth(g.cfg, agent); maxDepth > 0 && chainResult.Depth > maxDepth {
+					g.logger.Warn("delegation depth exceeded",
+						"agent", agent, "depth", chainResult.Depth, "max", maxDepth)
+					g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionDelegationDepthExceeded, "[]", toolArgs, sessionID, start)
+					return toolError(fmt.Sprintf("delegation depth %d exceeds max %d", chainResult.Depth, maxDepth)), nil
+				}
 				delegationChainHash = chainResult.ChainHash
 				delegationChainSummary = chainResult.Root + " -> " + chainResult.Delegate
 				delegationAllowedTools = chainResult.Tools
@@ -438,6 +483,15 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionRateLimited, "[]", toolArgs, sessionID, start)
 			return toolError("rate limit exceeded"), nil
 		}
+
+		// 2b. Per-agent concurrency slot. Held through scan + backend call so
+		// a single agent can't open N parallel sockets against the same tool.
+		release, err := g.concurrency.acquire(ctx, agent)
+		if err != nil {
+			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionConcurrencyExceeded, "[]", toolArgs, sessionID, start)
+			return toolError("concurrency limit exceeded"), nil
+		}
+		defer release()
 
 		// 3. Tool allowlist check
 		if agentCfg, ok := g.cfg.Agents[agent]; ok {
@@ -579,8 +633,23 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			})
 		}
 
-		// 11. Block if verdict is block or quarantine
+		// 11. Export testcase for blocked/quarantined tool calls
 		if outcome.Verdict == engine.VerdictBlock || outcome.Verdict == engine.VerdictQuarantine {
+			if g.cfg.Audit.ExportBlocked {
+				for _, f := range outcome.Findings {
+					_, _ = audit.ExportTestcase(audit.Testcase{
+						RuleID:    f.RuleID,
+						Type:      "true_positive",
+						Source:    "production",
+						Timestamp: time.Now().UTC().Format(time.RFC3339),
+						Agent:     agent,
+						Tool:      m.OriginalName,
+						Content:   content,
+						Severity:  f.Severity,
+						Verdict:   string(outcome.Verdict),
+					})
+				}
+			}
 			return toolError(fmt.Sprintf("blocked by oktsec: %s (%d rules triggered)", decision, len(outcome.Findings))), nil
 		}
 

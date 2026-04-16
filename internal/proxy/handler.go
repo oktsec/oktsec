@@ -56,7 +56,7 @@ type Handler struct {
 	scanner     *engine.Scanner
 	audit       *audit.Store
 	webhooks    *WebhookNotifier
-	rateLimiter *RateLimiter
+	rateLimiter RateStore
 	window      *MessageWindow
 	sessions            *sessionStore
 	llmQueue            *llm.Queue              // nil if LLM disabled
@@ -66,11 +66,24 @@ type Handler struct {
 
 	denialMu           sync.Mutex
 	consecutiveDenials map[string]int // key: "agent:session"
+
+	// ipLimiter runs BEFORE parseRequest so unauth attackers can't trigger
+	// JSON decode + MaxBytesReader allocation loops just to exhaust the
+	// proxy. Nil when PerIP <= 0 (opt-out).
+	ipLimiter RateStore
 }
 
 // NewHandler creates a message handler with all dependencies.
 func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluator, scanner *engine.Scanner, auditStore *audit.Store, webhooks *WebhookNotifier, logger *slog.Logger) *Handler {
-	return &Handler{
+	// Derive per-IP rate limit: explicit config wins, otherwise 10x per-agent.
+	// Per-agent is stricter by design — the same attacker can use many agent
+	// names but can't easily rotate IPs, so IP is the right coarse gate.
+	perIP := cfg.RateLimit.PerIP
+	if perIP == 0 && cfg.RateLimit.PerAgent > 0 {
+		perIP = cfg.RateLimit.PerAgent * 10
+	}
+
+	h := &Handler{
 		cfg:                cfg,
 		keys:               keys,
 		policy:             pol,
@@ -83,11 +96,18 @@ func NewHandler(cfg *config.Config, keys *identity.KeyStore, pol *policy.Evaluat
 		logger:             logger,
 		consecutiveDenials: make(map[string]int),
 	}
+	if perIP > 0 {
+		h.ipLimiter = NewRateLimiter(perIP, cfg.RateLimit.WindowS)
+	}
+	return h
 }
 
 // Close stops background goroutines (rate limiter eviction, message window eviction, session eviction).
 func (h *Handler) Close() {
 	h.rateLimiter.Stop()
+	if h.ipLimiter != nil {
+		h.ipLimiter.Stop()
+	}
 	h.window.Stop()
 	h.sessions.Stop()
 }
@@ -114,6 +134,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
+	}
+
+	// Pre-parse IP gate. Keeping this before parseRequest means a flood of
+	// malformed 10MB bodies can't force JSON decodes — we reject on a cheap
+	// map lookup. agent-level rate limit still applies after parse.
+	if h.ipLimiter != nil {
+		if !h.ipLimiter.Allow(clientIP(r)) {
+			rateLimitHits.Inc()
+			writeJSON(w, http.StatusTooManyRequests, map[string]string{
+				"error": "rate limit exceeded (ip)",
+			})
+			return
+		}
 	}
 
 	req, err := h.parseRequest(r)
@@ -149,8 +182,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		entry.SessionID = h.sessions.Resolve(req.From)
 	}
 
-	// Step 1: Identity verification
-	sigStatus, verified, fingerprint := h.verifyIdentity(req)
+	// Step 1: Identity verification. If the agent has a key_version pinned
+	// in config, the client must echo it in X-Oktsec-Key-Version and sign
+	// the V2 canonical payload — that's what prevents replaying a v1
+	// signature after a key rotation.
+	reqKeyVersion := parseKeyVersion(r.Header.Get("X-Oktsec-Key-Version"))
+	sigStatus, verified, fingerprint := h.verifyIdentity(req, reqKeyVersion)
 	entry.SignatureVerified = sigStatus
 	entry.PubkeyFingerprint = fingerprint
 
@@ -280,6 +317,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp.Remediation = topRemediation(outcome.Findings)
 		resp.Suggestion = suggestionForDecision(policyDecision)
 		h.recordDenial(req.From, entry.SessionID)
+		// Export testcase for blocked/quarantined messages
+		if h.cfg.Audit.ExportBlocked {
+			for _, f := range outcome.Findings {
+				_, _ = audit.ExportTestcase(audit.Testcase{
+					RuleID:    f.RuleID,
+					Type:      "true_positive",
+					Source:    "production",
+					Timestamp: time.Now().UTC().Format(time.RFC3339),
+					Agent:     req.From,
+					Tool:      req.To,
+					Content:   req.Content,
+					Severity:  f.Severity,
+					Verdict:   string(outcome.Verdict),
+				})
+			}
+		}
 	} else {
 		h.resetDenials(req.From, entry.SessionID)
 	}
@@ -343,6 +396,23 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 		Findings:       outcome.Findings,
 		Timestamp:      time.Now(),
 	})
+}
+
+// clientIP returns a stable key for rate-limiting by source.
+// Honours X-Forwarded-For (first hop) when the proxy sits behind an LB;
+// otherwise falls back to RemoteAddr sans port.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if comma := strings.IndexByte(xff, ','); comma > 0 {
+			return strings.TrimSpace(xff[:comma])
+		}
+		return strings.TrimSpace(xff)
+	}
+	addr := r.RemoteAddr
+	if colon := strings.LastIndexByte(addr, ':'); colon > 0 {
+		return addr[:colon]
+	}
+	return addr
 }
 
 func (h *Handler) parseRequest(r *http.Request) (*MessageRequest, error) {
@@ -616,7 +686,20 @@ func (h *Handler) notifyByRuleOverrides(msgID string, req *MessageRequest, findi
 	}
 }
 
-func (h *Handler) verifyIdentity(req *MessageRequest) (sigStatus int, verified bool, fingerprint string) {
+// parseKeyVersion parses the X-Oktsec-Key-Version header. An empty / malformed
+// header collapses to 0 (meaning "v1 signature, no version pin").
+func parseKeyVersion(raw string) int64 {
+	if raw == "" {
+		return 0
+	}
+	var v int64
+	if _, err := fmt.Sscanf(raw, "%d", &v); err != nil {
+		return 0
+	}
+	return v
+}
+
+func (h *Handler) verifyIdentity(req *MessageRequest, reqKeyVersion int64) (sigStatus int, verified bool, fingerprint string) {
 	if req.Signature == "" {
 		return 0, false, "" // unsigned
 	}
@@ -627,7 +710,37 @@ func (h *Handler) verifyIdentity(req *MessageRequest) (sigStatus int, verified b
 		return -1, false, "" // unknown agent
 	}
 
-	result := identity.VerifyMessage(pubKey, req.From, req.To, req.Content, req.Timestamp, req.Signature)
+	// Look up the pinned key version for this agent (0 = no pinning).
+	var expectedVersion int64
+	if agent, found := h.cfg.Agents[req.From]; found {
+		expectedVersion = agent.KeyVersion
+	}
+
+	var result identity.VerifyResult
+	switch {
+	case expectedVersion > 0:
+		// Agent has a pinned version; client MUST echo the right one and
+		// sign the V2 payload that commits to it. A missing or mismatched
+		// header is treated as an invalid signature — never falls back to
+		// v1, which would re-open the post-rotation replay window.
+		if reqKeyVersion != expectedVersion {
+			h.logger.Warn("key version mismatch",
+				"agent", req.From, "expected", expectedVersion, "got", reqKeyVersion)
+			return -1, false, identity.Fingerprint(pubKey)
+		}
+		result = identity.VerifyMessageV2(pubKey, req.From, req.To, req.Content, req.Timestamp, reqKeyVersion, req.Signature)
+	default:
+		// Legacy path: no pinning. Accept V1 or V2 — V2 wins if the client
+		// supplied a header AND the signature matches, otherwise V1.
+		if reqKeyVersion > 0 {
+			if r := identity.VerifyMessageV2(pubKey, req.From, req.To, req.Content, req.Timestamp, reqKeyVersion, req.Signature); r.Verified {
+				result = r
+				break
+			}
+		}
+		result = identity.VerifyMessage(pubKey, req.From, req.To, req.Content, req.Timestamp, req.Signature)
+	}
+
 	if !result.Verified {
 		return -1, false, result.Fingerprint
 	}

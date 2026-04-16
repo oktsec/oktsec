@@ -8,10 +8,26 @@ import (
 	"fmt"
 )
 
+// ChainSchemaVersion is the current chain hash schema.
+// v1: {prevHash, id, ts, from, to, contentHash, status}
+// v2: v1 + {policyDecision, rulesTriggered, signatureVerified}
+const ChainSchemaVersion = 2
+
 // ComputeEntryHash computes a SHA-256 hash over the chain-relevant fields of an
-// audit entry. The hash covers the previous hash, entry ID, timestamp, agents,
-// content hash, and status to form a tamper-evident chain.
-func ComputeEntryHash(prevHash, id, ts, from, to, contentHash, status string) string {
+// audit entry. The hash covers everything a tamper-resistant audit log needs to
+// commit to, including policy decision, triggered rules and signature status.
+func ComputeEntryHash(prevHash, id, ts, from, to, contentHash, status, policyDecision, rulesTriggered string, signatureVerified int) string {
+	payload := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%d",
+		prevHash, id, ts, from, to, contentHash, status,
+		policyDecision, rulesTriggered, signatureVerified)
+	h := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(h[:])
+}
+
+// computeEntryHashV1 reproduces the pre-v2 hash for backward compatibility with
+// chains written before the schema extension. It is intentionally unexported:
+// new writes must always use ComputeEntryHash (v2).
+func computeEntryHashV1(prevHash, id, ts, from, to, contentHash, status string) string {
 	payload := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s\n%s", prevHash, id, ts, from, to, contentHash, status)
 	h := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(h[:])
@@ -34,34 +50,35 @@ func VerifyEntrySignature(pub ed25519.PublicKey, entryHash, signature string) bo
 
 // ChainVerifyResult holds the result of verifying an audit chain.
 type ChainVerifyResult struct {
-	Valid      bool   `json:"valid"`
-	Entries    int    `json:"entries"`
-	BrokenAt   int    `json:"broken_at,omitempty"`  // index of first broken link (-1 if valid)
-	BrokenID   string `json:"broken_id,omitempty"`  // ID of the broken entry
-	Reason     string `json:"reason,omitempty"`
+	Valid    bool   `json:"valid"`
+	Entries  int    `json:"entries"`
+	BrokenAt int    `json:"broken_at,omitempty"` // index of first broken link (-1 if valid)
+	BrokenID string `json:"broken_id,omitempty"` // ID of the broken entry
+	Reason   string `json:"reason,omitempty"`
 }
 
 // VerifyChain validates the hash chain and signatures of a sequence of audit entries.
 // Entries must be ordered oldest-first (ascending timestamp).
+// Accepts both v1 and v2 hashes per entry to support chains migrated from older versions.
 func VerifyChain(entries []ChainEntry, proxyPub ed25519.PublicKey) ChainVerifyResult {
 	if len(entries) == 0 {
 		return ChainVerifyResult{Valid: true, Entries: 0, BrokenAt: -1}
 	}
 
 	for i, e := range entries {
-		// Recompute hash
-		expectedHash := ComputeEntryHash(e.PrevHash, e.ID, e.Timestamp, e.FromAgent, e.ToAgent, e.ContentHash, e.Status)
-		if e.EntryHash != expectedHash {
+		expectedV2 := ComputeEntryHash(e.PrevHash, e.ID, e.Timestamp, e.FromAgent, e.ToAgent, e.ContentHash, e.Status, e.PolicyDecision, e.RulesTriggered, e.SignatureVerified)
+		expectedV1 := computeEntryHashV1(e.PrevHash, e.ID, e.Timestamp, e.FromAgent, e.ToAgent, e.ContentHash, e.Status)
+
+		if e.EntryHash != expectedV2 && e.EntryHash != expectedV1 {
 			return ChainVerifyResult{
 				Valid:    false,
 				Entries:  len(entries),
 				BrokenAt: i,
 				BrokenID: e.ID,
-				Reason:   "entry hash mismatch",
+				Reason:   "entry hash mismatch (v1+v2 tried)",
 			}
 		}
 
-		// Verify chain link (except first entry)
 		if i > 0 && e.PrevHash != entries[i-1].EntryHash {
 			return ChainVerifyResult{
 				Valid:    false,
@@ -72,7 +89,6 @@ func VerifyChain(entries []ChainEntry, proxyPub ed25519.PublicKey) ChainVerifyRe
 			}
 		}
 
-		// Verify signature if proxy key provided
 		if proxyPub != nil && e.ProxySignature != "" {
 			if !VerifyEntrySignature(proxyPub, e.EntryHash, e.ProxySignature) {
 				return ChainVerifyResult{
@@ -96,3 +112,4 @@ type ChainEntry struct {
 	EntryHash      string `json:"entry_hash"`
 	ProxySignature string `json:"proxy_signature"`
 }
+

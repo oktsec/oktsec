@@ -165,15 +165,57 @@ type Store struct {
 	lastHash      string             // last entry hash for chain continuity
 	lastHashMu    sync.Mutex
 	inflight      atomic.Int64 // entries being processed in writeLoop
+
+	// readOnly disables any path that can mutate entry_hash / prev_hash /
+	// proxy_signature or backfilled columns. It exists so the CLI
+	// `audit verify-chain` can open the live DB without the auto-repair
+	// logic silently regenerating hashes for tampered rows — that defeats
+	// the whole point of hash-chain verification.
+	readOnly bool
 }
 
 // DB returns the underlying *sql.DB for direct access (benchmarking/migrations).
 func (s *Store) DB() *sql.DB { return s.db }
 
+// NewStoreReadOnly opens the SQLite audit database in a mode that refuses to
+// auto-repair or rebuild chain hashes. The underlying sqlite connection is
+// additionally put under `PRAGMA query_only=ON` after init so any subsequent
+// write attempt fails loudly. This is the constructor that `audit verify-chain`
+// and other evidence-preserving tools must use.
+//
+// The read-only flag is applied *before* migrations/backfill/repair run, so a
+// tampered chain opened through this constructor is never silently
+// regenerated. Schema creation is idempotent (CREATE IF NOT EXISTS), so on a
+// freshly opened DB it's a no-op; on an old DB it adds any missing columns
+// but never touches entry_hash/prev_hash/proxy_signature.
+func NewStoreReadOnly(dbPath string, logger *slog.Logger) (*Store, error) {
+	s, err := openStore(dbPath, logger, true, 0)
+	if err != nil {
+		return nil, err
+	}
+	// Second line of defense: block any accidental writes at the engine
+	// level. The in-code gate on Store.readOnly is authoritative; this
+	// just makes violations loud.
+	if _, err := s.db.Exec("PRAGMA query_only=ON"); err != nil {
+		logger.Warn("query_only pragma failed (in-code gate still active)", "error", err)
+	}
+	return s, nil
+}
+
 // NewStore opens (or creates) the SQLite audit database.
 // retentionDays controls automatic purging of old entries (0 = no purging).
 // If the database file or its parent directory is a symlink, it is rejected.
 func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store, error) {
+	retention := 0
+	if len(retentionDays) > 0 && retentionDays[0] > 0 {
+		retention = retentionDays[0]
+	}
+	return openStore(dbPath, logger, false, retention)
+}
+
+// openStore is the shared open path. `readOnly` must be decided here — not
+// flipped afterwards — because it gates the migration-time repair logic.
+func openStore(dbPath string, logger *slog.Logger, readOnly bool, retentionDays int) (*Store, error) {
 	if dbPath != ":memory:" {
 		// Reject symlinked parent directory
 		parentDir := filepath.Dir(dbPath)
@@ -195,12 +237,7 @@ func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store,
 		return nil, fmt.Errorf("opening audit db: %w", err)
 	}
 
-	retention := 0
-	if len(retentionDays) > 0 && retentionDays[0] > 0 {
-		retention = retentionDays[0]
-	}
-
-	return newStore(db, SQLiteDialect{}, logger, retention)
+	return newStore(db, SQLiteDialect{}, logger, retentionDays, readOnly)
 }
 
 // NewStoreWithDB creates an audit store from an existing *sql.DB connection
@@ -210,10 +247,10 @@ func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store,
 //	db, _ := sql.Open("pgx", "postgres://user:pass@localhost/oktsec")
 //	store, _ := audit.NewStoreWithDB(db, audit.PostgresDialect{}, logger, 90)
 func NewStoreWithDB(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays int) (*Store, error) {
-	return newStore(db, dialect, logger, retentionDays)
+	return newStore(db, dialect, logger, retentionDays, false)
 }
 
-func newStore(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays int) (*Store, error) {
+func newStore(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays int, readOnly bool) (*Store, error) {
 	// Run dialect-specific initialization (PRAGMAs for SQLite, etc.)
 	for _, stmt := range dialect.InitPragmas() {
 		if _, err := db.Exec(stmt); err != nil {
@@ -245,16 +282,22 @@ func newStore(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays in
 		ctx:           ctx,
 		cancel:        cancel,
 		retentionDays: retentionDays,
+		readOnly:      readOnly,
 	}
 
-	// Migrate schema: add columns if they don't exist (idempotent)
+	// Migrate schema: add columns if they don't exist (idempotent).
+	// migrateSchema consults s.readOnly internally to skip backfill/rebuild.
 	s.migrateSchema()
 
 	// Load last hash for chain continuity
 	s.loadLastHash()
 
-	go s.writeLoop()
-	go s.expiryLoop()
+	// Background loops don't run on a read-only store — nothing to write,
+	// and expiryLoop would try to DELETE.
+	if !readOnly {
+		go s.writeLoop()
+		go s.expiryLoop()
+	}
 	return s, nil
 }
 
@@ -344,30 +387,31 @@ func (s *Store) migrateSchema() {
 		_, _ = s.db.Exec(col) // ignore "duplicate column" errors
 	}
 
-	// Backfill: old entries stored tool names in to_agent with empty tool_name.
-	// Move them to the proper column so tools don't appear as agents.
-	// Guard: skip if no rows need backfilling (avoids no-op work on every restart).
-	var needsBackfill int
-	_ = s.db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE to_agent IN ('Bash','Read','Write','Edit','Glob','Grep','Agent','WebFetch','WebSearch','NotebookEdit','TodoRead','TodoWrite') AND COALESCE(tool_name,'') = '' LIMIT 1`).Scan(&needsBackfill)
-	if needsBackfill > 0 {
-		knownTools := []string{
-			"Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent",
-			"WebFetch", "WebSearch", "NotebookEdit", "TodoRead", "TodoWrite",
+	// Backfill + chain repair only run when the store is writable. In
+	// read-only mode we deliberately expose the chain as-is so verifiers
+	// see any tampered row instead of having it regenerated under them.
+	if !s.readOnly {
+		var needsBackfill int
+		_ = s.db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE to_agent IN ('Bash','Read','Write','Edit','Glob','Grep','Agent','WebFetch','WebSearch','NotebookEdit','TodoRead','TodoWrite') AND COALESCE(tool_name,'') = '' LIMIT 1`).Scan(&needsBackfill)
+		if needsBackfill > 0 {
+			knownTools := []string{
+				"Bash", "Read", "Write", "Edit", "Glob", "Grep", "Agent",
+				"WebFetch", "WebSearch", "NotebookEdit", "TodoRead", "TodoWrite",
+			}
+			for _, t := range knownTools {
+				_, _ = s.db.Exec(
+					`UPDATE audit_log SET tool_name = to_agent, to_agent = from_agent WHERE to_agent = ? AND COALESCE(tool_name,'') = ''`, t,
+				)
+			}
+			// Backfill changed to_agent which is part of the hash chain payload.
+			// Re-compute the entire chain so verification passes.
+			s.rebuildChainHashes()
+		} else {
+			// Safety net: if chain is broken (e.g., from a previous migration
+			// that didn't rebuild), re-compute hashes now. Only checks the
+			// first 5 entries to avoid slow startup.
+			s.repairChainIfBroken()
 		}
-		for _, t := range knownTools {
-			_, _ = s.db.Exec(
-				`UPDATE audit_log SET tool_name = to_agent, to_agent = from_agent WHERE to_agent = ? AND COALESCE(tool_name,'') = ''`, t,
-			)
-		}
-		// Backfill changed to_agent which is part of the hash chain payload.
-		// Re-compute the entire chain so verification passes.
-		s.rebuildChainHashes()
-	}
-
-	// Safety net: if chain is broken (e.g., from a previous migration that didn't rebuild),
-	// re-compute hashes now. Only checks the first 5 entries to avoid slow startup.
-	if needsBackfill == 0 {
-		s.repairChainIfBroken()
 	}
 
 	// Alerts table for persisting webhook notifications
@@ -391,9 +435,16 @@ func (s *Store) migrateSchema() {
 
 // loadLastHash reads the most recent entry_hash for chain continuity on restart.
 // repairChainIfBroken spot-checks a few entries and rebuilds if hashes are stale.
+// Accepts both v1 and v2 hashes so upgrades from pre-v2 chains don't trigger a
+// full rebuild (rebuilds invalidate legacy proxy signatures).
+//
+// No-op in read-only stores — a verifier must see the chain as written.
 func (s *Store) repairChainIfBroken() {
+	if s.readOnly {
+		return
+	}
 	rows, err := s.db.Query(
-		`SELECT id, timestamp, from_agent, to_agent, COALESCE(content_hash,''), status, COALESCE(prev_hash,''), COALESCE(entry_hash,'') FROM audit_log WHERE entry_hash <> '' ORDER BY rowid ASC LIMIT 5`,
+		`SELECT id, timestamp, from_agent, to_agent, COALESCE(content_hash,''), status, COALESCE(prev_hash,''), COALESCE(entry_hash,''), COALESCE(policy_decision,''), COALESCE(rules_triggered,''), COALESCE(signature_verified,0) FROM audit_log WHERE entry_hash <> '' ORDER BY rowid ASC LIMIT 5`,
 	)
 	if err != nil {
 		return
@@ -403,12 +454,14 @@ func (s *Store) repairChainIfBroken() {
 	prevHash := ""
 	broken := false
 	for rows.Next() {
-		var id, ts, from, to, contentHash, status, ph, eh string
-		if err := rows.Scan(&id, &ts, &from, &to, &contentHash, &status, &ph, &eh); err != nil {
+		var id, ts, from, to, contentHash, status, ph, eh, pd, rt string
+		var sv int
+		if err := rows.Scan(&id, &ts, &from, &to, &contentHash, &status, &ph, &eh, &pd, &rt, &sv); err != nil {
 			continue
 		}
-		expected := ComputeEntryHash(prevHash, id, ts, from, to, contentHash, status)
-		if eh != expected {
+		expectedV2 := ComputeEntryHash(prevHash, id, ts, from, to, contentHash, status, pd, rt, sv)
+		expectedV1 := computeEntryHashV1(prevHash, id, ts, from, to, contentHash, status)
+		if eh != expectedV2 && eh != expectedV1 {
 			broken = true
 			break
 		}
@@ -420,11 +473,20 @@ func (s *Store) repairChainIfBroken() {
 	}
 }
 
-// rebuildChainHashes re-computes the entry_hash and prev_hash for all entries.
-// Called after backfill migrations that modify chain-relevant fields (e.g., to_agent).
+// rebuildChainHashes re-computes the entry_hash and prev_hash for all entries
+// using the current (v2) schema, and re-signs each entry so proxy signatures
+// stay consistent with the new hashes. Called after backfill migrations that
+// modify chain-relevant fields (e.g., to_agent) or after a v1→v2 upgrade.
+//
+// No-op in read-only stores — regenerating hashes for an arbitrary DB state
+// would mask tampering.
 func (s *Store) rebuildChainHashes() {
+	if s.readOnly {
+		s.logger.Debug("rebuildChainHashes skipped: store is read-only")
+		return
+	}
 	rows, err := s.db.Query(
-		`SELECT id, timestamp, from_agent, to_agent, COALESCE(content_hash,''), status FROM audit_log ORDER BY rowid ASC`,
+		`SELECT id, timestamp, from_agent, to_agent, COALESCE(content_hash,''), status, COALESCE(policy_decision,''), COALESCE(rules_triggered,''), COALESCE(signature_verified,0) FROM audit_log ORDER BY rowid ASC`,
 	)
 	if err != nil {
 		s.logger.Warn("chain rebuild: query failed", "error", err)
@@ -433,12 +495,13 @@ func (s *Store) rebuildChainHashes() {
 	defer func() { _ = rows.Close() }()
 
 	type row struct {
-		id, ts, from, to, contentHash, status string
+		id, ts, from, to, contentHash, status, policyDecision, rulesTriggered string
+		sigVerified                                                           int
 	}
 	var entries []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.id, &r.ts, &r.from, &r.to, &r.contentHash, &r.status); err != nil {
+		if err := rows.Scan(&r.id, &r.ts, &r.from, &r.to, &r.contentHash, &r.status, &r.policyDecision, &r.rulesTriggered, &r.sigVerified); err != nil {
 			continue
 		}
 		entries = append(entries, r)
@@ -452,7 +515,7 @@ func (s *Store) rebuildChainHashes() {
 		s.logger.Warn("chain rebuild: tx begin failed", "error", err)
 		return
 	}
-	stmt, err := tx.Prepare(`UPDATE audit_log SET prev_hash = ?, entry_hash = ? WHERE id = ?`)
+	stmt, err := tx.Prepare(`UPDATE audit_log SET prev_hash = ?, entry_hash = ?, proxy_signature = ? WHERE id = ?`)
 	if err != nil {
 		_ = tx.Rollback()
 		return
@@ -461,8 +524,12 @@ func (s *Store) rebuildChainHashes() {
 
 	prevHash := ""
 	for _, e := range entries {
-		hash := ComputeEntryHash(prevHash, e.id, e.ts, e.from, e.to, e.contentHash, e.status)
-		if _, err := stmt.Exec(prevHash, hash, e.id); err != nil {
+		hash := ComputeEntryHash(prevHash, e.id, e.ts, e.from, e.to, e.contentHash, e.status, e.policyDecision, e.rulesTriggered, e.sigVerified)
+		sig := ""
+		if s.proxyKey != nil {
+			sig = SignEntryHash(s.proxyKey, hash)
+		}
+		if _, err := stmt.Exec(prevHash, hash, sig, e.id); err != nil {
 			s.logger.Warn("chain rebuild: update failed", "id", e.id, "error", err)
 		}
 		prevHash = hash
@@ -473,7 +540,7 @@ func (s *Store) rebuildChainHashes() {
 		return
 	}
 	s.lastHash = prevHash
-	s.logger.Info("chain rebuilt after backfill migration", "entries", len(entries))
+	s.logger.Info("chain rebuilt", "entries", len(entries), "schema_version", ChainSchemaVersion)
 }
 
 func (s *Store) loadLastHash() {
@@ -740,11 +807,15 @@ func (s *Store) Flush() {
 	}
 }
 
-// Close flushes pending writes and closes the database.
+// Close flushes pending writes and closes the database. Read-only stores
+// never started writeLoop, so there is nothing to drain and waiting on
+// s.done would deadlock.
 func (s *Store) Close() error {
 	s.cancel()
-	close(s.writes)
-	<-s.done
+	if !s.readOnly {
+		close(s.writes)
+		<-s.done
+	}
 	return s.db.Close()
 }
 
@@ -783,7 +854,11 @@ func (s *Store) writeLoop() {
 		s.lastHashMu.Lock()
 		for i := range batch {
 			batch[i].PrevHash = s.lastHash
-			batch[i].EntryHash = ComputeEntryHash(batch[i].PrevHash, batch[i].ID, batch[i].Timestamp, batch[i].FromAgent, batch[i].ToAgent, batch[i].ContentHash, batch[i].Status)
+			batch[i].EntryHash = ComputeEntryHash(
+				batch[i].PrevHash, batch[i].ID, batch[i].Timestamp,
+				batch[i].FromAgent, batch[i].ToAgent, batch[i].ContentHash, batch[i].Status,
+				batch[i].PolicyDecision, batch[i].RulesTriggered, batch[i].SignatureVerified,
+			)
 			if s.proxyKey != nil {
 				batch[i].ProxySignature = SignEntryHash(s.proxyKey, batch[i].EntryHash)
 			}
@@ -1627,13 +1702,18 @@ func (s *Store) QueryAgentTopRules(agent string, limit int, since string) ([]Rul
 	return result, rows.Err()
 }
 
-// QueryChainEntries returns entries with chain fields for verification, ordered oldest-first.
+// QueryChainEntries returns entries with chain fields for verification,
+// ordered oldest-first. The policy_decision, rules_triggered and
+// signature_verified columns are loaded because v2 chain hashes commit to
+// them — VerifyChain needs the same fields the batch writer used when it
+// computed the hash, otherwise every reload would look tampered.
 func (s *Store) QueryChainEntries(limit int) ([]ChainEntry, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 	rows, err := s.db.Query(
 		`SELECT id, timestamp, from_agent, to_agent, content_hash, status,
+		 COALESCE(policy_decision,''), COALESCE(rules_triggered,''), COALESCE(signature_verified,0),
 		 COALESCE(prev_hash,''), COALESCE(entry_hash,''), COALESCE(proxy_signature,'')
 		 FROM audit_log WHERE entry_hash != '' ORDER BY timestamp ASC LIMIT ?`, limit)
 	if err != nil {
@@ -1645,7 +1725,9 @@ func (s *Store) QueryChainEntries(limit int) ([]ChainEntry, error) {
 	for rows.Next() {
 		var ce ChainEntry
 		if err := rows.Scan(&ce.ID, &ce.Timestamp, &ce.FromAgent, &ce.ToAgent,
-			&ce.ContentHash, &ce.Status, &ce.PrevHash, &ce.EntryHash, &ce.ProxySignature); err != nil {
+			&ce.ContentHash, &ce.Status,
+			&ce.PolicyDecision, &ce.RulesTriggered, &ce.SignatureVerified,
+			&ce.PrevHash, &ce.EntryHash, &ce.ProxySignature); err != nil {
 			return nil, fmt.Errorf("scanning chain entry: %w", err)
 		}
 		entries = append(entries, ce)
