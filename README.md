@@ -1,5 +1,7 @@
+<h1 align="center">Oktsec</h1>
+
 <p align="center">
-  <strong>Oktsec</strong> — Runtime security for AI agent tool calls
+  <strong>The firewall that controls, audits and secures everything AI agents execute on your systems — in real time.</strong>
 </p>
 
 <p align="center">
@@ -11,20 +13,32 @@
 </p>
 
 <p align="center">
-  <a href="#installation">Installation</a> &middot;
   <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#hooks">Hooks</a> &middot;
-  <a href="#mcp-gateway">Gateway</a> &middot;
-  <a href="#threat-intel">Threat Intel</a> &middot;
-  <a href="#openclaw-support">OpenClaw</a> &middot;
+  <a href="#why-oktsec">Why Oktsec</a> &middot;
+  <a href="#how-it-compares">Compare</a> &middot;
   <a href="#dashboard">Dashboard</a> &middot;
+  <a href="#mcp-gateway">Gateway</a> &middot;
   <a href="#detection-rules">Rules</a> &middot;
   <a href="#configuration">Config</a>
 </p>
 
 ---
 
-See everything your AI agents execute. Monitors MCP tool calls and CLI operations in real-time - intercept, detect, block, audit. **255 detection rules** across 17 categories. Delegation chains with Ed25519-signed authorization tokens. Egress sandboxing for MCP server processes. Dependency auditing against OSV.dev. Tamper-evident audit trail with offline CLI verification. Optional LLM threat intelligence. Discovers and secures **17 MCP clients** automatically. Deterministic 10-stage pipeline. Single binary. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk). Aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/).
+## The problem
+
+AI agents don't just chat — they execute. They run shells, write to disks, transfer funds, hit internal APIs and spawn sub-agents. Every tool call is a production action with no default oversight: no rate limit on how fast Claude can `rm -rf`, no signature on who actually issued the command, no audit trail that survives a tampered log, no backpressure when prompt injection slips through.
+
+Oktsec sits between agents and their tools and runs every call through a deterministic 10-stage security pipeline: identity verification (Ed25519), ACL enforcement, 268 detection rules, intent validation, tamper-evident audit chain, and real-time anomaly scoring. One Go binary, zero LLM dependency on the hot path, Apache 2.0.
+
+## What's new (v0.15)
+
+- **Tamper-evident audit chain v2** — SHA-256 chain now commits to policy decisions, triggered rules and signature status. Tampering any field of an audit row invalidates the chain. Read-only verification path so `oktsec audit verify-chain` can't silently auto-repair a forged log.
+- **Distributed rate limiting (Redis-backed)** — sliding-window Lua script, atomic across N proxy replicas. Memory-backed default for single-node.
+- **Key rotation with version pinning** — `oktsec keys rotate --agent <name>` bumps `Agent.KeyVersion`; post-rotation v1 signatures fail-closed.
+- **OpenTelemetry tracing** — W3C traceparent propagation end-to-end, pluggable exporter. Off by default; enable in `oktsec.yaml`.
+- **Gateway per-agent caps** — `MaxConcurrentCalls` and `MaxDelegationDepth` limit blast radius of a compromised sub-agent.
+- **Tool classification (UK AISI taxonomy)** — every MCP tool in the gateway gets an impact × generality risk tier, visible in the dashboard.
+- **CSRF defense-in-depth** — Origin/Referer guard on the dashboard, on top of SameSite=Strict cookies.
 
 ## What it does
 
@@ -34,7 +48,7 @@ Oktsec sits between AI agents and enforces a 10-stage security pipeline:
 2. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing (ASI03).
 3. **Agent suspension** — Suspended agents are immediately rejected, no further processing (ASI10).
 4. **Policy** — YAML-based ACLs control which agent can message which. Default-deny mode rejects unknown senders (ASI03).
-5. **Content scanning** — 255 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, tool-call threats, supply chain risks, and more (ASI01, ASI02, ASI05).
+5. **Content scanning** — 268 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, tool-call threats, supply chain risks, and more (ASI01, ASI02, ASI05).
 6. **Intent validation** — Declared intent vs actual content alignment check. Detects agents that say one thing and do another (ASI01).
 7. **BlockedContent enforcement** — Per-agent category-based content blocking escalates verdicts when findings match blocked categories (ASI02).
 8. **Multi-message escalation** — Agents with repeated blocks get their verdicts escalated automatically (ASI01, ASI10).
@@ -82,7 +96,7 @@ curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bas
 Installs the latest binary to `~/.local/bin`. Customize with environment variables:
 
 ```bash
-VERSION=v0.11.0 curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
+VERSION=v0.15.0 curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
 INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
 ```
 
@@ -211,12 +225,12 @@ Response:
 
 ## Hooks
 
-Oktsec intercepts tool calls from any MCP client that supports HTTP hooks — not just MCP traffic. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 255-rule security pipeline before execution.
+Oktsec intercepts tool calls from any MCP client that supports HTTP hooks — not just MCP traffic. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 268-rule security pipeline before execution.
 
 ```
 Claude Code (any tool call)
     │
-    ├── PreToolUse → POST /hooks/event → 255 rules → allow/block
+    ├── PreToolUse → POST /hooks/event → 268 rules → allow/block
     │
     ├── Tool executes (if allowed)
     │
@@ -254,7 +268,7 @@ Agent  ──►  Oktsec Gateway  ──►  Backend MCP Server(s)
              │
              ├─ Rate limit
              ├─ Agent ACL check
-             ├─ Content scan (255 rules)
+             ├─ Content scan (268 rules)
              ├─ Tool policies (spend limits, rate limits, approval)
              ├─ Rule overrides
              ├─ Verdict (allow/block/quarantine)
@@ -813,7 +827,7 @@ oktsec verify --config oktsec.yaml
 
 ## Detection rules
 
-Oktsec includes **255 detection rules** across 17 categories:
+Oktsec includes **268 detection rules** across 17 categories:
 
 | Source | Count | Categories |
 |--------|-------|------------|
@@ -886,7 +900,7 @@ Oktsec includes **255 detection rules** across 17 categories:
 15 rules in the `openclaw-config` category (OCLAW-001 through OCLAW-015), covering full tool profiles, exposed gateways, open DM policies, exec without sandbox, path traversal, missing authentication, hardcoded credentials, and more.
 
 ```bash
-oktsec rules                     # List all 255 rules
+oktsec rules                     # List all 268 rules
 oktsec rules --explain CE-004    # Explain a container escape rule
 oktsec rules --explain IAP-001   # Explain a specific rule
 oktsec rules --explain TC-001    # Explain a tool-call rule
@@ -1099,6 +1113,44 @@ Oktsec is aligned with the [OWASP Top 10 for Agentic Applications](https://genai
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and pull request process.
 
 For security vulnerabilities, see [SECURITY.md](SECURITY.md).
+
+## How it compares
+
+Oktsec lives at the **runtime execution layer** — the tool calls and messages agents emit *while* they run. Adjacent projects attack different slices of the stack.
+
+| Capability | Oktsec | Lakera Guard | Protect AI | Glasswing | WAFs (Cloudflare/AWS) |
+|---|---|---|---|---|---|
+| Agent-to-agent message control | ✅ | ❌ | ❌ | ❌ | ❌ |
+| MCP tool-call interception (10-stage pipeline) | ✅ | ❌ | ❌ | partial | ❌ |
+| Deterministic detection (zero LLM on hot path) | ✅ | LLM-based | hybrid | LLM-based | regex |
+| Ed25519 identity + tamper-evident audit chain | ✅ | ❌ | ❌ | ❌ | ❌ |
+| On-prem single binary (Apache 2.0) | ✅ | SaaS | SaaS | SaaS | SaaS |
+| Distributed rate limiting (Redis-backed) | ✅ | SaaS | SaaS | SaaS | ✅ |
+| OpenTelemetry tracing + CRL export | ✅ | ❌ | ❌ | ❌ | ❌ |
+| 268 detection rules (prompt injection, creds, MCP attacks, PII, supply chain) | ✅ | ~100 | ~50 | ~80 | generic |
+
+**Different layer, complementary.** A typical deployment runs a WAF at the edge, a prompt-injection classifier (Lakera, PromptArmor) at the LLM boundary, and **Oktsec at the agent-to-tool boundary** where actual actions happen.
+
+## Try it
+
+```bash
+# Install
+curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
+
+# Run everything (auto-discovers MCP clients, generates config, starts dashboard)
+oktsec run
+
+# Open http://localhost:8082/dashboard — access code printed in the terminal
+```
+
+Everything runs locally. No telemetry, no account, no egress.
+
+## Get in touch
+
+- **Star this repo** if agent security matters to your team.
+- **Production deployment / enterprise questions**: gus@oktsec.com
+- **Security disclosure**: see [SECURITY.md](SECURITY.md)
+- **Issues & feature requests**: [GitHub Issues](https://github.com/oktsec/oktsec/issues)
 
 ## License
 

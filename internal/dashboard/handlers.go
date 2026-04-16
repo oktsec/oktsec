@@ -3299,7 +3299,13 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 
 	s.cfg.LLM.Model = r.FormValue("model")
 	s.cfg.LLM.BaseURL = r.FormValue("base_url")
-	s.cfg.LLM.APIKey = r.FormValue("api_key")
+	// API key is write-only from the UI: an empty field means "keep what
+	// you already have". The form never ships the real key to the browser
+	// (template renders value="" with a masked placeholder), so the only
+	// way api_key arrives non-empty is if the operator typed a new one.
+	if newKey := r.FormValue("api_key"); newKey != "" {
+		s.cfg.LLM.APIKey = newKey
+	}
 	s.cfg.LLM.APIKeyEnv = r.FormValue("api_key_env")
 	if v := r.FormValue("timeout"); v != "" {
 		s.cfg.LLM.Timeout = v
