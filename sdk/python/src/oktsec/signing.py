@@ -68,6 +68,11 @@ def load_keypair(directory: str | Path, name: str) -> Keypair:
     """
     d = Path(directory)
     priv_path = d / f"{name}.key"
+
+    # Reject symlinks to prevent arbitrary file reads
+    if priv_path.is_symlink():
+        raise ValueError(f"private key {priv_path} is a symbolic link (rejected for security)")
+
     priv_pem = priv_path.read_bytes()
 
     # oktsec's Go keygen writes raw 64-byte Ed25519 seeds in a custom PEM type.
@@ -83,6 +88,8 @@ def load_keypair(directory: str | Path, name: str) -> Keypair:
 
     # Try loading .pub if it exists (for verification)
     pub_path = d / f"{name}.pub"
+    if pub_path.is_symlink():
+        raise ValueError(f"public key {pub_path} is a symbolic link (rejected for security)")
     if pub_path.exists():
         pub_pem = pub_path.read_bytes()
         if b"OKTSEC ED25519 PUBLIC KEY" in pub_pem:
