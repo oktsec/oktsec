@@ -95,7 +95,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 }
 </style>
 
-<p class="page-desc">Security posture across {{.TotalChecks}} checks. {{if gt .FixableCount 0}}{{.FixableCount}} can be auto-fixed.{{end}}</p>
+<p class="page-desc">Security posture: <strong>{{.TotalChecks}} finding{{if ne .TotalChecks 1}}s{{end}}</strong> to review.{{if gt .FixableCount 0}} <strong>{{.FixableCount}}</strong> can be auto-fixed.{{end}}</p>
 
 {{if .Sandbox}}
 <div style="display:flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--border);border-radius:10px;margin-bottom:20px;font-size:0.8125rem;color:var(--text3)">

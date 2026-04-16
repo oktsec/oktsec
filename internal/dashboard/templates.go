@@ -9,24 +9,84 @@ import (
 	"time"
 )
 
-// snakeToTitle converts snake_case to Title Case.
+// categoryOverrides pins the canonical casing for acronym-heavy category
+// names that a generic title-caser mangles. "Mcp" / "Openclaw" look
+// unprofessional on customer-facing pages, and these names show up in the
+// Rules catalog and in the Settings drawer where VCs see them first.
+var categoryOverrides = map[string]string{
+	"mcp":             "MCP",
+	"mcp_attack":      "MCP Attack",
+	"mcp_config":      "MCP Config",
+	"openclaw":        "OpenClaw",
+	"openclaw_config": "OpenClaw Config",
+	"inter_agent":     "Inter-Agent",
+	"ipi":             "IPI",
+	"iap":             "IAP",
+	"oclaw":           "OCLAW",
+	"ce":              "CE",
+	"tc":              "TC",
+	"pii":             "PII",
+	"api":             "API",
+	"llm":             "LLM",
+	"rce":             "RCE",
+	"ssrf":            "SSRF",
+	"xss":             "XSS",
+	"sql":             "SQL",
+	"jwt":             "JWT",
+	"oauth":           "OAuth",
+	"cors":            "CORS",
+	"tls":             "TLS",
+	"csrf":            "CSRF",
+	"acl":             "ACL",
+	"ai":              "AI",
+}
+
+// normalizedKey lets categoryOverrides match regardless of whether the
+// caller hands us snake_case ("inter_agent"), kebab-case ("inter-agent"),
+// or just the raw word. Without this the same category ID reaches the UI
+// formatted differently depending on the source.
+func normalizedKey(s string) string {
+	return strings.ReplaceAll(strings.ToLower(s), "-", "_")
+}
+
+// snakeToTitle converts snake_case to Title Case, preserving canonical
+// capitalization for well-known acronyms (MCP, OpenClaw, IPI, …). Without
+// this, the UI ships strings like "Mcp Attack" and "Openclaw Config" which
+// read as unpolished to a security buyer.
 func snakeToTitle(s string) string {
+	if v, ok := categoryOverrides[normalizedKey(s)]; ok {
+		return v
+	}
 	words := strings.Split(s, "_")
 	for i, w := range words {
-		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		if len(w) == 0 {
+			continue
 		}
+		if v, ok := categoryOverrides[normalizedKey(w)]; ok {
+			words[i] = v
+			continue
+		}
+		words[i] = strings.ToUpper(w[:1]) + w[1:]
 	}
 	return strings.Join(words, " ")
 }
 
-// kebabToTitle converts kebab-case to Title Case.
+// kebabToTitle converts kebab-case to Title Case with the same acronym
+// overrides as snakeToTitle.
 func kebabToTitle(s string) string {
+	if v, ok := categoryOverrides[normalizedKey(s)]; ok {
+		return v
+	}
 	words := strings.FieldsFunc(s, func(r rune) bool { return r == '-' || r == '_' })
 	for i, w := range words {
-		if len(w) > 0 {
-			words[i] = strings.ToUpper(w[:1]) + w[1:]
+		if len(w) == 0 {
+			continue
 		}
+		if v, ok := categoryOverrides[normalizedKey(w)]; ok {
+			words[i] = v
+			continue
+		}
+		words[i] = strings.ToUpper(w[:1]) + w[1:]
 	}
 	return strings.Join(words, " ")
 }
@@ -2640,9 +2700,11 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     <div class="ed-slbl">Rules triggered ({{len .Rules}})</div>
     {{range .Rules}}
     <div style="display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) 0;font-size:var(--text-sm);border-bottom:1px solid var(--border-subtle)">
-      {{if eq .Severity "CRITICAL"}}<span class="sev-critical">critical</span>
-      {{else if eq .Severity "HIGH"}}<span class="sev-high">high</span>
-      {{else if eq .Severity "MEDIUM"}}<span class="sev-medium">medium</span>
+      {{$s := lower .Severity}}
+      {{if eq $s "critical"}}<span class="sev-critical">critical</span>
+      {{else if eq $s "high"}}<span class="sev-high">high</span>
+      {{else if eq $s "medium"}}<span class="sev-medium">medium</span>
+      {{else if eq $s "low"}}<span class="sev-low">low</span>
       {{else}}<span class="sev-low">{{.Severity}}</span>{{end}}
       <span style="font-family:var(--mono);font-weight:600;color:var(--text);font-size:var(--text-sm)">{{.RuleID}}</span>
       <span style="color:var(--text3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--text-sm)">{{.Name}}</span>
@@ -3923,9 +3985,9 @@ tqApply();
     <div class="form-group" style="margin-bottom:8px" id="cfg-key-group">
       <label id="cfg-key-label">API Key</label>
       <div style="position:relative">
-        <input type="password" name="api_key" id="cfg-key" value="{{.Cfg.APIKey}}" autocomplete="off" style="padding-right:40px" placeholder="sk-...">
-        <button type="button" aria-label="Toggle API key visibility" onclick="var k=document.getElementById('cfg-key');k.type=k.type==='password'?'text':'password'" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);cursor:pointer;padding:4px;font-size:0.75rem" title="Show/hide">&#x1f441;</button>
+        <input type="password" name="api_key" id="cfg-key" value="" autocomplete="off" style="padding-right:40px" placeholder="{{if .Cfg.APIKey}}•••• (stored — leave blank to keep){{else}}sk-...{{end}}">
       </div>
+      {{if .Cfg.APIKey}}<div style="font-size:0.7rem;color:var(--text3);margin-top:4px">API key is stored (masked). Type a new one to replace it, or leave blank to keep the current key.</div>{{end}}
     </div>
     <div class="form-group" style="margin-bottom:0" id="cfg-keyenv-group">
       <label>API Key Env Variable</label>
@@ -5825,9 +5887,11 @@ var ruleDetailPageTmpl = template.Must(template.New("rule-detail-page").Funcs(tm
   </span>
 </div>
 <div class="rd-meta">
-  {{if eq .Detail.Severity "critical"}}<span class="sev-critical">critical</span>
-  {{else if eq .Detail.Severity "high"}}<span class="sev-high">high</span>
-  {{else if eq .Detail.Severity "medium"}}<span class="sev-medium">medium</span>
+  {{$sev := lower .Detail.Severity}}
+  {{if eq $sev "critical"}}<span class="sev-critical">critical</span>
+  {{else if eq $sev "high"}}<span class="sev-high">high</span>
+  {{else if eq $sev "medium"}}<span class="sev-medium">medium</span>
+  {{else if eq $sev "low"}}<span class="sev-low">low</span>
   {{else}}<span class="sev-low">{{.Detail.Severity}}</span>{{end}}
   <span style="color:var(--text3);font-size:0.78rem">{{.Detail.Name}}</span>
 </div>
