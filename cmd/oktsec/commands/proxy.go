@@ -14,9 +14,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// defaultDBPath returns a shared DB location so proxy and serve share the same audit trail.
+// defaultDBPath returns the audit DB path every CLI subcommand should use.
+// It consults oktsec.yaml first (cfg.DBPath) so the CLI and the running
+// server see the same DB — otherwise operators see different CRLs /
+// quarantine state depending on which tool they reach for. Falls back to
+// the XDG default only when no config is reachable or db_path is empty.
+//
+// Kept as a thin wrapper around resolveDBPath so other CLIs can call it
+// without importing cobra helpers, and so the underlying precedence is
+// defined in exactly one place.
 func defaultDBPath() string {
-	return config.DefaultDBPath()
+	return resolveDBPath()
 }
 
 func newProxyCmd() *cobra.Command {
