@@ -749,7 +749,16 @@ func (g *Gateway) ReloadConfig() *config.Config {
 
 // autoRegisterAgent adds a new agent to the config if it doesn't exist.
 // Called when an unknown _oktsec_agent name is seen in traffic.
+//
+// Honours GatewayConfig.DisableAutoRegister: when set, unknown agents
+// never reach the config — the caller falls back to the header agent
+// (which went through the same check at a higher level). Use this in
+// production or during controlled customer walkthroughs where the
+// agent roster should be explicit.
 func (g *Gateway) autoRegisterAgent(name string) {
+	if g.cfg.Gateway.DisableAutoRegister {
+		return
+	}
 	var needSave bool
 
 	g.registeredMu.Lock()

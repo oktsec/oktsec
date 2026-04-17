@@ -1,6 +1,6 @@
 # Detection Rules
 
-Oktsec includes **230 detection rules** across 15 categories, compiled into the binary. No external files to deploy.
+Oktsec includes **268 detection rules** across 15 categories, compiled into the binary. No external files to deploy.
 
 ## Rule sources
 
@@ -204,7 +204,7 @@ Guidelines:
 ## CLI
 
 ```bash
-oktsec rules                     # List all 230 rules with severity
+oktsec rules                     # List all 268 rules with severity
 oktsec rules --explain IAP-001   # Show rule patterns, examples, and description
 ```
 

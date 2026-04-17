@@ -104,7 +104,7 @@ The pipeline runs checks from cheapest to most expensive. If any check fails, su
 2. Identity verification (~120us)
 3. Suspension check
 4. ACL evaluation
-5. Content scan — 230 rules (~8ms)
+5. Content scan — 268 rules (~8ms)
 6. Blocked content filter (per-agent categories)
 7. Split injection detection (multi-message scan)
 8. Rule overrides (from config)

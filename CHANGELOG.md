@@ -2,6 +2,93 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.1] - 2026-04-16
+
+### Fixed
+
+- **CLI / server audit DB path divergence (#97)**: `defaultDBPath()` now honours `cfg.DBPath` from `oktsec.yaml` before falling back to the XDG default. Before the fix, every CLI subcommand except `audit verify-chain` and `audit archive` opened `~/.oktsec/oktsec.db` while the running server followed `cfg.DBPath` — operators saw different CRL / quarantine / audit history depending on which tool they reached for.
+
+## [0.15.0] - 2026-04-16
+
+### Added
+
+- **Audit chain v2 (#95)**: `ComputeEntryHash` now commits to `policy_decision`, `rules_triggered` and `signature_verified` in addition to the v1 fields. Tampering any of those columns invalidates the chain. `VerifyChain` accepts both v1 and v2.
+- **Read-only audit store (#95)**: `NewStoreReadOnly` opens the DB with `PRAGMA query_only=ON` and skips auto-repair / rebuild paths so `oktsec audit verify-chain` surfaces tampered rows instead of silently regenerating them.
+- **Typed credential redaction (#95)**: `redactMatch` emits `[REDACTED:TYPE:len=N]` instead of the first 10 chars. 15 supported credential types.
+- **Pre-parse IP rate limit (#95)**: `Handler.ipLimiter` runs before `parseRequest`, rejecting unauthenticated floods before JSON decode.
+- **`RateStore` interface (#95)**: Rate limiter is now pluggable. `MemoryStore` default, `RedisRateStore` added in #96.
+- **Gateway per-agent caps (#95)**: `Agent.MaxConcurrentCalls` (default 5) and `Agent.MaxDelegationDepth` (default 3).
+- **Ed25519 key versioning (#95)**: `Agent.KeyVersion` + `X-Oktsec-Key-Version` header + `SignMessageV2` / `VerifyMessageV2` close the post-rotation signature-replay window.
+- **CSRF Origin/Referer guard (#95)**: Dashboard middleware rejects cross-origin state-changing requests.
+- **Atomic scanner cache (#95)**: Lock-free fast path via `atomic.Pointer`.
+- **Tool classification (UK AISI taxonomy) (#95)**: Every MCP tool in the gateway gets an impact × generality risk tier.
+- **Production-to-testcase pipeline (#95)**: `audit.ExportTestcase` + `oktsec rules testgen` / `oktsec rules validate`.
+- **Webhook retry + DLQ (#96)**: 3-attempt exponential backoff. Terminal `dlq` status in the alerts log.
+- **`oktsec keys rotate` bumps `KeyVersion` (#96)**.
+- **Revocation list surface (#96)**: `oktsec keys list-revoked [--json]` + `GET /v1/revoked-keys`.
+- **Audit archive + prune (#96)**: `oktsec audit archive --before=DATE --output=FILE.jsonl.gz` + `oktsec audit prune --before=DATE --yes`.
+- **Redis-backed rate limiter (#96)**: Sliding-window Lua script. Pluggable via `rate_limit.backend: redis`.
+- **OpenTelemetry tracing (#96)**: W3C traceparent propagation end-to-end. `internal/observability` package.
+
+### Changed
+
+- **README rewrite**: Leads with problem statement and positioning. New "What's new" and "How it compares" sections. Rule count reconciled to 268.
+- **Dashboard LLM API key is write-only**: `value=""` removed from the password input.
+- **Dashboard category capitalization**: acronym-aware (MCP, OpenClaw, Inter-Agent, IPI, JWT, …).
+- **Severity color mapping**: case-insensitive.
+- **Risk score rebalance**: replaced the saturating formula with `confidence * (80*blockRatio + 40*quarRatio)` where `confidence = min(1, total/10)`.
+- **`oktsec status` separates oktsec health from environment findings**.
+- **Gateway `DisableAutoRegister` opt-in**: reject tool calls from undeclared agents.
+
+## [0.14.0] - 2026-04-15
+
+### Added
+
+- Security posture page redesign with auto-fix and AI enrichment (#93).
+- Filesystem guard for AI tool config integrity (#92).
+- Memory poisoning detection rules and defenses (#91).
+- Dashboard visibility for egress sandbox, trust boundaries, dep check, two-stage LLM (#90).
+- Auto-mode learnings: information stripping, overeager detection, two-stage LLM, trust boundaries (#89).
+- 6 security hardening fixes from internal audit (#94): config file permissions 0o600, Go/Python SDK symlink rejection via O_NOFOLLOW, safefile TOCTOU fix, LLM regex ReDoS protection.
+
+## [0.13.0] - 2026-04-12
+
+### Added
+
+- **Delegation chains (#81)**: Ed25519-signed delegation tokens with scope (tools, agents, depth, expiration). Sub-agents sign with their own key; gateway verifies the chain on every call.
+- **Session tracking**: multi-agent session IDs propagated through the stack.
+- **`oktsec audit` CLI**: generalized audit command with subcommands.
+- **CE rules**: container escape detection.
+- Aguara v0.12.0 and v0.12.1 (#87, #88).
+
+## [0.12.0] - 2026-04-05
+
+### Added
+
+- **Supply chain defense phase 1 (#83)**: credential coverage, dependency rug-pull detection, Aguara v0.10.0.
+- **Supply chain defense phase 2 (#84)**: egress sandbox, dependency auditing, 25 new detection rules.
+- **Aguara v0.11.1 (#85)**: `check` / `clean` incident response commands.
+- Optional anonymous usage telemetry with opt-out (#79).
+- 13 IPI Arena detection rules and LLM prompt enhancement (#78).
+
+### Fixed
+
+- Dashboard bugs, telemetry client, docs (#80).
+
+## [0.11.0] - 2026-03-28
+
+### Added
+
+- Homebrew tap via goreleaser.
+- HOMEBREW_TAP_TOKEN in release workflow.
+- PyPI workflow with version injection from git tag.
+
+### Fixed
+
+- TUI indent logic, stats polling, active agent count.
+- `resolveAgent` false matches, hook port from config.
+- Session leak, thread safety, abstraction simplification.
+
 ## [0.8.0] - 2026-03-05
 
 ### Added

@@ -233,13 +233,24 @@ func TestQueryAgentRisk(t *testing.T) {
 	if len(risks) < 2 {
 		t.Fatalf("got %d agents, want >= 2", len(risks))
 	}
-	// bad-agent should be first (highest risk)
+	// bad-agent should be first (highest risk) and good-agent should score 0.
 	if risks[0].Agent != "bad-agent" {
 		t.Errorf("highest risk agent = %q, want bad-agent", risks[0].Agent)
 	}
-	// RiskScore: (2*3 + 0*2) / 3 * 100 = 200, clamped to 100
-	if risks[0].RiskScore != 100 {
-		t.Errorf("risk score = %f, want 100 (clamped)", risks[0].RiskScore)
+
+	// Scoring formula: confidence * (80*blockRatio + 40*quarRatio) where
+	// confidence = min(1, total/10). Here bad-agent has total=3, blocks=2,
+	// quar=0 → 0.3 * (80 * 2/3) = 16. The absolute number matters less
+	// than the ordering (bad > good) and the fact that a 1-in-3 block
+	// rate no longer pegs the score at 100 — that's the bug this
+	// replaces. Keep the assertion as a loose band so future tweaks to
+	// the weights don't break the test for trivial reasons.
+	if risks[0].RiskScore < 10 || risks[0].RiskScore > 40 {
+		t.Errorf("bad-agent risk = %.1f, expected ~16 (low-sample block rate), got out of [10,40] band", risks[0].RiskScore)
+	}
+	// good-agent should be last with zero risk.
+	if risks[len(risks)-1].RiskScore != 0 {
+		t.Errorf("good-agent risk = %.1f, want 0", risks[len(risks)-1].RiskScore)
 	}
 }
 
