@@ -24,6 +24,12 @@
 
 ---
 
+<p align="center">
+  <img src="documentation/assets/screenshots/dashboard-overview.png" alt="Oktsec dashboard — Overview" width="820">
+</p>
+
+---
+
 ## The problem
 
 AI agents don't just chat — they execute. They run shells, write to disks, transfer funds, hit internal APIs and spawn sub-agents. Every tool call is a production action with no default oversight: no rate limit on how fast Claude can `rm -rf`, no signature on who actually issued the command, no audit trail that survives a tampered log, no backpressure when prompt injection slips through.
@@ -105,6 +111,8 @@ INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/oktsec/o
 Download from the [releases page](https://github.com/oktsec/oktsec/releases).
 
 ### From source
+
+Requires Go 1.25+.
 
 ```bash
 go install github.com/oktsec/oktsec/cmd/oktsec@latest
@@ -628,6 +636,10 @@ Available tools (6):
 
 Real-time web UI for monitoring agent activity. Protected by a GitHub-style local access code.
 
+<p align="center">
+  <img src="documentation/assets/screenshots/dashboard-events.png" alt="Events — live feed of agent messages and tool calls" width="820">
+</p>
+
 ```bash
 oktsec run
 ```
@@ -826,6 +838,10 @@ oktsec verify --config oktsec.yaml
 ```
 
 ## Detection rules
+
+<p align="center">
+  <img src="documentation/assets/screenshots/dashboard-rules.png" alt="Rules catalog — 268 detection rules across 17 categories" width="820">
+</p>
 
 Oktsec includes **268 detection rules** across 17 categories:
 
@@ -1140,10 +1156,10 @@ curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bas
 # Run everything (auto-discovers MCP clients, generates config, starts dashboard)
 oktsec run
 
-# Open http://localhost:8082/dashboard — access code printed in the terminal
+# Open http://localhost:8080/dashboard — access code printed in the terminal
 ```
 
-Everything runs locally. No telemetry, no account, no egress.
+Everything runs locally. No account, no secret egress. Oktsec sends an anonymous install ping on startup (version + OS + arch, no user data) so we can track adoption — opt out with `OKTSEC_NO_TELEMETRY=1`, `telemetry.disabled: true` in `oktsec.yaml`, or `touch ~/.oktsec/.no-telemetry`.
 
 ## Get in touch
 

@@ -439,7 +439,7 @@ oktsec quarantine reject <id> --reviewer "security-team"
 List all loaded detection rules or explain a specific rule.
 
 ```bash
-oktsec rules                     # List all 230 rules
+oktsec rules                     # List all 268 rules
 oktsec rules --explain IAP-001   # Show rule patterns and details
 ```
 

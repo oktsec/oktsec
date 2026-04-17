@@ -14,7 +14,7 @@ OpenClaw Agent  -->  Oktsec Gateway  -->  MCP Server(s)
                       +-- Rate limit
                       +-- Tool allowlist
                       +-- Tool policies (spending limits, rate limits)
-                      +-- Content scan (230 rules)
+                      +-- Content scan (268 rules)
                       +-- Audit log
                       +-- Dashboard
 ```
@@ -186,7 +186,7 @@ Once connected, oktsec applies these checks to every tool call:
 | **Rate limit** | Agent exceeding per-hour limit gets rejected |
 | **Tool allowlist** | Calls to tools not in `allowed_tools` are blocked |
 | **Tool policies** | Spending limits, daily caps, approval thresholds enforced |
-| **Content scan** | 230 rules scan tool arguments for prompt injection, credentials, exfiltration |
+| **Content scan** | 268 rules scan tool arguments for prompt injection, credentials, exfiltration |
 | **Response scan** | Backend responses scanned before returning to agent |
 | **Blocked content** | Per-agent category enforcement (e.g., block all `credentials` for researcher) |
 | **Poisoned tools** | Tool descriptions scanned at startup - poisoned tools removed automatically |
@@ -370,6 +370,6 @@ If two backends have a tool with the same name, oktsec namespaces them: `filesys
 ## Next steps
 
 - [Dashboard guide](dashboard.md) - monitoring and managing security from the web UI
-- [Detection rules reference](../reference/rules.md) - all 230 rules with examples
+- [Detection rules reference](../reference/rules.md) - all 268 rules with examples
 - [Per-agent egress control](egress.md) - restrict outbound HTTP traffic per agent
 - [Configuration reference](../reference/configuration.md) - full YAML schema

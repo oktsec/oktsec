@@ -11,7 +11,7 @@ hide:
 
 <p class="tagline">Identity verification, content scanning, and audit trail for multi-agent systems.<br>No LLM. Single binary. Deterministic.</p>
 
-<p class="hero-stats"><strong>230 detection rules</strong> · <strong>Ed25519 identity</strong> · <strong>Real-time dashboard</strong> · <strong>Single binary</strong></p>
+<p class="hero-stats"><strong>268 detection rules</strong> · <strong>Ed25519 identity</strong> · <strong>Real-time dashboard</strong> · <strong>Single binary</strong></p>
 
 <div class="badges">
 <a href="https://github.com/oktsec/oktsec/actions/workflows/ci.yml"><img src="https://github.com/oktsec/oktsec/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -50,7 +50,7 @@ flowchart LR
     P --> R1[Rate Limiter]
     R1 --> R2[Ed25519<br>Identity]
     R2 --> R3[ACL Policy]
-    R3 --> R4[Aguara Engine<br>230 rules]
+    R3 --> R4[Aguara Engine<br>268 rules]
     R4 --> V{Verdict}
     V -->|clean| B[Agent B]
     V -->|block| X[Rejected]
@@ -64,7 +64,7 @@ flowchart LR
 | 2 | Identity | ~120us | Ed25519 signature verification |
 | 3 | Suspension | — | Is the agent suspended? |
 | 4 | ACL | — | Can sender message recipient? |
-| 5 | Content scan | ~8ms | 230 rules via Aguara engine |
+| 5 | Content scan | ~8ms | 268 rules via Aguara engine |
 | 6 | Blocked content | — | Per-agent category enforcement |
 | 7 | Split injection | — | Multi-message concatenated scan |
 | 8 | History escalation | — | 3+ blocks in 1h → auto-escalate |
@@ -80,7 +80,7 @@ flowchart LR
 
 ### :material-shield-check: Content Scanning
 
-230 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, and supply chain risks.
+268 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, and supply chain risks.
 
 [Detection rules :material-arrow-right:](reference/rules.md)
 
