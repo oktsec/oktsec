@@ -850,8 +850,11 @@ func (s *Store) writeLoop() {
 		}
 
 	flush:
-		// Compute hash chain for the whole batch
+		// Compute hash chain for the whole batch. Snapshot the head so we can
+		// revert if the DB transaction fails; otherwise the next batch would
+		// chain off a hash that never landed in the audit_log table.
 		s.lastHashMu.Lock()
+		savedLastHash := s.lastHash
 		for i := range batch {
 			batch[i].PrevHash = s.lastHash
 			batch[i].EntryHash = ComputeEntryHash(
@@ -902,6 +905,9 @@ func (s *Store) writeLoop() {
 		if txOK {
 			if err := tx.Commit(); err != nil {
 				s.logger.Error("audit batch commit failed", "error", err)
+				s.lastHashMu.Lock()
+				s.lastHash = savedLastHash
+				s.lastHashMu.Unlock()
 			} else {
 				for i := range batch {
 					s.Hub.broadcast(batch[i])
@@ -909,6 +915,9 @@ func (s *Store) writeLoop() {
 			}
 		} else {
 			_ = tx.Rollback()
+			s.lastHashMu.Lock()
+			s.lastHash = savedLastHash
+			s.lastHashMu.Unlock()
 		}
 
 		s.inflight.Add(-int64(len(batch)))

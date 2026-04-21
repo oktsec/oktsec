@@ -1551,6 +1551,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     <div class="ad-slbl">Tool Distribution</div>
     <div class="ad-tool-bar" id="tool-dist-bar"></div>
     <div id="tool-dist-legend" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:0.68rem;color:var(--text3)"></div>
+    <div id="tool-dist-empty" style="display:none;color:var(--text3);font-size:0.78rem;padding:6px 0">No tool calls observed yet for this agent.</div>
     <script>
     (function(){
       var partners={{if .CommPartners}}[{{range .CommPartners}}{to:"{{.To}}",total:{{.Total}}},{{end}}]{{else}}[]{{end}};
@@ -1565,7 +1566,8 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       var sorted=Object.keys(tools).sort(function(a,b){return tools[b]-tools[a]});
       var bar=document.getElementById('tool-dist-bar');
       var legend=document.getElementById('tool-dist-legend');
-      if(!bar||!total)return;
+      var empty=document.getElementById('tool-dist-empty');
+      if(!total){if(empty)empty.style.display='block';return;}
       sorted.forEach(function(t){
         var pct=(tools[t]/total*100).toFixed(0);
         if(pct<1)return;

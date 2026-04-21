@@ -4098,11 +4098,24 @@ func parseSinceRange(r string) string {
 
 func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	rangeStr := r.URL.Query().Get("range")
+	explicit := rangeStr != ""
 	if rangeStr == "" {
 		rangeStr = "24h"
 	}
 	since := parseSinceRange(rangeStr)
 	g := s.cachedBuildGraph(since)
+	// When the user did not pin a window, auto-widen so a quiet day does not
+	// render as an empty graph — walk up to 7d, then 30d if needed.
+	if !explicit && g != nil && g.TotalEdges == 0 {
+		for _, fallback := range []string{"7d", "30d"} {
+			since = parseSinceRange(fallback)
+			g = s.cachedBuildGraph(since)
+			rangeStr = fallback
+			if g != nil && g.TotalEdges > 0 {
+				break
+			}
+		}
+	}
 	data := map[string]any{
 		"Active":     "graph",
 		"Graph":      g,
