@@ -559,6 +559,7 @@ func startServer(configPath string, opts runOpts) error {
 	// would show different events.
 	var gw *gateway.Gateway
 	auditStore := srv.AuditStore()
+	srv.Dashboard().SetGatewayManaged()
 	if cfg.Gateway.Enabled {
 		var gwErr error
 		gw, gwErr = gateway.NewGateway(cfg, logger, auditStore)

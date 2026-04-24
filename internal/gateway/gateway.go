@@ -418,25 +418,12 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		}
 
 		// 1a. Extract sub-agent identity from tool arguments.
-		// The HTTP header (agent) is the authoritative identity for all
-		// security decisions (ACL, policy, suspension checks). The
-		// _oktsec_agent parameter is logged as metadata but cannot
-		// override policy — this prevents agent spoofing.
-		headerAgent := agent
+		// policyAgent is the immutable principal for ALL security
+		// decisions. _oktsec_agent is metadata for audit logs only.
+		policyAgent := agent
 		subAgent := extractAndStripAgentParam(req)
 		if subAgent != "" {
-			// Validate: only trust sub-agent if the header agent is
-			// configured and not suspended.
-			if agentCfg, ok := g.cfg.Agents[headerAgent]; ok && !agentCfg.Suspended {
-				agent = subAgent
-				g.autoRegisterAgent(agent)
-			} else {
-				g.logger.Warn("ignoring _oktsec_agent: header agent not configured or suspended",
-					"header_agent", headerAgent,
-					"claimed_agent", subAgent,
-				)
-				// Keep using headerAgent for all checks
-			}
+			g.autoRegisterAgent(subAgent)
 		}
 
 		// 1b. Extract tool arguments summary for audit (after stripping _oktsec_agent)
@@ -457,7 +444,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 				// Enforce per-agent delegation depth cap. Crossing this line
 				// is how a rogue agent tries to fan out into a sub-tree of
 				// delegated children; we stop it at the gateway.
-				if maxDepth := resolveDelegationDepth(g.cfg, agent); maxDepth > 0 && chainResult.Depth > maxDepth {
+				if maxDepth := resolveDelegationDepth(g.cfg, policyAgent); maxDepth > 0 && chainResult.Depth > maxDepth {
 					g.logger.Warn("delegation depth exceeded",
 						"agent", agent, "depth", chainResult.Depth, "max", maxDepth)
 					g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionDelegationDepthExceeded, "[]", toolArgs, sessionID, start)
@@ -479,14 +466,14 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		}
 
 		// 2. Rate limit check
-		if !g.rateLimiter.Allow(agent) {
+		if !g.rateLimiter.Allow(policyAgent) {
 			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionRateLimited, "[]", toolArgs, sessionID, start)
 			return toolError("rate limit exceeded"), nil
 		}
 
 		// 2b. Per-agent concurrency slot. Held through scan + backend call so
 		// a single agent can't open N parallel sockets against the same tool.
-		release, err := g.concurrency.acquire(ctx, agent)
+		release, err := g.concurrency.acquire(ctx, policyAgent)
 		if err != nil {
 			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionConcurrencyExceeded, "[]", toolArgs, sessionID, start)
 			return toolError("concurrency limit exceeded"), nil
@@ -494,7 +481,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		defer release()
 
 		// 3. Tool allowlist check
-		if agentCfg, ok := g.cfg.Agents[agent]; ok {
+		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok {
 			if agentCfg.Suspended {
 				g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionAgentSuspended, "[]", toolArgs, sessionID, start)
 				return toolError("agent suspended"), nil
@@ -515,10 +502,10 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		}
 
 		// 3b. Tool policy enforcement (spending limits, rate limits, approval thresholds)
-		if agentCfg, ok := g.cfg.Agents[agent]; ok && agentCfg.ToolPolicies != nil {
+		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok && agentCfg.ToolPolicies != nil {
 			if policy, hasPolicy := agentCfg.ToolPolicies[m.OriginalName]; hasPolicy {
 				amount := ExtractAmount(mcputil.GetArguments(req.Params.Arguments))
-				result := g.policyEnforcer.Check(agent, m.OriginalName, amount, policy)
+				result := g.policyEnforcer.Check(policyAgent, m.OriginalName, amount, policy)
 				if !result.Allowed {
 					status := audit.StatusBlocked
 					if result.Decision == "quarantine_approval" {
@@ -538,7 +525,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 					params[k] = s
 				}
 			}
-			result := g.constraintChecker.CheckToolCall(agent, m.OriginalName, params)
+			result := g.constraintChecker.CheckToolCall(policyAgent, m.OriginalName, params)
 			if !result.Allowed {
 				g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionConstraintViolated, "[]", toolArgs, sessionID, start)
 				return toolError(fmt.Sprintf("constraint: %s", result.Reason)), nil
@@ -567,7 +554,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		verdict.ApplyToolScopedOverridesPostAguara(g.cfg.Rules, outcome, m.OriginalName)
 
 		// 6b. Apply agent scan profile if explicitly configured.
-		if agentCfg, ok := g.cfg.Agents[agent]; ok && agentCfg.ScanProfile != "" {
+		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok && agentCfg.ScanProfile != "" {
 			verdict.ApplyScanProfile(agentCfg.ScanProfile, outcome, m.OriginalName)
 		}
 
@@ -577,12 +564,12 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		}
 
 		// 7. Apply blocked content
-		if agentCfg, ok := g.cfg.Agents[agent]; ok {
+		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok {
 			verdict.ApplyBlockedContent(agentCfg, outcome)
 		}
 
 		// 7b. LLM-driven agent escalation (async feedback loop)
-		if g.escalationTracker != nil && g.escalationTracker.IsEscalated(agent) {
+		if g.escalationTracker != nil && g.escalationTracker.IsEscalated(policyAgent) {
 			outcome.Verdict = verdict.EscalateOneLevel(outcome.Verdict)
 		}
 
@@ -664,10 +651,10 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		}
 
 		// 12b. Record successful call for tool policy tracking
-		if agentCfg, ok := g.cfg.Agents[agent]; ok && agentCfg.ToolPolicies != nil {
+		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok && agentCfg.ToolPolicies != nil {
 			if _, hasPolicy := agentCfg.ToolPolicies[m.OriginalName]; hasPolicy {
 				amount := ExtractAmount(mcputil.GetArguments(req.Params.Arguments))
-				g.policyEnforcer.Record(agent, m.OriginalName, amount)
+				g.policyEnforcer.Record(policyAgent, m.OriginalName, amount)
 			}
 		}
 

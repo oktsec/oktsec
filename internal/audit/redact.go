@@ -82,30 +82,32 @@ func RedactEntries(entries []Entry, level RedactionLevel) []RedactedEntry {
 }
 
 // RedactRuleFindings strips matched content from rule findings JSON while
-// preserving rule IDs, names, and severities. This is a simple string-level
-// redaction that removes "matched" fields.
+// preserving rule IDs, names, and severities. Handles both "matched" (Aguara
+// raw findings) and "match" (scanner FindingSummary) field names.
 func RedactRuleFindings(rulesJSON string) string {
 	if rulesJSON == "" || rulesJSON == "[]" {
 		return rulesJSON
 	}
 
-	const needle = `"matched":"`
-	const placeholder = `"matched":"[REDACTED]"`
-	var b strings.Builder
-	b.Grow(len(rulesJSON))
+	rulesJSON = redactJSONField(rulesJSON, `"matched":"`, `"matched":"[REDACTED]"`)
+	rulesJSON = redactJSONField(rulesJSON, `"match":"`, `"match":"[REDACTED]"`)
+	return rulesJSON
+}
 
-	remaining := rulesJSON
+func redactJSONField(s, needle, placeholder string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+
+	remaining := s
 	for {
 		idx := strings.Index(remaining, needle)
 		if idx == -1 {
 			b.WriteString(remaining)
 			break
 		}
-		// Write everything before the match key + the placeholder
 		b.WriteString(remaining[:idx])
 		b.WriteString(placeholder)
 
-		// Skip past the original value: find closing quote after the key
 		valStart := idx + len(needle)
 		end := valStart
 		for end < len(remaining) {
@@ -114,7 +116,7 @@ func RedactRuleFindings(rulesJSON string) string {
 				continue
 			}
 			if remaining[end] == '"' {
-				end++ // consume closing quote
+				end++
 				break
 			}
 			end++
