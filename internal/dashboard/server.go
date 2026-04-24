@@ -35,9 +35,10 @@ type Server struct {
 	logger  *slog.Logger
 	mux     *http.ServeMux
 
-	gwMu     sync.Mutex
-	gwCmd    *exec.Cmd
-	llmQueue *llm.Queue
+	gwMu      sync.Mutex
+	gwCmd     *exec.Cmd
+	gwManaged bool // true when an in-process gateway is managed by the caller
+	llmQueue  *llm.Queue
 	ruleGen  *llm.RuleGenerator
 
 	// Gateway tool classification callback (set when gateway runs in-process)
@@ -80,8 +81,10 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 		go scanner.ListRules()
 	}
 
-	// Auto-start gateway if enabled in config and backends exist
-	if cfg.Gateway.Enabled && len(cfg.MCPServers) > 0 {
+	// Auto-start gateway only when no in-process gateway is managed by the
+	// caller (e.g. run command). Without this guard, both the dashboard child
+	// process and the embedded gateway would compete for the same port.
+	if cfg.Gateway.Enabled && len(cfg.MCPServers) > 0 && !s.gwManaged {
 		s.gwMu.Lock()
 		s.startGateway()
 		s.gwMu.Unlock()
@@ -97,6 +100,12 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 	}()
 
 	return s
+}
+
+// SetGatewayManaged marks that an in-process gateway is already running.
+// When set, the dashboard will not spawn a child gateway process.
+func (s *Server) SetGatewayManaged() {
+	s.gwManaged = true
 }
 
 // SetLLMQueue attaches the LLM queue for budget status display.
