@@ -46,8 +46,8 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
-github.com/garagon/aguara v0.14.4 h1:YBqjoGI8bZe64AKb/VZf40WNg9ewMWeqiZeg0W91ndM=
-github.com/garagon/aguara v0.14.4/go.mod h1:njU1wgwlHIKnH1mmPua7ifNbzkRERnMyNndLBmMWk4A=
+github.com/garagon/aguara v0.14.5 h1:UiIj9n416ae0e5M27rLDaYRafy0ktLwKRAGrXkQHNIk=
+github.com/garagon/aguara v0.14.5/go.mod h1:njU1wgwlHIKnH1mmPua7ifNbzkRERnMyNndLBmMWk4A=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
 github.com/go-logr/logr v1.4.3/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
