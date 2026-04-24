@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.15.2] - 2026-04-24
+
+### Changed
+
+- **Upgrade Aguara v0.13.0 → v0.14.4**. Zero code changes needed — public API identical. Gains:
+  - Pattern matcher 3.7-6.4x speedup via Aho-Corasick prefilter.
+  - Two new evasion decoders (base32, C-style octal escapes) in content scanning.
+  - Tighter regexes on PROMPT_INJECTION_004/011 and UNI_001/006 (fewer FPs).
+  - Documentation-context confidence penalty (findings in `## Installation` blocks score lower).
+  - Fixed AC prefilter literal collision with `bashrc` (broken in v0.14.3, fixed in v0.14.4).
+
 ## [0.15.1] - 2026-04-16
 
 ### Fixed
