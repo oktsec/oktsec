@@ -41,11 +41,16 @@ class Client:
         agent_name: str,
         keypair: Keypair | None = None,
         timeout: float = 30.0,
+        api_key: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.agent_name = agent_name
         self.keypair = keypair
-        self._client = httpx.Client(timeout=timeout)
+        self._api_key = api_key
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        self._client = httpx.Client(timeout=timeout, headers=headers)
 
     def send_message(
         self,
@@ -136,11 +141,16 @@ class AsyncClient:
         agent_name: str,
         keypair: Keypair | None = None,
         timeout: float = 30.0,
+        api_key: str | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.agent_name = agent_name
         self.keypair = keypair
-        self._client = httpx.AsyncClient(timeout=timeout)
+        self._api_key = api_key
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        self._client = httpx.AsyncClient(timeout=timeout, headers=headers)
 
     async def send_message(
         self,

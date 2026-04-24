@@ -1,6 +1,8 @@
 module github.com/oktsec/oktsec
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.2
 
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0

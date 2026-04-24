@@ -195,6 +195,56 @@ func TestResolvedPolicy_DomainAllowed(t *testing.T) {
 	}
 }
 
+func TestDomainMatch(t *testing.T) {
+	tests := []struct {
+		hostname, pattern string
+		want              bool
+	}{
+		{"example.com", "example.com", true},
+		{"Example.COM", "example.com", true},
+		{"sub.example.com", "*.example.com", true},
+		{"a.b.example.com", "*.example.com", true},
+		{"example.com", "*.example.com", false},
+		{"notexample.com", "*.example.com", false},
+		{"evil-example.com", "*.example.com", false},
+		{"api.supabase.co", "*.supabase.co", true},
+		{"db.supabase.co", "*.supabase.co", true},
+		{"supabase.co", "*.supabase.co", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.hostname+"_"+tt.pattern, func(t *testing.T) {
+			assert.Equal(t, tt.want, domainMatch(tt.hostname, tt.pattern))
+		})
+	}
+}
+
+func TestDomainAllowed_Wildcard(t *testing.T) {
+	p := ResolvedEgressPolicy{
+		AllowedDomains: []string{"*.supabase.co", "exact.com"},
+		BlockedDomains: []string{"*.evil.org"},
+	}
+
+	assert.True(t, p.DomainAllowed("api.supabase.co"))
+	assert.True(t, p.DomainAllowed("db.supabase.co"))
+	assert.True(t, p.DomainAllowed("exact.com"))
+	assert.False(t, p.DomainAllowed("other.com"))
+	assert.False(t, p.DomainAllowed("sub.evil.org"))
+	assert.False(t, p.DomainAllowed("deep.sub.evil.org"))
+}
+
+func TestToolDomainAllowed_Wildcard(t *testing.T) {
+	p := ResolvedEgressPolicy{
+		BlockedDomains: []string{"*.blocked.io"},
+		ToolRestrictions: map[string][]string{
+			"db_query": {"*.supabase.co"},
+		},
+	}
+
+	assert.True(t, p.ToolDomainAllowed("db_query", "api.supabase.co"))
+	assert.False(t, p.ToolDomainAllowed("db_query", "other.com"))
+	assert.False(t, p.ToolDomainAllowed("db_query", "sub.blocked.io"))
+}
+
 func TestMergeUnique(t *testing.T) {
 	result := mergeUnique([]string{"a", "b"}, []string{"B", "c"})
 	assert.Len(t, result, 3)

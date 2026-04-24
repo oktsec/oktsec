@@ -1,6 +1,6 @@
 # Securing OpenClaw with Oktsec
 
-OpenClaw agents call MCP tools, relay instructions between agents, and make autonomous decisions. Oktsec intercepts every tool call and agent message, scanning for prompt injection, credential leaks, data exfiltration, and 226 other threat patterns.
+OpenClaw agents call MCP tools, relay instructions between agents, and make autonomous decisions. Oktsec intercepts every tool call and agent message, scanning through 268 detection rules across 19 categories -- prompt injection, credential leaks, data exfiltration, supply chain attacks, MCP exploits, and more.
 
 This guide gets you from zero to secured in under 5 minutes.
 
@@ -107,7 +107,7 @@ agents:
 ### 3. Start oktsec
 
 ```bash
-oktsec serve
+oktsec run
 ```
 
 You'll see:

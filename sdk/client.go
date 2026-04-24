@@ -10,6 +10,10 @@
 //	kp, _ := sdk.LoadKeypair("./keys", "my-agent")
 //	c := sdk.NewClient("http://localhost:8080", "my-agent", kp.PrivateKey)
 //	resp, err := c.SendMessage(ctx, "recipient", "hello")
+//
+// With API key authentication:
+//
+//	c := sdk.NewClient("http://localhost:8080", "my-agent", nil, sdk.WithAPIKey("your-key"))
 package sdk
 
 import (
@@ -76,18 +80,31 @@ type Client struct {
 	baseURL    string
 	agentName  string
 	privateKey ed25519.PrivateKey // nil = unsigned
+	apiKey     string             // sent as Bearer token when set
 	httpClient *http.Client
+}
+
+// ClientOption configures optional Client settings.
+type ClientOption func(*Client)
+
+// WithAPIKey sets the API key sent as Authorization: Bearer on every request.
+func WithAPIKey(key string) ClientOption {
+	return func(c *Client) { c.apiKey = key }
 }
 
 // NewClient creates a client for the oktsec proxy.
 // Pass nil for privateKey to send unsigned messages.
-func NewClient(baseURL, agentName string, privateKey ed25519.PrivateKey) *Client {
-	return &Client{
+func NewClient(baseURL, agentName string, privateKey ed25519.PrivateKey, opts ...ClientOption) *Client {
+	c := &Client{
 		baseURL:    baseURL,
 		agentName:  agentName,
 		privateKey: privateKey,
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 // SendMessage sends a message to another agent through the proxy.
@@ -123,6 +140,9 @@ func (c *Client) SendMessageWithMetadata(ctx context.Context, to, content string
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -148,6 +168,9 @@ func (c *Client) Health(ctx context.Context) (*HealthResponse, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/health", nil)
 	if err != nil {
 		return nil, err
+	}
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
 	httpResp, err := c.httpClient.Do(httpReq)

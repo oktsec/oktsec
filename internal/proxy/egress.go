@@ -131,6 +131,17 @@ func (e *EgressEvaluator) resolveScope(scope string) []string {
 	return domains
 }
 
+// domainMatch checks if hostname matches pattern, supporting wildcards.
+// Pattern "*.example.com" matches "sub.example.com" and "a.b.example.com".
+// Pattern "example.com" matches only "example.com" (case-insensitive).
+func domainMatch(hostname, pattern string) bool {
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := pattern[1:] // ".example.com"
+		return strings.HasSuffix(strings.ToLower(hostname), strings.ToLower(suffix))
+	}
+	return strings.EqualFold(hostname, pattern)
+}
+
 // DomainAllowed checks a host against the resolved policy.
 // Global blocked_domains always win (cannot be overridden per-agent).
 func (p *ResolvedEgressPolicy) DomainAllowed(host string) bool {
@@ -140,14 +151,14 @@ func (p *ResolvedEgressPolicy) DomainAllowed(host string) bool {
 	}
 
 	for _, d := range p.BlockedDomains {
-		if strings.EqualFold(hostname, d) {
+		if domainMatch(hostname, d) {
 			return false
 		}
 	}
 
 	if len(p.AllowedDomains) > 0 {
 		for _, d := range p.AllowedDomains {
-			if strings.EqualFold(hostname, d) {
+			if domainMatch(hostname, d) {
 				return true
 			}
 		}
@@ -182,13 +193,13 @@ func (p *ResolvedEgressPolicy) ToolDomainAllowed(toolName, host string) bool {
 
 	// Check blocked first (global blocked always wins)
 	for _, d := range p.BlockedDomains {
-		if strings.EqualFold(hostname, d) {
+		if domainMatch(hostname, d) {
 			return false
 		}
 	}
 
 	for _, d := range domains {
-		if strings.EqualFold(hostname, d) {
+		if domainMatch(hostname, d) {
 			return true
 		}
 	}
