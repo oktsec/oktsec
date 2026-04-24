@@ -1551,6 +1551,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     <div class="ad-slbl">Tool Distribution</div>
     <div class="ad-tool-bar" id="tool-dist-bar"></div>
     <div id="tool-dist-legend" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:0.68rem;color:var(--text3)"></div>
+    <div id="tool-dist-empty" style="display:none;color:var(--text3);font-size:0.78rem;padding:6px 0">No tool calls observed yet for this agent.</div>
     <script>
     (function(){
       var partners={{if .CommPartners}}[{{range .CommPartners}}{to:"{{.To}}",total:{{.Total}}},{{end}}]{{else}}[]{{end}};
@@ -1565,7 +1566,8 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       var sorted=Object.keys(tools).sort(function(a,b){return tools[b]-tools[a]});
       var bar=document.getElementById('tool-dist-bar');
       var legend=document.getElementById('tool-dist-legend');
-      if(!bar||!total)return;
+      var empty=document.getElementById('tool-dist-empty');
+      if(!total){if(empty)empty.style.display='block';return;}
       sorted.forEach(function(t){
         var pct=(tools[t]/total*100).toFixed(0);
         if(pct<1)return;
@@ -3262,12 +3264,72 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs
     {{if .Item.ReviewedBy}}<tr><td style="color:var(--text3);padding:6px 0">Reviewed</td><td style="padding:6px 0">{{.Item.ReviewedBy}} at {{.Item.ReviewedAt}}</td></tr>{{end}}
   </table>
 
+  <!-- AI analysis section -->
+  {{if .LLMEnable}}
+  <div style="margin-bottom:20px;padding:14px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:{{if .SavedAnalysis}}10px{{else}}0{{end}}">
+      <div>
+        <div style="font-size:0.82rem;font-weight:600;color:var(--text)">AI Analysis</div>
+        <div style="font-size:0.72rem;color:var(--text3);margin-top:2px">Let the model explain the risk and recommend approve or reject.</div>
+      </div>
+      <button class="btn btn-sm ss-ai-btn" id="q-ai-btn-{{.Item.ID}}" type="button" onclick="analyzeQuarantine('{{.Item.ID}}')" style="white-space:nowrap">
+        {{if .SavedAnalysis}}Re-analyze{{else}}Analyze with AI{{end}}
+      </button>
+    </div>
+    <div id="q-ai-result-{{.Item.ID}}">
+      {{if .SavedAnalysis}}
+      <div class="q-ai-content" style="font-size:0.82rem;line-height:1.55;color:var(--text2)">
+        {{mdToHTML .SavedAnalysis}}
+      </div>
+      <div style="font-size:0.68rem;color:var(--text3);margin-top:10px;display:flex;gap:14px">
+        <span>Model: {{.AnalysisModel}}</span>
+        <span>Analyzed: {{.AnalysisDate}}</span>
+      </div>
+      {{end}}
+    </div>
+  </div>
+  {{end}}
+
   {{if eq .Item.Status "pending"}}
   <div class="q-actions" style="margin-top:20px">
     <button class="btn btn-success" hx-post="/dashboard/api/quarantine/{{.Item.ID}}/approve" hx-target="#q-row-{{.Item.ID}}" hx-swap="outerHTML" onclick="closePanel()">Approve &amp; Deliver</button>
     <button class="btn btn-danger" hx-post="/dashboard/api/quarantine/{{.Item.ID}}/reject" hx-target="#q-row-{{.Item.ID}}" hx-swap="outerHTML" onclick="closePanel()">Reject</button>
   </div>
   {{end}}
+</div>
+<script>
+function analyzeQuarantine(id) {
+  var btn = document.getElementById('q-ai-btn-' + id);
+  var out = document.getElementById('q-ai-result-' + id);
+  if (!btn || !out) return;
+  var original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
+  fetch('/dashboard/api/quarantine/' + id + '/analyze', {method: 'POST'})
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t){ throw new Error(t || r.statusText); });
+      return r.text();
+    })
+    .then(function(html) {
+      out.innerHTML = html;
+      btn.disabled = false;
+      btn.textContent = 'Re-analyze';
+    })
+    .catch(function(e) {
+      out.innerHTML = '<div style="color:var(--danger);font-size:0.8rem;padding:8px 0">Analysis failed: ' + (e.message || e) + '</div>';
+      btn.disabled = false;
+      btn.textContent = original;
+    });
+}
+</script>`))
+
+var quarantineAnalysisTmpl = template.Must(template.New("quarantine-analysis").Funcs(tmplFuncs).Parse(`
+<div class="q-ai-content" style="font-size:0.82rem;line-height:1.55;color:var(--text2)">
+  {{mdToHTML .Analysis}}
+</div>
+<div style="font-size:0.68rem;color:var(--text3);margin-top:10px;display:flex;gap:14px">
+  <span>Model: {{.Model}}</span>
+  <span>Analyzed: {{.AnalysisDate}}</span>
 </div>`))
 
 var quarantineRowTmpl = template.Must(template.New("quarantine-row").Funcs(tmplFuncs).Parse(`<tr id="q-row-{{.Item.ID}}">

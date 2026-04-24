@@ -368,6 +368,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/api/quarantine/{id}", s.handleQuarantineDetail)
 	s.mux.HandleFunc("POST /dashboard/api/quarantine/{id}/approve", s.handleQuarantineApprove)
 	s.mux.HandleFunc("POST /dashboard/api/quarantine/{id}/reject", s.handleQuarantineReject)
+	s.mux.HandleFunc("POST /dashboard/api/quarantine/{id}/analyze", s.handleQuarantineAnalyze)
 
 	// Agent CRUD
 	s.mux.HandleFunc("POST /dashboard/agents", s.handleCreateAgent)

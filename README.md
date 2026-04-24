@@ -625,7 +625,7 @@ Available tools (6):
 
 | Tool | Description |
 |---|---|
-| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 255 threat patterns |
+| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 268 threat patterns |
 | `list_agents` | List all agents with their ACLs and content restrictions |
 | `audit_query` | Query the audit log with filters (status, agent, limit) |
 | `get_policy` | Get the security policy for a specific agent |
@@ -840,18 +840,20 @@ oktsec verify --config oktsec.yaml
 ## Detection rules
 
 <p align="center">
-  <img src="documentation/assets/screenshots/dashboard-rules.png" alt="Rules catalog — 268 detection rules across 17 categories" width="820">
+  <img src="documentation/assets/screenshots/dashboard-rules.png" alt="Rules catalog — 268 detection rules across 19 categories" width="820">
 </p>
 
-Oktsec includes **268 detection rules** across 17 categories:
+Oktsec includes **268 detection rules** across 19 categories:
 
 | Source | Count | Categories |
 |--------|-------|------------|
-| [Aguara](https://github.com/garagon/aguara) built-in | 187 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, supply-chain-exfil, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
+| [Aguara](https://github.com/garagon/aguara) built-in | 189 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, supply-chain-exfil, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
 | Inter-agent protocol (IAP) | 17 | inter-agent (includes IAP-016/017 for CVE exploit transfer) |
 | IPI Arena (IPI) | 13 | inter-agent (from [arXiv:2603.15714](https://arxiv.org/abs/2603.15714)) |
 | Container escape (CE) | 12 | container-escape (from [SandboxEscapeBench](https://arxiv.org/abs/2603.02277)) |
 | Tool-call (TC) | 11 | tool-call (includes TC-011 persistence detection) |
+| Memory poisoning (MEM) | 8 | memory-poisoning (dotfile writes, settings hijack, alias injection, hook installation) |
+| Overeager detection (OE) | 3 | overeager (credential exploration, safety flag bypass, similarity-based actions) |
 | OpenClaw (OCLAW) | 15 | openclaw-config |
 
 ### Inter-agent protocol rules
@@ -1046,7 +1048,7 @@ Submit a tool-call event for scanning. Used by MCP client hooks.
 
 ### `GET /health`
 
-Returns `{"status": "ok", "version": "0.11.0"}`.
+Returns `{"status": "ok"}`.
 
 ### `GET /metrics`
 
@@ -1118,7 +1120,7 @@ Oktsec is aligned with the [OWASP Top 10 for Agentic Applications](https://genai
 
 ## Built on
 
-- **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills and supply chain threats (187 detection rules, context-aware scanning, supply chain exfiltration detection, incident response commands)
+- **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills and supply chain threats (189 detection rules, context-aware scanning, supply chain exfiltration detection, incident response commands)
 - **[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)** — Official Tier 1 Go SDK for Model Context Protocol (v1, Linux Foundation governance, semver stability)
 - **Go stdlib** — `crypto/ed25519`, `net/http`, `log/slog`, `crypto/sha256`
 - **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** — Pure Go SQLite (no CGO)
