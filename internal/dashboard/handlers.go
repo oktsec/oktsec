@@ -2407,11 +2407,58 @@ func (s *Server) handleQuarantineDetail(w http.ResponseWriter, r *http.Request) 
 	}
 
 	data := map[string]any{
-		"Item":  item,
-		"Rules": rules,
+		"Item":      item,
+		"Rules":     rules,
+		"LLMEnable": s.cfg.LLM.Enabled,
+	}
+
+	if store, ok := s.audit.(*audit.Store); ok {
+		if result := store.QuerySessionAnalysis(quarantineAnalysisKey(id)); result != nil {
+			data["SavedAnalysis"] = result.Text
+			data["AnalysisModel"] = result.Model
+			if t, err := time.Parse(time.RFC3339, result.Timestamp); err == nil {
+				data["AnalysisDate"] = t.Local().Format("Jan 02, 2006 15:04")
+			} else {
+				data["AnalysisDate"] = result.Timestamp
+			}
+		}
 	}
 
 	s.renderTemplate(w, quarantineDetailTmpl, data)
+}
+
+// quarantineAnalysisKey namespaces quarantine analyses inside the shared
+// session-analysis storage so they don't collide with real session IDs.
+func quarantineAnalysisKey(id string) string { return "q-" + id }
+
+func (s *Server) handleQuarantineAnalyze(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	item, err := s.audit.QuarantineByID(id)
+	if err != nil || item == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	analysis, err := s.analyzeQuarantine(r.Context(), item)
+	if err != nil {
+		s.logger.Warn("quarantine analysis failed", "error", err, "id", id)
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+
+	model := s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
+	if store, ok := s.audit.(*audit.Store); ok {
+		if saveErr := store.SaveSessionAnalysis(quarantineAnalysisKey(id), analysis, model); saveErr != nil {
+			s.logger.Warn("failed to save quarantine analysis", "error", saveErr)
+		}
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = quarantineAnalysisTmpl.Execute(w, map[string]any{
+		"Analysis":     analysis,
+		"Model":        model,
+		"AnalysisDate": time.Now().Local().Format("Jan 02, 2006 15:04"),
+	})
 }
 
 func (s *Server) handleQuarantineApprove(w http.ResponseWriter, r *http.Request) {
