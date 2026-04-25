@@ -670,6 +670,8 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		llmDisabled, _ = s.ruleGen.ListDisabled()
 	}
 
+	topRules, _ := s.audit.QueryTopRules(5, "")
+
 	data := map[string]any{
 		"Active":           "rules",
 		"Tab":              tab,
@@ -680,6 +682,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		"LLMActiveCount":   len(llmActive),
 		"LLMTotalCount":    len(llmPending) + len(llmActive),
 		"RequireSig":       s.cfg.Identity.RequireSignature,
+		"TopRules":         topRules,
 	}
 
 	// Only build category data for detection tab
@@ -4544,6 +4547,7 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Active":          "gateway",
 		"Gateway":         gw,
+		"GatewayEnabled":  gw.Enabled,
 		"Servers":         servers,
 		"Discovered":      discovered,
 		"Tab":             r.URL.Query().Get("tab"),
