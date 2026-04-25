@@ -669,3 +669,75 @@ func TestServer_AlertsPageMasksWebhookURLs(t *testing.T) {
 		t.Error("alerts page should show webhook host")
 	}
 }
+
+func TestServer_ModalClosedNotInteractive(t *testing.T) {
+	rr := authedGet(t, "/dashboard")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("overview status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `setAttribute('aria-hidden','true')`) {
+		t.Error("modal JS missing aria-hidden initialization")
+	}
+	if !strings.Contains(body, `role="dialog"`) {
+		t.Error("modal missing role=\"dialog\"")
+	}
+	if !strings.Contains(body, `aria-modal="true"`) {
+		t.Error("modal missing aria-modal=\"true\"")
+	}
+	if !strings.Contains(body, "overlay.hidden=true") {
+		t.Error("modal JS missing hidden initialization")
+	}
+	if !strings.Contains(body, "overlay.inert=true") {
+		t.Error("modal JS missing inert initialization")
+	}
+}
+
+func TestServer_ModalCSSHidesFromAccessibilityTree(t *testing.T) {
+	rr := authedGet(t, "/dashboard/static/dashboard.css")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("CSS status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "visibility:hidden") {
+		t.Error("modal-overlay CSS missing visibility:hidden for closed state")
+	}
+	if !strings.Contains(body, "visibility:visible") {
+		t.Error("modal-overlay.open CSS missing visibility:visible")
+	}
+}
+
+func TestServer_GraphPageHasContainer(t *testing.T) {
+	rr := authedGet(t, "/dashboard/graph")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("graph status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `id="graph-container"`) {
+		t.Error("graph page missing #graph-container element")
+	}
+	if !strings.Contains(body, "renderGraph") {
+		t.Error("graph page missing renderGraph function")
+	}
+	if !strings.Contains(body, `cache:'no-store'`) {
+		t.Error("graph fetch missing cache:'no-store' option")
+	}
+}
+
+func TestServer_BuildInfoInSidebar(t *testing.T) {
+	Version = "v0.8.1-test"
+	Commit = "abc1234"
+	defer func() { Version = "dev"; Commit = "" }()
+
+	rr := authedGet(t, "/dashboard")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("overview status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "v0.8.1-test") {
+		t.Error("sidebar missing version string")
+	}
+	if !strings.Contains(body, "abc1234") {
+		t.Error("sidebar missing commit hash")
+	}
+}

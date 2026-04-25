@@ -521,6 +521,7 @@ func startServer(configPath string, opts runOpts) error {
 	}()
 
 	dashboard.Version = version
+	dashboard.Commit = commit
 	proxy.Version = version
 	gateway.Version = version
 	srv, err := proxy.NewServer(cfg, configPath, logger)
