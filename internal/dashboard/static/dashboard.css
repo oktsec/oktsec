@@ -528,8 +528,8 @@ pre,pre code{background:var(--bg);border:1px solid var(--border);border-radius:v
 /* ==========================================================================
    Confirm modal (replaces browser confirm())
    ========================================================================== */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.15s ease;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
-.modal-overlay.open{opacity:1;pointer-events:auto}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:400;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;visibility:hidden;transition:opacity 0.15s ease,visibility 0.15s ease;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.modal-overlay.open{opacity:1;pointer-events:auto;visibility:visible}
 .modal{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-6);max-width:420px;width:90%;box-shadow:var(--shadow-lg);transform:scale(0.95);transition:transform 0.15s ease}
 .modal-overlay.open .modal{transform:scale(1)}
 .modal-title{font-size:var(--text-lg);font-weight:600;color:var(--text);margin-bottom:var(--sp-2)}
