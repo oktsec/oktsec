@@ -1231,10 +1231,29 @@ func parseExportLimit(r *http.Request) int {
 	return limit
 }
 
+// normalizeDateParam converts a date-only string (2006-01-02) to an RFC3339
+// timestamp in the server's local timezone. Full RFC3339 strings pass through.
+// For "since" use startOfDay=true, for "until" use startOfDay=false (end of day).
+func normalizeDateParam(s string, startOfDay bool) string {
+	if s == "" {
+		return s
+	}
+	if len(s) == 10 {
+		t, err := time.ParseInLocation("2006-01-02", s, time.Local)
+		if err == nil {
+			if !startOfDay {
+				t = t.Add(24*time.Hour - time.Second)
+			}
+			return t.UTC().Format(time.RFC3339)
+		}
+	}
+	return s
+}
+
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
-	since := r.URL.Query().Get("since")
-	until := r.URL.Query().Get("until")
+	since := normalizeDateParam(r.URL.Query().Get("since"), true)
+	until := normalizeDateParam(r.URL.Query().Get("until"), false)
 	redaction := audit.RedactionLevel(r.URL.Query().Get("redaction"))
 
 	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: parseExportLimit(r)})
@@ -1271,8 +1290,8 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	agent := r.URL.Query().Get("agent")
-	since := r.URL.Query().Get("since")
-	until := r.URL.Query().Get("until")
+	since := normalizeDateParam(r.URL.Query().Get("since"), true)
+	until := normalizeDateParam(r.URL.Query().Get("until"), false)
 	redaction := audit.RedactionLevel(r.URL.Query().Get("redaction"))
 
 	entries, err := s.audit.Query(audit.QueryOpts{Agent: agent, Since: since, Until: until, Limit: parseExportLimit(r)})
@@ -2882,12 +2901,16 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Read filter params
 	filterAgent := r.URL.Query().Get("agent")
-	filterSince := r.URL.Query().Get("since")
-	filterUntil := r.URL.Query().Get("until")
+	rawSince := r.URL.Query().Get("since")
+	rawUntil := r.URL.Query().Get("until")
 
-	// Extract YYYY-MM-DD for <input type="date"> display (ignores the T... suffix)
-	displaySince := dateOnly(filterSince)
-	displayUntil := dateOnly(filterUntil)
+	// Extract YYYY-MM-DD for <input type="date"> display
+	displaySince := dateOnly(rawSince)
+	displayUntil := dateOnly(rawUntil)
+
+	// Normalize date-only to RFC3339 in server local time
+	filterSince := normalizeDateParam(rawSince, true)
+	filterUntil := normalizeDateParam(rawUntil, false)
 
 	// Quarantine stats always loaded (cheap query, needed for badge count)
 	qStats, _ := s.audit.QuarantineStats()

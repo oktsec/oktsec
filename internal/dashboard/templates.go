@@ -438,7 +438,8 @@ button:active{transform:scale(0.98)}
   <div class="subtitle">Dashboard Access</div>
   <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec run</code> to get a code.<br><small style="color:#8b949e">Code changes each time the server restarts.</small></p>
   <form method="POST" action="/dashboard/login" autocomplete="off">
-    <input type="text" name="code" placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric" autofocus required>
+    <label for="login-code" class="sr-only">Access code</label>
+    <input type="text" id="login-code" name="code" placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric" autofocus required>
     <button type="submit">Authenticate</button>
   </form>
   {{if .Error}}<div class="error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{{.Error}}</div>{{end}}
@@ -626,7 +627,7 @@ const layoutHead = `<!DOCTYPE html>
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
     <span id="redact-label">Mask paths</span>
   </button>
-  <a href="/dashboard/settings" class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Enforce mode — signatures required, unsigned messages rejected{{else}}Observe mode — scanning active, signatures optional. Click to configure.{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</a>
+  <a href="/dashboard/settings" class="mode-pill {{if .RequireSig}}enforce{{else}}observe{{end}}" data-tooltip="{{if .RequireSig}}Enforce mode — signatures required, unsigned messages rejected{{else}}Observe mode — signatures optional, content enforcement still active. Click to configure.{{end}}"><span class="dot"></span>{{if .RequireSig}}enforce{{else}}observe{{end}}</a>
   <form method="POST" action="/dashboard/logout" style="margin-left:10px;display:inline"><button type="submit" class="topbar-logout">Logout</button></form>
 </div>
 <main>`
@@ -635,7 +636,7 @@ const layoutFoot = `</main>
 
 <!-- Slide-in panel -->
 <div class="panel-overlay" id="panel-overlay" onclick="closePanel()"></div>
-<div class="panel" id="detail-panel">
+<div class="panel" id="detail-panel" role="dialog" aria-modal="true" aria-label="Detail panel">
   <div id="panel-loading" class="htmx-indicator" style="text-align:center;padding:40px"><span class="loading-spinner" style="width:24px;height:24px"></span></div>
   <div id="panel-content"></div>
 </div>
@@ -646,14 +647,19 @@ function toggleSidebar() {
   document.querySelector('.sidebar-overlay').classList.toggle('open');
 }
 
+var _panelPrevFocus=null;
 function openPanel(html) {
+  _panelPrevFocus=document.activeElement;
   document.getElementById('panel-content').innerHTML = html;
   document.getElementById('detail-panel').classList.add('open');
   document.getElementById('panel-overlay').classList.add('open');
+  var fc=document.querySelector('#detail-panel .panel-close,#detail-panel button,#detail-panel a');
+  if(fc)fc.focus();
 }
 function closePanel() {
   document.getElementById('detail-panel').classList.remove('open');
   document.getElementById('panel-overlay').classList.remove('open');
+  if(_panelPrevFocus)_panelPrevFocus.focus();
 }
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') closePanel();
@@ -860,6 +866,8 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 (function(){
   var container=document.createElement('div');
   container.className='toast-container';
+  container.setAttribute('aria-live','polite');
+  container.setAttribute('role','status');
   document.body.appendChild(container);
   window.showToast=function(msg,type){
     type=type||'success';
@@ -3099,7 +3107,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
 var ruleDetailTmpl = template.Must(template.New("rule-detail").Parse(`
 <div class="panel-header">
   <h3>Rule Detail</h3>
-  <button class="panel-close" onclick="closePanel()">&times;</button>
+  <button class="panel-close" onclick="closePanel()" aria-label="Close panel">&times;</button>
 </div>
 <div class="panel-body">
   <div class="field">
@@ -3202,7 +3210,7 @@ var customRulesTmpl = template.Must(template.New("custom-rules").Parse(`
 var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs(tmplFuncs).Parse(`
 <div class="panel-header">
   <h3>Quarantined Message</h3>
-  <button class="panel-close" onclick="closePanel()">&times;</button>
+  <button class="panel-close" onclick="closePanel()" aria-label="Close panel">&times;</button>
 </div>
 <div class="panel-body">
 
@@ -3387,7 +3395,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   <div class="st-item">
     <div class="st-item-info">
       <div class="st-item-name">Security Mode</div>
-      <div class="st-item-desc">{{if .RequireSig}}All messages are verified before delivery. Suspicious content is blocked.{{else}}Messages are monitored but not blocked. Review activity in Events.{{end}}</div>
+      <div class="st-item-desc">{{if .RequireSig}}All messages are verified before delivery. Suspicious content is blocked.{{else}}Signatures optional; content enforcement still active according to rules.{{end}}</div>
     </div>
     <div class="st-item-value">
       <span class="val" style="{{if .RequireSig}}color:var(--success){{else}}color:var(--warn){{end}}">{{if .RequireSig}}Protection Active{{else}}Monitor Only{{end}}</span>
@@ -3451,7 +3459,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Hold suspicious messages for human review. Window: {{.QExpiryHours}}h, retain {{.QRetentionDays}}d</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}} onchange="if(confirm('{{if .QEnabled}}Disable quarantine? Suspicious messages will no longer be held for review.{{else}}Enable quarantine for suspicious messages?{{end}}')){this.form.submit()}else{this.checked={{if .QEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
     </div>
   </div>
   <input type="hidden" name="expiry_hours" value="{{.QExpiryHours}}">
@@ -3465,7 +3473,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Automatically pause agents that show suspicious behavior patterns</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="if(confirm('{{if .AnomalyAutoSuspend}}Disable automatic agent suspension? Suspicious agents will no longer be paused.{{else}}Enable automatic suspension of agents with suspicious behavior?{{end}}')){this.form.submit()}else{this.checked={{if .AnomalyAutoSuspend}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
     </div>
   </div>
   <input type="hidden" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}">
@@ -3494,7 +3502,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Require agents to declare what they're doing. Flag mismatches between stated intent and actual content.</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}} onchange="if(confirm('{{if .RequireIntent}}Disable intent verification? Agents will no longer need to declare purpose.{{else}}Require agents to declare intent before sending messages?{{end}}')){this.form.submit()}else{this.checked={{if .RequireIntent}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
     </div>
   </div>
   </form>
@@ -3518,7 +3526,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Inspect and control what agents send outside your network</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" {{if .FPEnabled}}checked{{end}} onchange="toggleEgressDetails();this.form.submit()"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" {{if .FPEnabled}}checked{{end}} onchange="if(confirm('{{if .FPEnabled}}Disable outbound traffic inspection? Agent egress will no longer be monitored.{{else}}Enable outbound traffic inspection for agent requests?{{end}}')){toggleEgressDetails();this.form.submit()}else{this.checked={{if .FPEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
     </div>
   </div>
   <div id="fp-details" style="{{if not .FPEnabled}}display:none;{{end}}">
@@ -4642,8 +4650,8 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
   <span class="spacer"></span>
   <select id="export-redaction" title="Redaction level" onchange="updateExportLinks()">
     <option value="">Full (admin)</option>
-    <option value="analyst">Analyst (redacted matches)</option>
-    <option value="external">External (metadata only)</option>
+    <option value="analyst">Analyst (match snippets redacted, metadata visible)</option>
+    <option value="external">External (status and agents only)</option>
   </select>
   <a id="export-csv" class="btn btn-sm" download>CSV</a>
   <a id="export-json" class="btn btn-sm" download>JSON</a>
@@ -4656,8 +4664,8 @@ function buildExportURL(format) {
   var redaction = document.getElementById('export-redaction').value;
   var url = '/dashboard/api/export/' + format + '?_=1';
   if (agent) url += '&agent=' + encodeURIComponent(agent);
-  if (since) url += '&since=' + encodeURIComponent(since + 'T00:00:00Z');
-  if (until) url += '&until=' + encodeURIComponent(until + 'T23:59:59Z');
+  if (since) url += '&since=' + encodeURIComponent(since);
+  if (until) url += '&until=' + encodeURIComponent(until);
   if (redaction) url += '&redaction=' + encodeURIComponent(redaction);
   return url;
 }
@@ -4674,8 +4682,8 @@ function applyEventFilters() {
   var tab = '{{.Tab}}';
   var url = '/dashboard/events?tab=' + tab;
   if (agent) url += '&agent=' + encodeURIComponent(agent);
-  if (since) url += '&since=' + encodeURIComponent(since + 'T00:00:00Z');
-  if (until) url += '&until=' + encodeURIComponent(until + 'T23:59:59Z');
+  if (since) url += '&since=' + encodeURIComponent(since);
+  if (until) url += '&until=' + encodeURIComponent(until);
   window.location = url;
 }
 function clearEventFilters() {
@@ -4697,7 +4705,8 @@ updateExportLinks();
 <div class="tab-content {{if eq .Tab "all"}}active{{end}}" data-tab-content="events" data-tab-name="all">
   <div class="search-bar">
     <span class="search-icon">&#x1F50D;</span>
-    <input type="text" placeholder="Search events by agent, rule, or content hash..."
+    <label for="ev-search" class="sr-only">Search events</label>
+    <input type="text" id="ev-search" placeholder="Search events by agent, rule, or content hash..."
            hx-get="/dashboard/api/search" hx-trigger="keyup changed delay:300ms" hx-target="#search-results" hx-indicator="#events-search-loading" name="q">
     <span id="events-search-loading" class="htmx-indicator"><span class="loading-spinner"></span></span>
   </div>
@@ -4709,7 +4718,7 @@ updateExportLinks();
     <tbody id="events-body">
     {{range .Entries}}
     <tr class="ev-row clickable{{if hasRules .RulesTriggered}} has-rules{{end}}" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
-      <td data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+      <td data-ts="{{.Timestamp}}"><a href="/dashboard/events/{{.ID}}" class="ev-ts-link" onclick="event.preventDefault();htmx.ajax('GET','/dashboard/api/event/{{.ID}}','#panel-content')">{{.Timestamp}}</a></td>
       <td>{{agentCell .FromAgent}}</td>
       <td>{{if .ToolName}}{{toolDot .ToolName}}{{else}}{{agentCell .ToAgent}}{{end}}</td>
       <td><span class="badge-{{.Status}}">{{.Status}}</span>{{if ne .PolicyDecision "allowed"}} <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">{{humanDecision .PolicyDecision}}</span>{{end}}</td>
@@ -5597,7 +5606,7 @@ function toggleGraphSidebar() {
 var edgeDetailTmpl = template.Must(template.New("edge-detail").Funcs(tmplFuncs).Parse(`
 <div class="panel-header">
   <h3><span class="agent-cell">{{avatar .From 20}} {{.From}}</span> &rarr; <span class="agent-cell">{{avatar .To 20}} {{.To}}</span></h3>
-  <button class="panel-close" onclick="closePanel()">&times;</button>
+  <button class="panel-close" onclick="closePanel()" aria-label="Close panel">&times;</button>
 </div>
 <div class="panel-body">
   {{if .Rules}}
@@ -5816,7 +5825,7 @@ function gwTab(name){
       <td><strong>{{.Name}}</strong></td>
       <td>{{.Client}}</td>
       <td><code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{truncate .Command 80}}</code></td>
-      <td style="text-align:right"><button class="btn btn-sm btn-outline">Add to Gateway</button></td>
+      <td style="text-align:right"><form method="POST" action="/dashboard/gateway/servers" style="margin:0"><input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="transport" value="{{.Transport}}"><input type="hidden" name="command" value="{{.Command}}"><button type="submit" class="btn btn-sm btn-outline">Add to Gateway</button></form></td>
     </tr>
     {{end}}
     </tbody>
