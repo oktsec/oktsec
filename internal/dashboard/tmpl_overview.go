@@ -444,7 +444,7 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
       <thead><tr><th>From</th><th>To</th><th>Health</th></tr></thead>
       <tbody>
       {{range .Edges}}
-      <tr>
+      <tr class="ch-row" data-health="{{printf "%.0f" .HealthScore}}" data-blocked="{{.Blocked}}" data-quarantined="{{.Quarantined}}">
         <td>{{.From}}</td>
         <td>{{.To}}</td>
         <td><div style="display:flex;align-items:center;gap:8px"><div class="risk-bar" style="width:60px"><div class="risk-bar-fill {{if lt .HealthScore 40.0}}risk-high{{else if lt .HealthScore 70.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .HealthScore}}%"></div></div><span>{{printf "%.0f" .HealthScore}}%</span></div></td>
@@ -456,7 +456,7 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
   </div>
 </div>
 {{if .ShadowEdges}}
-<div class="card">
+<div class="card" id="unmonitored-section">
   <h2 style="color:var(--warn)">Unmonitored Routes</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not covered by any security rule.</p>
   <table>
