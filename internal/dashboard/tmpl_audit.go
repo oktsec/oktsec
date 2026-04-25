@@ -88,6 +88,17 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .ps-info-items{display:none}
 .ps-info-items.open{display:block}
 
+/* Filter chips + copy button */
+.ps-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.ps-filter{padding:5px 12px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text3);font-size:0.72rem;cursor:pointer;font-family:var(--sans);font-weight:500;transition:background 0.12s,color 0.12s,border-color 0.12s}
+.ps-filter:hover{color:var(--text2);border-color:var(--border-hover)}
+.ps-filter.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.ps-f-rem{position:relative}
+.ps-rem-copy{margin-left:6px;padding:3px 8px;font-size:0.65rem;font-family:var(--sans);font-weight:500;background:var(--surface2);border:1px solid var(--border);color:var(--text3);border-radius:4px;cursor:pointer;vertical-align:middle;transition:color 0.12s,border-color 0.12s}
+.ps-rem-copy:hover{color:var(--text);border-color:var(--border-hover)}
+.ps-rem-copy.copied{color:var(--success);border-color:rgba(63,185,80,0.4)}
+.ps-empty-filter{padding:24px;text-align:center;color:var(--text3);font-size:0.8rem}
+
 @media(max-width:768px){
   .ps-hero{flex-direction:column;text-align:center;gap:20px;padding:24px}
   .ps-hero-detail{justify-content:center}
@@ -146,6 +157,15 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 <!-- Findings -->
 <div class="ps-section-title">Findings</div>
+{{if gt .TotalChecks 0}}
+<div class="ps-filters" role="tablist" aria-label="Filter findings by severity or fixability">
+  <button class="ps-filter active" data-filter="all" onclick="psFilter('all',this)">All ({{.TotalChecks}})</button>
+  {{if gt .Summary.Critical 0}}<button class="ps-filter" data-filter="critical" onclick="psFilter('critical',this)">Critical ({{.Summary.Critical}})</button>{{end}}
+  {{if gt .Summary.High 0}}<button class="ps-filter" data-filter="high" onclick="psFilter('high',this)">High ({{.Summary.High}})</button>{{end}}
+  {{if gt .Summary.Medium 0}}<button class="ps-filter" data-filter="medium" onclick="psFilter('medium',this)">Medium ({{.Summary.Medium}})</button>{{end}}
+  {{if gt .FixableCount 0}}<button class="ps-filter" data-filter="fixable" onclick="psFilter('fixable',this)">Fixable ({{.FixableCount}})</button>{{end}}
+</div>
+{{end}}
 <div class="ps-findings" id="posture-findings">
 {{if .SavedAnalysis}}
 <div class="ps-ai-summary" style="margin:16px 20px;border-radius:10px">
@@ -157,12 +177,12 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 </div>
 {{end}}
 {{range .AllFindings}}{{if ne (printf "%s" .Severity) "INFO"}}
-<div class="ps-finding{{if isFixable .CheckID}} ps-fixable{{end}}" id="f-{{.CheckID}}">
+<div class="ps-finding{{if isFixable .CheckID}} ps-fixable{{end}}" id="f-{{.CheckID}}" data-sev="{{lower (printf "%s" .Severity)}}" data-fixable="{{if isFixable .CheckID}}1{{else}}0{{end}}" data-product="{{if .Product}}{{.Product}}{{else}}Oktsec{{end}}">
   <div class="ps-f-sev"><span class="ps-sev sev-{{lower (printf "%s" .Severity)}}">{{.Severity}}</span></div>
   <div class="ps-f-body">
     <span class="ps-f-title">{{.Title}}{{if .Product}}<span class="ps-f-product">{{.Product}}</span>{{end}}</span>
     {{if .Detail}}<div class="ps-f-detail">{{.Detail}}</div>{{end}}
-    {{if not (isFixable .CheckID)}}{{if .Remediation}}<div class="ps-f-rem"><code>{{.Remediation}}</code></div>{{end}}{{end}}
+    {{if not (isFixable .CheckID)}}{{if .Remediation}}<div class="ps-f-rem"><code>{{.Remediation}}</code><button type="button" class="ps-rem-copy" onclick="psCopyRem(this)" aria-label="Copy remediation command">Copy</button></div>{{end}}{{end}}
   </div>
   <div class="ps-f-act">
     {{if isFixable .CheckID}}
@@ -173,6 +193,46 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
   </div>
 </div>
 {{end}}{{end}}
+<div class="ps-empty-filter" id="ps-empty-filter" style="display:none">No findings match this filter.</div>
 </div>
+
+<script>
+function psFilter(f, btn) {
+  document.querySelectorAll('.ps-filter').forEach(function(b){ b.classList.toggle('active', b===btn); });
+  var visible = 0;
+  document.querySelectorAll('.ps-finding').forEach(function(el){
+    var sev = el.getAttribute('data-sev') || '';
+    var fix = el.getAttribute('data-fixable') === '1';
+    var show = false;
+    if (f === 'all') show = true;
+    else if (f === 'fixable') show = fix;
+    else show = sev === f;
+    el.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  var empty = document.getElementById('ps-empty-filter');
+  if (empty) empty.style.display = visible === 0 ? '' : 'none';
+}
+function psCopyRem(btn) {
+  var code = btn.parentElement && btn.parentElement.querySelector('code');
+  if (!code) return;
+  var txt = code.textContent || '';
+  var done = function(){
+    var orig = btn.textContent;
+    btn.textContent = 'Copied';
+    btn.classList.add('copied');
+    setTimeout(function(){ btn.textContent = orig; btn.classList.remove('copied'); }, 1400);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done, function(){
+      var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta);
+      ta.select(); try { document.execCommand('copy'); done(); } catch(e){} document.body.removeChild(ta);
+    });
+  } else {
+    var ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta);
+    ta.select(); try { document.execCommand('copy'); done(); } catch(e){} document.body.removeChild(ta);
+  }
+}
+</script>
 
 ` + layoutFoot))
