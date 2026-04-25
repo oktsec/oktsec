@@ -1055,14 +1055,17 @@ func TestServer_SettingsInlineConfirmElements(t *testing.T) {
 	}
 }
 
-func TestServer_SettingsTogglesSubmitDirectly(t *testing.T) {
+func TestServer_SettingsTogglesSaveAsync(t *testing.T) {
 	rr := authedGet(t, "/dashboard/settings")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("settings returned %d", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, `onchange="this.form.submit()"`) {
-		t.Error("toggle checkboxes should submit form directly on change")
+	if !strings.Contains(body, "stToggleSave(this)") {
+		t.Error("toggle checkboxes should use async stToggleSave")
+	}
+	if !strings.Contains(body, "function stToggleSave(") {
+		t.Error("settings page should define stToggleSave function")
 	}
 }
 
