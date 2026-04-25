@@ -585,7 +585,7 @@ var llmDetailTmpl = template.Must(template.New("llm-detail").Funcs(tmplFuncs).Pa
     <span style="display:inline-block;min-width:48px;padding:6px 12px;border-radius:6px;font-family:var(--mono);font-weight:800;font-size:1.4rem;text-align:center;{{if ge .RiskScore 80.0}}background:rgba(239,68,68,0.15);color:var(--danger){{else if ge .RiskScore 50.0}}background:rgba(210,153,34,0.15);color:var(--warn){{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.1);color:var(--success){{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
     <div>
       <div style="font-weight:600;margin-bottom:2px">Risk Score</div>
-      <div style="color:var(--text3);font-size:0.78rem">Confidence: {{printf "%.0f" .Confidence}}%</div>
+      <div style="color:var(--text3);font-size:0.78rem">Confidence: {{printf "%.0f" .Confidence}}%{{if lt .Confidence 30.0}} <span title="Risk score comes from deterministic rule matches. Low confidence means the LLM had limited session context." style="cursor:help;color:var(--warn)">&#9432;</span>{{end}}</div>
     </div>
     <span style="margin-left:auto;padding:4px 12px;border-radius:4px;font-size:0.78rem;font-weight:500;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(210,153,34,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:var(--danger-muted);color:var(--danger){{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RecommendedAction}}</span>
   </div>
@@ -733,7 +733,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
     <div class="l">{{if ge .RiskScore 76.0}}CRITICAL{{else if ge .RiskScore 51.0}}HIGH{{else if ge .RiskScore 31.0}}MEDIUM{{else if gt .RiskScore 10.0}}LOW{{else}}BENIGN{{end}}</div>
   </div>
   <div class="cs-banner-body">
-    <h2 class="cs-banner-title">{{firstThreatSummary .ThreatsJSON .RiskScore}}{{if and (gt .Confidence 0.0) (lt .Confidence 30.0)}} <span style="font-size:var(--text-xs);color:var(--warn);font-weight:500">&#9888; Low confidence</span>{{end}}</h2>
+    <h2 class="cs-banner-title">{{firstThreatSummary .ThreatsJSON .RiskScore}}{{if and (gt .Confidence 0.0) (lt .Confidence 30.0)}} <span title="The LLM had limited context for this analysis. Risk score is based on deterministic rule matches, not LLM certainty." style="font-size:var(--text-xs);color:var(--warn);font-weight:500;cursor:help">&#9888; Low confidence (limited context)</span>{{end}}</h2>
     <div class="cs-banner-meta">
       {{if .FromAgent}}<a href="/dashboard/agents/{{.FromAgent}}" style="color:var(--accent-light);text-decoration:none;font-weight:500">{{.FromAgent}}</a> <span style="opacity:0.5">&rarr;</span> <a href="/dashboard/agents/{{.ToAgent}}" style="color:var(--text2);text-decoration:none">{{.ToAgent}}</a><span class="sep">&middot;</span>{{end}}
       <span>{{relativeTime .Timestamp}}</span>
@@ -858,6 +858,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
           <span class="v">{{printf "%.0f" .Confidence}}%</span>
         </div>
         <div class="cs-conf-bar"><div class="cs-conf-fill" style="width:{{printf "%.0f" .Confidence}}%;background:{{if ge .Confidence 80.0}}#3fb950{{else if ge .Confidence 50.0}}#d29922{{else}}#f85149{{end}}"></div></div>
+        {{if lt .Confidence 30.0}}<div style="font-size:0.68rem;color:var(--text3);margin-top:4px">Risk score is from rule matches. Low confidence means the LLM had limited context.</div>{{end}}
         <div class="cs-row" style="margin-top:6px"><span class="k">Latency</span><span class="v">{{latencySec .LatencyMs}}s</span></div>
         <div class="cs-row"><span class="k">Model</span><span class="v" style="font-size:0.68rem">{{.Model}}</span></div>
         <div class="cs-row"><span class="k">Tokens</span><span class="v">{{.TokensUsed}}</span></div>

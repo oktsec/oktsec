@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 )
 
@@ -739,5 +741,54 @@ func TestServer_BuildInfoInSidebar(t *testing.T) {
 	}
 	if !strings.Contains(body, "abc1234") {
 		t.Error("sidebar missing commit hash")
+	}
+}
+
+func TestServer_SessionsAvgDuration(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	now := time.Now().UTC()
+	// Session 1: 2 events spanning 5 minutes
+	srv.audit.Log(audit.Entry{
+		ID: "s1-e1", Timestamp: now.Add(-10 * time.Minute).Format(time.RFC3339),
+		FromAgent: "agent-a", ToAgent: "agent-b", SessionID: "sess-1",
+		Status: "delivered", LatencyMs: 2,
+	})
+	srv.audit.Log(audit.Entry{
+		ID: "s1-e2", Timestamp: now.Add(-5 * time.Minute).Format(time.RFC3339),
+		FromAgent: "agent-a", ToAgent: "agent-b", SessionID: "sess-1",
+		Status: "delivered", LatencyMs: 3,
+	})
+	// Session 2: 2 events spanning 3 minutes
+	srv.audit.Log(audit.Entry{
+		ID: "s2-e1", Timestamp: now.Add(-8 * time.Minute).Format(time.RFC3339),
+		FromAgent: "agent-c", ToAgent: "agent-d", SessionID: "sess-2",
+		Status: "delivered", LatencyMs: 1,
+	})
+	srv.audit.Log(audit.Entry{
+		ID: "s2-e2", Timestamp: now.Add(-5 * time.Minute).Format(time.RFC3339),
+		FromAgent: "agent-c", ToAgent: "agent-d", SessionID: "sess-2",
+		Status: "delivered", LatencyMs: 1,
+	})
+	srv.audit.Flush()
+
+	req := httptest.NewRequest("GET", "/dashboard/sessions?range=24h", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("sessions page returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+
+	// Avg of 5m and 3m = 4m. Should NOT be "0s".
+	if strings.Contains(body, "Avg duration: 0s") || strings.Contains(body, "Avg duration: -") {
+		t.Error("avg duration should not be 0s or - with real sessions")
+	}
+	if !strings.Contains(body, "4m") {
+		t.Errorf("expected avg duration ~4m in body, got page without it")
 	}
 }

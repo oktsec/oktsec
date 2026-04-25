@@ -417,7 +417,7 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
   /* Canvas & Surfaces */
   --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;--border-muted:#21262d;
   /* Text - WCAG AA validated */
-  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;--text-on-emphasis:#ffffff;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;--text-on-emphasis:#ffffff;
   /* Accent / Info */
   --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;--accent-muted:rgba(56,139,253,0.15);--accent-border:rgba(56,139,253,0.30);
   /* Semantic */
@@ -466,7 +466,7 @@ button:active{transform:scale(0.98)}
   <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M12 11V9a2 2 0 0 0-4 0"/></svg></div>
   <div class="logo">oktsec</div>
   <div class="subtitle">Dashboard Access</div>
-  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec run</code> to get a code.<br><small style="color:#8b949e">Code changes each time the server restarts.</small></p>
+  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec run</code> to get a code.<br><small style="color:#9ca3af">Code changes each time the server restarts.</small></p>
   <form method="POST" action="/dashboard/login" autocomplete="off">
     <label for="login-code" class="sr-only">Access code</label>
     <input type="text" id="login-code" name="code" placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric" autofocus required>
@@ -490,7 +490,7 @@ var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#0d1117;--surface:#161b22;--border:#30363d;
-  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;
   --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
@@ -543,7 +543,7 @@ var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
-  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;
   --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;

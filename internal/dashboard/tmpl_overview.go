@@ -86,6 +86,9 @@ a.ov-metric:hover{background:var(--surface2)}
 {{else}}
 
 <!-- Hero: the 4 numbers that tell the story -->
+<div style="display:flex;align-items:baseline;gap:var(--sp-2);margin-bottom:var(--sp-2)">
+  <span style="font-size:var(--text-xs);color:var(--text3);text-transform:uppercase;letter-spacing:var(--ls-caps);font-weight:500">All time</span>
+</div>
 <div class="hero-stats" id="hero-stats">
   <a href="/dashboard/events" class="hero-stat">
     <div class="num success" id="stat-total">{{formatNum .Stats.TotalMessages}}</div>

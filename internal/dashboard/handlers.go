@@ -1743,24 +1743,28 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	// Compute summary stats
 	totalEvents := 0
 	threatSessions := 0
-	var totalDurationMs int64
+	var totalDuration time.Duration
 	durCount := 0
 	for _, ss := range sessions {
 		totalEvents += ss.EventCount
 		if ss.Blocks > 0 || ss.Quarantines > 0 {
 			threatSessions++
 		}
-		totalDurationMs += ss.TotalLatencyMs
 		if ss.Duration != "" {
-			durCount++
+			if d, err := time.ParseDuration(ss.Duration); err == nil && d > 0 {
+				totalDuration += d
+				durCount++
+			}
 		}
 	}
 
 	avgDuration := "-"
 	if durCount > 0 {
-		avgMs := totalDurationMs / int64(durCount)
-		if avgMs > 0 {
-			avgDuration = (time.Duration(avgMs) * time.Millisecond).Round(time.Second).String()
+		avg := totalDuration / time.Duration(durCount)
+		if avg >= time.Second {
+			avgDuration = avg.Round(time.Second).String()
+		} else if avg > 0 {
+			avgDuration = avg.Round(time.Millisecond).String()
 		}
 	}
 

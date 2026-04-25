@@ -13,7 +13,7 @@ var reportTmpl = template.Must(template.New("report").Funcs(tmplFuncs).Parse(`<!
 :root{
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;
   --border:#30363d;--border-subtle:#21262d;
-  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;
   --accent:#58a6ff;--accent-light:#58a6ff;
   --danger:#f85149;--success:#3fb950;--warn:#d29922;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
