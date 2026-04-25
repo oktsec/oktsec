@@ -20,7 +20,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .ps-hero-detail{display:flex;gap:16px;margin-bottom:16px;font-size:0.72rem;color:var(--text3)}
 .ps-hero-detail span{display:flex;align-items:center;gap:4px}
 .ps-hero-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.ps-fix-all{padding:11px 28px;background:linear-gradient(135deg,#238636,#2ea043);border:none;border-radius:8px;color:#fff;font-size:0.8125rem;font-weight:600;cursor:pointer;transition:all 0.2s;font-family:var(--sans);letter-spacing:-0.01em;box-shadow:0 2px 8px rgba(35,134,54,0.3)}
+.ps-fix-all{padding:11px 28px;background:linear-gradient(135deg,#238636,#2ea043);border:none;border-radius:8px;color:#fff;font-size:0.8125rem;font-weight:600;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;font-family:var(--sans);letter-spacing:-0.01em;box-shadow:0 2px 8px rgba(35,134,54,0.3)}
 .ps-fix-all:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(35,134,54,0.4)}
 .ps-fix-all:disabled{opacity:0.6;cursor:wait;transform:none}
 .ps-resolved{font-size:0.75rem;color:var(--success);display:flex;align-items:center;gap:6px;margin-top:8px}
@@ -62,11 +62,11 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .ps-f-act{flex-shrink:0;display:flex;align-items:center;padding-top:2px}
 
 /* Buttons */
-.ps-fix-btn{padding:6px 18px;background:rgba(35,134,54,0.1);border:1px solid #238636;color:#3fb950;border-radius:6px;font-size:0.72rem;font-weight:600;cursor:pointer;transition:all 0.15s;font-family:var(--sans)}
+.ps-fix-btn{padding:6px 18px;background:rgba(35,134,54,0.1);border:1px solid #238636;color:#3fb950;border-radius:6px;font-size:0.72rem;font-weight:600;cursor:pointer;transition:background 0.15s,box-shadow 0.15s;font-family:var(--sans)}
 .ps-fix-btn:hover{background:rgba(35,134,54,0.2);box-shadow:0 0 8px rgba(63,185,80,0.15)}
-.ps-cfg-btn{padding:6px 14px;border:1px solid var(--border);color:var(--text3);border-radius:6px;font-size:0.72rem;font-weight:500;text-decoration:none;transition:all 0.15s}
+.ps-cfg-btn{padding:6px 14px;border:1px solid var(--border);color:var(--text3);border-radius:6px;font-size:0.72rem;font-weight:500;text-decoration:none;transition:background 0.15s,border-color 0.15s,color 0.15s}
 .ps-cfg-btn:hover{border-color:var(--border-hover);color:var(--text2);background:var(--surface2)}
-.ps-enrich-btn{padding:7px 18px;background:rgba(139,92,246,0.06);border:1px solid var(--accent-border);color:var(--accent-light);border-radius:6px;font-size:0.75rem;font-weight:500;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:6px}
+.ps-enrich-btn{padding:7px 18px;background:rgba(139,92,246,0.06);border:1px solid var(--accent-border);color:var(--accent-light);border-radius:6px;font-size:0.75rem;font-weight:500;cursor:pointer;transition:background 0.15s,border-color 0.15s;display:flex;align-items:center;gap:6px}
 .ps-enrich-btn:hover{background:rgba(139,92,246,0.12);border-color:var(--accent-light)}
 
 /* Celebration */
