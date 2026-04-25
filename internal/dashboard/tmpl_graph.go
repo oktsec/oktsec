@@ -166,12 +166,19 @@ function toggleGraphSidebar() {
   var container = document.getElementById('graph-container');
   if (!container) return;
 
-  fetch('/dashboard/api/graph?range={{.Range}}')
-    .then(function(r) { return r.json(); })
-    .then(function(data) { renderGraph(container, data); });
+  fetch('/dashboard/api/graph?range={{.Range}}',{credentials:'same-origin',cache:'no-store'})
+    .then(function(r){
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      return r.json();
+    })
+    .then(function(data) { renderGraph(container, data); })
+    .catch(function(err){
+      console.error('graph fetch failed:',err);
+      container.innerHTML='<p style="color:var(--text3);text-align:center;padding-top:200px">Failed to load graph data</p>';
+    });
 
   function renderGraph(el, data) {
-    if (!data.nodes || data.nodes.length === 0) {
+    if (!data || !data.nodes || data.nodes.length === 0) {
       el.innerHTML = '<p style="color:var(--text3);text-align:center;padding-top:200px">No graph data available</p>';
       return;
     }

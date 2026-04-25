@@ -837,21 +837,45 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 (function(){
   var overlay=document.createElement('div');
   overlay.className='modal-overlay';
-  overlay.innerHTML='<div class="modal"><div class="modal-title">Confirm</div><div class="modal-msg" id="modal-msg"></div><div class="modal-actions"><button class="btn btn-outline" id="modal-cancel">Cancel</button><button class="btn" id="modal-ok">Confirm</button></div></div>';
+  overlay.setAttribute('aria-hidden','true');
+  overlay.hidden=true;
+  overlay.innerHTML='<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-msg"><div class="modal-title" id="modal-title">Confirm</div><div class="modal-msg" id="modal-msg"></div><div class="modal-actions"><button class="btn btn-outline" id="modal-cancel">Cancel</button><button class="btn" id="modal-ok">Confirm</button></div></div>';
   document.body.appendChild(overlay);
-  var pendingResolve=null;
-  function closeModal(result){overlay.classList.remove('open');if(pendingResolve){pendingResolve(result);pendingResolve=null;}}
+  if('inert' in overlay)overlay.inert=true;
+  var pendingResolve=null,_modalTrigger=null;
+  function closeModal(result){
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden','true');
+    overlay.hidden=true;
+    if('inert' in overlay)overlay.inert=true;
+    if(_modalTrigger){_modalTrigger.focus();_modalTrigger=null;}
+    if(pendingResolve){pendingResolve(result);pendingResolve=null;}
+  }
   document.getElementById('modal-cancel').onclick=function(){closeModal(false)};
   overlay.onclick=function(e){if(e.target===overlay)closeModal(false)};
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&overlay.classList.contains('open'))closeModal(false)});
   document.getElementById('modal-ok').onclick=function(){closeModal(true)};
+  // Focus trap: Tab cycles within modal buttons
+  overlay.addEventListener('keydown',function(e){
+    if(e.key!=='Tab')return;
+    var focusable=overlay.querySelectorAll('button:not([disabled])');
+    if(focusable.length===0)return;
+    var first=focusable[0],last=focusable[focusable.length-1];
+    if(e.shiftKey){if(document.activeElement===first){e.preventDefault();last.focus();}}
+    else{if(document.activeElement===last){e.preventDefault();first.focus();}}
+  });
   function showModal(msg){
+    _modalTrigger=document.activeElement;
     document.getElementById('modal-msg').textContent=msg;
     var isDestructive=msg.toLowerCase().indexOf('delete')>-1||msg.toLowerCase().indexOf('suspend')>-1||msg.toLowerCase().indexOf('revoke')>-1;
     var okBtn=document.getElementById('modal-ok');
     okBtn.className=isDestructive?'btn btn-danger':'btn';
     okBtn.textContent=isDestructive?'Confirm':'OK';
+    overlay.hidden=false;
+    overlay.removeAttribute('aria-hidden');
+    if('inert' in overlay)overlay.inert=false;
     overlay.classList.add('open');
+    document.getElementById('modal-cancel').focus();
     return new Promise(function(resolve){pendingResolve=resolve});
   }
   // Override native window.confirm

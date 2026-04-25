@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/oktsec/oktsec/internal/config"
 )
 
 func authedGet(t *testing.T, path string) *httptest.ResponseRecorder {
@@ -584,5 +586,86 @@ func TestServer_ExportSARIF(t *testing.T) {
 	}
 	if !strings.Contains(body, `"name": "oktsec"`) {
 		t.Error("SARIF output missing tool name")
+	}
+}
+
+func TestMaskWebhookURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantHost  string
+		forbidden []string
+	}{
+		{
+			name:      "slack-like webhook",
+			input:     "https://hooks.example.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+			wantHost:  "hooks.example.com",
+			forbidden: []string{"/services/T00000000", "B00000000", "XXXXXXXXXXXXXXXXXXXX"},
+		},
+		{
+			name:      "discord webhook",
+			input:     "https://discord.com/api/webhooks/123456789/abcdefghijklmnop",
+			wantHost:  "discord.com",
+			forbidden: []string{"/api/webhooks/123456789/abcdefghijklmno"},
+		},
+		{
+			name:      "no path returns unchanged",
+			input:     "https://example.com",
+			wantHost:  "example.com",
+			forbidden: nil,
+		},
+		{
+			name:      "no scheme long string",
+			input:     "not-a-url-but-long-enough",
+			wantHost:  "",
+			forbidden: []string{"not-a-url-but-long-enough"},
+		},
+		{
+			name:      "no scheme short string",
+			input:     "short",
+			wantHost:  "",
+			forbidden: []string{"short"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := maskWebhookURL(tt.input)
+			if tt.wantHost != "" && !strings.Contains(got, tt.wantHost) {
+				t.Errorf("maskWebhookURL(%q) = %q, missing host %q", tt.input, got, tt.wantHost)
+			}
+			for _, f := range tt.forbidden {
+				if strings.Contains(got, f) {
+					t.Errorf("maskWebhookURL(%q) = %q, must not contain secret segment %q", tt.input, got, f)
+				}
+			}
+			if got == tt.input && tt.forbidden != nil {
+				t.Errorf("maskWebhookURL(%q) returned input unchanged, secret is exposed", tt.input)
+			}
+		})
+	}
+}
+
+func TestServer_AlertsPageMasksWebhookURLs(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Webhooks = []config.Webhook{
+		{Name: "slack-sec", URL: "https://hooks.example.com/services/T1234/B5678/xyzSECRETtokenABCD"},
+	}
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/alerts", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("alerts status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "/services/T1234/B5678/xyzSECRETtokenABCD") {
+		t.Error("alerts page exposes full webhook URL in DOM")
+	}
+	if !strings.Contains(body, "hooks.example.com") {
+		t.Error("alerts page should show webhook host")
 	}
 }
