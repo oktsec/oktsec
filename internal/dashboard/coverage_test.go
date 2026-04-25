@@ -1026,3 +1026,98 @@ func TestServer_ExportJSONExternalRedaction(t *testing.T) {
 		t.Error("external JSON should still include policy_decision")
 	}
 }
+
+func TestServer_SettingsNoNativeConfirm(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "return confirm(") || strings.Contains(body, "window.confirm(") {
+		t.Error("settings page must not use native confirm() dialogs")
+	}
+}
+
+func TestServer_SettingsInlineConfirmElements(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	confirms := []string{"confirm-mode", "confirm-policy"}
+	for _, id := range confirms {
+		if !strings.Contains(body, "id=\""+id+"\"") {
+			t.Errorf("settings page missing inline confirmation element: %s", id)
+		}
+	}
+	if !strings.Contains(body, "st-inline-confirm") {
+		t.Error("settings page should use st-inline-confirm class")
+	}
+}
+
+func TestServer_SettingsTogglesSaveAsync(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "stToggleSave(this)") {
+		t.Error("toggle checkboxes should use async stToggleSave")
+	}
+	if !strings.Contains(body, "function stToggleSave(") {
+		t.Error("settings page should define stToggleSave function")
+	}
+}
+
+func TestServer_SettingsTogglesUseClickableLabels(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, `<span class="toggle"><input type="checkbox"`) {
+		t.Error("settings switches must wrap checkbox inputs in labels so slider clicks toggle them")
+	}
+}
+
+func TestServer_SettingsSecurityImpactText(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "st-ic-impact") {
+		t.Error("settings confirmations should include security impact text")
+	}
+}
+
+func TestServer_SettingsSpecificButtonVerbs(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Save Trust Boundaries") {
+		t.Error("trust boundaries save button should have specific verb")
+	}
+	if !strings.Contains(body, "Save Proxy Settings") {
+		t.Error("proxy save button should have specific verb")
+	}
+	if !strings.Contains(body, "Save Database") {
+		t.Error("database save button should have specific verb")
+	}
+}
+
+func TestServer_SettingsToastFunction(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "function stToast(") {
+		t.Error("settings page should include stToast function for inline feedback")
+	}
+	if !strings.Contains(body, "st-toast") {
+		t.Error("settings page should include st-toast CSS class")
+	}
+}

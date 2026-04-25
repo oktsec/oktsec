@@ -20,6 +20,15 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 .st-timing{font-size:0.62rem;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:0.5px;margin-top:3px}
 .st-timing.immediate{color:var(--success)}
 .st-timing.restart{color:var(--warn)}
+.st-inline-confirm{display:none;padding:12px 20px;border-bottom:1px solid var(--border);background:rgba(210,153,34,0.10);border-left:3px solid var(--warn);animation:stSlide 0.15s ease}
+.st-inline-confirm.open{display:flex;align-items:center;gap:12px}
+.st-inline-confirm .st-ic-msg{font-size:0.78rem;color:var(--text2);flex:1;line-height:1.4}
+.st-inline-confirm .st-ic-impact{font-size:0.68rem;color:var(--warn);margin-top:2px}
+@keyframes stSlide{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.st-toast{position:fixed;bottom:20px;right:20px;padding:10px 18px;border-radius:8px;font-size:0.82rem;font-weight:500;color:#fff;z-index:999;animation:stToastIn 0.2s ease}
+.st-toast.success{background:var(--success)}
+.st-toast.error{background:var(--danger)}
+@keyframes stToastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 </style>
 <p class="page-desc">System status, access control, and threat response settings.</p>
 
@@ -41,8 +50,16 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     </div>
     <div class="st-item-value">
       <span class="val" style="{{if .RequireSig}}color:var(--success){{else}}color:var(--warn){{end}}">{{if .RequireSig}}Protection Active{{else}}Monitor Only{{end}}</span>
-      <form method="POST" action="/dashboard/mode/toggle"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to {{if .RequireSig}}monitor-only{{else}}active protection{{end}} mode?')">Switch to {{if .RequireSig}}Monitor Only{{else}}Active Protection{{end}}</button></form>
+      <form id="frm-mode" method="POST" action="/dashboard/mode/toggle"><button type="button" class="btn btn-sm btn-outline" onclick="stShowConfirm('confirm-mode')">Switch to {{if .RequireSig}}Monitor Only{{else}}Active Protection{{end}}</button></form>
     </div>
+  </div>
+  <div class="st-inline-confirm" id="confirm-mode">
+    <div>
+      <div class="st-ic-msg">{{if .RequireSig}}Switch to monitor-only mode?{{else}}Switch to active protection mode?{{end}}</div>
+      <div class="st-ic-impact">{{if .RequireSig}}Unsigned messages will be allowed through. Content enforcement stays active.{{else}}Unsigned messages will be rejected. All agents need valid Ed25519 signatures.{{end}}</div>
+    </div>
+    <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('frm-mode').submit()">{{if .RequireSig}}Switch to Monitor Only{{else}}Enable Active Protection{{end}}</button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="stHideConfirm('confirm-mode')">Cancel</button>
   </div>
   <div class="st-item">
     <div class="st-item-info">
@@ -68,8 +85,16 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     </div>
     <div class="st-item-value">
       <span class="val" style="{{if eq .DefaultPolicy "deny"}}color:var(--success){{else}}color:var(--warn){{end}}">{{if eq .DefaultPolicy "deny"}}Block unknown{{else}}Allow all{{end}}</span>
-      <form method="POST" action="/dashboard/settings/default-policy"><input type="hidden" name="default_policy" value="{{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}"><button type="submit" class="btn btn-sm btn-outline" onclick="return confirm('Switch to default {{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}?')">{{if eq .DefaultPolicy "deny"}}Allow All{{else}}Block Unknown{{end}}</button></form>
+      <form id="frm-policy" method="POST" action="/dashboard/settings/default-policy"><input type="hidden" name="default_policy" value="{{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}"><button type="button" class="btn btn-sm btn-outline" onclick="stShowConfirm('confirm-policy')">{{if eq .DefaultPolicy "deny"}}Allow All{{else}}Block Unknown{{end}}</button></form>
     </div>
+  </div>
+  <div class="st-inline-confirm" id="confirm-policy">
+    <div>
+      <div class="st-ic-msg">Switch default policy to {{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}?</div>
+      <div class="st-ic-impact">{{if eq .DefaultPolicy "deny"}}All agents will be able to communicate freely unless specifically denied.{{else}}Agents will only reach explicitly approved targets. Unregistered agents are blocked.{{end}}</div>
+    </div>
+    <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('frm-policy').submit()">{{if eq .DefaultPolicy "deny"}}Switch to Allow All{{else}}Switch to Block Unknown{{end}}</button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="stHideConfirm('confirm-policy')">Cancel</button>
   </div>
   <div class="st-item" style="flex-wrap:wrap">
     <div class="st-item-info">
@@ -88,7 +113,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <textarea name="internal" rows="4" style="width:100%;font-size:0.75rem;font-family:var(--mono);background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text1);resize:vertical" placeholder="One domain or CIDR per line, e.g.&#10;*.mycompany.com&#10;10.0.0.0/8&#10;github.com/myorg">{{range .TrustBoundariesInternal}}{{.}}&#10;{{end}}</textarea>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
       <span style="font-size:0.68rem;color:var(--text3)">One per line. Supports wildcards (*.example.com).</span>
-      <button type="submit" class="btn btn-sm btn-primary">Save</button>
+      <button type="submit" class="btn btn-sm btn-primary">Save Trust Boundaries</button>
     </div>
   </form>
   </details>
@@ -105,7 +130,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="enabled" value="true" aria-label="Toggle quarantine" {{if .QEnabled}}checked{{end}} onchange="if(confirm('{{if .QEnabled}}Disable quarantine? Suspicious messages will no longer be held for review.{{else}}Enable quarantine for suspicious messages?{{end}}')){this.form.submit()}else{this.checked={{if .QEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" name="enabled" value="true" aria-label="Toggle quarantine" {{if .QEnabled}}checked{{end}} onchange="stToggleSave(this)"><span class="toggle-slider"></span></label>
     </div>
   </div>
   <input type="hidden" name="expiry_hours" value="{{.QExpiryHours}}">
@@ -120,7 +145,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" aria-label="Toggle behavior monitoring" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="if(confirm('{{if .AnomalyAutoSuspend}}Disable automatic agent suspension? Suspicious agents will no longer be paused.{{else}}Enable automatic suspension of agents with suspicious behavior?{{end}}')){this.form.submit()}else{this.checked={{if .AnomalyAutoSuspend}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" name="auto_suspend" value="true" aria-label="Toggle behavior monitoring" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="stToggleSave(this)"><span class="toggle-slider"></span></label>
     </div>
   </div>
   <input type="hidden" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}">
@@ -151,7 +176,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="require_intent" value="true" aria-label="Toggle purpose verification" {{if .RequireIntent}}checked{{end}} onchange="if(confirm('{{if .RequireIntent}}Disable intent verification? Agents will no longer need to declare purpose.{{else}}Require agents to declare intent before sending messages?{{end}}')){this.form.submit()}else{this.checked={{if .RequireIntent}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" name="require_intent" value="true" aria-label="Toggle purpose verification" {{if .RequireIntent}}checked{{end}} onchange="stToggleSave(this)"><span class="toggle-slider"></span></label>
     </div>
   </div>
   </form>
@@ -164,7 +189,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="export_blocked" value="true" aria-label="Toggle testcase export" {{if .ExportBlocked}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" name="export_blocked" value="true" aria-label="Toggle testcase export" {{if .ExportBlocked}}checked{{end}} onchange="stToggleSave(this)"><span class="toggle-slider"></span></label>
     </div>
   </div>
   </form>
@@ -177,7 +202,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing restart">Requires restart</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" aria-label="Toggle outbound traffic inspection" {{if .FPEnabled}}checked{{end}} onchange="if(confirm('{{if .FPEnabled}}Disable outbound traffic inspection? Agent egress will no longer be monitored.{{else}}Enable outbound traffic inspection for agent requests?{{end}}')){toggleEgressDetails();this.form.submit()}else{this.checked={{if .FPEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" aria-label="Toggle outbound traffic inspection" {{if .FPEnabled}}checked{{end}} onchange="toggleEgressDetails();stToggleSave(this)"><span class="toggle-slider"></span></label>
     </div>
   </div>
   <div id="fp-details" style="{{if not .FPEnabled}}display:none;{{end}}">
@@ -207,7 +232,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     </div>
   </div>
   <div style="display:flex;justify-content:flex-end;padding:10px 20px">
-    <button type="submit" class="btn btn-sm">Save</button>
+    <button type="submit" class="btn btn-sm">Save Proxy Settings</button>
   </div>
   </div>
   </form>
@@ -294,11 +319,39 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
   </div>
 
   <div style="display:flex;justify-content:flex-end;padding:10px 20px;border-bottom:1px solid var(--border)">
-    <button type="button" class="btn btn-sm" id="db-save-btn" onclick="saveDBConfig()">Save &amp; restart</button>
+    <button type="button" class="btn btn-sm" id="db-save-btn" onclick="saveDBConfig()">Save Database &amp; Restart</button>
   </div>
 </div>
 
 <script>
+function stShowConfirm(id) {
+  document.querySelectorAll('.st-inline-confirm').forEach(function(el) { el.classList.remove('open'); });
+  var el = document.getElementById(id);
+  if (el) el.classList.add('open');
+}
+function stHideConfirm(id) {
+  var el = document.getElementById(id);
+  if (el) el.classList.remove('open');
+}
+function stToast(msg, type) {
+  var el = document.createElement('div');
+  el.className = 'st-toast ' + (type || 'success');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(function() { el.remove(); }, 3000);
+}
+function stToggleSave(cb) {
+  var form = cb.form;
+  fetch(form.action, {
+    method: 'POST',
+    body: new URLSearchParams(new FormData(form)),
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+  }).then(function(r) {
+    if (r.ok || r.redirected) { stToast('Saved', 'success'); }
+    else { cb.checked = !cb.checked; stToast('Save failed', 'error'); }
+  }).catch(function() { cb.checked = !cb.checked; stToast('Save failed', 'error'); });
+}
+
 function toggleEgressDetails() {
   var cb = document.getElementById('fp-toggle');
   var det = document.getElementById('fp-details');
@@ -366,13 +419,16 @@ function saveDBConfig() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
   }).then(function(r) { return r.json(); }).then(function(d) {
+    var res = document.getElementById('db-test-result');
     if (d.ok) {
-      document.getElementById('db-test-result').style.color = 'var(--success)';
-      document.getElementById('db-test-result').textContent = 'Saved. Restarting...';
+      res.style.color = 'var(--success)';
+      res.textContent = 'Saved. Restarting...';
+      stToast('Database configuration saved. Restarting...', 'success');
       setTimeout(function() { window.location.reload(); }, 3000);
     } else {
-      document.getElementById('db-test-result').style.color = 'var(--danger)';
-      document.getElementById('db-test-result').textContent = d.error || 'Save failed';
+      res.style.color = 'var(--danger)';
+      res.textContent = d.error || 'Save failed';
+      stToast(d.error || 'Save failed', 'error');
     }
   });
 }
