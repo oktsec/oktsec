@@ -1450,6 +1450,62 @@ func TestServer_GraphRiskyRoutesSidebar(t *testing.T) {
 	}
 }
 
+// ── PR 9: Visual readability, tokens and accessibility ──
+
+func TestServer_SkipLinkPresent(t *testing.T) {
+	rr := authedGet(t, "/dashboard")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("dashboard returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `class="skip-link"`) || !strings.Contains(body, `href="#main"`) {
+		t.Error("layout should include a skip-to-main-content link")
+	}
+	if !strings.Contains(body, `id="main"`) {
+		t.Error("<main> should have id=\"main\" as skip link target")
+	}
+}
+
+func TestServer_SidebarAriaCurrent(t *testing.T) {
+	for _, tc := range []struct {
+		path string
+		mark string
+	}{
+		{"/dashboard", `href="/dashboard" class="sidebar-item active" aria-current="page"`},
+		{"/dashboard/events", `href="/dashboard/events" class="sidebar-item active" aria-current="page"`},
+		{"/dashboard/agents", `href="/dashboard/agents" class="sidebar-item active" aria-current="page"`},
+	} {
+		rr := authedGet(t, tc.path)
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s returned %d", tc.path, rr.Code)
+			continue
+		}
+		if !strings.Contains(rr.Body.String(), tc.mark) {
+			t.Errorf("%s should mark active sidebar link with aria-current=\"page\"", tc.path)
+		}
+	}
+}
+
+func TestServer_SidebarRoleNavigation(t *testing.T) {
+	rr := authedGet(t, "/dashboard")
+	body := rr.Body.String()
+	if !strings.Contains(body, `role="navigation"`) {
+		t.Error("sidebar should have role=\"navigation\" for screen readers")
+	}
+	if !strings.Contains(body, `aria-label="Primary"`) {
+		t.Error("sidebar should be labeled as primary navigation")
+	}
+}
+
+func TestServer_SidebarSVGsAriaHidden(t *testing.T) {
+	rr := authedGet(t, "/dashboard")
+	body := rr.Body.String()
+	// At least the sidebar icons should be marked decorative since the link text labels them.
+	if !strings.Contains(body, `aria-hidden="true"`) {
+		t.Error("decorative sidebar SVGs should be marked aria-hidden=\"true\"")
+	}
+}
+
 // ── PR 8: Posture remediation surface ──
 
 func TestServer_PostureFilterChips(t *testing.T) {
