@@ -2688,6 +2688,7 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.Header().Set("HX-Redirect", "/dashboard/agents")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -4715,6 +4716,7 @@ func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.Header().Set("HX-Redirect", "/dashboard/gateway")
 	w.WriteHeader(http.StatusOK)
 }
 

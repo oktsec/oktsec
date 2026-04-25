@@ -65,7 +65,7 @@ func (s *Store) QueryLLMAnalyses(limit int) ([]LLMAnalysis, error) {
 		limit = 50
 	}
 	rows, err := s.db.Query(`SELECT `+llmSelectFields+`
-		FROM llm_analysis ORDER BY timestamp DESC LIMIT ?`, limit)
+		FROM llm_analysis ORDER BY (COALESCE(reviewed_status,'')='') DESC, risk_score DESC, timestamp DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}

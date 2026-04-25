@@ -421,7 +421,7 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
       <tbody>
       {{range .Nodes}}
       <tr class="clickable" onclick="location.href='/dashboard/agents/{{.Name}}'">
-        <td style="font-weight:600">{{agentCell .Name}}</td>
+        <td style="font-weight:600"><a href="/dashboard/agents/{{.Name}}" style="color:inherit;text-decoration:none">{{agentCell .Name}}</a></td>
         <td><div style="display:flex;align-items:center;gap:8px"><div class="risk-bar" style="width:60px"><div class="risk-bar-fill {{if gt .ThreatScore 60.0}}risk-high{{else if gt .ThreatScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" .ThreatScore}}%"></div></div><span>{{printf "%.1f" .ThreatScore}}</span></div></td>
         <td>{{.TotalSent}}</td>
         <td>{{.TotalRecv}}</td>
