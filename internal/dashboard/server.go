@@ -24,6 +24,9 @@ import (
 // Version is set by the CLI command at startup for use in exports (e.g., SARIF).
 var Version = "dev"
 
+// Commit is the short git commit hash, set by the CLI command at startup.
+var Commit = ""
+
 // Server serves the oktsec dashboard UI.
 type Server struct {
 	auth    *Auth

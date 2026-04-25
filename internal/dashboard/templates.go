@@ -266,6 +266,12 @@ var tmplFuncs = template.FuncMap{
 	"safeJS":   func(s string) template.JS { return template.JS(s) },
 	"contains": strings.Contains,
 	"printf":   fmt.Sprintf,
+	"buildInfo": func() string {
+		if Commit != "" {
+			return Version + " (" + Commit + ")"
+		}
+		return Version
+	},
 	"snakeToTitle": snakeToTitle,
 	"kebabToTitle": kebabToTitle,
 	"truncTS": func(ts string) string {
@@ -639,6 +645,7 @@ const layoutHead = `<!DOCTYPE html>
       Settings
     </a>
   </div>
+  <div style="margin-top:auto;padding:var(--sp-3) var(--sp-5) var(--sp-4);font-family:var(--mono);font-size:0.65rem;color:var(--text3);opacity:0.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="{{buildInfo}}">{{buildInfo}}</div>
 </aside>
 <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 <div class="topbar">
