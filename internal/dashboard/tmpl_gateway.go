@@ -94,7 +94,7 @@ function gwTab(name){
 </div>
 
 <div class="card" id="add-server">
-  <h2>Connected Tools</h2>
+  <h2>Tool Servers</h2>
   <p class="desc">
     Add the tool servers your agents use. oktsec monitors all tool calls passing through them.
   </p>
@@ -253,7 +253,7 @@ var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tm
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <button type="submit" class="btn btn-sm">Save Changes</button>
-      <button type="button" class="btn btn-sm btn-danger" hx-delete="/dashboard/gateway/servers/{{.Name}}" hx-confirm="Delete server {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/gateway'},300)">Delete Server</button>
+      <button type="button" class="btn btn-sm btn-danger" hx-delete="/dashboard/gateway/servers/{{.Name}}" hx-confirm="Delete server {{.Name}}? This cannot be undone." hx-swap="none">Delete Server</button>
     </div>
   </form>
 </div>

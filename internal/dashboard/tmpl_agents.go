@@ -125,7 +125,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
     <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm btn-outline success" onclick="return confirm('Generate new keypair for {{.Name}}?')">Generate Keypair</button></form>
     {{if and .KeyFP (not .KeyRevoked)}}<form method="POST" action="/dashboard/identity/revoke" style="display:inline"><input type="hidden" name="agent" value="{{.Name}}"><button type="submit" class="btn btn-sm btn-outline danger" onclick="return confirm('Revoke key for {{.Name}}? This agent will not be able to send signed messages.')">Revoke Key</button></form>{{end}}
     <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline" onsubmit="return confirm('{{if .Suspended}}Unsuspend agent {{.Name}}? It will resume sending and receiving messages.{{else}}Suspend agent {{.Name}}? All messages to and from this agent will be blocked.{{end}}')">{{if .Suspended}}<button type="submit" class="btn btn-sm btn-outline success">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm btn-outline warn">Suspend</button>{{end}}</form>
-    <button class="btn btn-sm btn-outline danger" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete</button>
+    <button class="btn btn-sm btn-outline danger" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none">Delete</button>
   </div>
 </div>
 

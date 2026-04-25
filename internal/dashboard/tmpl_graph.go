@@ -69,7 +69,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       <tbody>
       {{range .Graph.Nodes}}
       <tr class="clickable" onclick="location.href='/dashboard/agents/{{.Name}}'">
-        <td style="font-weight:600">{{agentCell .Name}}</td>
+        <td style="font-weight:600"><a href="/dashboard/agents/{{.Name}}" style="color:inherit;text-decoration:none">{{agentCell .Name}}</a></td>
         <td>
           <div style="display:flex;align-items:center;gap:8px">
             <div class="risk-bar" style="width:60px">
