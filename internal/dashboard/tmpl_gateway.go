@@ -48,6 +48,9 @@ function gwTab(name){
     </div>
   </div>
   {{if eq (len .Servers) 0}}<div style="text-align:center;padding-bottom:8px"><a href="#add-server" class="btn btn-sm btn-outline" style="text-decoration:none">+ Add tool server</a></div>{{end}}
+  {{if .GatewayEnabled}}<div style="padding:10px 16px;background:rgba(63,185,80,0.06);border:1px solid rgba(63,185,80,0.15);border-radius:8px;font-size:var(--text-sm);color:var(--success);margin-top:8px">Routing tool calls through Oktsec security pipeline.</div>
+  {{else}}<div style="padding:10px 16px;background:rgba(210,153,34,0.06);border:1px solid rgba(210,153,34,0.15);border-radius:8px;font-size:var(--text-sm);color:var(--warn);margin-top:8px">Gateway is configured but not routing traffic. Enable it in your configuration file and restart to protect tool calls.</div>
+  {{end}}
 </div>
 
 <div class="card">

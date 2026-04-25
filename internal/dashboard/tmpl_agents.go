@@ -48,8 +48,8 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
     <div class="ag-card-desc">{{if .Description}}{{.Description}}{{else}}No description{{end}}</div>
     <div class="ag-card-stats">
       <span><span class="num">{{formatNum .Total}}</span> msgs</span>
-      <span title="Percentage of this agent's messages that were blocked by the security pipeline">blocked <span class="num" style="{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{end}}">{{.BlockedPct}}%</span></span>
-      <span title="Composite threat score: blocked messages x10 + quarantined x5 + flagged">risk <span class="num" style="{{if gt .RiskScore 60.0}}color:var(--danger){{else if gt .RiskScore 30.0}}color:var(--warn){{end}}">{{printf "%.0f" .RiskScore}}</span></span>
+      <span title="Percentage of this agent's messages blocked by the security pipeline">block rate <span class="num" style="{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{end}}">{{.BlockedPct}}%</span></span>
+      <span title="Based on blocked (x10), quarantined (x5), and flagged messages in the last 24h">risk: <span class="num" style="{{if gt .RiskScore 60.0}}color:var(--danger){{else if gt .RiskScore 30.0}}color:var(--warn){{end}}">{{if ge .RiskScore 76.0}}critical{{else if ge .RiskScore 51.0}}high{{else if ge .RiskScore 31.0}}medium{{else if gt .RiskScore 0.0}}low{{else}}none{{end}}</span></span>
       {{if gt .LLMThreatCount 0}}<span style="color:var(--danger)">&#x26A0; {{.LLMThreatCount}} threats</span>{{end}}
       {{if .LastSeen}}<span style="margin-left:auto" data-ts="{{.LastSeen}}">{{.LastSeen}}</span>{{end}}
     </div>
@@ -140,13 +140,13 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
 <!-- Risk Score + Tool Distribution -->
 <div class="ad-grid" style="margin-bottom:20px">
   <div class="card" style="padding:16px 20px">
-    <div class="ad-slbl">Risk Score <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">(last 24h)</span></div>
+    <div class="ad-slbl">Current Risk <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">(last 24h)</span></div>
     <div style="display:flex;align-items:center;gap:14px">
       <span style="font-size:1.5rem;font-weight:700;font-family:var(--mono)" class="{{if gt .RiskScore 60.0}}danger{{else if gt .RiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.0f" .RiskScore}}</span>
       <div class="ad-gauge" id="risk-gauge"></div>
-      <span style="color:var(--text3);font-size:0.72rem;font-family:var(--mono)">/ 100</span>
+      <span style="color:var(--text3);font-size:0.72rem;font-weight:600">{{if ge .RiskScore 76.0}}CRITICAL{{else if ge .RiskScore 51.0}}HIGH{{else if ge .RiskScore 31.0}}MEDIUM{{else if gt .RiskScore 0.0}}LOW{{else}}NONE{{end}}</span>
     </div>
-    <div style="font-size:0.68rem;color:var(--text3);margin-top:6px">Weighted score: blocked x10 + quarantined x5 + flagged, last 24h</div>
+    <div style="font-size:0.68rem;color:var(--text3);margin-top:6px">Weighted from blocked (x10), quarantined (x5), and flagged messages. Historical block rate reflects past enforcement, not current risk.</div>
     <script>
     (function(){
       var g=document.getElementById('risk-gauge');if(!g)return;

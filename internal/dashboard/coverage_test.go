@@ -792,3 +792,62 @@ func TestServer_SessionsAvgDuration(t *testing.T) {
 		t.Errorf("expected avg duration ~4m in body, got page without it")
 	}
 }
+
+func TestServer_OverviewAgentsObserved(t *testing.T) {
+	rr := authedGet(t, "/dashboard")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("overview returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "Agents Secured") {
+		t.Error("overview should use 'Agents Observed' not 'Agents Secured'")
+	}
+	if !strings.Contains(body, "Agents Observed") {
+		t.Error("overview missing 'Agents Observed' label")
+	}
+	if !strings.Contains(body, "All time") {
+		t.Error("overview missing 'All time' temporal label")
+	}
+}
+
+func TestServer_SettingsTimingLabels(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Takes effect immediately") {
+		t.Error("settings missing 'Takes effect immediately' label")
+	}
+	if !strings.Contains(body, "Requires restart") {
+		t.Error("settings missing 'Requires restart' label")
+	}
+}
+
+func TestServer_GatewayDisabledBanner(t *testing.T) {
+	rr := authedGet(t, "/dashboard/gateway")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("gateway returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "Listening on") {
+		t.Error("gateway disabled should not show 'Listening on'")
+	}
+	if !strings.Contains(body, "Configured Port") {
+		t.Error("gateway disabled should show 'Configured Port'")
+	}
+	if !strings.Contains(body, "configured but not routing") {
+		t.Error("gateway disabled should explain it's not routing traffic")
+	}
+}
+
+func TestServer_AgentsRiskLabels(t *testing.T) {
+	rr := authedGet(t, "/dashboard/agents")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agents returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "blocked ") && strings.Contains(body, " · risk ") {
+		t.Error("agents should not use ambiguous 'blocked X% · risk N' format")
+	}
+}
