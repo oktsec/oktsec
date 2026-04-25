@@ -276,7 +276,7 @@ Real-time web UI for monitoring agent activity. Protected by a GitHub-style loca
   <img src="documentation/assets/screenshots/dashboard-events.png" alt="Events - live feed of agent messages and tool calls" width="820">
 </p>
 
-**11 pages:** Overview (hero stats, pipeline health, live feed), Events (audit log with search and quarantine tab), Notifications (webhook CRUD, alert history), Agents (card grid with risk scores, agent detail with tool policies), Rules (268 rules across 19 categories, per-rule overrides, custom rules, LLM-suggested rules), Rule Detail (patterns, examples, test sandbox), Security Posture (deployment audit, health score, SARIF export), Graph (agent topology with threat scoring), AI Analysis (LLM threat cases, triage config, budget tracking), Gateway (backend CRUD, tool discovery, health checks), Settings (security mode, protection config, rate limiting), Sessions (session inventory, trace timeline, AI analysis).
+**12 pages:** Overview (hero stats, pipeline health, live feed), Events (audit log with search and quarantine tab), Notifications (webhook CRUD, alert history), Agents (card grid with risk scores, agent detail with tool policies), Rules (268 rules across 19 categories, per-rule overrides, custom rules, LLM-suggested rules), Rule Detail (patterns, examples, test sandbox), Security Posture (deployment audit, health score, SARIF export), Graph (agent topology with threat scoring), AI Analysis (LLM threat cases, triage config, budget tracking), Gateway (backend CRUD, tool discovery, health checks), Settings (security mode, protection config, rate limiting), Sessions (session inventory, trace timeline, AI analysis).
 
 ### What you see after five minutes
 

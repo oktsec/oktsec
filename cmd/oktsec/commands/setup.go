@@ -1,12 +1,14 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/oktsec/oktsec/internal/discover"
+	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
 	"gopkg.in/yaml.v3"
 
@@ -189,7 +191,7 @@ func newSetupCmd() *cobra.Command {
 			}
 			fmt.Println()
 			fmt.Printf("  Agents:  %d\n", len(agents))
-			fmt.Printf("  Rules:   175 detection rules active\n")
+			fmt.Printf("  Rules:   %d detection rules active\n", liveRuleCount())
 			fmt.Println()
 			fmt.Println("  Next steps:")
 			fmt.Println()
@@ -230,4 +232,13 @@ func newSetupCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&enforce, "enforce", false, "start in enforcement mode (block malicious requests)")
 	cmd.Flags().BoolVar(&skipWrap, "skip-wrap", false, "generate config only, don't modify client configs")
 	return cmd
+}
+
+// liveRuleCount asks the engine for the actual number of loaded rules so the
+// setup banner never drifts from reality. Returns 0 if the scanner cannot start;
+// the caller can decide whether to surface that case.
+func liveRuleCount() int {
+	s := engine.NewScanner("")
+	defer s.Close()
+	return s.RulesCount(context.Background())
 }
