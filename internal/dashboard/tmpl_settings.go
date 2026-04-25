@@ -20,7 +20,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 .st-timing{font-size:0.62rem;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:0.5px;margin-top:3px}
 .st-timing.immediate{color:var(--success)}
 .st-timing.restart{color:var(--warn)}
-.st-inline-confirm{display:none;padding:10px 20px;border-bottom:1px solid var(--border);background:rgba(210,153,34,0.04);animation:stSlide 0.15s ease}
+.st-inline-confirm{display:none;padding:12px 20px;border-bottom:1px solid var(--border);background:rgba(210,153,34,0.10);border-left:3px solid var(--warn);animation:stSlide 0.15s ease}
 .st-inline-confirm.open{display:flex;align-items:center;gap:12px}
 .st-inline-confirm .st-ic-msg{font-size:0.78rem;color:var(--text2);flex:1;line-height:1.4}
 .st-inline-confirm .st-ic-impact{font-size:0.68rem;color:var(--warn);margin-top:2px}
@@ -58,8 +58,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-ic-msg">{{if .RequireSig}}Switch to monitor-only mode?{{else}}Switch to active protection mode?{{end}}</div>
       <div class="st-ic-impact">{{if .RequireSig}}Unsigned messages will be allowed through. Content enforcement stays active.{{else}}Unsigned messages will be rejected. All agents need valid Ed25519 signatures.{{end}}</div>
     </div>
-    <button class="btn btn-sm btn-primary" onclick="document.getElementById('frm-mode').submit()">{{if .RequireSig}}Switch to Monitor Only{{else}}Enable Active Protection{{end}}</button>
-    <button class="btn btn-sm btn-outline" onclick="stHideConfirm('confirm-mode')">Cancel</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('frm-mode').submit()">{{if .RequireSig}}Switch to Monitor Only{{else}}Enable Active Protection{{end}}</button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="stHideConfirm('confirm-mode')">Cancel</button>
   </div>
   <div class="st-item">
     <div class="st-item-info">
@@ -93,8 +93,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-ic-msg">Switch default policy to {{if eq .DefaultPolicy "deny"}}allow{{else}}deny{{end}}?</div>
       <div class="st-ic-impact">{{if eq .DefaultPolicy "deny"}}All agents will be able to communicate freely unless specifically denied.{{else}}Agents will only reach explicitly approved targets. Unregistered agents are blocked.{{end}}</div>
     </div>
-    <button class="btn btn-sm btn-primary" onclick="document.getElementById('frm-policy').submit()">{{if eq .DefaultPolicy "deny"}}Switch to Allow All{{else}}Switch to Block Unknown{{end}}</button>
-    <button class="btn btn-sm btn-outline" onclick="stHideConfirm('confirm-policy')">Cancel</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="document.getElementById('frm-policy').submit()">{{if eq .DefaultPolicy "deny"}}Switch to Allow All{{else}}Switch to Block Unknown{{end}}</button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="stHideConfirm('confirm-policy')">Cancel</button>
   </div>
   <div class="st-item" style="flex-wrap:wrap">
     <div class="st-item-info">
@@ -138,8 +138,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-ic-msg">{{if .QEnabled}}Disable quarantine?{{else}}Enable quarantine?{{end}}</div>
       <div class="st-ic-impact">{{if .QEnabled}}Suspicious messages will be delivered immediately instead of held for review.{{else}}Messages triggering rules will be held for human review before delivery.{{end}}</div>
     </div>
-    <button class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-quarantine')">{{if .QEnabled}}Disable Quarantine{{else}}Enable Quarantine{{end}}</button>
-    <button class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-quarantine')">Cancel</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-quarantine')">{{if .QEnabled}}Disable Quarantine{{else}}Enable Quarantine{{end}}</button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-quarantine')">Cancel</button>
   </div>
   <input type="hidden" name="expiry_hours" value="{{.QExpiryHours}}">
   <input type="hidden" name="retention_days" value="{{.QRetentionDays}}">
@@ -161,8 +161,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-ic-msg">{{if .AnomalyAutoSuspend}}Disable automatic suspension?{{else}}Enable automatic suspension?{{end}}</div>
       <div class="st-ic-impact">{{if .AnomalyAutoSuspend}}Agents with suspicious behavior will continue operating without interruption.{{else}}Agents exceeding the risk threshold will be automatically paused until manual review.{{end}}</div>
     </div>
-    <button class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-anomaly')">{{if .AnomalyAutoSuspend}}Disable Auto-Suspend{{else}}Enable Auto-Suspend{{end}}</button>
-    <button class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-anomaly')">Cancel</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-anomaly')">{{if .AnomalyAutoSuspend}}Disable Auto-Suspend{{else}}Enable Auto-Suspend{{end}}</button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-anomaly')">Cancel</button>
   </div>
   <input type="hidden" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}">
   <input type="hidden" name="risk_threshold" value="{{printf "%.1f" .AnomalyRiskThreshold}}">
@@ -200,8 +200,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-ic-msg">{{if .RequireIntent}}Disable intent verification?{{else}}Enable intent verification?{{end}}</div>
       <div class="st-ic-impact">{{if .RequireIntent}}Agents can send messages without declaring purpose. Mismatches won't be flagged.{{else}}Agents must declare what they're doing. Content that contradicts stated intent will be flagged.{{end}}</div>
     </div>
-    <button class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-intent')">{{if .RequireIntent}}Disable Verification{{else}}Enable Verification{{end}}</button>
-    <button class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-intent')">Cancel</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-intent')">{{if .RequireIntent}}Disable Verification{{else}}Enable Verification{{end}}</button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-intent')">Cancel</button>
   </div>
   </form>
 
@@ -234,8 +234,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-ic-msg">{{if .FPEnabled}}Disable outbound traffic inspection?{{else}}Enable outbound traffic inspection?{{end}}</div>
       <div class="st-ic-impact">{{if .FPEnabled}}Agent HTTP requests will no longer be monitored or filtered. Requires restart.{{else}}All agent outbound HTTP traffic will be routed through the security proxy. Requires restart.{{end}}</div>
     </div>
-    <button class="btn btn-sm btn-primary" onclick="toggleEgressDetails();stToggleSubmit('confirm-egress')">{{if .FPEnabled}}Disable Egress Proxy{{else}}Enable Egress Proxy{{end}}</button>
-    <button class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-egress')">Cancel</button>
+    <button type="button" class="btn btn-sm btn-primary" onclick="toggleEgressDetails();stToggleSubmit('confirm-egress')">{{if .FPEnabled}}Disable Egress Proxy{{else}}Enable Egress Proxy{{end}}</button>
+    <button type="button" class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-egress')">Cancel</button>
   </div>
   <div id="fp-details" style="{{if not .FPEnabled}}display:none;{{end}}">
   <div style="padding:14px 20px;border-bottom:1px solid var(--border)">
@@ -368,15 +368,17 @@ function stHideConfirm(id) {
 var _stToggleCheckbox = {};
 function stToggleConfirm(cb, confirmId) {
   _stToggleCheckbox[confirmId] = cb;
+  cb.checked = !cb.checked;
   stShowConfirm(confirmId);
 }
 function stToggleSubmit(confirmId) {
   var cb = _stToggleCheckbox[confirmId];
-  if (cb) cb.form.submit();
+  if (cb) {
+    cb.checked = !cb.checked;
+    cb.form.submit();
+  }
 }
 function stToggleCancel(confirmId) {
-  var cb = _stToggleCheckbox[confirmId];
-  if (cb) cb.checked = !cb.checked;
   stHideConfirm(confirmId);
 }
 function stToast(msg, type) {
