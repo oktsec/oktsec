@@ -128,7 +128,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
     {{range .WebhookChannels}}
     <tr id="wh-row-{{.Name}}">
       <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{.Name}}</td>
-      <td style="font-family:var(--mono);font-size:0.75rem;color:var(--text3);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.URL}}</td>
+      <td style="font-family:var(--mono);font-size:0.75rem;color:var(--text3);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="URL masked for security">{{maskWebhookURL .URL}}</td>
       <td>{{if .Name}}<button class="btn btn-sm btn-danger" hx-delete="/dashboard/settings/webhooks/{{.Name}}" hx-confirm="Delete channel {{.Name}}?" hx-target="#wh-row-{{.Name}}" hx-swap="outerHTML swap:200ms">delete</button>{{end}}</td>
     </tr>
     {{end}}
