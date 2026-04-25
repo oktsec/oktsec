@@ -226,6 +226,7 @@ function toggleGraphSidebar() {
       el.innerHTML = '<p style="color:var(--text3);text-align:center;padding-top:200px">No traffic in selected range</p>';
       return;
     }
+    el.innerHTML = '';
 
     var W = el.clientWidth, H = el.clientHeight;
     var NR = 22, OR = 30, TR = 12, PAD = 50;
