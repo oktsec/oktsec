@@ -18,6 +18,7 @@ type Decision struct {
 type Evaluator struct {
 	agents        map[string]config.Agent
 	defaultPolicy string // "allow" or "deny"
+	tracker       *ConstraintTracker
 }
 
 // NewEvaluator creates a policy evaluator from the config.
@@ -29,12 +30,12 @@ func NewEvaluator(cfg *config.Config) *Evaluator {
 	return &Evaluator{
 		agents:        cfg.Agents,
 		defaultPolicy: dp,
+		tracker:       NewConstraintTracker(),
 	}
 }
 
 // CheckACL verifies that the sender is allowed to message the recipient.
 func (e *Evaluator) CheckACL(from, to string) Decision {
-	// If no agents are configured, allow all
 	if len(e.agents) == 0 {
 		return Decision{Allowed: true, Reason: "no ACL configured"}
 	}
@@ -47,8 +48,22 @@ func (e *Evaluator) CheckACL(from, to string) Decision {
 		return Decision{Allowed: true, Reason: "sender not in policy"}
 	}
 
-	// If can_message is empty, agent can message anyone
-	if len(agent.CanMessage) == 0 {
+	// Check structured ACL entries first (with constraints).
+	if len(agent.ACLEntries) > 0 {
+		for _, entry := range agent.ACLEntries {
+			if entry.Target == to || entry.Target == "*" {
+				if len(entry.Constraints) > 0 {
+					return EvaluateConstraints(from, to, entry.Constraints, e.tracker)
+				}
+				return Decision{Allowed: true, Reason: "allowed by ACL entry"}
+			}
+		}
+		// If ACL entries exist but none matched, also check can_message
+		// for backwards compatibility before denying.
+	}
+
+	// Legacy can_message list (no constraints).
+	if len(agent.CanMessage) == 0 && len(agent.ACLEntries) == 0 {
 		return Decision{Allowed: true, Reason: "no restrictions on sender"}
 	}
 
@@ -58,8 +73,13 @@ func (e *Evaluator) CheckACL(from, to string) Decision {
 		}
 	}
 
-	return Decision{
-		Allowed: false,
-		Reason:  fmt.Sprintf("agent %q is not allowed to message %q", from, to),
+	// Neither ACL entries nor can_message matched.
+	if len(agent.CanMessage) > 0 || len(agent.ACLEntries) > 0 {
+		return Decision{
+			Allowed: false,
+			Reason:  fmt.Sprintf("agent %q is not allowed to message %q", from, to),
+		}
 	}
+
+	return Decision{Allowed: true, Reason: "no restrictions on sender"}
 }
