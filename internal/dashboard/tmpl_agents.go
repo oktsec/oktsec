@@ -48,8 +48,8 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
     <div class="ag-card-desc">{{if .Description}}{{.Description}}{{else}}No description{{end}}</div>
     <div class="ag-card-stats">
       <span><span class="num">{{formatNum .Total}}</span> msgs</span>
-      <span>blocked <span class="num" style="{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{end}}">{{.BlockedPct}}%</span></span>
-      <span>risk <span class="num" style="{{if gt .RiskScore 60.0}}color:var(--danger){{else if gt .RiskScore 30.0}}color:var(--warn){{end}}">{{printf "%.0f" .RiskScore}}</span></span>
+      <span title="Percentage of this agent's messages that were blocked by the security pipeline">blocked <span class="num" style="{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{end}}">{{.BlockedPct}}%</span></span>
+      <span title="Composite threat score: blocked messages x10 + quarantined x5 + flagged">risk <span class="num" style="{{if gt .RiskScore 60.0}}color:var(--danger){{else if gt .RiskScore 30.0}}color:var(--warn){{end}}">{{printf "%.0f" .RiskScore}}</span></span>
       {{if gt .LLMThreatCount 0}}<span style="color:var(--danger)">&#x26A0; {{.LLMThreatCount}} threats</span>{{end}}
       {{if .LastSeen}}<span style="margin-left:auto" data-ts="{{.LastSeen}}">{{.LastSeen}}</span>{{end}}
     </div>
@@ -146,7 +146,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       <div class="ad-gauge" id="risk-gauge"></div>
       <span style="color:var(--text3);font-size:0.72rem;font-family:var(--mono)">/ 100</span>
     </div>
-    <div style="font-size:0.68rem;color:var(--text3);margin-top:6px">Based on blocked and flagged messages in the last 24 hours</div>
+    <div style="font-size:0.68rem;color:var(--text3);margin-top:6px">Weighted score: blocked x10 + quarantined x5 + flagged, last 24h</div>
     <script>
     (function(){
       var g=document.getElementById('risk-gauge');if(!g)return;

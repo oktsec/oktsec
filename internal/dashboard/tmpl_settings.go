@@ -20,8 +20,15 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 </style>
 <p class="page-desc">System status, access control, and threat response settings.</p>
 
+<div style="display:flex;gap:8px;margin-bottom:var(--sp-5);flex-wrap:wrap">
+  <a href="#sec-status" class="btn btn-sm btn-outline" style="text-decoration:none;font-size:var(--text-xs)">System Status</a>
+  <a href="#sec-access" class="btn btn-sm btn-outline" style="text-decoration:none;font-size:var(--text-xs)">Access Control</a>
+  <a href="#sec-threat" class="btn btn-sm btn-outline" style="text-decoration:none;font-size:var(--text-xs)">Threat Response</a>
+  <a href="#sec-infra" class="btn btn-sm btn-outline" style="text-decoration:none;font-size:var(--text-xs)">Infrastructure</a>
+</div>
+
 <!-- Section 1: System Status -->
-<div class="st-section">
+<div class="st-section" id="sec-status">
   <div class="st-section-hdr">System Status</div>
   <div class="st-item">
     <div class="st-item-info">
@@ -46,7 +53,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 </div>
 
 <!-- Section 2: Access Control -->
-<div class="st-section">
+<div class="st-section" id="sec-access">
   <div class="st-section-hdr">Access Control</div>
   <div class="st-item">
     <div class="st-item-info">
@@ -81,7 +88,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 </div>
 
 <!-- Section 3: Threat Response -->
-<div class="st-section">
+<div class="st-section" id="sec-threat">
   <div class="st-section-hdr">Threat Response</div>
   <form method="POST" action="/dashboard/settings/quarantine">
   <div class="st-item">
@@ -194,7 +201,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 </div>
 
 <!-- Section 4: Infrastructure -->
-<div class="st-section">
+<div class="st-section" id="sec-infra">
   <div class="st-section-hdr">Infrastructure</div>
   <div class="st-item">
     <div class="st-item-info">

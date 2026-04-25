@@ -23,7 +23,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 {{end}}
 
 <div class="card" style="padding:0;overflow:hidden">
-  <div style="display:flex;min-height:480px;height:calc(100vh - 340px)">
+  <div style="display:flex;min-height:560px;height:calc(100vh - 300px)">
     <div style="flex:1;position:relative;overflow:hidden">
       <div id="graph-container" style="width:100%;height:100%;background:var(--bg);position:relative;overflow:hidden"></div>
       <div style="position:absolute;bottom:12px;left:16px;display:flex;gap:16px;font-size:0.7rem;color:var(--text3);align-items:center">
@@ -184,7 +184,7 @@ function toggleGraphSidebar() {
     }
 
     var W = el.clientWidth, H = el.clientHeight;
-    var NR = 18, OR = 26, TR = 10, PAD = 50;
+    var NR = 22, OR = 30, TR = 12, PAD = 50;
     var cx = W / 2, cy = H / 2;
     // 3-column layout: ORCHESTRATOR | AGENTS | TOOLS
     // Agent sub-columns expand when there are many agents
@@ -256,7 +256,7 @@ function toggleGraphSidebar() {
       var col=Math.floor(i/perCol);
       var row=i%perCol;
       var colCount=Math.min(perCol, agentNodes.length-col*perCol);
-      var spacing=Math.min(80, (H-PAD*2)/(colCount+1));
+      var spacing=Math.min(90, (H-PAD*2)/(colCount+1));
       var startY=(H-(colCount-1)*spacing)/2;
       nodes[idx].x=agentZoneStart+subColWidth*(col+0.5);
       nodes[idx].y=startY+row*spacing;
@@ -517,7 +517,7 @@ function toggleGraphSidebar() {
         toolDiv.style.cssText='width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#bc8cff;font-family:ui-monospace,SFMono-Regular,monospace;font-size:10px;font-weight:600';
         toolDiv.textContent=n.name.charAt(0).toUpperCase();
         fo.appendChild(toolDiv);
-        labelY=n.y+TR+11; textLen=nameLen*4.5+6;
+        labelY=n.y+TR+13; textLen=nameLen*5.5+8;
 
       } else if(n.isOrch){
         shape=document.createElementNS(NS,'polygon');
@@ -539,7 +539,7 @@ function toggleGraphSidebar() {
         orchIcon.textContent='⬡';
         fo.appendChild(orchIcon);
         n._innerHex=innerHex;
-        labelY=n.y+OR+16; textLen=nameLen*5.8+10;
+        labelY=n.y+OR+18; textLen=nameLen*6.5+12;
 
       } else {
         var ringColor=n.threat>60?'#f85149':(n.threat>30?'#d29922':'#3fb950');
@@ -554,7 +554,7 @@ function toggleGraphSidebar() {
         var avDiv=document.createElement('div');
         avDiv.innerHTML=agentAvatar(n.name,NR*2);
         fo.appendChild(avDiv);
-        labelY=n.y+NR+14; textLen=nameLen*5.8+10;
+        labelY=n.y+NR+16; textLen=nameLen*6.5+12;
 
         // Status dot (small indicator at top-right of node)
         var statusDot=document.createElementNS(NS,'circle');
@@ -568,7 +568,7 @@ function toggleGraphSidebar() {
       // Label
       var labelBg=document.createElementNS(NS,'rect');
       labelBg.setAttribute('x',n.x-textLen/2); labelBg.setAttribute('y',labelY-9);
-      labelBg.setAttribute('width',textLen); labelBg.setAttribute('height',n.isOrch?26:14);
+      labelBg.setAttribute('width',textLen); labelBg.setAttribute('height',n.isOrch?28:16);
       labelBg.setAttribute('rx','3');
       labelBg.setAttribute('fill','#0d1117'); labelBg.setAttribute('fill-opacity','0.9');
 
@@ -576,10 +576,10 @@ function toggleGraphSidebar() {
       label.setAttribute('x',n.x); label.setAttribute('y',labelY);
       label.setAttribute('text-anchor','middle');
       label.setAttribute('fill',n.isTool?'#bc8cff':'#e4e4e7');
-      label.setAttribute('font-size',n.isTool?'8.5':(n.isOrch?'12':'9.5'));
+      label.setAttribute('font-size',n.isTool?'10':(n.isOrch?'13':'11'));
       label.setAttribute('font-weight',n.isOrch?'600':'500');
       label.setAttribute('font-family','ui-monospace,SFMono-Regular,SF Mono,Menlo,monospace');
-      var maxLen=n.isOrch?22:16;
+      var maxLen=n.isOrch?24:20;
       var displayName=n.name==='gateway'?'oktsec':(n.name.length>maxLen?n.name.substring(0,maxLen-1)+'…':n.name);
       label.textContent=displayName;
 
@@ -587,10 +587,10 @@ function toggleGraphSidebar() {
       var subLabel=null;
       if(n.isOrch){
         subLabel=document.createElementNS(NS,'text');
-        subLabel.setAttribute('x',n.x); subLabel.setAttribute('y',labelY+12);
+        subLabel.setAttribute('x',n.x); subLabel.setAttribute('y',labelY+13);
         subLabel.setAttribute('text-anchor','middle');
-        subLabel.setAttribute('fill','#6e7681');
-        subLabel.setAttribute('font-size','9');
+        subLabel.setAttribute('fill','#848d97');
+        subLabel.setAttribute('font-size','10');
         subLabel.setAttribute('font-family','ui-monospace,SFMono-Regular,SF Mono,Menlo,monospace');
         subLabel.textContent='orchestrator';
       }

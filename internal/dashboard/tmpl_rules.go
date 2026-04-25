@@ -46,6 +46,15 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 <!-- Detection Rules Tab -->
 {{if .Categories}}
 
+{{if .TopRules}}
+<div style="margin-bottom:20px">
+  <div style="font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:var(--sp-2)">Most triggered rules</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {{range .TopRules}}<a href="/dashboard/rules/{{.RuleID}}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);font-size:var(--text-xs);color:var(--text);text-decoration:none;transition:border-color var(--ease-smooth)" title="{{.Name}}"><span style="font-family:var(--mono);font-weight:600">{{.RuleID}}</span><span style="color:var(--text3)">{{.Count}}x</span></a>{{end}}
+  </div>
+</div>
+{{end}}
+
 {{if or .LLMPendingCount .LLMActiveCount}}
 <div style="display:flex;align-items:center;gap:16px;padding:14px 20px;margin-bottom:20px;background:var(--surface);border:1px solid rgba(56,139,253,0.2);border-radius:10px">
   <div style="flex:1;min-width:0">

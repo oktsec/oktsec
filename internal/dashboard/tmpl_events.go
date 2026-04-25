@@ -36,6 +36,15 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
 </div>
 <div style="font-size:var(--text-sm);color:var(--text3);padding:var(--sp-2) var(--sp-5);border-bottom:1px solid var(--border);font-family:var(--mono)" data-ts="{{.Entry.Timestamp}}">{{.Entry.Timestamp}}</div>
 
+{{if eq .Entry.Status "quarantined"}}<div style="padding:var(--sp-3) var(--sp-5);background:rgba(210,153,34,0.08);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:var(--sp-3)">
+  <span style="font-size:var(--text-sm);color:var(--warn);font-weight:500">Awaiting human review</span>
+  <a href="/dashboard/events?tab=quarantine" class="btn btn-sm" style="margin-left:auto;font-size:var(--text-xs);background:var(--warn);color:#000;border:none">Review Queue &rarr;</a>
+</div>{{end}}
+{{if eq .Entry.Status "blocked"}}<div style="padding:var(--sp-3) var(--sp-5);background:rgba(248,81,73,0.06);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:var(--sp-3)">
+  <span style="font-size:var(--text-sm);color:var(--danger);font-weight:500">Blocked by security pipeline</span>
+  <a href="/dashboard/events/{{.Entry.ID}}" class="btn btn-sm btn-outline" style="margin-left:auto;font-size:var(--text-xs)">Full Investigation &rarr;</a>
+</div>{{end}}
+
 <!-- Tabs -->
 <div class="ed-tabs">
   <div class="ed-tab active" onclick="edSwitchTab('overview',this)">Overview</div>
