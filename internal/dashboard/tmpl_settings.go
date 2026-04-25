@@ -130,16 +130,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="enabled" value="true" aria-label="Toggle quarantine" {{if .QEnabled}}checked{{end}} onchange="stToggleConfirm(this,'confirm-quarantine')"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="enabled" value="true" aria-label="Toggle quarantine" {{if .QEnabled}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
-  </div>
-  <div class="st-inline-confirm" id="confirm-quarantine">
-    <div>
-      <div class="st-ic-msg">{{if .QEnabled}}Disable quarantine?{{else}}Enable quarantine?{{end}}</div>
-      <div class="st-ic-impact">{{if .QEnabled}}Suspicious messages will be delivered immediately instead of held for review.{{else}}Messages triggering rules will be held for human review before delivery.{{end}}</div>
-    </div>
-    <button type="button" class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-quarantine')">{{if .QEnabled}}Disable Quarantine{{else}}Enable Quarantine{{end}}</button>
-    <button type="button" class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-quarantine')">Cancel</button>
   </div>
   <input type="hidden" name="expiry_hours" value="{{.QExpiryHours}}">
   <input type="hidden" name="retention_days" value="{{.QRetentionDays}}">
@@ -153,16 +145,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" aria-label="Toggle behavior monitoring" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="stToggleConfirm(this,'confirm-anomaly')"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" aria-label="Toggle behavior monitoring" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
-  </div>
-  <div class="st-inline-confirm" id="confirm-anomaly">
-    <div>
-      <div class="st-ic-msg">{{if .AnomalyAutoSuspend}}Disable automatic suspension?{{else}}Enable automatic suspension?{{end}}</div>
-      <div class="st-ic-impact">{{if .AnomalyAutoSuspend}}Agents with suspicious behavior will continue operating without interruption.{{else}}Agents exceeding the risk threshold will be automatically paused until manual review.{{end}}</div>
-    </div>
-    <button type="button" class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-anomaly')">{{if .AnomalyAutoSuspend}}Disable Auto-Suspend{{else}}Enable Auto-Suspend{{end}}</button>
-    <button type="button" class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-anomaly')">Cancel</button>
   </div>
   <input type="hidden" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}">
   <input type="hidden" name="risk_threshold" value="{{printf "%.1f" .AnomalyRiskThreshold}}">
@@ -192,16 +176,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="require_intent" value="true" aria-label="Toggle purpose verification" {{if .RequireIntent}}checked{{end}} onchange="stToggleConfirm(this,'confirm-intent')"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="require_intent" value="true" aria-label="Toggle purpose verification" {{if .RequireIntent}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
-  </div>
-  <div class="st-inline-confirm" id="confirm-intent">
-    <div>
-      <div class="st-ic-msg">{{if .RequireIntent}}Disable intent verification?{{else}}Enable intent verification?{{end}}</div>
-      <div class="st-ic-impact">{{if .RequireIntent}}Agents can send messages without declaring purpose. Mismatches won't be flagged.{{else}}Agents must declare what they're doing. Content that contradicts stated intent will be flagged.{{end}}</div>
-    </div>
-    <button type="button" class="btn btn-sm btn-primary" onclick="stToggleSubmit('confirm-intent')">{{if .RequireIntent}}Disable Verification{{else}}Enable Verification{{end}}</button>
-    <button type="button" class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-intent')">Cancel</button>
   </div>
   </form>
 
@@ -226,16 +202,8 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing restart">Requires restart</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" aria-label="Toggle outbound traffic inspection" {{if .FPEnabled}}checked{{end}} onchange="stToggleConfirm(this,'confirm-egress')"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" aria-label="Toggle outbound traffic inspection" {{if .FPEnabled}}checked{{end}} onchange="toggleEgressDetails();this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
-  </div>
-  <div class="st-inline-confirm" id="confirm-egress">
-    <div>
-      <div class="st-ic-msg">{{if .FPEnabled}}Disable outbound traffic inspection?{{else}}Enable outbound traffic inspection?{{end}}</div>
-      <div class="st-ic-impact">{{if .FPEnabled}}Agent HTTP requests will no longer be monitored or filtered. Requires restart.{{else}}All agent outbound HTTP traffic will be routed through the security proxy. Requires restart.{{end}}</div>
-    </div>
-    <button type="button" class="btn btn-sm btn-primary" onclick="toggleEgressDetails();stToggleSubmit('confirm-egress')">{{if .FPEnabled}}Disable Egress Proxy{{else}}Enable Egress Proxy{{end}}</button>
-    <button type="button" class="btn btn-sm btn-outline" onclick="stToggleCancel('confirm-egress')">Cancel</button>
   </div>
   <div id="fp-details" style="{{if not .FPEnabled}}display:none;{{end}}">
   <div style="padding:14px 20px;border-bottom:1px solid var(--border)">
@@ -364,22 +332,6 @@ function stShowConfirm(id) {
 function stHideConfirm(id) {
   var el = document.getElementById(id);
   if (el) el.classList.remove('open');
-}
-var _stToggleCheckbox = {};
-function stToggleConfirm(cb, confirmId) {
-  _stToggleCheckbox[confirmId] = cb;
-  cb.checked = !cb.checked;
-  stShowConfirm(confirmId);
-}
-function stToggleSubmit(confirmId) {
-  var cb = _stToggleCheckbox[confirmId];
-  if (cb) {
-    cb.checked = !cb.checked;
-    cb.form.submit();
-  }
-}
-function stToggleCancel(confirmId) {
-  stHideConfirm(confirmId);
 }
 function stToast(msg, type) {
   var el = document.createElement('div');

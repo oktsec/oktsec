@@ -1044,7 +1044,7 @@ func TestServer_SettingsInlineConfirmElements(t *testing.T) {
 		t.Fatalf("settings returned %d", rr.Code)
 	}
 	body := rr.Body.String()
-	confirms := []string{"confirm-mode", "confirm-policy", "confirm-quarantine", "confirm-anomaly", "confirm-intent", "confirm-egress"}
+	confirms := []string{"confirm-mode", "confirm-policy"}
 	for _, id := range confirms {
 		if !strings.Contains(body, "id=\""+id+"\"") {
 			t.Errorf("settings page missing inline confirmation element: %s", id)
@@ -1052,6 +1052,17 @@ func TestServer_SettingsInlineConfirmElements(t *testing.T) {
 	}
 	if !strings.Contains(body, "st-inline-confirm") {
 		t.Error("settings page should use st-inline-confirm class")
+	}
+}
+
+func TestServer_SettingsTogglesSubmitDirectly(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `onchange="this.form.submit()"`) {
+		t.Error("toggle checkboxes should submit form directly on change")
 	}
 }
 
