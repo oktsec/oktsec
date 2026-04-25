@@ -584,7 +584,7 @@ const layoutHead = `<!DOCTYPE html>
 <title>oktsec — {{.Active}}</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236366f1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3Cpath d='M9 12l2 2 4-4'/%3E%3C/svg%3E">
 <script src="/dashboard/static/htmx.min.js"></script>
-<link rel="stylesheet" href="/dashboard/static/dashboard.css?v=20260425">
+<link rel="stylesheet" href="/dashboard/static/dashboard.css?v=20260425b">
 </head>
 <body>
 <a href="#main" class="skip-link">Skip to main content</a>
@@ -892,11 +892,13 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
     // Instead, prevent the default form submit and re-submit after confirmation.
     return false; // block by default; the click handler below handles it
   };
+  // Match confirm('...') even when the message contains newlines (gateway add-server uses \n\n).
+  var _confirmRe=/confirm\(['"]([\s\S]+?)['"]\)/;
   // Intercept clicks on elements with onclick="return confirm(...)"
   document.addEventListener('click',function(e){
     var btn=e.target.closest('[onclick*="confirm("]');
     if(!btn)return;
-    var match=btn.getAttribute('onclick').match(/confirm\(['"](.+?)['"]\)/);
+    var match=btn.getAttribute('onclick').match(_confirmRe);
     if(!match)return;
     e.preventDefault();e.stopPropagation();
     showModal(match[1]).then(function(ok){
@@ -906,6 +908,26 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
       btn.setAttribute('onclick','');
       btn.click();
       btn.setAttribute('onclick',orig);
+    });
+  },true);
+  // Intercept submits on forms with onsubmit="return confirm(...)" — without this,
+  // window.confirm always returns false and the form would never submit.
+  document.addEventListener('submit',function(e){
+    var form=e.target;
+    if(!form||!form.getAttribute||!form.getAttribute('onsubmit'))return;
+    var attr=form.getAttribute('onsubmit');
+    if(attr.indexOf('confirm(')<0)return;
+    var match=attr.match(_confirmRe);
+    if(!match)return;
+    e.preventDefault();e.stopPropagation();
+    showModal(match[1]).then(function(ok){
+      if(!ok)return;
+      // Drop onsubmit so the re-submit goes through. requestSubmit() respects
+      // the submit button; fall back to submit() when unavailable (older browsers).
+      form.removeAttribute('onsubmit');
+      if(typeof form.requestSubmit==='function') form.requestSubmit();
+      else form.submit();
+      form.setAttribute('onsubmit',attr);
     });
   },true);
   // HTMX confirm intercept

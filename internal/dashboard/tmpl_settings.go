@@ -345,9 +345,19 @@ function stToggleSave(cb) {
   fetch(form.action, {
     method: 'POST',
     body: new URLSearchParams(new FormData(form)),
-    headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    redirect: 'manual'
   }).then(function(r) {
-    if (r.ok || r.redirected) { stToast('Saved', 'success'); }
+    // 'manual' surfaces a server redirect as type 'opaqueredirect' (status 0).
+    // The most common cause is an expired session redirecting to /dashboard/login —
+    // so do NOT pretend the toggle saved. Roll back the checkbox and reload to login.
+    if (r.type === 'opaqueredirect' || r.status === 0) {
+      cb.checked = !cb.checked;
+      stToast('Session expired — reloading', 'error');
+      setTimeout(function() { location.reload(); }, 1200);
+      return;
+    }
+    if (r.ok) { stToast('Saved', 'success'); }
     else { cb.checked = !cb.checked; stToast('Save failed', 'error'); }
   }).catch(function() { cb.checked = !cb.checked; stToast('Save failed', 'error'); });
 }

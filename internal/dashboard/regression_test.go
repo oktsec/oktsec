@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/oktsec/oktsec/internal/config"
 )
 
 // TestRegression_AllPagesLoad is a smoke test that hits every dashboard page
@@ -194,6 +196,66 @@ func TestRegression_CSPHeader(t *testing.T) {
 	}
 	if strings.Contains(csp, "https://") || strings.Contains(csp, "http://") {
 		t.Errorf("CSP should not whitelist external origins, got: %s", csp)
+	}
+}
+
+// TestRegression_OnsubmitConfirmInterceptor guards against the P1 bug Codex caught
+// after the dashboard clarity sprint: window.confirm is overridden to always return
+// false, so any form that uses onsubmit="return confirm(...)" silently never submits
+// unless a global submit listener intercepts it and re-submits after the modal.
+func TestRegression_OnsubmitConfirmInterceptor(t *testing.T) {
+	body := authedGet(t, "/dashboard").Body.String()
+	// The submit-listener block must exist in the layout JS.
+	if !strings.Contains(body, `addEventListener('submit'`) {
+		t.Error("layout missing global submit listener — onsubmit confirm forms will never submit (window.confirm is overridden to false)")
+	}
+	if !strings.Contains(body, `removeAttribute('onsubmit')`) {
+		t.Error("submit interceptor must drop the onsubmit attribute before re-submitting; otherwise the confirm runs again and recurses")
+	}
+	if !strings.Contains(body, `requestSubmit`) {
+		t.Error("submit interceptor should prefer form.requestSubmit() so the originating button is honored")
+	}
+}
+
+// TestRegression_OnsubmitConfirmFormsStillUseAttribute ensures the suspend agent
+// and add-server-to-gateway forms still rely on the global interceptor. If a future
+// edit converts these to onclick or removes onsubmit, this test does not fail —
+// but if it converts the attribute to a form-level handler that is NOT confirm(),
+// the assumption breaks. Keeps the contract visible.
+func TestRegression_OnsubmitConfirmForms(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents = map[string]config.Agent{"test-agent": {}}
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/agents/test-agent", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	body := rr.Body.String()
+	if strings.Contains(body, `onsubmit="return confirm(`) {
+		// Good: this template still uses onsubmit; verify the interceptor in layout will catch it.
+		layoutBody := authedGet(t, "/dashboard").Body.String()
+		if !strings.Contains(layoutBody, `addEventListener('submit'`) {
+			t.Error("agent suspend form uses onsubmit confirm but layout has no submit interceptor")
+		}
+	}
+}
+
+// TestRegression_SettingsToggleNoStaleSavedOnRedirect guards the second P1 from
+// Codex: stToggleSave used to treat r.redirected as success. A session-expired
+// redirect to /dashboard/login also has r.redirected === true, so the user saw
+// a green "Saved" toast for a save that never happened.
+func TestRegression_SettingsToggleNoStaleSavedOnRedirect(t *testing.T) {
+	body := authedGet(t, "/dashboard/settings").Body.String()
+	if !strings.Contains(body, `redirect: 'manual'`) && !strings.Contains(body, `redirect:'manual'`) {
+		t.Error("stToggleSave must use redirect:'manual' so a session-expired redirect to /login does not surface as a successful save")
+	}
+	if strings.Contains(body, `r.ok || r.redirected`) {
+		t.Error("stToggleSave should not treat r.redirected as success — that lies about saves when the session expired")
+	}
+	if !strings.Contains(body, `opaqueredirect`) {
+		t.Error("stToggleSave should detect opaqueredirect responses and surface session-expired feedback")
 	}
 }
 
