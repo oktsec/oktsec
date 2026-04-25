@@ -48,8 +48,8 @@ var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(lay
     <div class="ag-card-desc">{{if .Description}}{{.Description}}{{else}}No description{{end}}</div>
     <div class="ag-card-stats">
       <span><span class="num">{{formatNum .Total}}</span> msgs</span>
-      <span title="Percentage of this agent's messages blocked by the security pipeline">block rate <span class="num" style="{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{end}}">{{.BlockedPct}}%</span></span>
-      <span title="Based on blocked (x10), quarantined (x5), and flagged messages in the last 24h">risk: <span class="num" style="{{if gt .RiskScore 60.0}}color:var(--danger){{else if gt .RiskScore 30.0}}color:var(--warn){{end}}">{{if ge .RiskScore 76.0}}critical{{else if ge .RiskScore 51.0}}high{{else if ge .RiskScore 31.0}}medium{{else if gt .RiskScore 0.0}}low{{else}}none{{end}}</span></span>
+      <span title="Percentage of this agent's messages blocked by the security pipeline over its lifetime">historical block rate <span class="num" style="{{if gt .BlockedPct 20}}color:var(--danger){{else if gt .BlockedPct 5}}color:var(--warn){{end}}">{{.BlockedPct}}%</span></span>
+      <span title="Based on blocked (x10), quarantined (x5), and flagged messages in the last 24h">current risk: <span class="num" style="{{if gt .RiskScore 60.0}}color:var(--danger){{else if gt .RiskScore 30.0}}color:var(--warn){{end}}">{{if ge .RiskScore 76.0}}critical{{else if ge .RiskScore 51.0}}high{{else if ge .RiskScore 31.0}}medium{{else if gt .RiskScore 0.0}}low{{else}}none{{end}}</span></span>
       {{if gt .LLMThreatCount 0}}<span style="color:var(--danger)">&#x26A0; {{.LLMThreatCount}} threats</span>{{end}}
       {{if .LastSeen}}<span style="margin-left:auto" data-ts="{{.LastSeen}}">{{.LastSeen}}</span>{{end}}
     </div>
@@ -146,7 +146,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
       <div class="ad-gauge" id="risk-gauge"></div>
       <span style="color:var(--text3);font-size:0.72rem;font-weight:600">{{if ge .RiskScore 76.0}}CRITICAL{{else if ge .RiskScore 51.0}}HIGH{{else if ge .RiskScore 31.0}}MEDIUM{{else if gt .RiskScore 0.0}}LOW{{else}}NONE{{end}}</span>
     </div>
-    <div style="font-size:0.68rem;color:var(--text3);margin-top:6px">Weighted from blocked (x10), quarantined (x5), and flagged messages. Historical block rate reflects past enforcement, not current risk.</div>
+    <div style="font-size:0.68rem;color:var(--text3);margin-top:6px">{{if and (eq (printf "%.0f" .RiskScore) "0") (gt .BlockedPct 0)}}No active anomaly right now. Historical block rate ({{.BlockedPct}}%) reflects past enforcement, not current risk.{{else}}Weighted from blocked (x10), quarantined (x5), and flagged messages in the last 24h.{{end}}</div>
     <script>
     (function(){
       var g=document.getElementById('risk-gauge');if(!g)return;
@@ -200,23 +200,30 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
 </div>
 
 <!-- Tabs -->
-<div class="ad-tabs">
-  <button class="ad-tab active" onclick="adTab('overview')">Overview</button>
-  <button class="ad-tab" onclick="adTab('config')">Configuration</button>
-  <button class="ad-tab" onclick="adTab('policies')">Tool Policies</button>
-  <button class="ad-tab" onclick="adTab('egress')">Egress</button>
+<div class="ad-tabs" role="tablist" aria-label="Agent detail tabs">
+  <button class="ad-tab active" role="tab" aria-selected="true" aria-controls="ad-overview" id="tab-overview" onclick="adTab('overview',this)" tabindex="0">Overview</button>
+  <button class="ad-tab" role="tab" aria-selected="false" aria-controls="ad-config" id="tab-config" onclick="adTab('config',this)" tabindex="-1">Messaging &amp; Access</button>
+  <button class="ad-tab" role="tab" aria-selected="false" aria-controls="ad-policies" id="tab-policies" onclick="adTab('policies',this)" tabindex="-1">Tool Policies</button>
+  <button class="ad-tab" role="tab" aria-selected="false" aria-controls="ad-egress" id="tab-egress" onclick="adTab('egress',this)" tabindex="-1">Egress</button>
 </div>
 <script>
-function adTab(name){
-  document.querySelectorAll('.ad-tab').forEach(function(t){t.classList.remove('active')});
+function adTab(name,btn){
+  document.querySelectorAll('.ad-tab').forEach(function(t){t.classList.remove('active');t.setAttribute('aria-selected','false');t.tabIndex=-1;});
   document.querySelectorAll('.ad-panel').forEach(function(p){p.classList.remove('active')});
-  event.target.classList.add('active');
+  btn.classList.add('active');btn.setAttribute('aria-selected','true');btn.tabIndex=0;
   document.getElementById('ad-'+name).classList.add('active');
 }
+document.querySelector('[role="tablist"]').addEventListener('keydown',function(e){
+  var tabs=Array.from(this.querySelectorAll('[role="tab"]'));
+  var idx=tabs.indexOf(document.activeElement);
+  if(idx<0)return;
+  if(e.key==='ArrowRight'){e.preventDefault();var next=tabs[(idx+1)%tabs.length];next.focus();next.click();}
+  else if(e.key==='ArrowLeft'){e.preventDefault();var prev=tabs[(idx-1+tabs.length)%tabs.length];prev.focus();prev.click();}
+});
 </script>
 
 <!-- Overview Tab -->
-<div id="ad-overview" class="ad-panel active">
+<div id="ad-overview" class="ad-panel active" role="tabpanel" aria-labelledby="tab-overview">
 
   <!-- Agent hierarchy -->
   {{if or .ParentAgentName .SubAgents}}
@@ -400,13 +407,15 @@ function adTab(name){
 
 </div>
 
-<!-- Configuration Tab -->
-<div id="ad-config" class="ad-panel">
+<!-- Messaging & Access Tab -->
+<div id="ad-config" class="ad-panel" role="tabpanel" aria-labelledby="tab-config">
   <div class="ad-grid">
     <div class="card" style="padding:18px 20px">
-      <div class="ad-slbl">Identity</div>
-      <div class="ad-kv"><span class="k">Can message</span><span class="v">{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{if not .Agent.CanMessage}}<span style="color:var(--text3)">none</span>{{end}}</span></div>
+      <div class="ad-slbl">Messaging Policy</div>
+      <div class="ad-kv"><span class="k">Can message</span><span class="v">{{if not .Agent.CanMessage}}<span style="color:var(--text3)">No agents (isolated)</span>{{else}}{{$first := index .Agent.CanMessage 0}}{{if and (eq (len .Agent.CanMessage) 1) (eq $first "*")}}<span style="color:var(--success)">Any configured agent</span>{{else}}{{range $i, $t := .Agent.CanMessage}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}{{end}}{{end}}</span></div>
       <div class="ad-kv"><span class="k">Location</span><span class="v">{{if .Agent.Location}}<code style="background:var(--bg3);padding:2px 6px;border-radius:4px;font-size:0.72rem">{{.Agent.Location}}</code>{{else}}unknown{{end}}</span></div>
+      <div class="ad-kv"><span class="k">Allowed tools</span><span class="v">{{if .Agent.AllowedTools}}{{range $i, $t := .Agent.AllowedTools}}{{if $i}} {{end}}<code style="background:var(--surface2);padding:2px 6px;border-radius:4px;font-size:0.72rem">{{$t}}</code>{{end}}{{else}}<span style="color:var(--success)">All tools allowed</span>{{end}}</span></div>
+      {{if .Agent.BlockedContent}}<div class="ad-kv"><span class="k">Blocked content</span><span class="v">{{range .Agent.BlockedContent}}<code style="background:rgba(244,63,94,0.15);color:var(--danger);padding:2px 6px;border-radius:4px;font-size:0.72rem;margin-left:4px">{{.}}</code>{{end}}</span></div>{{end}}
       {{if .Agent.ToolConstraints}}<div class="ad-kv"><span class="k">Tool constraints</span><span class="v">{{range .Agent.ToolConstraints}}<code style="background:rgba(244,63,94,0.15);color:var(--danger);padding:2px 6px;border-radius:4px;font-size:0.72rem;margin-left:4px">{{.Tool}}</code>{{end}}</span></div>{{end}}
       {{if .KeyFP}}<div class="ad-kv"><span class="k">Key fingerprint</span><span class="v fp" title="{{.KeyFP}}">{{truncate .KeyFP 32}}</span></div>{{end}}
       {{if .Agent.CreatedBy}}<div class="ad-kv"><span class="k">Origin</span><span class="v" style="font-family:var(--sans)">{{.Agent.CreatedBy}}</span></div>{{end}}
@@ -432,7 +441,7 @@ function adTab(name){
 </div>
 
 <!-- Tool Policies Tab -->
-<div id="ad-policies" class="ad-panel">
+<div id="ad-policies" class="ad-panel" role="tabpanel" aria-labelledby="tab-policies">
   <div class="card" style="padding:18px 20px">
     <div class="ad-slbl">Tool Policies</div>
     <p class="desc">Per-tool enforcement: spending limits, rate limits, and approval thresholds for MCP gateway tool calls.</p>
@@ -504,10 +513,10 @@ function stagePolicy() {
 </script>
 
 <!-- Egress Tab -->
-<div id="ad-egress" class="ad-panel">
+<div id="ad-egress" class="ad-panel" role="tabpanel" aria-labelledby="tab-egress">
   <div class="card" style="padding:18px 20px">
-    <div class="ad-slbl">Egress Policy</div>
-    <p class="desc">Control which domains this agent can access and restrict egress per tool.</p>
+    <div class="ad-slbl">Egress Policy {{if .Agent.Egress}}<span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:0.68rem;color:var(--accent-light);margin-left:6px">per-agent override</span>{{else}}<span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:0.68rem;color:var(--text3);margin-left:6px">using global defaults</span>{{end}}</div>
+    <p class="desc">{{if .Agent.Egress}}This agent has a custom egress policy. Changes here override global proxy settings.{{else}}No per-agent egress policy configured. This agent falls back to global proxy settings. Configure domains below to create an override.{{end}}</p>
 
     <form method="POST" action="/dashboard/agents/{{.Name}}/egress">
 

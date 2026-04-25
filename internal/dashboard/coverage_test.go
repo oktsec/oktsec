@@ -1178,3 +1178,140 @@ func TestServer_RulesFilterScript(t *testing.T) {
 		t.Error("rules page missing rfToggle filter function")
 	}
 }
+
+func TestServer_AgentsCardLabels(t *testing.T) {
+	rr := authedGet(t, "/dashboard/agents")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agents returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, ">block rate <") {
+		t.Error("agent cards should use 'historical block rate' not 'block rate'")
+	}
+	if strings.Contains(body, ">risk: <") {
+		t.Error("agent cards should use 'current risk:' not 'risk:'")
+	}
+}
+
+func TestServer_AgentDetailARIATabs(t *testing.T) {
+	rr := authedGet(t, "/dashboard/agents/test-agent")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent detail returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, attr := range []string{`role="tablist"`, `role="tab"`, `aria-selected="true"`, `aria-controls="ad-overview"`, `role="tabpanel"`, `aria-labelledby="tab-overview"`} {
+		if !strings.Contains(body, attr) {
+			t.Errorf("agent detail tabs missing ARIA attribute %q", attr)
+		}
+	}
+	if !strings.Contains(body, "ArrowRight") || !strings.Contains(body, "ArrowLeft") {
+		t.Error("agent detail tabs missing keyboard navigation")
+	}
+}
+
+func TestServer_AgentDetailWildcardExplanation(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents["wildcard-agent"] = config.Agent{CanMessage: []string{"*"}}
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/agents/wildcard-agent", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent detail returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Any configured agent") {
+		t.Error("wildcard can_message should show 'Any configured agent'")
+	}
+}
+
+func TestServer_AgentDetailNoCanMessage(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents["isolated-agent"] = config.Agent{}
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/agents/isolated-agent", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent detail returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "No agents (isolated)") {
+		t.Error("empty can_message should show 'No agents (isolated)'")
+	}
+}
+
+func TestServer_AgentDetailAllowedToolsExplanation(t *testing.T) {
+	rr := authedGet(t, "/dashboard/agents/test-agent")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent detail returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "All tools allowed") {
+		t.Error("agent with no allowed_tools restriction should show 'All tools allowed'")
+	}
+}
+
+func TestServer_AgentDetailEgressLabel(t *testing.T) {
+	rr := authedGet(t, "/dashboard/agents/test-agent")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent detail returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "using global defaults") {
+		t.Error("agent without egress policy should show 'using global defaults'")
+	}
+}
+
+func TestServer_AgentDetailEgressOverrideLabel(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents["egress-agent"] = config.Agent{
+		CanMessage: []string{"*"},
+		Egress:     &config.EgressPolicy{AllowedDomains: []string{"api.github.com"}},
+	}
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/agents/egress-agent", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent detail returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "per-agent override") {
+		t.Error("agent with egress policy should show 'per-agent override'")
+	}
+}
+
+func TestServer_AgentDetailRiskExplanation(t *testing.T) {
+	rr := authedGet(t, "/dashboard/agents/test-agent")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent detail returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "last 24h") {
+		t.Error("risk card should mention the time window")
+	}
+}
+
+func TestServer_AgentDetailTabNames(t *testing.T) {
+	rr := authedGet(t, "/dashboard/agents/test-agent")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("agent detail returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Messaging &amp; Access") {
+		t.Error("agent detail should have 'Messaging & Access' tab instead of 'Configuration'")
+	}
+}
