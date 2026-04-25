@@ -3,11 +3,13 @@ package policy
 import (
 	"testing"
 	"time"
+
+	"github.com/oktsec/oktsec/internal/config"
 )
 
 func TestEvaluateConstraints_RateAllow(t *testing.T) {
-	tracker := newConstraintTracker()
-	constraints := []Constraint{
+	tracker := NewConstraintTracker()
+	constraints := []config.ACLConstraint{
 		{Type: "rate", MaxMessages: 5, WindowSecs: 60},
 	}
 
@@ -26,8 +28,8 @@ func TestEvaluateConstraints_RateAllow(t *testing.T) {
 }
 
 func TestEvaluateConstraints_RateDifferentEdges(t *testing.T) {
-	tracker := newConstraintTracker()
-	constraints := []Constraint{
+	tracker := NewConstraintTracker()
+	constraints := []config.ACLConstraint{
 		{Type: "rate", MaxMessages: 1, WindowSecs: 60},
 	}
 
@@ -36,7 +38,6 @@ func TestEvaluateConstraints_RateDifferentEdges(t *testing.T) {
 		t.Fatalf("a->b should be allowed: %s", d.Reason)
 	}
 
-	// Different edge should have its own counter
 	d = EvaluateConstraints("a", "c", constraints, tracker)
 	if !d.Allowed {
 		t.Fatalf("a->c should be allowed (different edge): %s", d.Reason)
@@ -44,9 +45,9 @@ func TestEvaluateConstraints_RateDifferentEdges(t *testing.T) {
 }
 
 func TestEvaluateConstraints_TTLValid(t *testing.T) {
-	tracker := newConstraintTracker()
+	tracker := NewConstraintTracker()
 	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-	constraints := []Constraint{
+	constraints := []config.ACLConstraint{
 		{Type: "ttl", ExpiresAt: future},
 	}
 
@@ -57,9 +58,9 @@ func TestEvaluateConstraints_TTLValid(t *testing.T) {
 }
 
 func TestEvaluateConstraints_TTLExpired(t *testing.T) {
-	tracker := newConstraintTracker()
+	tracker := NewConstraintTracker()
 	past := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
-	constraints := []Constraint{
+	constraints := []config.ACLConstraint{
 		{Type: "ttl", ExpiresAt: past},
 	}
 
@@ -70,8 +71,8 @@ func TestEvaluateConstraints_TTLExpired(t *testing.T) {
 }
 
 func TestEvaluateConstraints_TTLInvalid(t *testing.T) {
-	tracker := newConstraintTracker()
-	constraints := []Constraint{
+	tracker := NewConstraintTracker()
+	constraints := []config.ACLConstraint{
 		{Type: "ttl", ExpiresAt: "not-a-date"},
 	}
 
@@ -82,9 +83,9 @@ func TestEvaluateConstraints_TTLInvalid(t *testing.T) {
 }
 
 func TestEvaluateConstraints_MultipleConstraints(t *testing.T) {
-	tracker := newConstraintTracker()
+	tracker := NewConstraintTracker()
 	future := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-	constraints := []Constraint{
+	constraints := []config.ACLConstraint{
 		{Type: "rate", MaxMessages: 10, WindowSecs: 60},
 		{Type: "ttl", ExpiresAt: future},
 	}
@@ -96,7 +97,7 @@ func TestEvaluateConstraints_MultipleConstraints(t *testing.T) {
 }
 
 func TestEvaluateConstraints_Empty(t *testing.T) {
-	tracker := newConstraintTracker()
+	tracker := NewConstraintTracker()
 	d := EvaluateConstraints("a", "b", nil, tracker)
 	if !d.Allowed {
 		t.Fatal("empty constraints should allow")
@@ -104,8 +105,8 @@ func TestEvaluateConstraints_Empty(t *testing.T) {
 }
 
 func TestEvaluateConstraints_UnknownType(t *testing.T) {
-	tracker := newConstraintTracker()
-	constraints := []Constraint{
+	tracker := NewConstraintTracker()
+	constraints := []config.ACLConstraint{
 		{Type: "unknown_future_type"},
 	}
 

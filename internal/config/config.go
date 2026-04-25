@@ -193,9 +193,24 @@ type EphemeralConfig struct {
 	MaxPerTask int    `yaml:"max_per_task,omitempty"`  // default 10
 }
 
+// ACLEntryConfig defines a permission with optional rate/ttl constraints.
+type ACLEntryConfig struct {
+	Target      string              `yaml:"target" json:"target"`
+	Constraints []ACLConstraint     `yaml:"constraints,omitempty" json:"constraints,omitempty"`
+}
+
+// ACLConstraint defines a rate or ttl condition on an ACL entry.
+type ACLConstraint struct {
+	Type        string `yaml:"type" json:"type"`                                     // "rate", "ttl"
+	MaxMessages int    `yaml:"max_messages,omitempty" json:"max_messages,omitempty"` // for type=rate
+	WindowSecs  int    `yaml:"window_secs,omitempty" json:"window_secs,omitempty"`   // for type=rate
+	ExpiresAt   string `yaml:"expires_at,omitempty" json:"expires_at,omitempty"`     // for type=ttl (RFC3339)
+}
+
 // Agent defines per-agent access control and metadata.
 type Agent struct {
 	CanMessage      []string                `yaml:"can_message"`
+	ACLEntries      []ACLEntryConfig        `yaml:"acl_entries,omitempty"`
 	BlockedContent  []string                `yaml:"blocked_content"`
 	AllowedTools    []string                `yaml:"allowed_tools,omitempty"`    // tool names the agent can call (empty = all)
 	ToolPolicies    map[string]ToolPolicy   `yaml:"tool_policies,omitempty"`   // per-tool enforcement policies

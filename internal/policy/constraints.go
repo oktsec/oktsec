@@ -4,42 +4,28 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/oktsec/oktsec/internal/config"
 )
 
-// Constraint defines a condition on an ACL entry beyond simple allow/deny.
-type Constraint struct {
-	Type        string   `yaml:"type" json:"type"`                             // "rate", "ttl"
-	MaxMessages int      `yaml:"max_messages,omitempty" json:"max_messages,omitempty"` // for type=rate
-	WindowSecs  int      `yaml:"window_secs,omitempty" json:"window_secs,omitempty"`   // for type=rate
-	ExpiresAt   string   `yaml:"expires_at,omitempty" json:"expires_at,omitempty"`     // for type=ttl (RFC3339)
-	Categories  []string `yaml:"categories,omitempty" json:"categories,omitempty"`     // reserved for future use
-}
-
-// ACLEntry defines a permission from one agent to a target with optional constraints.
-type ACLEntry struct {
-	Target      string       `yaml:"target" json:"target"`
-	Constraints []Constraint `yaml:"constraints,omitempty" json:"constraints,omitempty"`
-}
-
-// constraintTracker tracks per-edge message counts for rate constraints.
-type constraintTracker struct {
+// ConstraintTracker tracks per-edge message counts for rate constraints.
+type ConstraintTracker struct {
 	mu      sync.Mutex
-	windows map[string]*slidingCount // key: "from->to"
+	windows map[string]*slidingCount
 }
 
 type slidingCount struct {
 	timestamps []time.Time
 }
 
-func newConstraintTracker() *constraintTracker {
-	return &constraintTracker{
+// NewConstraintTracker creates a tracker for ACL rate constraints.
+func NewConstraintTracker() *ConstraintTracker {
+	return &ConstraintTracker{
 		windows: make(map[string]*slidingCount),
 	}
 }
 
-// checkRate checks if a rate constraint is satisfied and records the message.
-// Returns true if the message is allowed.
-func (ct *constraintTracker) checkRate(from, to string, maxMessages, windowSecs int) bool {
+func (ct *ConstraintTracker) checkRate(from, to string, maxMessages, windowSecs int) bool {
 	if maxMessages <= 0 {
 		return true
 	}
@@ -61,7 +47,6 @@ func (ct *constraintTracker) checkRate(from, to string, maxMessages, windowSecs 
 	now := time.Now()
 	cutoff := now.Add(-window)
 
-	// Prune old entries
 	valid := sc.timestamps[:0]
 	for _, ts := range sc.timestamps {
 		if ts.After(cutoff) {
@@ -79,8 +64,8 @@ func (ct *constraintTracker) checkRate(from, to string, maxMessages, windowSecs 
 }
 
 // EvaluateConstraints checks all constraints on an ACL entry.
-// Returns a Decision — allowed if all constraints pass.
-func EvaluateConstraints(from, to string, constraints []Constraint, tracker *constraintTracker) Decision {
+// Returns a Decision -- allowed if all constraints pass.
+func EvaluateConstraints(from, to string, constraints []config.ACLConstraint, tracker *ConstraintTracker) Decision {
 	for _, c := range constraints {
 		switch c.Type {
 		case "rate":
