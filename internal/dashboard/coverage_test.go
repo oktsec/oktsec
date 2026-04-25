@@ -851,3 +851,178 @@ func TestServer_AgentsRiskLabels(t *testing.T) {
 		t.Error("agents should not use ambiguous 'blocked X% · risk N' format")
 	}
 }
+
+func TestServer_EventsPageHeaderCopy(t *testing.T) {
+	rr := authedGet(t, "/dashboard/events")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("events returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "All intercepted messages") {
+		t.Error("events page should use updated header copy, not 'All intercepted messages'")
+	}
+	if !strings.Contains(body, "Security events from the pipeline") {
+		t.Error("events page should contain 'Security events from the pipeline'")
+	}
+}
+
+func TestServer_EventsInspectButton(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	srv.audit.Log(audit.Entry{
+		ID:        "inspect-test-1",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "agent-a",
+		ToAgent:   "agent-b",
+		Status:    "delivered",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	req := httptest.NewRequest("GET", "/dashboard/events", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("events returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Inspect</a>") {
+		t.Error("events page should have Inspect button per row")
+	}
+}
+
+func TestServer_EventsRedactionHint(t *testing.T) {
+	rr := authedGet(t, "/dashboard/events")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("events returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "redaction-hint") {
+		t.Error("events page should have redaction hint element")
+	}
+	if !strings.Contains(body, "Rule match snippets are replaced with [REDACTED]") {
+		t.Error("events page should explain analyst redaction level")
+	}
+}
+
+func TestServer_ExportCSVExternalRedaction(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	srv.audit.Log(audit.Entry{
+		ID:             "redact-ext-1",
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		FromAgent:      "agent-secret",
+		ToAgent:        "agent-target",
+		Status:         "blocked",
+		RulesTriggered: `[{"rule_id":"IAP-001","name":"Relay","severity":"high","match":"secret payload"}]`,
+		PolicyDecision: "content_blocked",
+		LatencyMs:      50,
+		Intent:         "sensitive content here",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/export/csv?redaction=external", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("export CSV external status = %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "secret payload") {
+		t.Error("external redaction must not include rule match snippets")
+	}
+	if strings.Contains(body, "sensitive content here") {
+		t.Error("external redaction must not include intent/content")
+	}
+	if strings.Contains(body, "latency") || strings.Contains(body, "rules_triggered") {
+		t.Error("external redaction CSV header must not include latency or rules_triggered columns")
+	}
+	if !strings.Contains(body, "agent-secret") {
+		t.Error("external redaction should still include agent names")
+	}
+}
+
+func TestServer_ExportCSVAnalystRedaction(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	srv.audit.Log(audit.Entry{
+		ID:             "redact-analyst-1",
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		FromAgent:      "agent-x",
+		ToAgent:        "agent-y",
+		Status:         "blocked",
+		RulesTriggered: `[{"rule_id":"IAP-002","name":"Exfil","severity":"high","match":"credentials leaked"}]`,
+		PolicyDecision: "content_blocked",
+		LatencyMs:      30,
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/export/csv?redaction=analyst", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("export CSV analyst status = %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "credentials leaked") {
+		t.Error("analyst redaction must redact match content from rules")
+	}
+	if !strings.Contains(body, "[REDACTED]") {
+		t.Error("analyst redaction should contain [REDACTED] placeholder")
+	}
+	if !strings.Contains(body, "IAP-002") {
+		t.Error("analyst redaction should preserve rule IDs")
+	}
+}
+
+func TestServer_ExportJSONExternalRedaction(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	srv.audit.Log(audit.Entry{
+		ID:             "redact-json-1",
+		Timestamp:      time.Now().UTC().Format(time.RFC3339),
+		FromAgent:      "agent-j",
+		ToAgent:        "agent-k",
+		Status:         "blocked",
+		RulesTriggered: `[{"rule_id":"IAP-003","match":"secret data"}]`,
+		PolicyDecision: "content_blocked",
+		LatencyMs:      25,
+		Intent:         "private content",
+	})
+	time.Sleep(100 * time.Millisecond)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/export/json?redaction=external", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("export JSON external status = %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "secret data") {
+		t.Error("external JSON must not include rule match content")
+	}
+	if strings.Contains(body, "private content") {
+		t.Error("external JSON must not include intent content")
+	}
+	if strings.Contains(body, "latency_ms") {
+		t.Error("external JSON must not include latency_ms field")
+	}
+	if !strings.Contains(body, "content_blocked") {
+		t.Error("external JSON should still include policy_decision")
+	}
+}

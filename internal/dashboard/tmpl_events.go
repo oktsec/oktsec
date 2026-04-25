@@ -486,7 +486,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
 ` + layoutFoot))
 
 var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">All intercepted messages. Click any row for full details. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<p class="page-desc">Security events from the pipeline. Click a row to inspect, double-click for full detail. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 
 <div class="filter-bar">
   <select id="filter-agent">
@@ -506,6 +506,7 @@ var eventsTmpl = template.Must(template.New("events").Funcs(tmplFuncs).Parse(lay
   <a id="export-csv" class="btn btn-sm" download>CSV</a>
   <a id="export-json" class="btn btn-sm" download>JSON</a>
 </div>
+<div id="redaction-hint" style="display:none;font-size:var(--text-xs);color:var(--text3);padding:4px 0 0 0;text-align:right"></div>
 <script>
 function buildExportURL(format) {
   var agent = document.getElementById('filter-agent').value;
@@ -524,6 +525,13 @@ function updateExportLinks() {
   var json = document.getElementById('export-json');
   if (csv) csv.href = buildExportURL('csv');
   if (json) json.href = buildExportURL('json');
+  var hint = document.getElementById('redaction-hint');
+  if (hint) {
+    var r = document.getElementById('export-redaction').value;
+    var msgs = {analyst:'Exports include all metadata. Rule match snippets are replaced with [REDACTED].',external:'Exports include only: timestamp, agents, status, and policy decision. No content, rules, or latency.'};
+    if (msgs[r]) { hint.textContent = msgs[r]; hint.style.display = ''; }
+    else { hint.style.display = 'none'; }
+  }
 }
 function applyEventFilters() {
   var agent = document.getElementById('filter-agent').value;
@@ -564,7 +572,7 @@ updateExportLinks();
   <div id="search-results">
   {{if .Entries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Session</th><th style="text-align:right">Latency</th><th style="text-align:right">Rules</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th>Session</th><th style="text-align:right">Latency</th><th style="text-align:right">Rules</th><th></th></tr></thead>
     <tbody id="events-body">
     {{range .Entries}}
     <tr class="ev-row clickable{{if hasRules .RulesTriggered}} has-rules{{end}}" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
@@ -575,6 +583,7 @@ updateExportLinks();
       <td style="font-size:var(--text-xs)">{{if .SessionID}}<a href="/dashboard/sessions/{{.SessionID}}" style="color:var(--accent);text-decoration:none;font-family:var(--mono)" title="{{.SessionID}}">{{truncate .SessionID 12}}</a>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:{{if ge .LatencyMs 500}}var(--danger){{else if ge .LatencyMs 100}}var(--warn){{else}}var(--text3){{end}}">{{.LatencyMs}}ms</td>
       <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)">{{if hasRules .RulesTriggered}}<span style="color:var(--warn);font-weight:600">&#x26A0;</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+      <td><a href="/dashboard/events/{{.ID}}" class="btn btn-sm btn-outline" style="font-size:0.65rem;padding:2px 8px;white-space:nowrap;border-color:var(--border);color:var(--text3)" title="Open full event detail" onclick="event.stopPropagation()">Inspect</a></td>
     </tr>
     {{end}}
     </tbody>
@@ -688,7 +697,7 @@ updateExportLinks();
 <div class="tab-content {{if eq .Tab "blocked"}}active{{end}}" data-tab-content="events" data-tab-name="blocked">
   {{if .BlockedEntries}}
   <table>
-    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th><th style="text-align:right">Rules</th></tr></thead>
+    <thead><tr><th>Time</th><th>From</th><th>To</th><th>Status</th><th style="text-align:right">Latency</th><th style="text-align:right">Rules</th><th></th></tr></thead>
     <tbody>
     {{range .BlockedEntries}}
     <tr class="blk-row clickable has-rules" hx-get="/dashboard/api/event/{{.ID}}" hx-target="#panel-content" hx-swap="innerHTML" ondblclick="event.preventDefault();event.stopPropagation();window.location='/dashboard/events/{{.ID}}'">
@@ -698,6 +707,7 @@ updateExportLinks();
       <td><span class="badge-{{.Status}}">{{.Status}}</span> <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">{{humanDecision .PolicyDecision}}</span></td>
       <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:{{if ge .LatencyMs 500}}var(--danger){{else if ge .LatencyMs 100}}var(--warn){{else}}var(--text3){{end}}">{{.LatencyMs}}ms</td>
       <td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)"><span style="color:var(--warn);font-weight:600">&#x26A0;</span></td>
+      <td><a href="/dashboard/events/{{.ID}}" class="btn btn-sm btn-outline" style="font-size:0.65rem;padding:2px 8px;white-space:nowrap;border-color:var(--border);color:var(--text3)" title="Open full event detail" onclick="event.stopPropagation()">Inspect</a></td>
     </tr>
     {{end}}
     </tbody>
@@ -734,7 +744,7 @@ updateExportLinks();
   var src = new EventSource('/dashboard/api/events');
   var dot = document.getElementById('sse-dot');
   var label = document.getElementById('sse-label');
-  src.onopen = function() { dot.classList.add('connected'); label.textContent = 'live'; };
+  src.onopen = function() { dot.classList.add('connected'); label.textContent = 'live updates connected'; };
   src.onerror = function() { dot.classList.remove('connected'); label.textContent = 'reconnecting'; };
   src.onmessage = function(e) {
     try {
@@ -764,7 +774,8 @@ updateExportLinks();
       var sesCell = ev.session_id ? '<a href="/dashboard/sessions/'+_esc(ev.session_id)+'" style="color:var(--accent);text-decoration:none;font-family:var(--mono)" title="'+_esc(ev.session_id)+'">'+_esc(ev.session_id.substring(0,12))+'...</a>' : '<span style="color:var(--text3)">-</span>';
       var latColor = ev.latency_ms>=500?'var(--danger)':ev.latency_ms>=100?'var(--warn)':'var(--text3)';
       var rulesCell = hasRules ? '<span style="color:var(--warn);font-weight:600">&#x26A0;</span>' : '<span style="color:var(--text3)">-</span>';
-      row.innerHTML = '<td data-ts="' + _esc(ev.timestamp) + '">' + _esc(ev.timestamp) + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + _esc(ev.status) + '">' + _esc(ev.status) + '</span>'+decExtra+'</td><td style="font-size:var(--text-xs)">'+sesCell+'</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:'+latColor+'">'+(ev.latency_ms||0)+'ms</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)">'+rulesCell+'</td>';
+      var inspectBtn='<a href="/dashboard/events/'+_esc(ev.id)+'" class="btn btn-sm btn-outline" style="font-size:0.65rem;padding:2px 8px;white-space:nowrap;border-color:var(--border);color:var(--text3)" title="Open full event detail" onclick="event.stopPropagation()">Inspect</a>';
+      row.innerHTML = '<td data-ts="' + _esc(ev.timestamp) + '">' + _esc(ev.timestamp) + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + _esc(ev.status) + '">' + _esc(ev.status) + '</span>'+decExtra+'</td><td style="font-size:var(--text-xs)">'+sesCell+'</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:'+latColor+'">'+(ev.latency_ms||0)+'ms</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)">'+rulesCell+'</td><td>'+inspectBtn+'</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
