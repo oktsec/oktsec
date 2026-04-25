@@ -89,6 +89,15 @@ html{scroll-behavior:smooth}
 /* --- Focus ring --- */
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
+/* --- Skip to main content (keyboard a11y) --- */
+.skip-link{position:absolute;top:-40px;left:8px;padding:8px 16px;background:var(--accent);color:#fff;border-radius:var(--radius-md);font-weight:600;font-size:var(--text-sm);z-index:1000;text-decoration:none;transition:top var(--ease-default)}
+.skip-link:focus{top:8px;outline:2px solid var(--text);outline-offset:2px}
+
+/* --- Reduced motion: disable non-essential animations --- */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;scroll-behavior:auto!important}
+}
+
 /* --- Global input dark theme --- */
 input,select,textarea{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text);font-family:var(--sans);font-size:var(--text-sm);padding:var(--sp-2) var(--sp-3);outline:none;transition:border-color var(--ease-smooth)}
 input:focus,select:focus,textarea:focus{border-color:var(--accent)}
