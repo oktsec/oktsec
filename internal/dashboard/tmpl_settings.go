@@ -17,6 +17,9 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
 .st-expand.open{display:block}
 .st-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
 .st-row .form-group{flex:1;min-width:140px}
+.st-timing{font-size:0.62rem;color:var(--text3);font-weight:500;text-transform:uppercase;letter-spacing:0.5px;margin-top:3px}
+.st-timing.immediate{color:var(--success)}
+.st-timing.restart{color:var(--warn)}
 </style>
 <p class="page-desc">System status, access control, and threat response settings.</p>
 
@@ -34,6 +37,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Security Mode</div>
       <div class="st-item-desc">{{if .RequireSig}}All messages are verified before delivery. Suspicious content is blocked.{{else}}Signatures optional; content enforcement still active according to rules.{{end}}</div>
+      <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
       <span class="val" style="{{if .RequireSig}}color:var(--success){{else}}color:var(--warn){{end}}">{{if .RequireSig}}Protection Active{{else}}Monitor Only{{end}}</span>
@@ -44,6 +48,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">MCP Gateway</div>
       <div class="st-item-desc">{{if .GatewayEnabled}}Accepting connections on port {{.GatewayPort}}{{else}}Gateway is not running. Enable it in your configuration file.{{end}}</div>
+      <div class="st-timing restart">Requires restart</div>
     </div>
     <div class="st-item-value">
       <span class="val" style="{{if .GatewayEnabled}}color:var(--success){{else}}color:var(--text3){{end}}">{{if .GatewayEnabled}}active{{else}}inactive{{end}}</span>
@@ -59,6 +64,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Default Policy</div>
       <div class="st-item-desc">{{if eq .DefaultPolicy "deny"}}Agents can only reach explicitly approved targets.{{else}}All agents can communicate freely unless specifically denied.{{end}}</div>
+      <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
       <span class="val" style="{{if eq .DefaultPolicy "deny"}}color:var(--success){{else}}color:var(--warn){{end}}">{{if eq .DefaultPolicy "deny"}}Block unknown{{else}}Allow all{{end}}</span>
@@ -69,6 +75,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Internal Networks</div>
       <div class="st-item-desc">Domains and networks considered inside your organization. Agents with internal scope can only reach these.</div>
+      <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
       <span class="val">{{.TrustBoundariesCount}} defined</span>
@@ -95,6 +102,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Quarantine{{if .QPending}} <span style="color:var(--warn);font-size:0.72rem;font-weight:400">{{.QPending}} pending</span>{{end}}</div>
       <div class="st-item-desc">Hold suspicious messages for human review. Window: {{.QExpiryHours}}h, retain {{.QRetentionDays}}d</div>
+      <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
       <span class="toggle"><input type="checkbox" name="enabled" value="true" aria-label="Toggle quarantine" {{if .QEnabled}}checked{{end}} onchange="if(confirm('{{if .QEnabled}}Disable quarantine? Suspicious messages will no longer be held for review.{{else}}Enable quarantine for suspicious messages?{{end}}')){this.form.submit()}else{this.checked={{if .QEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
@@ -109,6 +117,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Behavior Monitoring</div>
       <div class="st-item-desc">Automatically pause agents that show suspicious behavior patterns</div>
+      <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
       <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" aria-label="Toggle behavior monitoring" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="if(confirm('{{if .AnomalyAutoSuspend}}Disable automatic agent suspension? Suspicious agents will no longer be paused.{{else}}Enable automatic suspension of agents with suspicious behavior?{{end}}')){this.form.submit()}else{this.checked={{if .AnomalyAutoSuspend}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
@@ -124,6 +133,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Rate Limiting</div>
       <div class="st-item-desc">Limit how many messages each agent can send per minute</div>
+      <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
       <span class="val">{{.RateLimitPerAgent}} / min</span>
@@ -138,6 +148,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Purpose Verification</div>
       <div class="st-item-desc">Require agents to declare what they're doing. Flag mismatches between stated intent and actual content.</div>
+      <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
       <span class="toggle"><input type="checkbox" name="require_intent" value="true" aria-label="Toggle purpose verification" {{if .RequireIntent}}checked{{end}} onchange="if(confirm('{{if .RequireIntent}}Disable intent verification? Agents will no longer need to declare purpose.{{else}}Require agents to declare intent before sending messages?{{end}}')){this.form.submit()}else{this.checked={{if .RequireIntent}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
@@ -150,6 +161,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Testcase Export</div>
       <div class="st-item-desc">Save blocked and quarantined content as test cases for detection rule validation. Files are stored locally in ~/.oktsec/testcases/</div>
+      <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
       <span class="toggle"><input type="checkbox" name="export_blocked" value="true" aria-label="Toggle testcase export" {{if .ExportBlocked}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
@@ -162,6 +174,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Outbound Traffic</div>
       <div class="st-item-desc">Inspect and control what agents send outside your network</div>
+      <div class="st-timing restart">Requires restart</div>
     </div>
     <div class="st-item-value">
       <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" aria-label="Toggle outbound traffic inspection" {{if .FPEnabled}}checked{{end}} onchange="if(confirm('{{if .FPEnabled}}Disable outbound traffic inspection? Agent egress will no longer be monitored.{{else}}Enable outbound traffic inspection for agent requests?{{end}}')){toggleEgressDetails();this.form.submit()}else{this.checked={{if .FPEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
@@ -207,14 +220,16 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
     <div class="st-item-info">
       <div class="st-item-name">Server</div>
       <div class="st-item-desc">Port {{.ServerPort}} &middot; {{.ServerBind}}</div>
+      <div class="st-timing restart">Requires restart</div>
     </div>
-    <div class="st-item-value"><span style="font-size:0.68rem;color:var(--text3)">restart to change</span></div>
+    <div class="st-item-value"></div>
   </div>
 
   <div class="st-item" style="flex-wrap:wrap">
     <div class="st-item-info">
       <div class="st-item-name">Database</div>
-      <div class="st-item-desc" id="db-desc">{{if eq .DBBackend "PostgreSQL"}}Production database — requires a PostgreSQL server{{else}}Local file database — no server needed{{end}}</div>
+      <div class="st-item-desc" id="db-desc">{{if eq .DBBackend "PostgreSQL"}}Production database, requires a PostgreSQL server{{else}}Local file database, no server needed{{end}}</div>
+      <div class="st-timing restart">Requires restart</div>
     </div>
     <div class="st-item-value">
       <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">

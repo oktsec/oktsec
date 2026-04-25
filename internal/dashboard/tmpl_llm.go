@@ -584,8 +584,8 @@ var llmDetailTmpl = template.Must(template.New("llm-detail").Funcs(tmplFuncs).Pa
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
     <span style="display:inline-block;min-width:48px;padding:6px 12px;border-radius:6px;font-family:var(--mono);font-weight:800;font-size:1.4rem;text-align:center;{{if ge .RiskScore 80.0}}background:rgba(239,68,68,0.15);color:var(--danger){{else if ge .RiskScore 50.0}}background:rgba(210,153,34,0.15);color:var(--warn){{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.1);color:var(--success){{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span>
     <div>
-      <div style="font-weight:600;margin-bottom:2px">Risk Score</div>
-      <div style="color:var(--text3);font-size:0.78rem">Confidence: {{printf "%.0f" .Confidence}}%{{if lt .Confidence 30.0}} <span title="Risk score comes from deterministic rule matches. Low confidence means the LLM had limited session context." style="cursor:help;color:var(--warn)">&#9432;</span>{{end}}</div>
+      <div style="font-weight:600;margin-bottom:2px">Risk Score <span style="font-weight:400;color:var(--text3);font-size:0.72rem">(rule evidence: {{if ge .RiskScore 51.0}}strong{{else if ge .RiskScore 31.0}}moderate{{else if gt .RiskScore 0.0}}weak{{else}}none{{end}})</span></div>
+      <div style="color:var(--text3);font-size:0.78rem">Model confidence: {{printf "%.0f" .Confidence}}%{{if lt .Confidence 30.0}} <span title="Risk score comes from deterministic rule matches. Low model confidence means the LLM had limited session context." style="cursor:help;color:var(--warn)">&#9432;</span>{{end}}</div>
     </div>
     <span style="margin-left:auto;padding:4px 12px;border-radius:4px;font-size:0.78rem;font-weight:500;{{if eq .RecommendedAction "block"}}background:rgba(239,68,68,0.15);color:var(--danger){{else if eq .RecommendedAction "investigate"}}background:rgba(210,153,34,0.15);color:var(--warn){{else if eq .RecommendedAction "quarantine"}}background:var(--danger-muted);color:var(--danger){{else}}background:var(--surface2);color:var(--text3){{end}}">{{.RecommendedAction}}</span>
   </div>
@@ -738,7 +738,9 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
       {{if .FromAgent}}<a href="/dashboard/agents/{{.FromAgent}}" style="color:var(--accent-light);text-decoration:none;font-weight:500">{{.FromAgent}}</a> <span style="opacity:0.5">&rarr;</span> <a href="/dashboard/agents/{{.ToAgent}}" style="color:var(--text2);text-decoration:none">{{.ToAgent}}</a><span class="sep">&middot;</span>{{end}}
       <span>{{relativeTime .Timestamp}}</span>
       <span class="sep">&middot;</span>
-      <span>{{printf "%.0f" .Confidence}}% confidence</span>
+      <span>Rule evidence: {{if ge .RiskScore 51.0}}strong{{else if ge .RiskScore 31.0}}moderate{{else if gt .RiskScore 0.0}}weak{{else}}none{{end}}</span>
+      <span class="sep">&middot;</span>
+      <span>Model confidence: {{printf "%.0f" .Confidence}}%</span>
     </div>
   </div>
   <div class="cs-banner-action">
@@ -752,7 +754,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
     {{if eq .ReviewedStatus "false_positive"}}<span class="cs-reviewed cs-reviewed-ok">&#10003; Dismissed as false positive</span>
     {{else}}<span class="cs-reviewed cs-reviewed-bad">&#10003; Confirmed as real threat</span>{{end}}
   {{else}}
-    <button class="cs-abtn cs-abtn-danger" hx-post="/dashboard/api/llm/{{.ID}}/confirm" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Confirm this as a real threat?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Confirm threat</button>
+    <button class="cs-abtn cs-abtn-danger" hx-post="/dashboard/api/llm/{{.ID}}/confirm" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Confirm this as a real threat?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Confirm as real threat</button>
     <button class="cs-abtn cs-abtn-ghost" hx-post="/dashboard/api/llm/{{.ID}}/dismiss" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Dismiss as false positive?">False positive</button>
     {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="cs-abtn cs-abtn-ghost" style="color:#f85149;border-color:rgba(239,68,68,0.2)" onclick="return confirm('Suspend agent {{.FromAgent}}?')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend agent</button></form>{{end}}
     {{if $.AgentSuspended}}<span class="cs-abtn" style="color:#f85149;cursor:default;border-color:rgba(239,68,68,0.2)">Agent suspended</span>{{end}}
@@ -850,15 +852,17 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 
     <!-- Assessment card -->
     <div class="cs-card">
-      <div class="cs-card-hdr">Assessment</div>
+      <div class="cs-card-hdr">Enforcement</div>
       <div class="cs-card-body">
         <div class="cs-row"><span class="k">Risk score</span><span class="v" style="font-weight:700;font-size:0.82rem;{{if ge .RiskScore 76.0}}color:#f85149{{else if ge .RiskScore 51.0}}color:var(--danger){{else if ge .RiskScore 31.0}}color:#d29922{{else}}color:#3fb950{{end}}">{{printf "%.0f" .RiskScore}}</span></div>
+        <div class="cs-row"><span class="k">Rule evidence</span><span class="v" style="font-weight:600">{{if ge .RiskScore 51.0}}strong{{else if ge .RiskScore 31.0}}moderate{{else if gt .RiskScore 0.0}}weak{{else}}none{{end}}</span></div>
+        <div style="font-size:0.68rem;color:var(--text3);margin:4px 0 8px;border-bottom:1px solid var(--border);padding-bottom:8px">Enforcement is based on deterministic rule matches and policy.</div>
         <div class="cs-row">
-          <span class="k">Confidence</span>
+          <span class="k">Model confidence</span>
           <span class="v">{{printf "%.0f" .Confidence}}%</span>
         </div>
         <div class="cs-conf-bar"><div class="cs-conf-fill" style="width:{{printf "%.0f" .Confidence}}%;background:{{if ge .Confidence 80.0}}#3fb950{{else if ge .Confidence 50.0}}#d29922{{else}}#f85149{{end}}"></div></div>
-        {{if lt .Confidence 30.0}}<div style="font-size:0.68rem;color:var(--text3);margin-top:4px">Risk score is from rule matches. Low confidence means the LLM had limited context.</div>{{end}}
+        {{if lt .Confidence 30.0}}<div style="font-size:0.68rem;color:var(--text3);margin-top:4px">Low model confidence means the LLM had limited session context. This does not reduce the strength of rule evidence.</div>{{end}}
         <div class="cs-row" style="margin-top:6px"><span class="k">Latency</span><span class="v">{{latencySec .LatencyMs}}s</span></div>
         <div class="cs-row"><span class="k">Model</span><span class="v" style="font-size:0.68rem">{{.Model}}</span></div>
         <div class="cs-row"><span class="k">Tokens</span><span class="v">{{.TokensUsed}}</span></div>
