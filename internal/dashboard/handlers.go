@@ -4217,12 +4217,26 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	var riskyRoutes []graph.Edge
+	if g != nil {
+		for _, e := range g.Edges {
+			if e.Blocked > 0 || e.Quarantined > 0 || e.HealthScore < 70 {
+				riskyRoutes = append(riskyRoutes, e)
+			}
+		}
+		sort.Slice(riskyRoutes, func(i, j int) bool { return riskyRoutes[i].HealthScore < riskyRoutes[j].HealthScore })
+		if len(riskyRoutes) > 5 {
+			riskyRoutes = riskyRoutes[:5]
+		}
+	}
+
 	data := map[string]any{
-		"Active":     "graph",
-		"Graph":      g,
-		"Range":      rangeStr,
-		"Ranges":     []string{"1h", "6h", "24h", "7d", "30d"},
-		"RequireSig": s.cfg.Identity.RequireSignature,
+		"Active":      "graph",
+		"Graph":       g,
+		"Range":       rangeStr,
+		"Ranges":      []string{"1h", "6h", "24h", "7d", "30d"},
+		"RequireSig":  s.cfg.Identity.RequireSignature,
+		"RiskyRoutes": riskyRoutes,
 	}
 	s.renderTemplate(w, graphTmpl, data)
 }

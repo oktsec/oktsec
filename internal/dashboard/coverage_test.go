@@ -1395,3 +1395,92 @@ func TestServer_LLMSuspendConfirmText(t *testing.T) {
 		t.Error("suspend agent confirm should mention it changes agent configuration")
 	}
 }
+
+// ── PR 7: Graph Readability And Risk Navigation ──
+
+func TestServer_GraphFilterChips(t *testing.T) {
+	rr := authedGet(t, "/dashboard/graph")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("graph page returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, chip := range []string{"gf-all", "gf-risky", "gf-blocked", "gf-unmonitored"} {
+		if !strings.Contains(body, chip) {
+			t.Errorf("graph page missing filter chip button id=%s", chip)
+		}
+	}
+	if !strings.Contains(body, "gfApply(") {
+		t.Error("graph page missing gfApply function")
+	}
+}
+
+func TestServer_GraphFilterScript(t *testing.T) {
+	rr := authedGet(t, "/dashboard/graph")
+	body := rr.Body.String()
+	if !strings.Contains(body, "_applyGraphFilter") {
+		t.Error("graph page missing _applyGraphFilter function")
+	}
+	if !strings.Contains(body, "ch-row") {
+		t.Error("graph page missing ch-row class for filterable rows")
+	}
+}
+
+func TestServer_GraphLoadingState(t *testing.T) {
+	rr := authedGet(t, "/dashboard/graph")
+	body := rr.Body.String()
+	if !strings.Contains(body, "Loading graph") {
+		t.Error("graph container should show 'Loading graph' initially")
+	}
+	if !strings.Contains(body, "No traffic in selected range") {
+		t.Error("graph JS empty state should say 'No traffic in selected range'")
+	}
+	if strings.Contains(body, "No graph data available") {
+		t.Error("graph JS should not say 'No graph data available' anymore")
+	}
+}
+
+func TestServer_GraphRiskyRoutesSidebar(t *testing.T) {
+	rr := authedGet(t, "/dashboard/graph")
+	body := rr.Body.String()
+	if !strings.Contains(body, "Top Risky Routes") && !strings.Contains(body, "RiskyRoutes") {
+		t.Log("no risky routes rendered (expected when no traffic data)")
+	}
+	if !strings.Contains(body, "toggleGraphSidebar") {
+		t.Error("graph page missing sidebar toggle function")
+	}
+}
+
+func TestServer_GraphConnectionHealthDataAttrs(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents = map[string]config.Agent{
+		"agent-a": {CanMessage: []string{"agent-b"}},
+		"agent-b": {},
+	}
+	srv.audit.Log(audit.Entry{
+		ID: "gh-1", Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "agent-a", ToAgent: "agent-b", Status: "delivered",
+	})
+	srv.audit.Log(audit.Entry{
+		ID: "gh-2", Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "agent-a", ToAgent: "agent-b", Status: "blocked",
+	})
+	srv.audit.Flush()
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/graph", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("graph page returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "data-health=") {
+		t.Error("Connection Health rows should have data-health attribute")
+	}
+	if !strings.Contains(body, "data-blocked=") {
+		t.Error("Connection Health rows should have data-blocked attribute")
+	}
+}

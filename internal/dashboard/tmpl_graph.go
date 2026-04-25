@@ -22,10 +22,17 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 </div>
 {{end}}
 
+<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+  <button class="btn btn-sm active" id="gf-all" onclick="gfApply('all')" style="font-size:0.72rem">All routes</button>
+  <button class="btn btn-sm" id="gf-risky" onclick="gfApply('risky')" style="font-size:0.72rem;background:transparent;border:1px solid var(--border);color:var(--text3)">Risky routes</button>
+  <button class="btn btn-sm" id="gf-blocked" onclick="gfApply('blocked')" style="font-size:0.72rem;background:transparent;border:1px solid var(--border);color:var(--text3)">Blocked routes</button>
+  <button class="btn btn-sm" id="gf-unmonitored" onclick="gfApply('unmonitored')" style="font-size:0.72rem;background:transparent;border:1px solid var(--border);color:var(--text3)">Unmonitored</button>
+</div>
+
 <div class="card" style="padding:0;overflow:hidden">
-  <div style="display:flex;min-height:560px;height:calc(100vh - 300px)">
+  <div style="display:flex;min-height:560px;height:calc(100vh - 340px)">
     <div style="flex:1;position:relative;overflow:hidden">
-      <div id="graph-container" style="width:100%;height:100%;background:var(--bg);position:relative;overflow:hidden"></div>
+      <div id="graph-container" style="width:100%;height:100%;background:var(--bg);position:relative;overflow:hidden"><p style="color:var(--text3);text-align:center;padding-top:200px">Loading graph&#8230;</p></div>
       <div style="position:absolute;bottom:12px;left:16px;display:flex;gap:16px;font-size:0.7rem;color:var(--text3);align-items:center">
         <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#5eead4" stroke-width="2"/></svg> Orchestration</span>
         <span><svg width="18" height="10"><line x1="0" y1="5" x2="18" y2="5" stroke="#bc8cff" stroke-width="1" stroke-dasharray="3 3" stroke-opacity="0.5"/></svg> Tool call</span>
@@ -52,6 +59,17 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
         </div>
         <div id="gw-events" style="font-size:0.75rem;font-family:var(--mono)"></div>
       </div>
+      {{if .RiskyRoutes}}
+      <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
+        <h3 style="font-size:0.85rem;font-weight:700;margin:0 0 10px 0;color:var(--warn)">Top Risky Routes</h3>
+        {{range .RiskyRoutes}}
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px">
+          <span style="font-size:0.72rem;font-family:var(--mono)">{{.From}} &rarr; {{.To}}</span>
+          <span style="font-size:0.72rem;font-weight:700;font-family:var(--mono);color:{{if lt .HealthScore 40.0}}var(--danger){{else}}var(--warn){{end}}">{{printf "%.0f" .HealthScore}}%</span>
+        </div>
+        {{end}}
+      </div>
+      {{end}}
     </div>
   </div>
 </div>
@@ -96,7 +114,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       <thead><tr><th>From</th><th>To</th><th data-tooltip="Ratio of delivered messages to total — lower scores indicate more blocked or quarantined traffic">Health</th></tr></thead>
       <tbody>
       {{range .Graph.Edges}}
-      <tr class="clickable" hx-get="/dashboard/api/graph/edge?from={{.From}}&amp;to={{.To}}&amp;range={{$.Range}}" hx-target="#panel-content" hx-swap="innerHTML">
+      <tr class="clickable ch-row" data-health="{{printf "%.0f" .HealthScore}}" data-blocked="{{.Blocked}}" data-quarantined="{{.Quarantined}}" hx-get="/dashboard/api/graph/edge?from={{.From}}&amp;to={{.To}}&amp;range={{$.Range}}" hx-target="#panel-content" hx-swap="innerHTML">
         <td>{{.From}}</td>
         <td>{{.To}}</td>
         <td>
@@ -116,7 +134,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 </div>
 
 {{if .Graph.ShadowEdges}}
-<div class="card">
+<div class="card" id="unmonitored-section">
   <h2 style="color:var(--warn)">Unmonitored Routes</h2>
   <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Traffic between agents not covered by any security rule.</p>
   <table>
@@ -151,6 +169,32 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 </div><!-- end graph-tables -->
 
 <script>
+var _graphFilter='all';
+function gfApply(f){
+  _graphFilter=f;
+  document.querySelectorAll('[id^="gf-"]').forEach(function(btn){
+    var id=btn.id.replace('gf-','');
+    if(id===f){btn.classList.add('active');btn.style.background='';btn.style.border='';btn.style.color='';}
+    else{btn.classList.remove('active');btn.style.background='transparent';btn.style.border='1px solid var(--border)';btn.style.color='var(--text3)';}
+  });
+  _applyGraphFilter();
+}
+function _applyGraphFilter(){
+  document.querySelectorAll('.ch-row').forEach(function(row){
+    var health=parseFloat(row.getAttribute('data-health')||'100');
+    var blocked=parseInt(row.getAttribute('data-blocked')||'0',10);
+    var quarantined=parseInt(row.getAttribute('data-quarantined')||'0',10);
+    var show=true;
+    if(_graphFilter==='risky') show=health<70||blocked>0||quarantined>0;
+    else if(_graphFilter==='blocked') show=blocked>0;
+    else if(_graphFilter==='unmonitored') show=false;
+    row.style.display=show?'':'none';
+  });
+  var unm=document.getElementById('unmonitored-section');
+  if(unm) unm.style.display=(_graphFilter==='blocked'||_graphFilter==='risky')?'none':'';
+}
+</script>
+<script>
 function toggleGraphSidebar() {
   var sb = document.getElementById('graph-sidebar');
   var btn = document.getElementById('graph-sidebar-expand');
@@ -179,7 +223,7 @@ function toggleGraphSidebar() {
 
   function renderGraph(el, data) {
     if (!data || !data.nodes || data.nodes.length === 0) {
-      el.innerHTML = '<p style="color:var(--text3);text-align:center;padding-top:200px">No graph data available</p>';
+      el.innerHTML = '<p style="color:var(--text3);text-align:center;padding-top:200px">No traffic in selected range</p>';
       return;
     }
 
@@ -670,7 +714,7 @@ function toggleGraphSidebar() {
     }).catch(function(){});
     fetch('/dashboard/api/graph/tables?range={{.Range}}&'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.text()}).then(function(h){
       var t=h.trim();
-      if(t!==_prevTb){_prevTb=t;var el=document.getElementById('graph-tables');if(el)el.innerHTML=t;}
+      if(t!==_prevTb){_prevTb=t;var el=document.getElementById('graph-tables');if(el){el.innerHTML=t;if(typeof _applyGraphFilter==='function')_applyGraphFilter();}}
     }).catch(function(){});
   }
   pollGraph();
