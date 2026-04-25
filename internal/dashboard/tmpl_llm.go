@@ -237,8 +237,9 @@ function llmSwitchTab(name){
     <tr>
       <th style="width:50px">Risk</th>
       <th style="white-space:nowrap">Flow</th>
-      <th>Threat</th>
-      <th style="width:100px">Action</th>
+      <th>Evidence</th>
+      <th style="width:100px">Confidence</th>
+      <th style="width:100px">Policy Action</th>
       <th style="width:90px">Status</th>
       <th style="width:80px">Time</th>
     </tr>
@@ -249,6 +250,7 @@ function llmSwitchTab(name){
       <td><a href="/dashboard/llm/case/{{.ID}}" style="text-decoration:none"><span class="tq-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:var(--danger-muted);color:var(--danger){{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.07);color:#d29922{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span></a></td>
       <td style="font-size:0.8rem;white-space:nowrap">{{.FromAgent}} <span style="color:var(--text3)">&rarr;</span> {{.ToAgent}}</td>
       <td style="font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{firstThreatSummary .ThreatsJSON .RiskScore}}</td>
+      <td style="font-size:0.72rem;font-family:var(--mono);text-align:center">{{printf "%.0f" .Confidence}}%{{if lt .Confidence 30.0}} <span title="LLM had limited session context" style="color:var(--warn);font-size:0.6rem;cursor:help">&#9888;</span>{{end}}</td>
       <td><span class="tq-action {{.RecommendedAction}}">{{.RecommendedAction}}</span></td>
       <td>{{if eq .ReviewedStatus "false_positive"}}<span class="tq-status dismissed">dismissed</span>{{else if eq .ReviewedStatus "confirmed"}}<span class="tq-status confirmed">confirmed</span>{{else if ge .RiskScore 30.0}}<span class="tq-status new">new</span>{{else}}<span style="color:var(--text3);font-size:0.72rem">&#8212;</span>{{end}}</td>
       <td style="font-size:0.72rem;color:var(--text3);font-family:var(--mono)">{{relativeTime .Timestamp}}</td>
@@ -756,7 +758,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
   {{else}}
     <button class="cs-abtn cs-abtn-danger" hx-post="/dashboard/api/llm/{{.ID}}/confirm" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Confirm this as a real threat?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> Confirm as real threat</button>
     <button class="cs-abtn cs-abtn-ghost" hx-post="/dashboard/api/llm/{{.ID}}/dismiss" hx-target="closest .cs-actions" hx-swap="innerHTML" hx-confirm="Dismiss as false positive?">False positive</button>
-    {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="cs-abtn cs-abtn-ghost" style="color:#f85149;border-color:rgba(239,68,68,0.2)" onclick="return confirm('Suspend agent {{.FromAgent}}?')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend agent</button></form>{{end}}
+    {{if and .FromAgent (not $.AgentSuspended)}}<form method="POST" action="/dashboard/agents/{{.FromAgent}}/suspend" style="display:contents"><button type="submit" class="cs-abtn cs-abtn-ghost" style="color:#f85149;border-color:rgba(239,68,68,0.2)" onclick="return confirm('Suspend agent {{.FromAgent}}? This changes the agent configuration and blocks all messages to and from this agent until manually unsuspended.')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg> Suspend agent</button></form>{{end}}
     {{if $.AgentSuspended}}<span class="cs-abtn" style="color:#f85149;cursor:default;border-color:rgba(239,68,68,0.2)">Agent suspended</span>{{end}}
   {{end}}
 </div>
@@ -786,6 +788,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
               </div>
             </div>
             {{with index $m "evidence"}}<div class="cs-thr-ev">{{.}}</div>{{end}}
+            {{if or (index $m "rule_id") (index $m "category")}}<div class="cs-thr-rule">{{with index $m "rule_id"}}<a href="/dashboard/rules/{{with index $m "category"}}{{.}}/{{end}}{{.}}" style="font-family:var(--mono);font-size:var(--text-xs);font-weight:600;color:var(--accent-light);text-decoration:none;padding:2px 8px;background:var(--accent-muted);border-radius:4px">{{.}}</a>{{end}}{{with index $m "category"}}<span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono);padding:2px 8px;background:var(--surface2);border-radius:4px">{{.}}</span>{{end}}</div>{{end}}
             {{with index $m "suggestion"}}{{$s := toMap .}}{{if $s}}
             <div class="cs-thr-rule">
               <span style="color:var(--text3);font-size:var(--text-xs)">Suggested rule:</span>
