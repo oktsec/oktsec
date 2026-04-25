@@ -1450,6 +1450,60 @@ func TestServer_GraphRiskyRoutesSidebar(t *testing.T) {
 	}
 }
 
+// ── PR 8: Posture remediation surface ──
+
+func TestServer_PostureFilterChips(t *testing.T) {
+	rr := authedGet(t, "/dashboard/audit/sandbox")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("audit sandbox returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `class="ps-filters"`) {
+		t.Error("audit page missing severity filter chips container")
+	}
+	if !strings.Contains(body, `data-filter="all"`) {
+		t.Error("audit page missing All filter chip")
+	}
+	if !strings.Contains(body, "psFilter(") {
+		t.Error("audit page missing psFilter JS function")
+	}
+}
+
+func TestServer_PostureFindingDataAttrs(t *testing.T) {
+	rr := authedGet(t, "/dashboard/audit/sandbox")
+	body := rr.Body.String()
+	if !strings.Contains(body, "data-sev=") {
+		t.Error("findings should have data-sev for filter logic")
+	}
+	if !strings.Contains(body, "data-fixable=") {
+		t.Error("findings should have data-fixable for filter logic")
+	}
+	if !strings.Contains(body, "data-product=") {
+		t.Error("findings should have data-product for filter logic")
+	}
+}
+
+func TestServer_PostureRemediationCopyButton(t *testing.T) {
+	rr := authedGet(t, "/dashboard/audit/sandbox")
+	body := rr.Body.String()
+	if strings.Contains(body, `class="ps-f-rem"`) {
+		if !strings.Contains(body, "ps-rem-copy") {
+			t.Error("remediation blocks should include a copy button")
+		}
+		if !strings.Contains(body, "psCopyRem(") {
+			t.Error("audit page missing psCopyRem JS function")
+		}
+	}
+}
+
+func TestServer_PostureEmptyFilterMessage(t *testing.T) {
+	rr := authedGet(t, "/dashboard/audit/sandbox")
+	body := rr.Body.String()
+	if !strings.Contains(body, "ps-empty-filter") {
+		t.Error("audit page missing empty-filter placeholder")
+	}
+}
+
 func TestServer_GraphConnectionHealthDataAttrs(t *testing.T) {
 	srv := newTestServer(t)
 	srv.cfg.Agents = map[string]config.Agent{
