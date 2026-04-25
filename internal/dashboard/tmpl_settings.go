@@ -130,7 +130,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="enabled" value="true" aria-label="Toggle quarantine" {{if .QEnabled}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" name="enabled" value="true" aria-label="Toggle quarantine" {{if .QEnabled}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></label>
     </div>
   </div>
   <input type="hidden" name="expiry_hours" value="{{.QExpiryHours}}">
@@ -145,7 +145,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" aria-label="Toggle behavior monitoring" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" name="auto_suspend" value="true" aria-label="Toggle behavior monitoring" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></label>
     </div>
   </div>
   <input type="hidden" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}">
@@ -176,7 +176,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="require_intent" value="true" aria-label="Toggle purpose verification" {{if .RequireIntent}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" name="require_intent" value="true" aria-label="Toggle purpose verification" {{if .RequireIntent}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></label>
     </div>
   </div>
   </form>
@@ -189,7 +189,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing immediate">Takes effect immediately</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="export_blocked" value="true" aria-label="Toggle testcase export" {{if .ExportBlocked}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" name="export_blocked" value="true" aria-label="Toggle testcase export" {{if .ExportBlocked}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></label>
     </div>
   </div>
   </form>
@@ -202,7 +202,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-timing restart">Requires restart</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" aria-label="Toggle outbound traffic inspection" {{if .FPEnabled}}checked{{end}} onchange="toggleEgressDetails();this.form.submit()"><span class="toggle-slider"></span></span>
+      <label class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" aria-label="Toggle outbound traffic inspection" {{if .FPEnabled}}checked{{end}} onchange="toggleEgressDetails();this.form.submit()"><span class="toggle-slider"></span></label>
     </div>
   </div>
   <div id="fp-details" style="{{if not .FPEnabled}}display:none;{{end}}">

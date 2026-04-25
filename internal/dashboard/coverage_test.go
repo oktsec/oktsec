@@ -1066,6 +1066,17 @@ func TestServer_SettingsTogglesSubmitDirectly(t *testing.T) {
 	}
 }
 
+func TestServer_SettingsTogglesUseClickableLabels(t *testing.T) {
+	rr := authedGet(t, "/dashboard/settings")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("settings returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, `<span class="toggle"><input type="checkbox"`) {
+		t.Error("settings switches must wrap checkbox inputs in labels so slider clicks toggle them")
+	}
+}
+
 func TestServer_SettingsSecurityImpactText(t *testing.T) {
 	rr := authedGet(t, "/dashboard/settings")
 	if rr.Code != http.StatusOK {
