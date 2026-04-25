@@ -1,7 +1,11 @@
 <h1 align="center">Oktsec</h1>
 
 <p align="center">
-  <strong>The firewall that controls, audits and secures everything AI agents execute on your systems — in real time.</strong>
+  <strong>Runtime security for AI agents.</strong>
+</p>
+
+<p align="center">
+  Oktsec runs locally between AI agents and the tools they execute. It sees MCP calls, shell/file/browser actions, agent-to-agent messages and outbound requests, then applies policy before those actions become production changes.
 </p>
 
 <p align="center">
@@ -15,57 +19,152 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> &middot;
   <a href="#why-oktsec">Why Oktsec</a> &middot;
-  <a href="#how-it-compares">Compare</a> &middot;
+  <a href="#how-it-works">Architecture</a> &middot;
   <a href="#dashboard">Dashboard</a> &middot;
-  <a href="#mcp-gateway">Gateway</a> &middot;
-  <a href="#detection-rules">Rules</a> &middot;
-  <a href="#configuration">Config</a>
+  <a href="#how-it-compares">Compare</a> &middot;
+  <a href="https://oktsec.com/docs">Docs</a>
 </p>
 
 ---
 
 <p align="center">
-  <img src="documentation/assets/screenshots/dashboard-overview.png" alt="Oktsec dashboard — Overview" width="820">
+  <img src="documentation/assets/screenshots/dashboard-overview.png" alt="Oktsec dashboard - Overview" width="820">
 </p>
 
 ---
 
-## The problem
+- **See** every tool call in a real-time dashboard.
+- **Control** which agents can call which tools and services.
+- **Block or quarantine** risky actions before execution.
+- **Prove what happened** with tamper-evident, hash-chained audit logs.
+- **Keep it local**: one Go binary, no cloud dependency, Apache 2.0.
 
-AI agents don't just chat — they execute. They run shells, write to disks, transfer funds, hit internal APIs and spawn sub-agents. Every tool call is a production action with no default oversight: no rate limit on how fast Claude can `rm -rf`, no signature on who actually issued the command, no audit trail that survives a tampered log, no backpressure when prompt injection slips through.
+Latest: v0.15 adds tamper-evident audit chain v2, Redis-backed distributed rate limiting, key rotation with version pinning, and OpenTelemetry tracing. See [CHANGELOG](CHANGELOG.md).
 
-Oktsec sits between agents and their tools and runs every call through a deterministic 10-stage security pipeline: identity verification (Ed25519), ACL enforcement, 268 detection rules, intent validation, tamper-evident audit chain, and real-time anomaly scoring. One Go binary, zero LLM dependency on the hot path, Apache 2.0.
+## Quick start
 
-## What's new (v0.15)
+```bash
+# Install
+curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
 
-- **Tamper-evident audit chain v2** — SHA-256 chain now commits to policy decisions, triggered rules and signature status. Tampering any field of an audit row invalidates the chain. Read-only verification path so `oktsec audit verify-chain` can't silently auto-repair a forged log.
-- **Distributed rate limiting (Redis-backed)** — sliding-window Lua script, atomic across N proxy replicas. Memory-backed default for single-node.
-- **Key rotation with version pinning** — `oktsec keys rotate --agent <name>` bumps `Agent.KeyVersion`; post-rotation v1 signatures fail-closed.
-- **OpenTelemetry tracing** — W3C traceparent propagation end-to-end, pluggable exporter. Off by default; enable in `oktsec.yaml`.
-- **Gateway per-agent caps** — `MaxConcurrentCalls` and `MaxDelegationDepth` limit blast radius of a compromised sub-agent.
-- **Tool classification (UK AISI taxonomy)** — every MCP tool in the gateway gets an impact × generality risk tier, visible in the dashboard.
-- **CSRF defense-in-depth** — Origin/Referer guard on the dashboard, on top of SameSite=Strict cookies.
+# Or inspect the script first
+curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh -o install.sh
+less install.sh && sh install.sh
 
-## What it does
-
-Oktsec sits between AI agents and enforces a 10-stage security pipeline:
-
-1. **Rate limiting** — Per-agent sliding-window throttling prevents message flooding (ASI02, ASI10).
-2. **Identity** — Ed25519 signatures verify every message sender. No valid signature, no processing (ASI03).
-3. **Agent suspension** — Suspended agents are immediately rejected, no further processing (ASI10).
-4. **Policy** — YAML-based ACLs control which agent can message which. Default-deny mode rejects unknown senders (ASI03).
-5. **Content scanning** — 268 detection rules catch prompt injection, credential leaks, PII exposure, data exfiltration, MCP attacks, tool-call threats, supply chain risks, and more (ASI01, ASI02, ASI05).
-6. **Intent validation** — Declared intent vs actual content alignment check. Detects agents that say one thing and do another (ASI01).
-7. **BlockedContent enforcement** — Per-agent category-based content blocking escalates verdicts when findings match blocked categories (ASI02).
-8. **Multi-message escalation** — Agents with repeated blocks get their verdicts escalated automatically (ASI01, ASI10).
-9. **Audit** — Every message is logged to SQLite with content hash, sender verification status, policy decision, and triggered rules. Hash-chained with Ed25519 proxy signatures for tamper evidence.
-10. **Anomaly detection** — Background risk scoring with automatic alerts and optional auto-suspension (ASI10).
-
-```
-Agent A → sign → POST /v1/message → [Oktsec] → rate limit → verify → suspend → ACL → scan → intent → blocked content → escalation → deliver/block/quarantine → audit → anomaly
+# Or build from source (Go 1.25+)
+go install github.com/oktsec/oktsec/cmd/oktsec@latest
 ```
 
-### Supported platforms
+```bash
+# Start
+oktsec run
+```
+
+Open `http://127.0.0.1:8080/dashboard` with the access code printed in your terminal.
+
+**What `oktsec run` does:**
+
+- Discovers local AI/MCP clients (Claude Desktop, Cursor, VS Code, Claude Code, etc.)
+- Writes config under `~/.oktsec/`
+- Creates Ed25519 keypairs for each discovered server
+- Starts in **observe mode** by default (logs everything, blocks nothing)
+- Shows a local dashboard with an access code
+- Does not send message content, keys, or audit logs to Oktsec
+- Can be reverted with `oktsec unwrap <client>`
+
+To enable **enforcement mode** (block risky tool calls):
+
+```bash
+oktsec run --enforce
+```
+
+Check deployment health:
+
+```bash
+oktsec doctor
+```
+
+Local-first. No message content leaves your machine. Anonymous install telemetry (version + OS + arch, no user data) can be disabled with `OKTSEC_NO_TELEMETRY=1` or `telemetry.disabled: true` in config.
+
+## Why Oktsec
+
+AI agents don't just chat. They run shells, write to disks, transfer funds, hit internal APIs and spawn sub-agents. Every tool call is a production action with no default oversight: no rate limit on how fast Claude can `rm -rf`, no signature on who issued the command, no audit trail that survives a tampered log, no backpressure when prompt injection slips through.
+
+Traditional security tools sit at the network edge (WAFs) or the model boundary (prompt classifiers). Neither sees the agent-to-tool decision point where actual actions happen. Oktsec runs in that path.
+
+**Why now:**
+
+- AI agents are moving from chat to tool execution.
+- MCP standardizes tool access across clients.
+- Developers are exposing filesystem, shell, browser and internal APIs to agents.
+- Existing security sits at network/prompt boundaries, not agent-to-tool runtime.
+
+## Who uses Oktsec
+
+- **Developers** running Claude Desktop, Cursor, Claude Code or MCP servers locally.
+- **Security teams** that need visibility into AI agent tool calls before allowing them on work machines.
+- **Platform teams** exposing internal APIs, databases or filesystem tools to agents.
+- **Agent framework builders** that need signed agent-to-agent communication and audit logs.
+
+### Common use cases
+
+- Observe every tool call from Claude Code, Cursor or Claude Desktop.
+- Block shell, file and network actions that match risky patterns.
+- Audit which agent accessed which tool and why.
+- Add policy before exposing internal MCP servers to agents.
+- Keep AI agent security local and self-hosted.
+
+### Choose your path
+
+| Role | Start here |
+|------|-----------|
+| Local developer | `oktsec run` |
+| Security team | `oktsec audit` then `oktsec run --enforce` |
+| MCP platform | Configure `gateway.enabled: true` |
+| Agent-to-agent systems | Use `/v1/message` with Ed25519 signing |
+
+## Threat model
+
+Oktsec assumes agent inputs are untrusted. A malicious webpage, email, Slack message, tool description, MCP server or sub-agent can try to make an agent execute a risky action. Oktsec intercepts at the moment an agent tries to use a tool.
+
+| Mode | What happens | Use when |
+|------|-------------|----------|
+| Observe | Log and alert, do not block | First install, tuning |
+| Enforce | Block/quarantine risky calls | Production protection |
+
+### What Oktsec is not
+
+- Not an LLM firewall for prompts alone.
+- Not a replacement for OS sandboxing, EDR or cloud IAM.
+- Not a SaaS proxy; it runs locally by default.
+- Not an autonomous decision-maker; LLM analysis is async and human-reviewed.
+
+### Data handling
+
+Oktsec stores data locally in SQLite under `~/.oktsec/`. No message content, keys or audit logs are sent to Oktsec. Optional LLM analysis sends selected cases only to the provider you configure.
+
+## How it works
+
+Every message and tool call passes through a deterministic 10-stage security pipeline:
+
+1. **Rate limiting** - Per-agent sliding-window throttling prevents flooding.
+2. **Identity** - Ed25519 signatures verify every message sender.
+3. **Agent suspension** - Suspended agents are immediately rejected.
+4. **Policy** - YAML ACLs control which agent can reach which. Default-deny mode available.
+5. **Content scanning** - 268 detection rules catch prompt injection, credential leaks, PII, exfiltration, MCP attacks, tool-call threats, and supply chain risks.
+6. **Intent validation** - Declared intent vs actual content alignment check.
+7. **Blocked content** - Per-agent category-based content blocking.
+8. **Multi-message escalation** - Repeated blocks escalate verdicts automatically.
+9. **Audit** - Hash-chained log with Ed25519 proxy signatures for tamper evidence.
+10. **Anomaly detection** - Background risk scoring with alerts and optional auto-suspension.
+
+```
+Agent A -> sign -> POST /v1/message -> [Oktsec] -> rate limit -> verify -> suspend -> ACL -> scan -> intent -> blocked content -> escalation -> deliver/block/quarantine -> audit -> anomaly
+```
+
+No LLM on the hot path. Every verdict is deterministic.
+
+### Supported clients
 
 Auto-discovers MCP server configurations from **17 clients**:
 
@@ -87,211 +186,46 @@ Auto-discovers MCP server configurations from **17 clients**:
 | BoltAI | MCP (stdio) | Wrap + scan |
 | JetBrains | MCP (stdio) | Wrap + scan |
 | OpenCode | MCP (stdio) | Wrap + scan |
-| **OpenClaw** | **WebSocket** | **Scan only** ([details](#openclaw-support)) |
+| OpenClaw | WebSocket | Scan only ([details](#openclaw-support)) |
 
 Additionally detects and audits [NanoClaw](#nanoclaw-support) mount allowlist configurations.
 
-## Installation
-
-### Quick install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
-```
-
-Installs the latest binary to `~/.local/bin`. Customize with environment variables:
-
-```bash
-VERSION=v0.15.0 curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
-INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
-```
-
-### Pre-built binaries
-
-Download from the [releases page](https://github.com/oktsec/oktsec/releases).
-
-### From source
-
-Requires Go 1.25+.
-
-```bash
-go install github.com/oktsec/oktsec/cmd/oktsec@latest
-```
-
-### Docker
-
-```bash
-docker pull ghcr.io/oktsec/oktsec:latest
-docker run -p 8080:8080 ghcr.io/oktsec/oktsec
-```
-
-With config and key persistence:
-
-```bash
-docker run -p 8080:8080 \
-  -v ./oktsec.yaml:/home/oktsec/oktsec.yaml \
-  -v ./keys:/home/oktsec/keys \
-  -v oktsec-data:/home/oktsec/data \
-  ghcr.io/oktsec/oktsec serve --config /home/oktsec/oktsec.yaml
-```
-
-Docker Compose (recommended for multi-agent setups):
-
-```bash
-docker compose up -d
-```
-
-See [`docker-compose.yml`](docker-compose.yml) for the full example.
-
-For using Oktsec alongside **Docker Sandboxes** (isolated micro VMs for AI agents), see the dedicated guide: [Oktsec + Docker Sandboxes](guides/docker-sandboxes.md). Oktsec supports forward proxy mode (`forward_proxy.enabled: true`) for use with Docker Sandbox's `--network-proxy` flag — all outbound HTTP traffic is scanned transparently.
-
-## Quick start
-
-### One-command setup (recommended)
-
-```bash
-oktsec run
-```
-
-That's it. If no config exists, `oktsec run` auto-discovers all MCP clients on your machine, generates a config with sensible defaults, creates Ed25519 keypairs, wraps every MCP server through the security proxy, connects Claude Code via gateway + hooks, and starts the proxy + gateway + dashboard. If a config already exists, it just starts serving. All state lives in `~/.oktsec/` (config, keys, database, secrets).
-
-Oktsec starts in **observe mode** — it logs everything but blocks nothing. Review activity in the dashboard at `http://127.0.0.1:8080/dashboard` using the access code shown in your terminal. Restart your MCP clients (Claude Desktop, Cursor, etc.) to activate.
-
-To enable **enforcement mode** (block malicious requests with JSON-RPC errors):
-
-```bash
-oktsec run --enforce
-# or for a single server:
-oktsec proxy --enforce --agent filesystem -- npx @mcp/server-filesystem /data
-```
-
-Check deployment health at any time:
-
-```bash
-oktsec doctor
-```
-
-### Step-by-step setup (if you prefer control)
-
-```bash
-oktsec discover                    # See what's installed
-oktsec wrap claude-desktop         # Wrap one client at a time
-oktsec run                         # Auto-setup (if needed) + start proxy + dashboard
-```
-
-### Manual setup
-
-```bash
-# Generate agent keypairs
-oktsec keygen --agent research-agent --agent analysis-agent --out ./keys/
-
-# Create config
-cat > oktsec.yaml <<EOF
-version: "1"
-server:
-  port: 8080
-identity:
-  keys_dir: ./keys
-  require_signature: true
-agents:
-  research-agent:
-    can_message: [analysis-agent]
-  analysis-agent:
-    can_message: [research-agent]
-EOF
-
-# Start the proxy
-oktsec serve
-```
-
-### Send a message
-
-Messages must be signed with the sender's Ed25519 private key. The signature covers `from + to + content + timestamp`:
-
-```bash
-curl -X POST http://localhost:8080/v1/message \
-  -H "Content-Type: application/json" \
-  -d '{
-    "from": "research-agent",
-    "to": "analysis-agent",
-    "content": "Summarize the quarterly report",
-    "signature": "<base64-ed25519-signature>",
-    "timestamp": "2026-02-22T10:00:00Z"
-  }'
-```
-
-Response:
-```json
-{
-  "status": "delivered",
-  "message_id": "550e8400-e29b-41d4-a716-446655440000",
-  "policy_decision": "allow",
-  "rules_triggered": [],
-  "verified_sender": true
-}
-```
-
 ## Hooks
 
-Oktsec intercepts tool calls from any MCP client that supports HTTP hooks — not just MCP traffic. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 268-rule security pipeline before execution.
+Oktsec intercepts tool calls from any MCP client that supports HTTP hooks. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 268-rule security pipeline before execution.
 
 ```
 Claude Code (any tool call)
-    │
-    ├── PreToolUse → POST /hooks/event → 268 rules → allow/block
-    │
-    ├── Tool executes (if allowed)
-    │
-    └── PostToolUse → POST /hooks/event → audit log
+    |
+    +-- PreToolUse -> POST /hooks/event -> 268 rules -> allow/block
+    |
+    +-- Tool executes (if allowed)
+    |
+    +-- PostToolUse -> POST /hooks/event -> audit log
 ```
 
-`oktsec run` configures hooks automatically for Claude Code. For other clients, point HTTP hooks at:
+`oktsec run` configures hooks automatically for Claude Code. For other clients, point HTTP hooks at `POST http://127.0.0.1:9090/hooks/event`.
 
-```
-POST http://127.0.0.1:9090/hooks/event
-```
-
-Headers:
-- `X-Oktsec-Agent: <agent-name>` — Agent identity
-- `X-Oktsec-Client: <client-name>` — Client identifier
-
-The hooks handler runs the same scanner as the proxy pipeline and logs every tool call to the audit trail. In enforcement mode, blocked tool calls return an error before execution.
-
-### Why hooks matter
-
-MCP stdio wrapping intercepts only MCP tool calls. Hooks intercept **everything** — file reads, shell commands, web searches, code edits — any tool the client exposes. This gives full visibility into agent behavior regardless of protocol.
+MCP stdio wrapping intercepts only MCP tool calls. Hooks intercept **everything** - file reads, shell commands, web searches, code edits - any tool the client exposes.
 
 ## MCP gateway
 
-Oktsec can run as a **Streamable HTTP MCP gateway** that fronts one or more backend MCP servers, intercepting every `tools/call` with the full security pipeline. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk) (v1, Tier 1).
-
-```bash
-oktsec gateway --config ./oktsec.yaml
-```
-
-The gateway sits between your agents and their MCP servers:
+Streamable HTTP MCP gateway that fronts one or more backend MCP servers, intercepting every `tools/call` with the full security pipeline. Built on the [official MCP SDK](https://github.com/modelcontextprotocol/go-sdk) (v1, Tier 1).
 
 ```
-Agent  ──►  Oktsec Gateway  ──►  Backend MCP Server(s)
-             │
-             ├─ Rate limit
-             ├─ Agent ACL check
-             ├─ Content scan (268 rules)
-             ├─ Tool policies (spend limits, rate limits, approval)
-             ├─ Rule overrides
-             ├─ Verdict (allow/block/quarantine)
-             ├─ Audit log
-             └─ Webhook notification
+Agent  ->  Oktsec Gateway  ->  Backend MCP Server(s)
+             |
+             +- Rate limit, ACL, content scan
+             +- Tool policies (spend limits, rate limits, approval)
+             +- Verdict (allow/block/quarantine)
+             +- Audit log + webhook notification
 ```
-
-Configure backend MCP servers in `oktsec.yaml`:
 
 ```yaml
 gateway:
   enabled: true
   port: 9090
-  endpoint_path: /mcp
-  scan_responses: true    # also scan what backends return
+  scan_responses: true
 
 mcp_servers:
   filesystem:
@@ -303,18 +237,9 @@ mcp_servers:
     url: https://api.github.com/mcp
 ```
 
-Features:
-- **Tool discovery** — Automatically discovers and exposes tools from all backends
-- **Tool namespacing** — Conflicting tool names get prefixed (`backend_toolname`)
-- **Per-agent tool allowlists** — Restrict which tools each agent can access
-- **Per-tool policies** — Spending limits, rate limits, and approval thresholds per tool
-- **Response scanning** — Optionally scan backend responses before returning to the agent
-- **Auto-port** — Falls back to adjacent ports if the configured one is busy
-- **Embedded mode** — `oktsec run` starts proxy + gateway in a single process
+Features: tool discovery, tool namespacing, per-agent tool allowlists, per-tool policies (spending limits, rate limits, approval thresholds), response scanning, auto-port fallback, and embedded mode via `oktsec run`.
 
 ### Tool policies
-
-Define per-tool spending limits, rate limits, and approval thresholds:
 
 ```yaml
 agents:
@@ -325,768 +250,175 @@ agents:
         daily_limit: 50000
         require_approval_above: 5000
         rate_limit: 10     # max calls per minute
-      read_transactions:
-        rate_limit: 100
 ```
 
 ### Egress policies
 
-Control outbound network access per agent and per tool. Inspired by NVIDIA NemoClaw's policy model.
+Control outbound network access per agent and per tool:
 
 ```yaml
 agents:
   research-agent:
     egress:
-      integrations: ["github", "slack"]    # Auto-load domain allowlists
-      allowed_domains: ["arxiv.org"]       # Additional domains
-      blocked_domains: ["evil.com"]        # Always blocked
+      integrations: ["github", "slack"]    # 16 built-in presets
+      allowed_domains: ["arxiv.org"]
+      blocked_domains: ["evil.com"]
       tool_restrictions:
-        WebFetch: ["arxiv.org", "api.github.com"]  # WebFetch limited
-        Bash: []                                     # No egress for Bash
+        WebFetch: ["arxiv.org", "api.github.com"]
+        Bash: []                             # No egress for Bash
 ```
-
-16 built-in integration presets: Slack, GitHub, Telegram, Discord, Jira, Linear, Notion, Stripe, OpenAI, Anthropic, Supabase, Firebase, npm, PyPI, Docker, Hugging Face. Configure from the dashboard agent detail page or YAML.
-
-## Threat Intel
-
-Optional async LLM analysis layer on top of the deterministic pipeline. Connects to any provider: Claude, OpenAI, Gemini, Ollama, OpenRouter, Groq, Together, or any OpenAI-compatible endpoint.
-
-When the pipeline detects something suspicious — a content scan with findings, an intent mismatch, a pattern of escalation — the triage module samples the message and enqueues it for background analysis. The selected model generates a case that appears in the dashboard. The operator reviews it, dismisses it, or confirms it. If confirmed, the system proposes a new detection rule that can be approved or rejected from the rules panel.
-
-Key design constraint: **never blocks, never makes verdict decisions.** The deterministic pipeline handles all real-time decisions. The LLM layer only generates investigation cases for human review.
-
-```yaml
-llm:
-  enabled: true
-  provider: openai          # openai, claude, webhook
-  model: gpt-4o-mini        # any model the provider supports
-  api_key_env: OPENAI_API_KEY
-  triage:
-    sample_rate: 0.05        # sample 5% of flagged messages
-  budget:
-    daily_limit: 20          # USD
-    monthly_limit: 500
-```
-
-Features:
-- **Multi-provider** — OpenAI-compatible (Ollama, Groq, Together, Azure, LM Studio, vLLM), Anthropic Claude, custom webhook
-- **Fallback provider** — Secondary LLM on primary failure
-- **Budget controls** — Daily and monthly spending caps with hard limits
-- **Triage pre-filter** — Sample rate, sensitive keyword detection, new agent pair detection
-- **Rule generation** — LLM proposes rules with pattern, category, severity for human approval
-
-## OpenClaw support
-
-[OpenClaw](https://github.com/openclaw/openclaw) is the largest AI agent platform (300K+ users, 140K GitHub stars). It gives agents access to filesystem, shell, email, calendar, browser, and messaging channels (WhatsApp, Telegram, Slack, Discord). CrowdStrike documents it as "a powerful AI backdoor agent capable of taking orders from adversaries." Every DM is a prompt injection vector.
-
-**OpenClaw does not use MCP.** It has its own WebSocket gateway (`ws://127.0.0.1:18789`) and JSON5 config at `~/.openclaw/openclaw.json`. Oktsec detects, parses, and analyzes OpenClaw installations with a dedicated scanner.
-
-### Scan an OpenClaw installation
-
-```bash
-oktsec scan-openclaw
-oktsec scan-openclaw --path ~/.openclaw/openclaw.json
-```
-
-Output:
-```
-Scanning OpenClaw installation: /home/user/.openclaw/openclaw.json
-
-  Risk Level: CRITICAL
-
-  [!] tools.profile is "full" with no deny list — agents have unrestricted tool access
-  [!] gateway.bind is "0.0.0.0" — WebSocket gateway exposed to network
-  [!] dmPolicy is "open" — any external message can reach agents (prompt injection vector)
-  [!] messaging channels configured (slack, telegram) — each is a prompt injection attack surface
-  [!] no agents have sandbox enabled — all agents run with full host access
-
-────────────────────────────────────────────────────────────
-
-Summary:
-  Config risk:     CRITICAL
-  Risk factors:    5
-  Workspace files: 2 scanned
-  Content issues:  3 finding(s)
-```
-
-### Risk checks
-
-The risk assessor checks 7 patterns:
-
-| Check | Severity | Trigger |
-|-------|----------|---------|
-| Full tool profile | Critical | `tools.profile == "full"` without deny list |
-| Exec without sandbox | Critical | `exec`/`shell` in tools.allow, no sandboxed agents |
-| Path traversal in $include | Critical | `..` in `$include` paths |
-| Exposed gateway | High | `gateway.bind` is `0.0.0.0`, `lan`, or `::` |
-| Open DM policy | High | `dmPolicy == "open"` |
-| No sandbox | High | No agents have `sandbox: true` |
-| Messaging channels | Medium | Any channels configured (attack surface) |
-
-### OpenClaw detection rules
-
-7 dedicated rules in the `openclaw-config` category:
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `OCLAW-001` | Critical | Full tool profile without restrictions |
-| `OCLAW-002` | High | Gateway exposed to network |
-| `OCLAW-003` | High | Open DM policy |
-| `OCLAW-004` | Critical | Exec/shell tool without sandbox |
-| `OCLAW-005` | Critical | Path traversal in `$include` |
-| `OCLAW-006` | High | Gateway missing authentication |
-| `OCLAW-007` | High | Hardcoded credentials in config |
-
-### Why wrap doesn't work for OpenClaw
-
-MCP clients use stdio — oktsec can wrap the command and intercept JSON-RPC traffic. OpenClaw uses a WebSocket gateway, so the wrapping model doesn't apply. Running `oktsec wrap openclaw` returns a clear error pointing to `scan-openclaw` instead.
-
-## NanoClaw support
-
-[NanoClaw](https://github.com/nanoclaw/nanoclaw) is a lightweight alternative to OpenClaw focused on filesystem access for AI agents. It uses a mount allowlist (`~/.config/nanoclaw/mount-allowlist.json`) to control which directories agents can read and write.
-
-Oktsec auto-detects NanoClaw installations and audits them for security misconfigurations:
-
-```bash
-oktsec discover    # Detects NanoClaw automatically
-oktsec audit       # Includes NanoClaw checks
-```
-
-### NanoClaw checks
-
-6 checks in the deployment audit:
-
-| Check | Severity | Trigger |
-|-------|----------|---------|
-| NC-MNT-001 | Critical | Mount allowlist missing or unparseable |
-| NC-MNT-002 | High | `nonMainReadOnly` is false (write access to all mounts) |
-| NC-MNT-003 | Critical | Dangerous root paths (`/`, `~`, `$HOME`) in allowlist |
-| NC-MNT-004 | Medium | No blocked file patterns configured |
-| NC-SEC-001 | High | Allowlist file has loose permissions |
-| NC-MNT-005 | High | `allowReadWrite` on sensitive paths (`/etc`, `/var`, `~`) |
-
-## Onboarding flow
-
-### Discover
-
-Scans your machine for MCP server configurations, OpenClaw, and NanoClaw installations:
-
-```bash
-oktsec discover
-```
-
-Output:
-```
-Found 2 MCP configuration(s):
-
-  Cursor  /home/user/.cursor/mcp.json
-    ├── filesystem           npx -y @mcp/server-filesystem /data
-    ├── database             node ./db-server.js
-    └── github               npx -y @mcp/server-github
-
-  OpenClaw  /home/user/.openclaw/openclaw.json
-    ├── openclaw-gateway     openclaw gateway 0.0.0.0
-    ├── assistant            openclaw agent assistant
-    └── channel-slack        openclaw channel slack
-
-  OpenClaw risk: CRITICAL
-    [!] tools.profile is "full" with no deny list — agents have unrestricted tool access
-    [!] no agents have sandbox enabled — all agents run with full host access
-
-  Run 'oktsec scan-openclaw' for full analysis.
-
-  NanoClaw  ~/.config/nanoclaw/mount-allowlist.json
-    └── mount-allowlist   6 paths configured
-
-Total: 6 MCP servers across 3 clients
-
-Run 'oktsec run' to generate configuration and start observing.
-```
-
-Supported clients: Claude Desktop, Cursor, VS Code, Cline, Windsurf, Claude Code, Zed, Amp, Gemini CLI, Copilot CLI, Amazon Q, Roo Code, Kilo Code, BoltAI, JetBrains, OpenCode, OpenClaw.
-
-### Init
-
-`oktsec run` auto-generates config and Ed25519 keypairs for each discovered server on first launch. For manual control:
-
-```bash
-oktsec run                         # Auto-generates config at ~/.oktsec/config.yaml if missing
-oktsec run --config ./oktsec.yaml  # Use a specific config path
-```
-
-Each server is auto-classified by risk level based on its capabilities:
-- **Critical** — database, postgres, mysql, sqlite, mongo, redis
-- **High** — filesystem, git, github, browser, puppeteer, playwright, openclaw
-- **Medium** — slack, discord, email, messaging
-- **Unknown** — everything else (defaults to observe)
-
-### Wrap / Unwrap
-
-Modifies MCP client configs to route server traffic through `oktsec proxy`:
-
-```bash
-oktsec wrap cursor                # Observe mode (log only)
-oktsec wrap --enforce cursor      # Enforcement mode (block malicious requests)
-oktsec unwrap cursor              # Restore original client config
-```
-
-Before wrap:
-```json
-{ "command": "npx", "args": ["-y", "@mcp/server-filesystem", "/data"] }
-```
-
-After wrap:
-```json
-{ "command": "oktsec", "args": ["proxy", "--agent", "filesystem", "--", "npx", "-y", "@mcp/server-filesystem", "/data"] }
-```
-
-With `--enforce`:
-```json
-{ "command": "oktsec", "args": ["proxy", "--agent", "filesystem", "--enforce", "--", "npx", "-y", "@mcp/server-filesystem", "/data"] }
-```
-
-### Stdio proxy
-
-The `proxy` command wraps an MCP server process, intercepting its JSON-RPC 2.0 stdio traffic. Every message is scanned through the Aguara engine and logged to the audit trail:
-
-```bash
-oktsec proxy --agent filesystem -- npx @mcp/server-filesystem /data
-oktsec proxy --enforce --agent database -- node ./db-server.js
-```
-
-In **observe mode** (default), all messages are forwarded regardless of scan results. In **enforcement mode** (`--enforce`), blocked client→server requests are not forwarded — instead, a JSON-RPC 2.0 error response is injected back to the client:
-
-```json
-{"jsonrpc":"2.0","id":42,"error":{"code":-32600,"message":"blocked by oktsec: IAP-001"}}
-```
-
-Server→client responses are always forwarded (observe-only). This is what `oktsec wrap` configures automatically for each server.
-
-## Deployment audit
-
-The `audit` command checks your oktsec deployment and any detected agent platforms for security misconfigurations. It runs checks across Oktsec, OpenClaw, NanoClaw, and discovered MCP servers, and outputs a health score with remediation guidance:
-
-```bash
-oktsec audit
-oktsec audit --json
-oktsec audit --sarif    # SARIF v2.1.0 for CI integration
-```
-
-Output:
-```
-Deployment Security Audit
-═════════════════════════
-
-  Health Score: 72 / 100 (Grade: C)
-
-  Oktsec (16 checks)
-  ──────────────────
-  [CRITICAL] require_signature is false — messages accepted without verification
-             Fix: Set identity.require_signature: true in oktsec.yaml
-
-  [HIGH]     default_policy is "allow" — unknown agents can send messages
-             Fix: Set default_policy: deny in oktsec.yaml
-
-  OpenClaw (18 checks)
-  ────────────────────
-  [CRITICAL] tools.profile is "full" with no deny list
-             Fix: openclaw config set tools.profile restricted
-
-  Summary: 2 critical, 3 high, 1 medium, 35 passed
-```
-
-The `status` command provides a quick health summary:
-
-```bash
-oktsec status
-```
-
-## MCP server mode
-
-Oktsec can run as an MCP tool server, giving AI agents direct access to security operations:
-
-```bash
-oktsec mcp --config ./oktsec.yaml
-```
-
-Add to your MCP client config:
-```json
-{
-  "mcpServers": {
-    "oktsec": {
-      "command": "oktsec",
-      "args": ["mcp", "--config", "./oktsec.yaml"]
-    }
-  }
-}
-```
-
-Available tools (6):
-
-| Tool | Description |
-|---|---|
-| `scan_message` | Scan content for prompt injection, credential leaks, PII, and 268 threat patterns |
-| `list_agents` | List all agents with their ACLs and content restrictions |
-| `audit_query` | Query the audit log with filters (status, agent, limit) |
-| `get_policy` | Get the security policy for a specific agent |
-| `verify_agent` | Verify an Ed25519 signature from an agent using their registered public key |
-| `review_quarantine` | List, inspect, approve, or reject quarantined messages |
 
 ## Dashboard
 
 Real-time web UI for monitoring agent activity. Protected by a GitHub-style local access code.
 
 <p align="center">
-  <img src="documentation/assets/screenshots/dashboard-events.png" alt="Events — live feed of agent messages and tool calls" width="820">
+  <img src="documentation/assets/screenshots/dashboard-events.png" alt="Events - live feed of agent messages and tool calls" width="820">
 </p>
 
-```bash
-oktsec run
-```
+**11 pages:** Overview (hero stats, pipeline health, live feed), Events (audit log with search and quarantine tab), Notifications (webhook CRUD, alert history), Agents (card grid with risk scores, agent detail with tool policies), Rules (268 rules across 19 categories, per-rule overrides, custom rules, LLM-suggested rules), Rule Detail (patterns, examples, test sandbox), Security Posture (deployment audit, health score, SARIF export), Graph (agent topology with threat scoring), AI Analysis (LLM threat cases, triage config, budget tracking), Gateway (backend CRUD, tool discovery, health checks), Settings (security mode, protection config, rate limiting), Sessions (session inventory, trace timeline, AI analysis).
 
-```
-  oktsec
-  ────────────────────────────────────────
-  API:        http://127.0.0.1:8080/v1/message
-  Dashboard:  http://127.0.0.1:8080/dashboard
-  Health:     http://127.0.0.1:8080/health
-  ────────────────────────────────────────
-  Access code:  48291057
-  ────────────────────────────────────────
-  Mode: observe  |  Agents: 6
-```
+### What you see after five minutes
 
-The access code is generated fresh each time the server starts. Sessions expire after 8 hours. The server binds to `127.0.0.1` by default (localhost only). Use `--bind 0.0.0.0` to expose it on the network.
-
-### Pages
-
-- **Overview** — Hero stats, pipeline health bar, live event feed (SSE) alongside security status, activity sparkline, top threats and agent risk.
-- **Events** — Audit log with latency and rules columns, tab filters (All / Quarantine / Blocked), search, event detail with pipeline summary bar, JSON syntax highlighting, full audit chain.
-- **Notifications** — Webhook channel CRUD, alert configuration summary, alert history with delivery status.
-- **Agents** — Card grid with risk scores, message counts, key status. Add Agent form at top. Detail page with communication partners, recent messages, LLM threat intelligence, tool policies.
-- **Rules** — Category card grid with severity breakdown, drill-down to individual rules, per-rule enforcement overrides, per-category webhook triggers, custom rule creation, LLM-suggested rules.
-- **Rule Detail** — Patterns, examples, inline test sandbox, enforcement override.
-- **Security Posture** — Deployment audit: health score and grade, per-product findings (Oktsec, OpenClaw, MCP Servers), AI-enhanced analysis banner, remediation guidance, SARIF export.
-- **Graph** — Agent communication topology with deterministic layout, node threat scores (betweenness centrality), edge health, shadow edge detection.
-- **AI Analysis** — LLM threat cases with confirm/dismiss workflow, triage configuration, provider test connection, budget tracking, rule generation.
-- **Gateway** — Backend MCP server CRUD, gateway configuration, tool discovery, health checks.
-- **Settings** — Single-page layout with Security (mode, policy, server info), Protection (quarantine, behavior monitoring, rate limiting, intent validation), and Advanced (egress proxy) sections.
-- **Sessions** — Session inventory with search, threat filters, and trace timeline.
-
-### Sessions
-
-Track and analyze agent sessions across time. Sessions are grouped by MCP session ID with aggregated stats.
-
-- **Session inventory** — `/dashboard/sessions` page with search, threat filter (All / With threats / Clean), JSON/CSV export
-- **Session trace** — Timeline of tool calls per session with 2-column layout: timeline left, AI analysis right
-- **AI session analysis** — One-click analysis via Claude or OpenAI. Identifies threat actors, assesses risk level, recommends specific actions with links to dashboard pages. Persisted as audit evidence with model name and timestamp
-- **Agent sessions** — Agent detail page shows related sessions with risk scores
+- Which agents are active and what tools they called.
+- Which detection rules fired and what was blocked or quarantined.
+- Agent risk scores based on communication patterns.
+- Audit chain integrity verification.
+- Session traces with AI-powered threat analysis.
 
 ### Quarantine queue
 
 Messages triggering high-severity rules are held for human review. Quarantined messages return HTTP 202 with a `quarantine_id`. Reviewers can approve or reject from the dashboard, CLI, or MCP tool. Items auto-expire after a configurable period.
 
+## Detection rules
+
+<p align="center">
+  <img src="documentation/assets/screenshots/dashboard-rules.png" alt="Rules catalog - 268 detection rules across 19 categories" width="820">
+</p>
+
+**268 detection rules** across 19 categories:
+
+| Source | Count | Categories |
+|--------|-------|------------|
+| [Aguara](https://github.com/garagon/aguara) built-in | 189 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, supply-chain-exfil, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
+| Inter-agent protocol (IAP) | 17 | inter-agent (includes CVE exploit transfer) |
+| IPI Arena (IPI) | 13 | inter-agent (from [arXiv:2603.15714](https://arxiv.org/abs/2603.15714)) |
+| Container escape (CE) | 12 | container-escape (from [SandboxEscapeBench](https://arxiv.org/abs/2603.02277)) |
+| Tool-call (TC) | 11 | tool-call (path traversal, shell injection, persistence) |
+| Memory poisoning (MEM) | 8 | memory-poisoning (dotfile writes, settings hijack, alias injection) |
+| Overeager detection (OE) | 3 | overeager (credential exploration, safety bypass) |
+| OpenClaw (OCLAW) | 15 | openclaw-config |
+
 ```bash
-oktsec quarantine list                         # List pending items
-oktsec quarantine detail <id>                  # View full content and triggered rules
-oktsec quarantine approve <id> --reviewer ops  # Approve and deliver
-oktsec quarantine reject <id> --reviewer ops   # Reject permanently
+oktsec rules                     # List all 268 rules
+oktsec rules --explain CE-004    # Explain any rule
 ```
+
+## Threat intel
+
+Optional async LLM analysis layer. Connects to any provider: Claude, OpenAI, Gemini, Ollama, OpenRouter, Groq, Together, or any OpenAI-compatible endpoint.
+
+When the pipeline detects something suspicious, the triage module samples the case for background analysis. The LLM generates an investigation case for human review. If confirmed, it proposes a detection rule for approval.
+
+**Never blocks, never makes verdict decisions.** The deterministic pipeline handles all real-time decisions. The LLM layer only generates investigation cases for human review.
 
 ## Agent identity
 
-Every agent gets an Ed25519 keypair:
+Every agent gets an Ed25519 keypair. The proxy verifies signatures covering `from + to + content + timestamp`. Signing is ~50us, verification is ~120us.
 
 ```bash
 oktsec keygen --agent my-agent --out ./keys/
-# Creates: keys/my-agent.key (private, stays with the agent)
-#          keys/my-agent.pub (public, copied to the proxy)
-```
-
-The proxy loads all `.pub` files from the configured `keys_dir` at startup. When a message arrives:
-
-1. Look up the sender's public key
-2. Verify the signature covers `from + to + content + timestamp`
-3. If invalid: reject (403), no further processing
-4. If valid: continue to ACL check and content scan
-
-Signing is ~50us, verification is ~120us.
-
-### Key management
-
-```bash
 oktsec keys list                                # List all registered keypairs
 oktsec keys rotate --agent my-agent             # Generate new keypair, revoke old
-oktsec keys revoke --agent my-agent             # Revoke without replacement
 ```
 
-### Gradual onboarding
+Set `require_signature: false` to deploy as a content scanner first. Enable signatures when ready.
 
-Set `require_signature: false` to deploy Oktsec as a content scanner first. Messages without signatures are accepted but logged as `verified_sender: false`. Enable signatures when ready.
+## Deployment audit
+
+49 checks across Oktsec (18), OpenClaw (18), NanoClaw (7), and MCP servers (6). Outputs a health score with remediation guidance.
+
+```bash
+oktsec audit
+oktsec audit --sarif    # SARIF v2.1.0 for CI integration
+```
+
+```
+Deployment Security Audit
+=========================
+
+  Health Score: 72 / 100 (Grade: C)
+
+  Oktsec (18 checks)
+  ------------------
+  [CRITICAL] require_signature is false
+             Fix: Set identity.require_signature: true in oktsec.yaml
+
+  Summary: 2 critical, 3 high, 1 medium, 43 passed
+```
+
+## Observability
+
+Prometheus metrics at `GET /metrics` (messages, latency, rules triggered, LLM usage, budget tracking). SARIF export for CI integration. CSV/JSON export from the dashboard.
+
+## OpenClaw support
+
+[OpenClaw](https://github.com/openclaw/openclaw) is a popular AI agent platform that gives agents access to filesystem, shell, email, calendar, browser, and messaging channels. It does not use MCP - it has its own WebSocket gateway. Oktsec detects, parses, and analyzes OpenClaw installations with a dedicated scanner and 15 detection rules.
+
+```bash
+oktsec scan-openclaw
+```
+
+## NanoClaw support
+
+[NanoClaw](https://github.com/nanoclaw/nanoclaw) is a lightweight agent platform focused on filesystem access. Oktsec auto-detects installations and audits them with 7 checks covering mount allowlists, write permissions, and sensitive paths.
 
 ## Configuration
 
-Config resolution (first match wins):
-
-1. `--config` flag (explicit path)
-2. `$OKTSEC_CONFIG` environment variable
-3. `./oktsec.yaml` (backward compatibility)
-4. `~/.oktsec/config.yaml` (default)
+Config resolution: `--config` flag, `$OKTSEC_CONFIG`, `./oktsec.yaml`, `~/.oktsec/config.yaml`.
 
 ```yaml
 version: "1"
 
 server:
   port: 8080
-  bind: 127.0.0.1         # Default: localhost only
-  log_level: info          # debug, info, warn, error
-  require_intent: false    # Enable intent validation (stage 6)
+  bind: 127.0.0.1
 
 identity:
-  keys_dir: ./keys         # Directory with .pub files
-  require_signature: true  # Reject unsigned messages
+  keys_dir: ./keys
+  require_signature: true
 
-default_policy: deny       # "allow" (default) or "deny" — reject unknown senders
-
-custom_rules_dir: ./custom-rules  # Directory for org-specific YAML detection rules
+default_policy: deny    # recommended for enforcement
 
 agents:
   research-agent:
-    can_message: [analysis-agent]        # ACL: allowed recipients
-    blocked_content: [credentials, pii]  # Content categories to always block for this agent
-    allowed_tools: [read_file, search]   # MCP tool allowlist (empty = all allowed)
-    description: "Research and data gathering"
-    tags: [research, data]
+    can_message: [analysis-agent]
+    blocked_content: [credentials, pii]
+    allowed_tools: [read_file, search]
     tool_policies:
       create_payment:
-        max_amount: 10000                # Max single-call amount
-        daily_limit: 50000               # Max daily aggregate
-        require_approval_above: 5000     # Quarantine if above threshold
-        rate_limit: 10                   # Max calls per minute
-  analysis-agent:
-    can_message: [research-agent, reporting-agent]
-    suspended: false                     # Set to true to reject all messages
-
-quarantine:
-  enabled: true
-  expiry_hours: 24         # Auto-expire pending items
-  retention_days: 30       # Auto-purge audit entries older than N days (0 = keep forever)
-
-rate_limit:
-  per_agent: 100           # Max messages per window (0 = disabled)
-  window: 60               # Window size in seconds
-
-anomaly:
-  check_interval: 60       # Seconds between risk checks
-  risk_threshold: 50       # Risk score (0-100) to trigger alert
-  min_messages: 5          # Minimum messages before evaluating risk
-  auto_suspend: false      # Suspend agent when threshold exceeded
-
-forward_proxy:
-  enabled: false
-  scan_requests: true        # Scan outgoing request bodies
-  scan_responses: false      # Scan upstream response bodies
-  max_body_size: 1048576     # 1 MB
-  allowed_domains: []        # Whitelist (empty = all allowed)
-  blocked_domains: []        # Blacklist (takes precedence)
-
-gateway:
-  enabled: true
-  port: 9090
-  endpoint_path: /mcp
-  scan_responses: true       # Scan backend responses
-
-mcp_servers:
-  filesystem:
-    transport: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-
-llm:
-  enabled: false
-  provider: openai           # openai, claude, webhook
-  model: gpt-4o-mini
-  api_key_env: OPENAI_API_KEY
-  triage:
-    sample_rate: 0.05
-  budget:
-    daily_limit: 20
-    monthly_limit: 500
-
-rules:                       # Per-rule enforcement overrides
-  - id: block-relay-injection
-    severity: critical
-    action: block           # block, quarantine, allow-and-flag, ignore
-    notify: [slack-security] # Named channels or raw URLs
-    template: "🚨 *{{RULE}}* — {{RULE_NAME}}\n• *Severity:* {{SEVERITY}} | *Category:* {{CATEGORY}}\n• *Agents:* {{FROM}} → {{TO}}\n• *Match:* '{{MATCH}}'"
-
-category_webhooks:           # Default webhooks for entire categories (rules inherit these)
-  - category: credential-leak
-    notify: [slack-security]
-  - category: prompt-injection
-    notify: [slack-security]
-
-webhooks:
-  - name: slack-security    # Named channel (referenced in rules.notify)
-    url: https://hooks.slack.com/services/xxx
-    events: [blocked, quarantined, agent_risk_elevated]
+        max_amount: 10000
+        require_approval_above: 5000
 ```
 
-Validate your config:
-```bash
-oktsec verify --config oktsec.yaml
-```
+Validate: `oktsec verify --config oktsec.yaml`
 
-## Detection rules
+Full configuration reference in the [docs](https://oktsec.com/docs/configuration).
 
-<p align="center">
-  <img src="documentation/assets/screenshots/dashboard-rules.png" alt="Rules catalog — 268 detection rules across 19 categories" width="820">
-</p>
+## SDKs
 
-Oktsec includes **268 detection rules** across 19 categories:
-
-| Source | Count | Categories |
-|--------|-------|------------|
-| [Aguara](https://github.com/garagon/aguara) built-in | 189 | prompt-injection, credential-leak, exfiltration, command-execution, mcp-attack, mcp-config, supply-chain, supply-chain-exfil, ssrf-cloud, indirect-injection, unicode-attack, third-party-content, external-download |
-| Inter-agent protocol (IAP) | 17 | inter-agent (includes IAP-016/017 for CVE exploit transfer) |
-| IPI Arena (IPI) | 13 | inter-agent (from [arXiv:2603.15714](https://arxiv.org/abs/2603.15714)) |
-| Container escape (CE) | 12 | container-escape (from [SandboxEscapeBench](https://arxiv.org/abs/2603.02277)) |
-| Tool-call (TC) | 11 | tool-call (includes TC-011 persistence detection) |
-| Memory poisoning (MEM) | 8 | memory-poisoning (dotfile writes, settings hijack, alias injection, hook installation) |
-| Overeager detection (OE) | 3 | overeager (credential exploration, safety flag bypass, similarity-based actions) |
-| OpenClaw (OCLAW) | 15 | openclaw-config |
-
-### Inter-agent protocol rules
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `IAP-001` | Critical | Relay injection (agent-to-agent hijacking) |
-| `IAP-002` | High | PII in agent messages |
-| `IAP-003` | Critical | Credentials in agent messages |
-| `IAP-004` | High | System prompt extraction via agent |
-| `IAP-005` | High | Privilege escalation between agents |
-| `IAP-006` | High | Data exfiltration via agent relay |
-| `IAP-007` | Critical | Tool description prompt injection |
-| `IAP-008` | Critical | Tool description data exfiltration |
-| `IAP-009` | High | Tool description privilege escalation |
-| `IAP-010` | High | Tool description shadowing |
-| `IAP-011` | Critical | Tool description hidden commands |
-| `IAP-012` | High | Tool name typosquatting |
-| `IAP-013` | High | Authority impersonation with urgent action |
-| `IAP-014` | Critical | Sensitive data transfer to external endpoint |
-| `IAP-015` | High | Elevated privilege request for production |
-| `IAP-016` | High | CVE exploit knowledge transfer between agents |
-| `IAP-017` | High | Container escape instruction transfer |
-
-### Container escape rules
-
-12 rules derived from the [SandboxEscapeBench](https://arxiv.org/abs/2603.02277) paper (UK AI Security Institute). Detect reconnaissance and exploitation patterns frontier models use to escape Docker containers.
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `CE-001` | High | Docker socket probe |
-| `CE-002` | Medium | Capability enumeration |
-| `CE-003` | High | Host filesystem probe |
-| `CE-004` | Critical | Cgroup escape preparation |
-| `CE-005` | Medium | Kernel recon with exploit context |
-| `CE-006` | High | Namespace escape attempt |
-| `CE-007` | Critical | Privileged container abuse |
-| `CE-008` | Critical | Runc exploit pattern (CVE-2019-5736) |
-| `CE-009` | High | Kernel module injection |
-| `CE-010` | High | eBPF exploitation |
-| `CE-011` | Critical | Docker API abuse |
-| `CE-012` | Critical | Kernel memory exploit signatures (Dirty Pipe/COW) |
-
-### Tool-call rules
-
-| Rule | Severity | Description |
-|------|----------|-------------|
-| `TC-001` | Critical | Path traversal in tool arguments |
-| `TC-002` | High | Sensitive file access attempt |
-| `TC-003` | Critical | Write to system directory |
-| `TC-004` | Critical | SSRF via fetch tool |
-| `TC-005` | Critical | Shell injection in tool arguments |
-| `TC-006` | High | Credential pattern in tool content |
-| `TC-007` | Medium | Bulk directory enumeration |
-| `TC-008` | High | Suspicious URL pattern in fetch |
-| `TC-009` | High | Scope escape via absolute path |
-| `TC-010` | Medium | Excessive file content in write |
-| `TC-011` | Critical | Persistence mechanism installation (systemd, crontab, sysmon) |
-
-### OpenClaw rules
-
-15 rules in the `openclaw-config` category (OCLAW-001 through OCLAW-015), covering full tool profiles, exposed gateways, open DM policies, exec without sandbox, path traversal, missing authentication, hardcoded credentials, and more.
-
-```bash
-oktsec rules                     # List all 268 rules
-oktsec rules --explain CE-004    # Explain a container escape rule
-oktsec rules --explain IAP-001   # Explain a specific rule
-oktsec rules --explain TC-001    # Explain a tool-call rule
-oktsec rules --explain OCLAW-001 # Explain an OpenClaw rule
-```
-
-Additionally, the [deployment audit](#deployment-audit) runs 41 deeper checks (18 for OpenClaw, 7 for NanoClaw, 16 for Oktsec) that analyze config structure, permissions, and runtime settings.
-
-## Audit log
-
-Every message is logged to SQLite (`oktsec.db`) with:
-- Content hash (SHA-256)
-- Signature verification status
-- Public key fingerprint
-- Policy decision
-- Rules triggered
-- Latency
-- Hash chain link (tamper-evident)
-
-```bash
-oktsec logs                          # Last 50 entries
-oktsec logs --status blocked         # Only blocked messages
-oktsec logs --unverified             # Messages without valid signature
-oktsec logs --agent research-agent   # Filter by agent
-oktsec logs --since 1h              # Last hour
-```
-
-### Performance
-
-Analytics queries use a 24-hour time window with covering indexes. All dashboard queries complete in under 10ms regardless of total database size.
-
-| Metric | Value |
-|--------|-------|
-| Write throughput | ~90K inserts/sec (batched) |
-| Query latency | <6ms (at 1M+ rows) |
-| DB size | ~400 MB per 1M entries |
-
-## Observability
-
-### Prometheus metrics
-
-Oktsec exposes Prometheus metrics at `GET /metrics`:
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| `messages_total` | Counter | Messages processed (by verdict, agent) |
-| `message_latency` | Histogram | Pipeline processing latency |
-| `rules_triggered` | Counter | Rule matches (by rule_id) |
-| `llm_analysis_total` | Counter | LLM analyses performed (by provider) |
-| `llm_analysis_latency` | Histogram | LLM response latency |
-| `llm_tokens_used` | Counter | Token consumption (by provider) |
-| `llm_budget_spent` | Counter | Spending tracking (by provider) |
-| `llm_queue_depth` | Gauge | Current analysis queue length |
-
-### SARIF export
-
-Export deployment audit findings in SARIF v2.1.0 for CI integration:
-
-```bash
-oktsec audit --sarif > results.sarif
-```
-
-### CSV / JSON export
-
-Export audit trail from the dashboard or CLI:
-
-```bash
-# From dashboard: GET /dashboard/api/export/csv
-# From dashboard: GET /dashboard/api/export/json
-```
-
-## CLI reference
-
-```
-oktsec run [--port N] [--bind ADDR] [--enforce] [--skip-wrap]  # Auto-setup + serve (recommended)
-oktsec doctor                                            # Check deployment health (config, secrets, DB, keys, port, rules)
-oktsec discover                                          # Scan for MCP servers, OpenClaw, NanoClaw
-oktsec wrap [--enforce] [--all | <client>]               # Route MCP client(s) through oktsec proxy
-oktsec unwrap <client>                                   # Restore original client config
-oktsec connect <server>                                  # Register MCP server with gateway
-oktsec disconnect <server>                               # Unregister MCP server from gateway
-oktsec scan-openclaw [--path ~/.openclaw/openclaw.json]  # Analyze OpenClaw installation
-oktsec proxy [--enforce] --agent <name> -- <cmd> [args]  # Stdio proxy for single MCP server
-oktsec serve [--config oktsec.yaml] [--port 8080] [--bind 127.0.0.1]  # Start proxy + dashboard
-oktsec gateway [--config oktsec.yaml]                    # Start gateway (standalone)
-oktsec mcp [--config oktsec.yaml]                        # Run as MCP tool server
-oktsec keygen --agent <name> [--agent <name>...] --out <dir>
-oktsec keys list|rotate|revoke [--agent <name>]
-oktsec verify [--config oktsec.yaml]                     # Validate config file
-oktsec logs [--status <status>] [--agent <name>] [--unverified] [--since <duration>]
-oktsec rules [--explain <rule-id>]
-oktsec quarantine list|detail|approve|reject [--status <status>] [<id>]
-oktsec agent list                                        # List agents with status
-oktsec agent suspend <name>                              # Suspend an agent
-oktsec agent unsuspend <name>                            # Unsuspend an agent
-oktsec audit [--json] [--sarif]                          # Deployment security audit (41 checks)
-oktsec status                                            # Health score, detected products, top issues
-oktsec enforce [on|off]                                  # Toggle enforce/observe mode
-oktsec env [list|set|unset]                              # Manage environment variables
-oktsec version
-```
-
-## API
-
-### `POST /v1/message`
-
-Send a message through the proxy.
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `from` | string | yes | Sender agent name |
-| `to` | string | yes | Recipient agent name |
-| `content` | string | yes | Message content |
-| `signature` | string | no* | Base64 Ed25519 signature |
-| `timestamp` | string | no | RFC3339 timestamp |
-| `metadata` | object | no | Arbitrary key-value pairs |
-
-*Required when `require_signature: true`
-
-### `GET /v1/quarantine/{id}`
-
-Poll quarantine status for a held message.
-
-### `POST /hooks/event`
-
-Submit a tool-call event for scanning. Used by MCP client hooks.
-
-### `GET /health`
-
-Returns `{"status": "ok"}`.
-
-### `GET /metrics`
-
-Prometheus metrics endpoint.
-
-### `GET /dashboard`
-
-Web UI for monitoring agent activity. Protected by access code shown at startup.
-
-## Go SDK
-
-The `sdk` package provides a Go client for sending messages through the oktsec proxy:
+### Go
 
 ```go
 import "github.com/oktsec/oktsec/sdk"
 
-// Without signing (observe mode)
 c := sdk.NewClient("http://localhost:8080", "my-agent", nil)
 resp, err := c.SendMessage(ctx, "recipient", "hello")
-// resp.Status: "delivered", resp.PolicyDecision: "allow", resp.RulesTriggered: [...]
-
-// With Ed25519 signing
-kp, _ := sdk.LoadKeypair("./keys", "my-agent")
-c := sdk.NewClient("http://localhost:8080", "my-agent", kp.PrivateKey)
-resp, err := c.SendMessage(ctx, "recipient", "hello")
-
-// With metadata
-resp, err := c.SendMessageWithMetadata(ctx, "recipient", "hello", map[string]string{
-    "task_id": "abc-123",
-})
-
-// Health check
-health, err := c.Health(ctx)
 ```
 
 Install: `go get github.com/oktsec/oktsec/sdk`
 
-### Python SDK
+### Python
 
 Published on [PyPI](https://pypi.org/project/oktsec/) as `oktsec`:
 
@@ -1099,69 +431,54 @@ from oktsec import OktsecClient
 
 client = OktsecClient("http://localhost:8080", "my-agent")
 resp = await client.send_message("recipient", "hello")
-
-# With Ed25519 signing
-client = OktsecClient("http://localhost:8080", "my-agent", key_path="./keys/my-agent.key")
 ```
 
-## OWASP Top 10 for Agentic Applications
+## OWASP Agentic Top 10
 
-Oktsec is aligned with the [OWASP Top 10 for Agentic Applications](https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications/):
+| # | Category | How Oktsec covers it |
+|---|----------|-----|
+| ASI01 | Excessive Agency / Goal Hijack | Multi-message escalation, content scanning, intent validation, LLM triage |
+| ASI02 | Tool Misuse | Stdio enforcement, per-agent content blocking, rate limiting, tool-call rules, tool policies |
+| ASI03 | Privilege Escalation | Ed25519 identity, default-deny policy, ACLs, per-agent tool allowlists |
+| ASI04 | Supply Chain | Dependency auditing (OSV.dev), egress sandboxing, rug-pull detection |
+| ASI05 | Unsafe Code Execution | Stdio enforcement, tool-call rules (TC-001 to TC-011), hooks interception |
+| ASI07 | Inter-Agent Communication | Signed messages, ACLs, content scanning, hash-chained audit trail, graph analysis |
+| ASI10 | Rogue Agents | Agent suspension, rate limiting, anomaly detection, auto-suspend |
 
-| # | Category | Coverage | How |
-|---|----------|----------|-----|
-| ASI01 | Excessive Agency / Goal Hijack | **Strong** | Multi-message verdict escalation, content scanning, intent validation, LLM threat analysis |
-| ASI02 | Tool Misuse | **Strong** | Stdio enforcement, BlockedContent per-agent, rate limiting, tool-call rules, tool policies |
-| ASI03 | Privilege Escalation | **Strong** | Ed25519 identity, default-deny policy, ACLs, per-agent tool allowlists |
-| ASI04 | Supply Chain | **Strong** | Dependency auditing (OSV.dev), egress sandboxing, rug-pull detection, Aguara SC-EX rules, TC-002 credential coverage |
-| ASI05 | Unsafe Code Execution | **Strong** | Stdio enforcement blocks tool calls, tool-call rules (TC-001–TC-010), hooks interception |
-| ASI07 | Inter-Agent Communication | **Strong** | Signed messages, ACLs, content scanning, hash-chained audit trail, graph analysis |
-| ASI10 | Rogue Agents | **Strong** | Agent suspension, rate limiting, anomaly detection, auto-suspend, LLM triage |
+## How it compares
+
+Oktsec lives at the **runtime execution layer** - the tool calls and messages agents emit *while* they run. Adjacent projects protect different layers.
+
+| Capability | Oktsec | Prompt classifiers (Lakera, PromptArmor) | WAFs (Cloudflare, AWS) |
+|---|---|---|---|
+| Agent-to-agent message control | Yes | No | No |
+| MCP tool-call interception | 10-stage pipeline | No | No |
+| Deterministic hot path (no LLM) | Yes | LLM-based | Regex |
+| Ed25519 identity + tamper-evident audit | Yes | No | No |
+| On-prem single binary (Apache 2.0) | Yes | SaaS | SaaS |
+
+**Different layer, complementary.** A typical deployment runs a WAF at the edge, a prompt classifier at the LLM boundary, and Oktsec at the agent-to-tool boundary where actual actions happen.
+
+## Recommended rollout
+
+1. Run in observe mode for one day.
+2. Review Events and Security Posture in the dashboard.
+3. Add agent and tool allowlists.
+4. Enable enforce mode for high-risk tools.
+5. Export audit/SARIF into your security workflow.
 
 ## Built on
 
-- **[Aguara](https://github.com/garagon/aguara)** — Security scanner for AI agent skills and supply chain threats (189 detection rules, context-aware scanning, supply chain exfiltration detection, incident response commands)
-- **[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)** — Official Tier 1 Go SDK for Model Context Protocol (v1, Linux Foundation governance, semver stability)
-- **Go stdlib** — `crypto/ed25519`, `net/http`, `log/slog`, `crypto/sha256`
-- **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** — Pure Go SQLite (no CGO)
-- **[prometheus/client_golang](https://github.com/prometheus/client_golang)** — Prometheus metrics
+- **[Aguara](https://github.com/garagon/aguara)** - Security scanner for AI agent skills and supply chain threats (189 detection rules)
+- **[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)** - Official Tier 1 Go SDK for Model Context Protocol
+- **Go stdlib** - `crypto/ed25519`, `net/http`, `log/slog`, `crypto/sha256`
+- **[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)** - Pure Go SQLite (no CGO)
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and pull request process.
 
 For security vulnerabilities, see [SECURITY.md](SECURITY.md).
-
-## How it compares
-
-Oktsec lives at the **runtime execution layer** — the tool calls and messages agents emit *while* they run. Adjacent projects attack different slices of the stack.
-
-| Capability | Oktsec | Lakera Guard | Protect AI | Glasswing | WAFs (Cloudflare/AWS) |
-|---|---|---|---|---|---|
-| Agent-to-agent message control | ✅ | ❌ | ❌ | ❌ | ❌ |
-| MCP tool-call interception (10-stage pipeline) | ✅ | ❌ | ❌ | partial | ❌ |
-| Deterministic detection (zero LLM on hot path) | ✅ | LLM-based | hybrid | LLM-based | regex |
-| Ed25519 identity + tamper-evident audit chain | ✅ | ❌ | ❌ | ❌ | ❌ |
-| On-prem single binary (Apache 2.0) | ✅ | SaaS | SaaS | SaaS | SaaS |
-| Distributed rate limiting (Redis-backed) | ✅ | SaaS | SaaS | SaaS | ✅ |
-| OpenTelemetry tracing + CRL export | ✅ | ❌ | ❌ | ❌ | ❌ |
-| 268 detection rules (prompt injection, creds, MCP attacks, PII, supply chain) | ✅ | ~100 | ~50 | ~80 | generic |
-
-**Different layer, complementary.** A typical deployment runs a WAF at the edge, a prompt-injection classifier (Lakera, PromptArmor) at the LLM boundary, and **Oktsec at the agent-to-tool boundary** where actual actions happen.
-
-## Try it
-
-```bash
-# Install
-curl -fsSL https://raw.githubusercontent.com/oktsec/oktsec/main/install.sh | bash
-
-# Run everything (auto-discovers MCP clients, generates config, starts dashboard)
-oktsec run
-
-# Open http://localhost:8080/dashboard — access code printed in the terminal
-```
-
-Everything runs locally. No account, no secret egress. Oktsec sends an anonymous install ping on startup (version + OS + arch, no user data) so we can track adoption — opt out with `OKTSEC_NO_TELEMETRY=1`, `telemetry.disabled: true` in `oktsec.yaml`, or `touch ~/.oktsec/.no-telemetry`.
 
 ## Get in touch
 

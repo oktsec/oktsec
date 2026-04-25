@@ -53,6 +53,29 @@ func normalizedKey(s string) string {
 // capitalization for well-known acronyms (MCP, OpenClaw, IPI, …). Without
 // this, the UI ships strings like "Mcp Attack" and "Openclaw Config" which
 // read as unpolished to a security buyer.
+// maskWebhookURL hides the secret path of a webhook URL, showing only
+// scheme + host + last 4 chars. e.g. "https://hooks.slack.com/services/...QUDb"
+func maskWebhookURL(rawURL string) string {
+	idx := strings.Index(rawURL, "://")
+	if idx == -1 {
+		if len(rawURL) > 8 {
+			return rawURL[:4] + "..." + rawURL[len(rawURL)-4:]
+		}
+		return "****"
+	}
+	rest := rawURL[idx+3:]
+	slashIdx := strings.Index(rest, "/")
+	if slashIdx == -1 {
+		return rawURL
+	}
+	host := rest[:slashIdx]
+	suffix := rest[slashIdx:]
+	if len(suffix) > 4 {
+		return rawURL[:idx+3] + host + "/..." + suffix[len(suffix)-4:]
+	}
+	return rawURL[:idx+3] + host + "/..."
+}
+
 func snakeToTitle(s string) string {
 	if v, ok := categoryOverrides[normalizedKey(s)]; ok {
 		return v
@@ -153,6 +176,7 @@ var tmplFuncs = template.FuncMap{
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
 	"hasRules":    func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"maskWebhookURL": maskWebhookURL,
 	"seq": func(n int) []int {
 		s := make([]int, n)
 		for i := range s {
@@ -806,7 +830,8 @@ function agentAvatar(name,sz){
   }
   return '<svg class="avatar" width="'+sz+'" height="'+sz+'" viewBox="0 0 40 40">'+b+'</svg>';
 }
-function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">'+agentAvatar(name,20)+' '+name+'</span>';}
+function _esc(s){if(!s)return'';var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">'+agentAvatar(_esc(name),20)+' '+_esc(name)+'</span>';}
 
 // Custom confirm modal (replaces ALL confirm dialogs)
 (function(){
@@ -1229,7 +1254,7 @@ a.ov-metric:hover{background:var(--surface2)}
         case 'blocked': statusBadge = '<span class="badge-blocked">blocked</span>'; break;
         case 'rejected': statusBadge = '<span class="badge-rejected">rejected</span>'; break;
         case 'quarantined': statusBadge = '<span class="badge-quarantined">quarantined</span>'; break;
-        default: statusBadge = entry.status;
+        default: statusBadge = _esc(entry.status);
       }
 
       var row = document.createElement('tr');
@@ -1237,7 +1262,7 @@ a.ov-metric:hover{background:var(--surface2)}
       row.setAttribute('hx-get', '/dashboard/api/event/' + entry.id);
       row.setAttribute('hx-target', '#panel-content');
       row.setAttribute('hx-swap', 'innerHTML');
-      row.innerHTML = '<td data-ts="' + entry.timestamp + '">' + entry.timestamp + '</td><td>' + agentCellHTML(entry.from_agent) + '</td><td>' + agentCellHTML(entry.to_agent) + '</td><td>' + statusBadge + '</td>';
+      row.innerHTML = '<td data-ts="' + _esc(entry.timestamp) + '">' + _esc(entry.timestamp) + '</td><td>' + agentCellHTML(entry.from_agent) + '</td><td>' + agentCellHTML(entry.to_agent) + '</td><td>' + statusBadge + '</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
@@ -1517,7 +1542,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
   <div class="page-header-actions">
     <form method="POST" action="/dashboard/agents/{{.Name}}/keygen" style="display:inline"><button type="submit" class="btn btn-sm btn-outline success" onclick="return confirm('Generate new keypair for {{.Name}}?')">Generate Keypair</button></form>
     {{if and .KeyFP (not .KeyRevoked)}}<form method="POST" action="/dashboard/identity/revoke" style="display:inline"><input type="hidden" name="agent" value="{{.Name}}"><button type="submit" class="btn btn-sm btn-outline danger" onclick="return confirm('Revoke key for {{.Name}}? This agent will not be able to send signed messages.')">Revoke Key</button></form>{{end}}
-    <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline">{{if .Suspended}}<button type="submit" class="btn btn-sm btn-outline success">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm btn-outline warn">Suspend</button>{{end}}</form>
+    <form method="POST" action="/dashboard/agents/{{.Name}}/suspend" style="display:inline" onsubmit="return confirm('{{if .Suspended}}Unsuspend agent {{.Name}}? It will resume sending and receiving messages.{{else}}Suspend agent {{.Name}}? All messages to and from this agent will be blocked.{{end}}')">{{if .Suspended}}<button type="submit" class="btn btn-sm btn-outline success">Unsuspend</button>{{else}}<button type="submit" class="btn btn-sm btn-outline warn">Suspend</button>{{end}}</form>
     <button class="btn btn-sm btn-outline danger" hx-delete="/dashboard/agents/{{.Name}}" hx-confirm="Delete agent {{.Name}}? This cannot be undone." hx-swap="none" onclick="setTimeout(function(){window.location='/dashboard/agents'},300)">Delete</button>
   </div>
 </div>
@@ -1583,7 +1608,7 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
         seg.style.cssText='width:'+pct+'%;background:'+(toolColors[t]||'#6e7681');
         bar.appendChild(seg);
         var l=document.createElement('span');
-        l.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+(toolColors[t]||'#6e7681')+';vertical-align:middle;margin-right:3px"></span>'+t+' '+pct+'%';
+        l.innerHTML='<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:'+(toolColors[t]||'#6e7681')+';vertical-align:middle;margin-right:3px"></span>'+_esc(t)+' '+pct+'%';
         legend.appendChild(l);
       });
     })();
@@ -1975,7 +2000,7 @@ function addToolRestriction() {
     row.className = 'form-row';
     row.style.marginBottom = '8px';
     row.style.alignItems = 'center';
-    row.innerHTML = '<div style="min-width:120px;font-family:var(--mono);font-size:0.82rem;font-weight:600">' + tool + '</div><div class="form-group" style="flex:1;margin-bottom:0"><input type="text" name="tr_' + tool + '" value="' + domains + '" placeholder="Domains"></div>';
+    row.innerHTML = '<div style="min-width:120px;font-family:var(--mono);font-size:0.82rem;font-weight:600">' + _esc(tool) + '</div><div class="form-group" style="flex:1;margin-bottom:0"><input type="text" name="tr_' + _esc(tool) + '" value="' + _esc(domains) + '" placeholder="Domains"></div>';
     document.getElementById('eg-new-tool').closest('.form-row').before(row);
   }
   var toolsInput = document.getElementById('eg-tr-tools');
@@ -2114,8 +2139,8 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
         {{range .Patterns}}<code>{{.Value}}</code>{{end}}
       </div>
       <div class="lr-fi-actions" id="lr-act-{{.ID}}">
-        <button class="btn btn-sm btn-success" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Approve &amp; Activate</button>
-        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text3)" hx-post="/dashboard/api/rules/llm/{{.ID}}/reject" hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Reject</button>
+        <button class="btn btn-sm btn-success" hx-post="/dashboard/api/rules/llm/{{.ID}}/approve" hx-confirm="Activate this AI-generated rule? It will start scanning all messages." hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Approve &amp; Activate</button>
+        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text3)" hx-post="/dashboard/api/rules/llm/{{.ID}}/reject" hx-confirm="Reject this rule? It will be discarded." hx-target="#lr-act-{{.ID}}" hx-swap="innerHTML">Reject</button>
       </div>
     </div>
   </div>
@@ -3300,7 +3325,7 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs
 
   {{if eq .Item.Status "pending"}}
   <div class="q-actions" style="margin-top:20px">
-    <button class="btn btn-success" hx-post="/dashboard/api/quarantine/{{.Item.ID}}/approve" hx-target="#q-row-{{.Item.ID}}" hx-swap="outerHTML" onclick="closePanel()">Approve &amp; Deliver</button>
+    <button class="btn btn-success" hx-post="/dashboard/api/quarantine/{{.Item.ID}}/approve" hx-confirm="Approve and deliver this quarantined message? It will be sent to the recipient." hx-target="#q-row-{{.Item.ID}}" hx-swap="outerHTML" onclick="closePanel()">Approve &amp; Deliver</button>
     <button class="btn btn-danger" hx-post="/dashboard/api/quarantine/{{.Item.ID}}/reject" hx-target="#q-row-{{.Item.ID}}" hx-swap="outerHTML" onclick="closePanel()">Reject</button>
   </div>
   {{end}}
@@ -4895,7 +4920,7 @@ updateExportLinks();
       var toCell;
       if (ev.tool_name) {
         var tc = toolColors[ev.tool_name] || '#6e7681';
-        toCell = '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:'+tc+';flex-shrink:0"></span>'+ev.tool_name+'</span>';
+        toCell = '<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:'+tc+';flex-shrink:0"></span>'+_esc(ev.tool_name)+'</span>';
       } else {
         toCell = agentCellHTML(ev.to_agent||'');
       }
@@ -4909,12 +4934,12 @@ updateExportLinks();
       var decExtra='';
       if(ev.policy_decision&&ev.policy_decision!=='allowed'){
         var labels={'content_blocked':'Blocked — dangerous content','content_quarantined':'Quarantined','signature_required':'Rejected — unsigned','acl_denied':'Rejected — ACL denied'};
-        decExtra=' <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">'+(labels[ev.policy_decision]||ev.policy_decision)+'</span>';
+        decExtra=' <span style="font-family:var(--sans);font-size:var(--text-xs);color:var(--text3);margin-left:4px">'+_esc(labels[ev.policy_decision]||ev.policy_decision)+'</span>';
       }
-      var sesCell = ev.session_id ? '<a href="/dashboard/sessions/'+ev.session_id+'" style="color:var(--accent);text-decoration:none;font-family:var(--mono)" title="'+ev.session_id+'">'+ev.session_id.substring(0,12)+'...</a>' : '<span style="color:var(--text3)">-</span>';
+      var sesCell = ev.session_id ? '<a href="/dashboard/sessions/'+_esc(ev.session_id)+'" style="color:var(--accent);text-decoration:none;font-family:var(--mono)" title="'+_esc(ev.session_id)+'">'+_esc(ev.session_id.substring(0,12))+'...</a>' : '<span style="color:var(--text3)">-</span>';
       var latColor = ev.latency_ms>=500?'var(--danger)':ev.latency_ms>=100?'var(--warn)':'var(--text3)';
       var rulesCell = hasRules ? '<span style="color:var(--warn);font-weight:600">&#x26A0;</span>' : '<span style="color:var(--text3)">-</span>';
-      row.innerHTML = '<td data-ts="' + ev.timestamp + '">' + ev.timestamp + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + ev.status + '">' + ev.status + '</span>'+decExtra+'</td><td style="font-size:var(--text-xs)">'+sesCell+'</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:'+latColor+'">'+(ev.latency_ms||0)+'ms</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)">'+rulesCell+'</td>';
+      row.innerHTML = '<td data-ts="' + _esc(ev.timestamp) + '">' + _esc(ev.timestamp) + '</td><td>' + agentCellHTML(ev.from_agent||'') + '</td><td>' + toCell + '</td><td><span class="badge-' + _esc(ev.status) + '">' + _esc(ev.status) + '</span>'+decExtra+'</td><td style="font-size:var(--text-xs)">'+sesCell+'</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs);color:'+latColor+'">'+(ev.latency_ms||0)+'ms</td><td style="text-align:right;font-family:var(--mono);font-size:var(--text-xs)">'+rulesCell+'</td>';
       tbody.insertBefore(row, tbody.firstChild);
       htmx.process(row);
       if(typeof humanizeTimestamps==='function')humanizeTimestamps();
@@ -5088,7 +5113,7 @@ function toggleGraphSidebar() {
   var container = document.getElementById('graph-container');
   if (!container) return;
 
-  fetch('/dashboard/api/graph')
+  fetch('/dashboard/api/graph?range={{.Range}}')
     .then(function(r) { return r.json(); })
     .then(function(data) { renderGraph(container, data); });
 
@@ -5688,7 +5713,7 @@ function gwTab(name){
       </div>
     </div>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
-      <div style="color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Connected Servers</div>
+      <div style="color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Configured Servers</div>
       <div style="font-size:1.2rem;font-weight:700">{{len .Servers}}</div>
     </div>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
@@ -5825,7 +5850,7 @@ function gwTab(name){
       <td><strong>{{.Name}}</strong></td>
       <td>{{.Client}}</td>
       <td><code style="background:var(--surface);padding:2px 8px;border-radius:4px;font-family:var(--mono);font-size:0.82rem">{{truncate .Command 80}}</code></td>
-      <td style="text-align:right"><form method="POST" action="/dashboard/gateway/servers" style="margin:0"><input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="transport" value="{{.Transport}}"><input type="hidden" name="command" value="{{.Command}}"><button type="submit" class="btn btn-sm btn-outline">Add to Gateway</button></form></td>
+      <td style="text-align:right"><form method="POST" action="/dashboard/gateway/servers" style="margin:0" onsubmit="return confirm('Add server to gateway?\n\nName: {{.Name}}\nTransport: {{.Transport}}\nCommand: {{.Command}}')"><input type="hidden" name="name" value="{{.Name}}"><input type="hidden" name="transport" value="{{.Transport}}"><input type="hidden" name="command" value="{{.Command}}"><button type="submit" class="btn btn-sm btn-outline">Add to Gateway</button></form></td>
     </tr>
     {{end}}
     </tbody>

@@ -554,6 +554,7 @@ func (s *Store) loadLastHash() {
 // Log enqueues an audit entry for async writing.
 // Blocks if the buffer is full — audit entries must never be dropped.
 func (s *Store) Log(entry Entry) {
+	s.inflight.Add(1)
 	s.writes <- entry
 }
 
@@ -802,7 +803,7 @@ func EntryJSON(e Entry) []byte {
 
 // Flush blocks until all pending writes have been processed.
 func (s *Store) Flush() {
-	for len(s.writes) > 0 || s.inflight.Load() > 0 {
+	for s.inflight.Load() > 0 {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
@@ -832,7 +833,6 @@ func (s *Store) writeLoop() {
 	batch := make([]Entry, 0, maxBatch)
 
 	for entry := range s.writes {
-		s.inflight.Add(1)
 		batch = append(batch[:0], entry)
 
 		// Drain up to maxBatch-1 more entries non-blocking
@@ -842,7 +842,6 @@ func (s *Store) writeLoop() {
 				if !ok {
 					goto flush
 				}
-				s.inflight.Add(1)
 				batch = append(batch, e)
 			default:
 				goto flush
