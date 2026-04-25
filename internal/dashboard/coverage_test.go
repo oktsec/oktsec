@@ -1121,3 +1121,60 @@ func TestServer_SettingsToastFunction(t *testing.T) {
 		t.Error("settings page should include st-toast CSS class")
 	}
 }
+
+func TestServer_RulesFilterChips(t *testing.T) {
+	rr := authedGet(t, "/dashboard/rules?tab=detection")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("rules returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, chip := range []string{"Has disabled", "High+ severity", "Recently triggered"} {
+		if !strings.Contains(body, chip) {
+			t.Errorf("rules page missing filter chip %q", chip)
+		}
+	}
+	if !strings.Contains(body, "rules-filter") {
+		t.Error("rules page missing rules-filter CSS class")
+	}
+	if !strings.Contains(body, "rfToggle(this)") {
+		t.Error("filter chips missing onclick handler")
+	}
+}
+
+func TestServer_RulesCategoryDataAttributes(t *testing.T) {
+	rr := authedGet(t, "/dashboard/rules?tab=detection")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("rules returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, attr := range []string{"data-disabled=", "data-critical=", "data-high=", "data-triggered="} {
+		if !strings.Contains(body, attr) {
+			t.Errorf("category cards missing data attribute %q for client-side filtering", attr)
+		}
+	}
+}
+
+func TestServer_RulesBulkButtonCounts(t *testing.T) {
+	rr := authedGet(t, "/dashboard/rules?tab=detection")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("rules returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Enable All (") {
+		t.Error("Enable All button should show rule count")
+	}
+	if !strings.Contains(body, "Disable All (") {
+		t.Error("Disable All button should show rule count")
+	}
+}
+
+func TestServer_RulesFilterScript(t *testing.T) {
+	rr := authedGet(t, "/dashboard/rules?tab=detection")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("rules returned %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "window.rfToggle") {
+		t.Error("rules page missing rfToggle filter function")
+	}
+}

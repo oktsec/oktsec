@@ -670,7 +670,11 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		llmDisabled, _ = s.ruleGen.ListDisabled()
 	}
 
-	topRules, _ := s.audit.QueryTopRules(5, "")
+	allTriggered, _ := s.audit.QueryTopRules(0, "")
+	topRules := allTriggered
+	if len(topRules) > 5 {
+		topRules = topRules[:5]
+	}
 
 	data := map[string]any{
 		"Active":           "rules",
@@ -755,6 +759,18 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 		var categories []ruleCategory
 		for _, name := range catOrder {
 			categories = append(categories, *catMap[name])
+		}
+
+		triggerByRule := make(map[string]int)
+		for _, rs := range allTriggered {
+			triggerByRule[rs.RuleID] = rs.Count
+		}
+		for i := range categories {
+			for _, rule := range categories[i].Rules {
+				if cnt, ok := triggerByRule[rule.ID]; ok {
+					categories[i].Triggered += cnt
+				}
+			}
 		}
 
 		data["AllRules"] = allRules
@@ -884,6 +900,7 @@ type ruleCategory struct {
 	Low         int
 	Disabled    int // count of disabled rules in this category
 	Total       int
+	Triggered   int
 }
 
 // categoryDescriptions maps Aguara category names to human-readable descriptions.

@@ -28,6 +28,10 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 .cat-card-sev.low{background:var(--surface2);color:var(--text3)}
 .cat-card-status{margin-left:auto;font-size:0.68rem;font-weight:500;color:var(--text3)}
 .cat-card-status.some-off{color:var(--warn)}
+.rules-filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.rules-filter{padding:4px 12px;border:1px solid var(--border);border-radius:20px;font-size:var(--text-xs);color:var(--text3);cursor:pointer;background:transparent;transition:all 0.15s;user-select:none;font-family:var(--sans)}
+.rules-filter:hover{border-color:var(--text3);color:var(--text2)}
+.rules-filter.active{background:rgba(56,139,253,0.1);border-color:var(--accent);color:var(--accent-light)}
 .custom-rule-row{display:flex;align-items:center;gap:var(--sp-4);padding:14px var(--sp-5);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);margin-bottom:var(--sp-2);transition:border-color var(--ease-smooth)}
 .custom-rule-row:hover{border-color:var(--accent)}
 .custom-rule-id{font-family:var(--mono);font-weight:600;font-size:0.82rem;color:var(--text);min-width:200px}
@@ -68,16 +72,22 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
 </div>
 {{end}}
 
+<div class="rules-filters">
+  <button class="rules-filter" data-filter="disabled" onclick="rfToggle(this)">Has disabled</button>
+  <button class="rules-filter" data-filter="highplus" onclick="rfToggle(this)">High+ severity</button>
+  <button class="rules-filter" data-filter="triggered" onclick="rfToggle(this)">Recently triggered</button>
+</div>
+
 <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px">
   <span style="color:var(--text3);font-size:0.78rem">{{.RuleCount}} rules across {{len .Categories}} categories</span>
   <div style="display:flex;gap:8px">
-    <button class="btn btn-sm" style="font-size:0.72rem" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"enable-all"}' hx-confirm="Enable ALL detection rules?">Enable All</button>
-    <button class="btn btn-sm" style="font-size:0.72rem;background:transparent;border:1px solid var(--border);color:var(--text3)" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"disable-all"}' hx-confirm="Disable ALL detection rules? This removes all security scanning.">Disable All</button>
+    <button class="btn btn-sm" style="font-size:0.72rem" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"enable-all"}' hx-confirm="Enable ALL {{.RuleCount}} detection rules?">Enable All ({{.RuleCount}})</button>
+    <button class="btn btn-sm" style="font-size:0.72rem;background:transparent;border:1px solid var(--border);color:var(--text3)" hx-post="/dashboard/api/rules/bulk-toggle" hx-vals='{"action":"disable-all"}' hx-confirm="Disable ALL {{.RuleCount}} detection rules? This removes all security scanning.">Disable All ({{.RuleCount}})</button>
   </div>
 </div>
 <div class="cat-grid">
   {{range .Categories}}
-  <a href="/dashboard/rules/{{.Name}}" class="cat-card">
+  <a href="/dashboard/rules/{{.Name}}" class="cat-card" data-disabled="{{.Disabled}}" data-critical="{{.Critical}}" data-high="{{.High}}" data-triggered="{{.Triggered}}">
     <div class="cat-card-head">
       <span class="cat-card-name">{{kebabToTitle .Name}}</span>
       <span class="cat-card-count">{{.Total}}</span>
@@ -88,12 +98,34 @@ var rulesTmpl = template.Must(template.New("rules").Funcs(tmplFuncs).Parse(layou
       {{if .High}}<span class="cat-card-sev high">{{.High}} high</span>{{end}}
       {{if .Medium}}<span class="cat-card-sev medium">{{.Medium}} medium</span>{{end}}
       {{if .Low}}<span class="cat-card-sev low">{{.Low}} low</span>{{end}}
+      {{if .Triggered}}<span class="cat-card-sev" style="background:rgba(187,128,9,0.08);color:var(--warn)">{{.Triggered}} triggered</span>{{end}}
       {{if and (gt .Disabled 0) (lt .Disabled .Total)}}<span class="cat-card-status some-off">{{.Disabled}} off</span>{{end}}
       {{if eq .Disabled .Total}}<span class="cat-card-status">all off</span>{{end}}
     </div>
   </a>
   {{end}}
 </div>
+
+<script>
+(function(){
+  var active = {};
+  window.rfToggle = function(btn) {
+    var f = btn.dataset.filter;
+    if (active[f]) { delete active[f]; btn.classList.remove('active'); }
+    else { active[f] = true; btn.classList.add('active'); }
+    var cards = document.querySelectorAll('.cat-card');
+    var keys = Object.keys(active);
+    cards.forEach(function(c) {
+      if (!keys.length) { c.style.display = ''; return; }
+      var ok = true;
+      if (active.disabled && parseInt(c.dataset.disabled) === 0) ok = false;
+      if (active.highplus && parseInt(c.dataset.critical) + parseInt(c.dataset.high) === 0) ok = false;
+      if (active.triggered && parseInt(c.dataset.triggered) === 0) ok = false;
+      c.style.display = ok ? '' : 'none';
+    });
+  };
+})();
+</script>
 
 {{else}}
 <div class="empty">No rules loaded.</div>
