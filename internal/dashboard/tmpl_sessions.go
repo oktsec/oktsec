@@ -156,6 +156,9 @@ function filterThreats(mode, btn) {
 }
 </script>
 {{else}}
-<div class="ss-empty">No sessions found in this time range.</div>
+<div class="ss-empty">
+  <p>No sessions found in the last {{.Range}}.</p>
+  {{if eq .Range "24h"}}<p style="margin-top:8px"><a href="/dashboard/sessions?range=7d" style="color:var(--accent);text-decoration:none">Try the last 7 days &rarr;</a></p>{{end}}
+</div>
 {{end}}
 `

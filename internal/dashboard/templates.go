@@ -1160,15 +1160,14 @@ a.ov-metric:hover{background:var(--surface2)}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"><h3 style="margin:0" data-tooltip="Risk score based on blocked and flagged messages per agent in the last 24 hours">Agent Risk (24h)</h3><a href="/dashboard/agents" style="font-size:var(--text-sm);color:var(--accent-light);text-decoration:none;font-weight:500">View all &rarr;</a></div>
     <div id="ar-list">
     {{range $i, $a := .AgentRisks}}{{if not (contains $a.Agent ":")}}
-    <div class="ov-metric clickable ar-item" style="cursor:pointer" onclick="window.location='/dashboard/agents/{{$a.Agent}}'">
+    <a href="/dashboard/agents/{{$a.Agent}}" class="ov-metric clickable ar-item" style="cursor:pointer;text-decoration:none;color:inherit">
       <span class="k">{{if eq $a.Agent "unknown"}}<span style="color:var(--text3)">Unidentified</span>{{else}}{{$a.Agent}}{{end}}<br><span style="color:var(--text3);font-size:var(--text-xs);font-family:var(--mono)">{{$a.Total}} msgs</span></span>
       <span class="v">
         <div class="risk-bar" style="width:60px;display:inline-block;vertical-align:middle;margin-right:6px"><div class="risk-bar-fill {{if gt $a.RiskScore 60.0}}risk-high{{else if gt $a.RiskScore 30.0}}risk-med{{else}}risk-low{{end}}" style="width:{{printf "%.0f" $a.RiskScore}}%"></div></div>
         <span style="font-size:var(--text-sm)">{{printf "%.0f" $a.RiskScore}}</span>
       </span>
-    </div>
+    </a>
     {{end}}{{end}}
-    </div>
     <div id="ar-pager" style="display:none;padding-top:10px;border-top:1px solid var(--border);margin-top:var(--sp-1)">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <span id="ar-info" style="font-size:var(--text-sm);color:var(--text3)"></span>
@@ -1558,12 +1557,13 @@ var agentDetailTmpl = template.Must(template.New("agent-detail").Funcs(tmplFuncs
 <!-- Risk Score + Tool Distribution -->
 <div class="ad-grid" style="margin-bottom:20px">
   <div class="card" style="padding:16px 20px">
-    <div class="ad-slbl">Risk Score</div>
+    <div class="ad-slbl">Risk Score <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text3)">(last 24h)</span></div>
     <div style="display:flex;align-items:center;gap:14px">
       <span style="font-size:1.5rem;font-weight:700;font-family:var(--mono)" class="{{if gt .RiskScore 60.0}}danger{{else if gt .RiskScore 30.0}}warn{{else}}success{{end}}">{{printf "%.0f" .RiskScore}}</span>
       <div class="ad-gauge" id="risk-gauge"></div>
       <span style="color:var(--text3);font-size:0.72rem;font-family:var(--mono)">/ 100</span>
     </div>
+    <div style="font-size:0.68rem;color:var(--text3);margin-top:6px">Based on blocked and flagged messages in the last 24 hours</div>
     <script>
     (function(){
       var g=document.getElementById('risk-gauge');if(!g)return;
@@ -1803,7 +1803,7 @@ function adTab(name){
       <tbody>
       {{range .LLMHistory}}
       <tr class="clickable" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
-        <td style="padding:10px 20px;border-bottom:1px solid var(--border)" data-ts="{{.Timestamp}}">{{.Timestamp}}</td>
+        <td style="padding:10px 20px;border-bottom:1px solid var(--border)" data-ts="{{.Timestamp}}"><a href="/dashboard/llm/case/{{.ID}}" style="color:inherit;text-decoration:none">{{.Timestamp}}</a></td>
         <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border);font-family:var(--mono);font-weight:600;color:{{if gt .RiskScore 60.0}}var(--danger){{else if gt .RiskScore 30.0}}var(--warn){{else}}var(--success){{end}}">{{printf "%.0f" .RiskScore}}</td>
         <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .RecommendedAction "block"}}<span class="badge-blocked">block</span>{{else if eq .RecommendedAction "investigate"}}<span class="badge-quarantined">investigate</span>{{else}}<span class="badge-delivered">none</span>{{end}}</td>
         <td style="text-align:center;padding:10px 20px;border-bottom:1px solid var(--border)">{{if eq .ReviewedStatus "confirmed"}}<span style="color:var(--danger);font-weight:600">confirmed</span>{{else if eq .ReviewedStatus "false_positive"}}<span style="color:var(--text3)">dismissed</span>{{else}}<span style="color:var(--warn)">pending</span>{{end}}</td>
@@ -3484,7 +3484,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Hold suspicious messages for human review. Window: {{.QExpiryHours}}h, retain {{.QRetentionDays}}d</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="enabled" value="true" {{if .QEnabled}}checked{{end}} onchange="if(confirm('{{if .QEnabled}}Disable quarantine? Suspicious messages will no longer be held for review.{{else}}Enable quarantine for suspicious messages?{{end}}')){this.form.submit()}else{this.checked={{if .QEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="enabled" value="true" aria-label="Toggle quarantine" {{if .QEnabled}}checked{{end}} onchange="if(confirm('{{if .QEnabled}}Disable quarantine? Suspicious messages will no longer be held for review.{{else}}Enable quarantine for suspicious messages?{{end}}')){this.form.submit()}else{this.checked={{if .QEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
     </div>
   </div>
   <input type="hidden" name="expiry_hours" value="{{.QExpiryHours}}">
@@ -3498,7 +3498,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Automatically pause agents that show suspicious behavior patterns</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="if(confirm('{{if .AnomalyAutoSuspend}}Disable automatic agent suspension? Suspicious agents will no longer be paused.{{else}}Enable automatic suspension of agents with suspicious behavior?{{end}}')){this.form.submit()}else{this.checked={{if .AnomalyAutoSuspend}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="auto_suspend" value="true" aria-label="Toggle behavior monitoring" {{if .AnomalyAutoSuspend}}checked{{end}} onchange="if(confirm('{{if .AnomalyAutoSuspend}}Disable automatic agent suspension? Suspicious agents will no longer be paused.{{else}}Enable automatic suspension of agents with suspicious behavior?{{end}}')){this.form.submit()}else{this.checked={{if .AnomalyAutoSuspend}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
     </div>
   </div>
   <input type="hidden" name="check_interval" value="{{if .AnomalyCheckInterval}}{{.AnomalyCheckInterval}}{{else}}60{{end}}">
@@ -3527,7 +3527,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Require agents to declare what they're doing. Flag mismatches between stated intent and actual content.</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="require_intent" value="true" {{if .RequireIntent}}checked{{end}} onchange="if(confirm('{{if .RequireIntent}}Disable intent verification? Agents will no longer need to declare purpose.{{else}}Require agents to declare intent before sending messages?{{end}}')){this.form.submit()}else{this.checked={{if .RequireIntent}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="require_intent" value="true" aria-label="Toggle purpose verification" {{if .RequireIntent}}checked{{end}} onchange="if(confirm('{{if .RequireIntent}}Disable intent verification? Agents will no longer need to declare purpose.{{else}}Require agents to declare intent before sending messages?{{end}}')){this.form.submit()}else{this.checked={{if .RequireIntent}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
     </div>
   </div>
   </form>
@@ -3539,7 +3539,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Save blocked and quarantined content as test cases for detection rule validation. Files are stored locally in ~/.oktsec/testcases/</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" name="export_blocked" value="true" {{if .ExportBlocked}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" name="export_blocked" value="true" aria-label="Toggle testcase export" {{if .ExportBlocked}}checked{{end}} onchange="this.form.submit()"><span class="toggle-slider"></span></span>
     </div>
   </div>
   </form>
@@ -3551,7 +3551,7 @@ var settingsTmpl = template.Must(template.New("settings").Funcs(tmplFuncs).Parse
       <div class="st-item-desc">Inspect and control what agents send outside your network</div>
     </div>
     <div class="st-item-value">
-      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" {{if .FPEnabled}}checked{{end}} onchange="if(confirm('{{if .FPEnabled}}Disable outbound traffic inspection? Agent egress will no longer be monitored.{{else}}Enable outbound traffic inspection for agent requests?{{end}}')){toggleEgressDetails();this.form.submit()}else{this.checked={{if .FPEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
+      <span class="toggle"><input type="checkbox" id="fp-toggle" name="enabled" value="true" aria-label="Toggle outbound traffic inspection" {{if .FPEnabled}}checked{{end}} onchange="if(confirm('{{if .FPEnabled}}Disable outbound traffic inspection? Agent egress will no longer be monitored.{{else}}Enable outbound traffic inspection for agent requests?{{end}}')){toggleEgressDetails();this.form.submit()}else{this.checked={{if .FPEnabled}}true{{else}}false{{end}}}"><span class="toggle-slider"></span></span>
     </div>
   </div>
   <div id="fp-details" style="{{if not .FPEnabled}}display:none;{{end}}">
@@ -3996,8 +3996,8 @@ function llmSwitchTab(name){
   </thead>
   <tbody id="tq-tbody">
   {{range .Analyses}}
-    <tr class="tq-row{{if eq .ReviewedStatus "false_positive"}} tq-dismissed{{end}}" data-risk="{{printf "%.0f" .RiskScore}}" data-status="{{.ReviewedStatus}}" data-agent="{{.FromAgent}} {{.ToAgent}}" onclick="window.location='/dashboard/llm/case/{{.ID}}'">
-      <td><span class="tq-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:var(--danger-muted);color:var(--danger){{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.07);color:#d29922{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span></td>
+    <tr class="tq-row{{if eq .ReviewedStatus "false_positive"}} tq-dismissed{{end}}" data-risk="{{printf "%.0f" .RiskScore}}" data-status="{{.ReviewedStatus}}" data-agent="{{.FromAgent}} {{.ToAgent}}">
+      <td><a href="/dashboard/llm/case/{{.ID}}" style="text-decoration:none"><span class="tq-risk" style="{{if ge .RiskScore 76.0}}background:rgba(239,68,68,0.08);color:#f85149{{else if ge .RiskScore 51.0}}background:var(--danger-muted);color:var(--danger){{else if ge .RiskScore 31.0}}background:rgba(210,153,34,0.07);color:#d29922{{else if gt .RiskScore 0.0}}background:rgba(34,197,94,0.06);color:#3fb950{{else}}background:var(--surface2);color:var(--text3){{end}}">{{printf "%.0f" .RiskScore}}</span></a></td>
       <td style="font-size:0.8rem;white-space:nowrap">{{.FromAgent}} <span style="color:var(--text3)">&rarr;</span> {{.ToAgent}}</td>
       <td style="font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{firstThreatSummary .ThreatsJSON .RiskScore}}</td>
       <td><span class="tq-action {{.RecommendedAction}}">{{.RecommendedAction}}</span></td>
@@ -5777,7 +5777,7 @@ function gwTab(name){
     <thead><tr><th>Name</th><th>Transport</th><th>Target</th><th>Sandbox</th><th></th></tr></thead>
     <tbody>
     {{range .Servers}}
-    <tr id="server-row-{{.Name}}" class="clickable" onclick="window.location='/dashboard/gateway/servers/{{.Name}}'">
+    <tr id="server-row-{{.Name}}">
       <td style="font-weight:600"><a href="/dashboard/gateway/servers/{{.Name}}" style="color:var(--accent-light);text-decoration:none">{{.Name}}</a></td>
       <td><span class="badge-{{if eq .Transport "stdio"}}delivered{{else}}quarantined{{end}}" style="font-size:0.7rem">{{.Transport}}</span></td>
       <td style="color:var(--text3);font-family:var(--mono);font-size:0.8rem">{{if eq .Transport "stdio"}}{{.Command}}{{else}}{{.URL}}{{end}}</td>
@@ -5942,7 +5942,7 @@ var mcpServerDetailTmpl = template.Must(template.New("mcpServerDetail").Funcs(tm
     <thead><tr><th>Agent</th><th>Allowed Tools</th></tr></thead>
     <tbody>
     {{range .RelatedAgents}}
-    <tr class="clickable" onclick="window.location='/dashboard/agents/{{.Name}}'">
+    <tr>
       <td style="font-weight:600"><a href="/dashboard/agents/{{.Name}}" style="color:var(--accent-light);text-decoration:none">{{.Name}}</a></td>
       <td>{{range $i, $t := .AllowedTools}}{{if $i}} {{end}}<span class="acl-target">{{$t}}</span>{{end}}</td>
     </tr>
