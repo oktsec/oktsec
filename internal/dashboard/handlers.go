@@ -1068,6 +1068,11 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var blockedPct int
+	if stats.Total > 0 {
+		blockedPct = (stats.Blocked + stats.Rejected) * 100 / stats.Total
+	}
+
 	data := map[string]any{
 		"Active":       "agents",
 		"Name":         name,
@@ -1079,6 +1084,7 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 		"Blocked":      stats.Blocked,
 		"Rejected":     stats.Rejected,
 		"Quarantined":  stats.Quarantined,
+		"BlockedPct":   blockedPct,
 		"KeyFP":        keyFP,
 		"KeyRevoked":   keyRevoked,
 		"RequireSig":   s.cfg.Identity.RequireSignature,
