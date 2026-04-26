@@ -266,36 +266,6 @@ func buildGatewayActivity(auditStore *audit.Store, logger *slog.Logger) activity
 	return activity.NewSQLStore(db, dialect)
 }
 
-// coverageFromAuth maps an auth method id to the coverage label the
-// dashboard should attribute to a single observed event. trusted_local
-// is observed (not protected) because the loopback header path cannot
-// guarantee the policy principal — it is convenience identity for
-// local-mode back-compat.
-func coverageFromAuth(method string) activity.CoverageMode {
-	switch method {
-	case "bearer_token", "proxy_token", "hook_token":
-		return activity.CoverageProtected
-	case "trusted_loopback":
-		return activity.CoverageObserved
-	}
-	return activity.CoverageObserved
-}
-
-// confidenceFromAuth maps an auth method id to the dashboard confidence
-// hint. Numbers come from the spec; 0 for unknown so the dashboard can
-// surface diagnostic-quality rows separately.
-func confidenceFromAuth(method string) int {
-	switch method {
-	case "bearer_token", "proxy_token":
-		return 100
-	case "hook_token":
-		return 100
-	case "trusted_loopback":
-		return 80
-	}
-	return 0
-}
-
 // principalIDOrUnknown enforces activity.Event's PrincipalID-required
 // invariant for surfaces that allow anonymous local telemetry (hooks).
 // The gateway never produces an empty principal in normal flow but
@@ -1116,8 +1086,8 @@ func (g *Gateway) emitGatewayActivity(msgID string, id requestIdentity, tool, st
 		AuditEntryID:        msgID,
 		Status:              status,
 		PolicyDecision:      decision,
-		CoverageMode:        coverageFromAuth(id.AuthMethod),
-		Confidence:          confidenceFromAuth(id.AuthMethod),
+		CoverageMode:        activity.CoverageFromAuthMethod(id.AuthMethod),
+		Confidence:          activity.ConfidenceFromAuthMethod(id.AuthMethod),
 		ResourceType:        "mcp_tool",
 		ResourceLabel:       tool,
 		ResourceID:          tool,
