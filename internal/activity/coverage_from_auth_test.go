@@ -56,6 +56,50 @@ func TestCoverageFromHookEvent(t *testing.T) {
 			wantCov:    CoverageObserved,
 			wantConf:   80,
 		},
+		{
+			// Claude Code emits Notification/Stop/SessionStart hooks
+			// in addition to PreToolUse/PostToolUse. None of them
+			// run before the action, so token auth must not promote
+			// them to Protected.
+			name:       "notification with hook_token is observed/40 (cannot block, unknown stage)",
+			authMethod: "hook_token",
+			hookEvent:  "notification",
+			wantCov:    CoverageObserved,
+			wantConf:   40,
+		},
+		{
+			name:       "stop with hook_token is observed/40 (session lifecycle, cannot block)",
+			authMethod: "hook_token",
+			hookEvent:  "stop",
+			wantCov:    CoverageObserved,
+			wantConf:   40,
+		},
+		{
+			// Defensive: a future client could send a stage name we
+			// have not seen. The conservative default protects the
+			// matrix from silent inflation.
+			name:       "unknown stage with hook_token is observed/40",
+			authMethod: "hook_token",
+			hookEvent:  "future_stage_we_dont_know",
+			wantCov:    CoverageObserved,
+			wantConf:   40,
+		},
+		{
+			// Defensive: empty stage should never happen post-normalization,
+			// but if it does the helper must not over-claim.
+			name:       "empty stage with hook_token is observed/40 (defensive)",
+			authMethod: "hook_token",
+			hookEvent:  "",
+			wantCov:    CoverageObserved,
+			wantConf:   40,
+		},
+		{
+			name:       "notification unauthenticated stays observed/0 (no inflation)",
+			authMethod: "",
+			hookEvent:  "notification",
+			wantCov:    CoverageObserved,
+			wantConf:   0,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

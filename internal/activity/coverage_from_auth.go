@@ -40,29 +40,52 @@ func ConfidenceFromAuthMethod(method string) int {
 	return 0
 }
 
-// HookEventPostToolUse is the normalized stage name for hooks that
-// fire after the tool ran. Kept as a constant so the coverage helper
-// and any future hook-stage logic agree on the wire value.
-const HookEventPostToolUse = "post_tool_use"
+// Hook stage names. The hooks handler normalizes incoming wire
+// values (e.g., Claude Code's "PreToolUse") into these snake_case
+// forms before emitting activity, so the coverage helper compares
+// against a single canonical vocabulary.
+const (
+	HookEventPreToolUse  = "pre_tool_use"
+	HookEventPostToolUse = "post_tool_use"
+)
 
 // CoverageFromHookEvent returns the coverage label and confidence the
-// dashboard should attribute to a single hook event. It accounts for
-// the hook stage, which CoverageFromAuthMethod alone cannot:
+// dashboard should attribute to a single hook event. It is
+// stage-driven on purpose: only pre_tool_use can claim Protected
+// because it is the only stage where oktsec can block before the
+// action runs. Every other stage is evidence after-the-fact at best,
+// regardless of how trustworthy the auth method is.
 //
-//   - pre_tool_use is the only stage where oktsec can block before the
-//     action ran; with token auth it is genuinely Protected/100.
-//   - post_tool_use is evidence after the fact. Even when carried by a
-//     valid hook_token the surface cannot block, so it is Observed
-//     with confidence 60 per the Phase 2B.1 spec ladder.
+//   - pre_tool_use inherits the auth-method base — token auth is
+//     Protected/100, trusted_loopback is Observed/80, etc.
+//   - post_tool_use with a token-authenticated source is Observed/60
+//     per the Phase 2B.1 spec ladder. Unauthenticated falls through
+//     to the auth-method base.
+//   - Any other explicit stage (notification, session lifecycle
+//     events, future stages) and any unrecognized stage value cannot
+//     be Protected. With a token-authenticated source we record
+//     Observed/40 — the source is trustworthy but we cannot say which
+//     lifecycle moment this evidence represents. Without a token we
+//     fall through to the auth-method base.
 //
-// Unauthenticated hooks (any stage) inherit the auth-method-only
-// mapping — they were already Observed with low confidence and the
-// stage does not change that.
+// The conservative default for unknown stages is the point of this
+// helper: a future hook stage added to a client must not silently
+// inflate the coverage matrix.
 func CoverageFromHookEvent(authMethod, hookEvent string) (CoverageMode, int) {
 	base := CoverageFromAuthMethod(authMethod)
 	conf := ConfidenceFromAuthMethod(authMethod)
-	if hookEvent == HookEventPostToolUse && base == CoverageProtected {
-		return CoverageObserved, 60
+	switch hookEvent {
+	case HookEventPreToolUse:
+		return base, conf
+	case HookEventPostToolUse:
+		if base == CoverageProtected {
+			return CoverageObserved, 60
+		}
+		return base, conf
+	default:
+		if base == CoverageProtected {
+			return CoverageObserved, 40
+		}
+		return base, conf
 	}
-	return base, conf
 }
