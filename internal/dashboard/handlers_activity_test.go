@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -328,12 +329,12 @@ func TestOverview_CoverageCellsActivateOnKeyboard(t *testing.T) {
 }
 
 // 10. connector_id is a derived filter (not a persisted column on
-// activity_events). The handler must query the store WITHOUT a
-// connector_id constraint and then post-filter by the connector
-// derived from each event's principal. Regression guard for the
-// original bug where connector_id was passed straight through to
-// activity.Query and matched zero rows because surface adapters
-// never populate Event.ConnectorID.
+// activity_events). The handler resolves the connector to the set of
+// matching principals and pushes the filter into SQL via PrincipalIDs
+// so the LIMIT applies AFTER the connector filter, never before.
+// Regression guard for the original bug where connector_id was passed
+// straight through to activity.Query and matched zero rows because
+// surface adapters never populate Event.ConnectorID.
 func TestActivityAPI_ConnectorIDFilterPostQueryDerived(t *testing.T) {
 	srv := newTestServer(t)
 	// Two principals: one custom-client (gateway + hook tokens),
@@ -396,5 +397,126 @@ func TestActivityAPI_ConnectorIDFilterPostQueryDerived(t *testing.T) {
 	if len(got) != 1 || got[0].PrincipalID != "multi-surface" {
 		t.Errorf("custom-client filter returned %d events; want 1 multi-surface; body = %s",
 			len(got), rr.Body.String())
+	}
+}
+
+// 11. The connector_id filter must survive the LIMIT cutoff. Codex's
+// scenario: many recent events from one connector, plus one older
+// event from a different connector. Asking for limit=N of the rare
+// connector must still return its event even when the recent N+
+// events all belong to other connectors. Regression guard for the
+// "post-filter after LIMIT" bug — the fix pushes the connector
+// filter into SQL via PrincipalIDs so LIMIT applies AFTER.
+func TestActivityAPI_ConnectorIDFilterSurvivesLimit(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "noisy-single-surface")
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals, config.PrincipalConfig{
+		ID:          "rare-multi-surface",
+		DisplayName: "rare-multi-surface",
+		Kind:        "agent",
+		Tokens: []config.PrincipalTokenConfig{
+			{ID: "rare-gw", Type: "gateway_bearer", Hash: "sha256:dummy", CreatedAt: "2026-04-26T00:00:00Z"},
+			{ID: "rare-hk", Type: "hook_bearer", Hash: "sha256:dummy", CreatedAt: "2026-04-26T00:00:00Z"},
+		},
+	})
+
+	// Seed: one OLD event for rare-multi-surface (custom-client),
+	// then 60 newer events for noisy-single-surface (generic-mcp-http).
+	// The old event must still surface when we filter by custom-client
+	// even though it would not be in the most-recent 50 globally.
+	store := srv.coverageActivityStore()
+	if store == nil {
+		t.Fatal("activity store not wired")
+	}
+	rare := activity.Event{
+		ID:           "rare-old",
+		Timestamp:    time.Date(2026, 4, 26, 8, 0, 0, 0, time.UTC),
+		PrincipalID:  "rare-multi-surface",
+		AuthMethod:   "bearer_token",
+		Surface:      activity.SurfaceMCPHTTP,
+		EventType:    activity.EventMCPToolCall,
+		EvidenceType: activity.EvidenceGateway,
+		CoverageMode: activity.CoverageProtected,
+		Confidence:   100,
+		ResourceType: "mcp_tool",
+		ResourceID:   "rare-tool",
+	}
+	if err := store.Insert(context.Background(), rare); err != nil {
+		t.Fatalf("seed rare event: %v", err)
+	}
+	// 60 newer noisy events. 60 > DefaultQueryLimit (50)? No,
+	// DefaultQueryLimit is 100. Use enough to push the rare event
+	// past any reasonable post-filter cutoff: 60 newer events with a
+	// limit=50 query would have lost rare under the old code.
+	for i := 0; i < 60; i++ {
+		ev := activity.Event{
+			ID:           "noisy-" + strconv.Itoa(i),
+			Timestamp:    time.Date(2026, 4, 26, 9, i, 0, 0, time.UTC),
+			PrincipalID:  "noisy-single-surface",
+			AuthMethod:   "bearer_token",
+			Surface:      activity.SurfaceMCPHTTP,
+			EventType:    activity.EventMCPToolCall,
+			EvidenceType: activity.EvidenceGateway,
+			CoverageMode: activity.CoverageProtected,
+			Confidence:   100,
+			ResourceType: "mcp_tool",
+			ResourceID:   "noisy-tool",
+		}
+		if err := store.Insert(context.Background(), ev); err != nil {
+			t.Fatalf("seed noisy event %d: %v", i, err)
+		}
+	}
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// limit=50: under the old "post-filter after LIMIT" code, the
+	// store would return the 50 most recent events (all noisy), the
+	// post-filter would discard all of them, and the response would
+	// be []. With the IN-clause-in-SQL fix, the rare event survives.
+	req := httptest.NewRequest("GET",
+		"/dashboard/api/activity?connector_id="+connectors.IDCustomClient+"&limit=50", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	var got []activityEventDTO
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d events; want 1 (rare must survive LIMIT cutoff); body = %s",
+			len(got), rr.Body.String())
+	}
+	if got[0].ID != "rare-old" {
+		t.Errorf("returned event ID = %q; want rare-old", got[0].ID)
+	}
+}
+
+// 12. Asking for a connector that has no matching principals must
+// short-circuit cleanly. Without the guard, the IN clause would be
+// "principal_id IN ()" which is invalid SQL on most engines.
+func TestActivityAPI_ConnectorIDWithNoMatchingPrincipalsReturnsEmpty(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+	seedActivityForTest(t, srv, "local-codex", "mcp_http", "tool")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/activity?connector_id="+connectors.IDLegacyLoopbackHeader, nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := strings.TrimSpace(rr.Body.String())
+	if body != "[]" {
+		t.Errorf("body = %q; want [] (no principal matches the requested connector)", body)
 	}
 }

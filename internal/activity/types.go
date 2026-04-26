@@ -130,16 +130,28 @@ type Event struct {
 // Limit defaults to DefaultQueryLimit and is capped at MaxQueryLimit so
 // no caller can ask for an unbounded result set — even a forgotten limit
 // will not exhaust memory or DB resources.
+//
+// PrincipalIDs is the multi-principal counterpart to PrincipalID and
+// turns into a SQL IN clause. Used by the dashboard's connector_id
+// drill-down: connector membership is config-derived, so the handler
+// resolves the connector to its principal set and pushes the filter
+// into SQL — the LIMIT then applies AFTER the connector filter, not
+// before. Both PrincipalID and PrincipalIDs may be set; the store
+// AND-combines them, which lets a caller scope to "this principal,
+// AND it must be in this connector's set" if it wants. An empty
+// PrincipalIDs slice is ignored (matches everything); pass a sentinel
+// with a known-impossible value if you want IN () semantics.
 type Query struct {
-	PrincipalID string
-	Surface     string
-	ConnectorID string
-	WorkspaceID string
-	SessionID   string
-	Coverage    string
-	Since       time.Time
-	Until       time.Time
-	Limit       int
+	PrincipalID  string
+	PrincipalIDs []string
+	Surface      string
+	ConnectorID  string
+	WorkspaceID  string
+	SessionID    string
+	Coverage     string
+	Since        time.Time
+	Until        time.Time
+	Limit        int
 }
 
 // Bounds enforced by the Store implementation on every Query.

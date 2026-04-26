@@ -68,12 +68,13 @@ type activityEventDTO struct {
 //
 // ConnectorID is a DERIVED filter: surface adapters do not persist
 // activity.Event.ConnectorID (it would denormalize a value already
-// in config that changes when tokens are revoked). The query goes to
-// the store WITHOUT a connector_id constraint, then the post-filter
-// keeps only rows whose principal currently maps to the requested
-// connector. To preserve the spec's "<= 500 rows in the response"
-// guarantee, the post-filter happens AFTER the bounded query, and
-// the post-filter never grows the result set.
+// in config that changes when tokens are revoked). When the caller
+// passes connector_id, the handler resolves it to the set of
+// principals currently in that connector and pushes the filter into
+// SQL via PrincipalIDs (an IN clause), so the LIMIT applies AFTER
+// the connector filter. Without this, asking for limit=100 of an
+// uncommon connector could return [] just because the last 100
+// global rows happened to belong to other connectors.
 func (s *Server) handleAPIActivity(w http.ResponseWriter, r *http.Request) {
 	store := s.coverageActivityStore()
 	if store == nil {
@@ -85,18 +86,48 @@ func (s *Server) handleAPIActivity(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestedConnector := r.URL.Query().Get("connector_id")
+	requestedPrincipal := r.URL.Query().Get("principal_id")
+	connByPrincipal := s.connectorIDsByPrincipal()
+
+	if requestedConnector != "" {
+		// If the caller pinned a single principal, just verify its
+		// connector matches and short-circuit if it does not. Saves a
+		// round-trip and avoids a redundant IN clause of size 1.
+		if requestedPrincipal != "" {
+			if connByPrincipal[requestedPrincipal] != requestedConnector {
+				s.renderJSON(w, []activityEventDTO{})
+				return
+			}
+		}
+	}
+
 	q := activity.Query{
-		PrincipalID: r.URL.Query().Get("principal_id"),
+		PrincipalID: requestedPrincipal,
 		Surface:     r.URL.Query().Get("surface"),
 		WorkspaceID: r.URL.Query().Get("workspace_id"),
 		Coverage:    r.URL.Query().Get("coverage"),
-		// Intentional: ConnectorID is NOT passed to the store. See
-		// post-filter below.
+		// Intentional: ConnectorID is NOT passed to the store; the
+		// PrincipalIDs filter below pushes the connector membership
+		// into SQL instead.
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			q.Limit = n
 		}
+	}
+
+	if requestedConnector != "" && requestedPrincipal == "" {
+		// Resolve the connector to its principal set and push the
+		// filter into SQL so the bounded LIMIT applies AFTER the
+		// connector filter. Empty match set means no principal
+		// belongs to this connector — short-circuit with [] instead
+		// of issuing an IN () (which is invalid SQL on most engines).
+		matching := principalsForConnector(connByPrincipal, requestedConnector)
+		if len(matching) == 0 {
+			s.renderJSON(w, []activityEventDTO{})
+			return
+		}
+		q.PrincipalIDs = matching
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), activityQueryTimeout)
@@ -109,16 +140,24 @@ func (s *Server) handleAPIActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	connByPrincipal := s.connectorIDsByPrincipal()
 	out := make([]activityEventDTO, 0, len(events))
 	for _, e := range events {
-		conn := connByPrincipal[e.PrincipalID]
-		if requestedConnector != "" && conn != requestedConnector {
-			continue
-		}
-		out = append(out, eventDTO(e, conn))
+		out = append(out, eventDTO(e, connByPrincipal[e.PrincipalID]))
 	}
 	s.renderJSON(w, out)
+}
+
+// principalsForConnector returns every principal ID currently mapped
+// to the requested connector. Order is not guaranteed; callers feed
+// this straight into an IN clause where order does not matter.
+func principalsForConnector(connByPrincipal map[string]string, connector string) []string {
+	out := make([]string, 0)
+	for principal, id := range connByPrincipal {
+		if id == connector {
+			out = append(out, principal)
+		}
+	}
+	return out
 }
 
 // eventDTO converts an activity.Event to its API-facing shape. The
