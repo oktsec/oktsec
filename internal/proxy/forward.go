@@ -191,6 +191,7 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	auth := authFromResolveResult(res)
 	agent := res.Principal.ID
 	if agent == "unknown" {
 		agent = ""
@@ -200,7 +201,7 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	policy := fp.resolvePolicy(agent)
 	if !policy.DomainAllowed(host) {
 		fp.logger.Warn("forward proxy: blocked CONNECT domain", "host", host, "agent", agent, "remote", r.RemoteAddr)
-		fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, audit.StatusBlocked, "proxy_blocked_domain", "", session, 0, start)
+		fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, audit.StatusBlocked, "proxy_blocked_domain", "", session, 0, start, auth)
 		http.Error(w, "Forbidden: domain blocked by proxy policy", http.StatusForbidden)
 		return
 	}
@@ -217,7 +218,7 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := ValidateHost(connectHost); err != nil {
 		fp.logger.Warn("forward proxy: SSRF blocked CONNECT", "host", host, "error", err)
-		fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, audit.StatusBlocked, "proxy_ssrf_blocked", "", session, 0, start)
+		fp.logProxyEntry(r.RemoteAddr, "CONNECT", host, audit.StatusBlocked, "proxy_ssrf_blocked", "", session, 0, start, auth)
 		http.Error(w, "Forbidden: SSRF protection", http.StatusForbidden)
 		return
 	}
@@ -268,7 +269,7 @@ func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Wait for either direction to finish
 	<-done
 
-	fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, "tunneled", "proxy_allowed", "", session, clientBytes+targetBytes, start)
+	fp.logProxyEntry(fp.logAgent(agent, r.RemoteAddr), "CONNECT", host, "tunneled", "proxy_allowed", "", session, clientBytes+targetBytes, start, auth)
 }
 
 // handleHTTP handles plain HTTP forward proxying with content scanning.
@@ -288,6 +289,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	auth := authFromResolveResult(res)
 	agent := res.Principal.ID
 	if agent == "unknown" {
 		agent = ""
@@ -298,7 +300,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	policy := fp.resolvePolicy(agent)
 	if !policy.DomainAllowed(host) {
 		fp.logger.Warn("forward proxy: blocked HTTP domain", "host", host, "agent", agent, "remote", r.RemoteAddr)
-		fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_domain", "", session, 0, start)
+		fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_domain", "", session, 0, start, auth)
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "domain blocked by proxy policy"})
 		return
 	}
@@ -318,7 +320,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := ValidateHost(ssrfHost); err != nil {
 			fp.logger.Warn("forward proxy: SSRF blocked HTTP", "host", host, "error", err)
-			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_ssrf_blocked", "", session, 0, start)
+			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_ssrf_blocked", "", session, 0, start, auth)
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "Forbidden: SSRF protection"})
 			return
 		}
@@ -351,7 +353,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			rulesJSON := verdict.EncodeFindings(outcome.Findings)
 			fp.logger.Warn("forward proxy: blocked request content",
 				"host", host, "agent", agent, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
-			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_content", rulesJSON, session, 0, start)
+			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_content", rulesJSON, session, 0, start, auth)
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "request blocked by content scan",
 				"detail": fmt.Sprintf("%d security finding(s) detected", len(outcome.Findings)),
@@ -396,7 +398,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			rulesJSON := verdict.EncodeFindings(outcome.Findings)
 			fp.logger.Warn("forward proxy: blocked response content",
 				"host", host, "agent", agent, "remote", r.RemoteAddr, "findings", len(outcome.Findings))
-			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_response", rulesJSON, session, 0, start)
+			fp.logProxyEntry(logAgent, r.Method, host, audit.StatusBlocked, "proxy_blocked_response", rulesJSON, session, 0, start, auth)
 			writeJSON(w, http.StatusForbidden, map[string]string{
 				"error":  "response blocked by content scan",
 				"detail": fmt.Sprintf("%d security finding(s) detected", len(outcome.Findings)),
@@ -410,7 +412,7 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(respBody)
 
-	fp.logProxyEntry(logAgent, r.Method, host, "forwarded", "proxy_allowed", "", session, int64(len(bodyBytes)+len(respBody)), start)
+	fp.logProxyEntry(logAgent, r.Method, host, "forwarded", "proxy_allowed", "", session, int64(len(bodyBytes)+len(respBody)), start, auth)
 }
 
 // resolvePolicy returns the merged egress policy for an agent.
@@ -460,19 +462,46 @@ func (fp *ForwardProxy) hasCategoryBlock(outcome *engine.ScanOutcome, policy *Re
 	return false
 }
 
-// logProxyEntry writes an audit log entry for proxy traffic.
-func (fp *ForwardProxy) logProxyEntry(remoteAddr, method, host, status, policyDecision, rulesTriggered, sessionID string, bytesTransferred int64, start time.Time) {
+// proxyAuth captures the identity provenance fields the audit row needs
+// from the resolver. Built once per request after resolveIdentity and
+// passed to every logProxyEntry call so the policy principal and the
+// audit row can never drift.
+type proxyAuth struct {
+	AuthMethod    string
+	TrustLevel    string
+	ReportedActor string
+}
+
+// authFromResolveResult lifts the resolver Result into the audit-friendly
+// snapshot the logProxyEntry calls expect.
+func authFromResolveResult(res resolve.Result) proxyAuth {
+	return proxyAuth{
+		AuthMethod:    string(res.Principal.AuthMethod),
+		TrustLevel:    string(res.Principal.TrustLevel),
+		ReportedActor: res.ReportedActor.ID,
+	}
+}
+
+// logProxyEntry writes an audit log entry for proxy traffic. The auth
+// snapshot threads identity provenance (auth_method,
+// principal_trust_level, reported_actor) through to the audit row so
+// downstream coverage / dashboard queries can attribute activity to the
+// egress surface without heuristics.
+func (fp *ForwardProxy) logProxyEntry(remoteAddr, method, host, status, policyDecision, rulesTriggered, sessionID string, bytesTransferred int64, start time.Time, auth proxyAuth) {
 	entry := audit.Entry{
-		ID:             uuid.New().String(),
-		Timestamp:      time.Now().UTC().Format(time.RFC3339),
-		FromAgent:      remoteAddr,
-		ToAgent:        host,
-		ContentHash:    fmt.Sprintf("%s:%d", method, bytesTransferred),
-		Status:         status,
-		PolicyDecision: policyDecision,
-		RulesTriggered: rulesTriggered,
-		SessionID:      sessionID,
-		LatencyMs:      time.Since(start).Milliseconds(),
+		ID:                  uuid.New().String(),
+		Timestamp:           time.Now().UTC().Format(time.RFC3339),
+		FromAgent:           remoteAddr,
+		ToAgent:             host,
+		ContentHash:         fmt.Sprintf("%s:%d", method, bytesTransferred),
+		Status:              status,
+		PolicyDecision:      policyDecision,
+		RulesTriggered:      rulesTriggered,
+		SessionID:           sessionID,
+		LatencyMs:           time.Since(start).Milliseconds(),
+		AuthMethod:          auth.AuthMethod,
+		PrincipalTrustLevel: auth.TrustLevel,
+		ReportedActor:       auth.ReportedActor,
 	}
 	fp.audit.Log(entry)
 }

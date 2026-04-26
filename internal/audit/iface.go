@@ -56,6 +56,11 @@ type AuditQuerier interface {
 	QueryAgentRisk(since string) ([]AgentRisk, error)
 	QueryEdgeStats(since string) ([]EdgeStat, error)
 	QueryToolStats(since string) ([]ToolStat, error)
+	// LastSeenByPrincipalSurface returns the most recent timestamp
+	// (RFC3339) for events attributable to (principalID, surface).
+	// Anonymous rows do not count even if from_agent matches; see the
+	// store implementation for the surface→auth_method mapping.
+	LastSeenByPrincipalSurface(principalID, surface string) (string, error)
 	CountRulePrefix(prefix string) (int, error)
 	CountByPolicyDecision(decision string) (int, error)
 }

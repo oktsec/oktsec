@@ -284,6 +284,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/agents", s.handleAgents)
 
 	s.mux.HandleFunc("GET /dashboard/graph", s.handleGraph)
+	s.mux.HandleFunc("GET /dashboard/api/coverage", s.handleAPICoverage)
 	s.mux.HandleFunc("GET /dashboard/api/graph", s.handleAPIGraph)
 	s.mux.HandleFunc("GET /dashboard/api/graph/edge", s.handleEdgeDetail)
 	s.mux.HandleFunc("POST /dashboard/api/audit/clear", s.handleAuditClear)
