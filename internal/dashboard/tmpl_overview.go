@@ -199,6 +199,7 @@ a.ov-metric:hover{background:var(--surface2)}
         {{with index .Cells "mcp_http"}}
         <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on MCP Gateway"
             hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=mcp_http"
+            hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"
             hx-target="#panel-content" hx-swap="innerHTML">
           <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
           {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
@@ -207,6 +208,7 @@ a.ov-metric:hover{background:var(--surface2)}
         {{with index .Cells "http_egress_proxy"}}
         <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on Egress Proxy"
             hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=http_egress_proxy"
+            hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"
             hx-target="#panel-content" hx-swap="innerHTML">
           <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
           {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
@@ -215,6 +217,7 @@ a.ov-metric:hover{background:var(--surface2)}
         {{with index .Cells "hooks"}}
         <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on Hooks"
             hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=hooks"
+            hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"
             hx-target="#panel-content" hx-swap="innerHTML">
           <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
           {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}

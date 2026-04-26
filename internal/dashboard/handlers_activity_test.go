@@ -297,3 +297,104 @@ func TestOverview_CoverageCellsAreClickable(t *testing.T) {
 		}
 	}
 }
+
+// 9. Coverage cells must activate on Enter and Space, not just mouse
+// click. tabindex=0 + role=button only makes a <td> focusable;
+// browsers do not synthesize click on Enter/Space for non-button
+// elements, so the hx-trigger must spell out the keyboard events
+// explicitly. Regression guard for keyboard-only operators (and
+// screen readers) being unable to open the drawer.
+func TestOverview_CoverageCellsActivateOnKeyboard(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	// HTMX trigger spec: comma-separated event filters. Enter and
+	// Space both must be present so keyboard activation works.
+	wantTrigger := `hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"`
+	hits := strings.Count(body, wantTrigger)
+	// One per (principal, surface) cell — three surfaces, one principal.
+	if hits != 3 {
+		t.Errorf("hx-trigger keyboard wiring count = %d; want 3 (one per surface column)", hits)
+	}
+}
+
+// 10. connector_id is a derived filter (not a persisted column on
+// activity_events). The handler must query the store WITHOUT a
+// connector_id constraint and then post-filter by the connector
+// derived from each event's principal. Regression guard for the
+// original bug where connector_id was passed straight through to
+// activity.Query and matched zero rows because surface adapters
+// never populate Event.ConnectorID.
+func TestActivityAPI_ConnectorIDFilterPostQueryDerived(t *testing.T) {
+	srv := newTestServer(t)
+	// Two principals: one custom-client (gateway + hook tokens),
+	// one generic-mcp-http (gateway only).
+	seedPrincipalWithGatewayBearer(srv, "single-surface")
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals, config.PrincipalConfig{
+		ID:          "multi-surface",
+		DisplayName: "multi-surface",
+		Kind:        "agent",
+		Tokens: []config.PrincipalTokenConfig{
+			{ID: "ms-gw", Type: "gateway_bearer", Hash: "sha256:dummy", CreatedAt: "2026-04-26T00:00:00Z"},
+			{ID: "ms-hk", Type: "hook_bearer", Hash: "sha256:dummy", CreatedAt: "2026-04-26T00:00:00Z"},
+		},
+	})
+
+	// One event for each principal. Both leave Event.ConnectorID
+	// empty, mirroring how the surface adapters write today.
+	seedActivityForTest(t, srv, "single-surface", "mcp_http", "tool-single")
+	seedActivityForTest(t, srv, "multi-surface", "mcp_http", "tool-multi")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Filter by connector_id=generic-mcp-http: must return only the
+	// single-surface principal even though neither event row has the
+	// connector ID persisted.
+	req := httptest.NewRequest("GET", "/dashboard/api/activity?connector_id="+connectors.IDGenericMCPHTTP, nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", rr.Code, rr.Body.String())
+	}
+	var got []activityEventDTO
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d events; want 1 (only single-surface principal matches generic-mcp-http); body = %s",
+			len(got), rr.Body.String())
+	}
+	if got[0].PrincipalID != "single-surface" {
+		t.Errorf("returned principal = %q; want single-surface", got[0].PrincipalID)
+	}
+	if got[0].ConnectorID != connectors.IDGenericMCPHTTP {
+		t.Errorf("returned connector_id = %q; want %s", got[0].ConnectorID, connectors.IDGenericMCPHTTP)
+	}
+
+	// Filter by connector_id=custom-client: must return only the
+	// multi-surface principal.
+	req = httptest.NewRequest("GET", "/dashboard/api/activity?connector_id="+connectors.IDCustomClient, nil)
+	req.AddCookie(cookie)
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode json: %v", err)
+	}
+	if len(got) != 1 || got[0].PrincipalID != "multi-surface" {
+		t.Errorf("custom-client filter returned %d events; want 1 multi-surface; body = %s",
+			len(got), rr.Body.String())
+	}
+}

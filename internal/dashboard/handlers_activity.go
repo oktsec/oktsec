@@ -65,10 +65,15 @@ type activityEventDTO struct {
 //
 // Auth is handled by the dashboard's existing session middleware.
 // Limit is bounded at MaxQueryLimit (500) regardless of input.
-// ConnectorID is attached from the coverage matrix per principal:
-// activity.Event itself does not carry a ConnectorID because that
-// would denormalize a value that already lives in config (and
-// changes when tokens are revoked).
+//
+// ConnectorID is a DERIVED filter: surface adapters do not persist
+// activity.Event.ConnectorID (it would denormalize a value already
+// in config that changes when tokens are revoked). The query goes to
+// the store WITHOUT a connector_id constraint, then the post-filter
+// keeps only rows whose principal currently maps to the requested
+// connector. To preserve the spec's "<= 500 rows in the response"
+// guarantee, the post-filter happens AFTER the bounded query, and
+// the post-filter never grows the result set.
 func (s *Server) handleAPIActivity(w http.ResponseWriter, r *http.Request) {
 	store := s.coverageActivityStore()
 	if store == nil {
@@ -79,12 +84,14 @@ func (s *Server) handleAPIActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	requestedConnector := r.URL.Query().Get("connector_id")
 	q := activity.Query{
 		PrincipalID: r.URL.Query().Get("principal_id"),
 		Surface:     r.URL.Query().Get("surface"),
-		ConnectorID: r.URL.Query().Get("connector_id"),
 		WorkspaceID: r.URL.Query().Get("workspace_id"),
 		Coverage:    r.URL.Query().Get("coverage"),
+		// Intentional: ConnectorID is NOT passed to the store. See
+		// post-filter below.
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -105,7 +112,11 @@ func (s *Server) handleAPIActivity(w http.ResponseWriter, r *http.Request) {
 	connByPrincipal := s.connectorIDsByPrincipal()
 	out := make([]activityEventDTO, 0, len(events))
 	for _, e := range events {
-		out = append(out, eventDTO(e, connByPrincipal[e.PrincipalID]))
+		conn := connByPrincipal[e.PrincipalID]
+		if requestedConnector != "" && conn != requestedConnector {
+			continue
+		}
+		out = append(out, eventDTO(e, conn))
 	}
 	s.renderJSON(w, out)
 }
@@ -135,14 +146,16 @@ func eventDTO(e activity.Event, connectorID string) activityEventDTO {
 	}
 }
 
-// connectorIDsByPrincipal computes the coverage matrix once and
-// returns a per-principal connector ID lookup. The matrix already
-// knows the connector for each principal (it is computed once per
-// row regardless of surface), so attaching it to per-event JSON
-// avoids re-deriving the same value.
+// connectorIDsByPrincipal computes the connector ID for each
+// configured principal. We pass nil for the AuditReader because the
+// connector label is derived purely from config (active token mix +
+// loopback posture); LastSeen would just trigger N×3 hybrid reader
+// calls per /api/activity request for a value the JSON does not use.
+// This keeps the JSON endpoint cheap regardless of activity-store
+// health.
 func (s *Server) connectorIDsByPrincipal() map[string]string {
 	out := map[string]string{}
-	for _, c := range coverage.Compute(s.cfg, s.coverageReader()) {
+	for _, c := range coverage.Compute(s.cfg, nil) {
 		// All cells for the same principal share the same connector.
 		// First write wins; later cells just overwrite with the same
 		// value, which is harmless.
@@ -168,7 +181,12 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	cells := coverage.Compute(s.cfg, s.coverageReader())
+	// Coverage label and connector ID are config-derived; LastSeen is
+	// the only column on a CoverageCell that depends on the audit /
+	// activity readers. The drawer body shows the events list itself
+	// (queried separately below) so LastSeen is redundant here. Pass
+	// nil to keep this handler independent of activity-store health.
+	cells := coverage.Compute(s.cfg, nil)
 	cellCoverage, cellConnector := lookupCell(cells, principalID, surface)
 
 	data := struct {
