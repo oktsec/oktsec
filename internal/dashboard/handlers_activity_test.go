@@ -299,13 +299,15 @@ func TestOverview_CoverageCellsAreClickable(t *testing.T) {
 	}
 }
 
-// 9. Coverage cells must activate on Enter and Space, not just mouse
-// click. tabindex=0 + role=button only makes a <td> focusable;
-// browsers do not synthesize click on Enter/Space for non-button
-// elements, so the hx-trigger must spell out the keyboard events
-// explicitly. Regression guard for keyboard-only operators (and
-// screen readers) being unable to open the drawer.
-func TestOverview_CoverageCellsActivateOnKeyboard(t *testing.T) {
+// 9. Coverage cells render as native buttons under strict CSP.
+// HTMX trigger filters like keyup[key=='Enter'] use eval() under the
+// hood, which is blocked by script-src 'self' 'unsafe-inline' (no
+// 'unsafe-eval'). Native <button> elements activate on click, Enter,
+// and Space without any filter expression, so the cell stays
+// keyboard-accessible without relaxing CSP. Regression guard
+// asserting both halves of the contract: buttons present, no filter
+// expressions emitted, no CSP relaxation.
+func TestOverview_CoverageCellsUseCSPSafeButtons(t *testing.T) {
 	srv := newTestServer(t)
 	seedPrincipalWithGatewayBearer(srv, "local-codex")
 
@@ -318,13 +320,25 @@ func TestOverview_CoverageCellsActivateOnKeyboard(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	body := rr.Body.String()
-	// HTMX trigger spec: comma-separated event filters. Enter and
-	// Space both must be present so keyboard activation works.
-	wantTrigger := `hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"`
-	hits := strings.Count(body, wantTrigger)
-	// One per (principal, surface) cell — three surfaces, one principal.
-	if hits != 3 {
-		t.Errorf("hx-trigger keyboard wiring count = %d; want 3 (one per surface column)", hits)
+
+	// Native buttons, one per surface column.
+	if got := strings.Count(body, `class="cov-cell-btn"`); got < 3 {
+		t.Errorf("cov-cell-btn count = %d; want at least 3 (one per surface)", got)
+	}
+	if !strings.Contains(body, `<button type="button" class="cov-cell-btn"`) {
+		t.Error("coverage cells must render as <button type=\"button\">")
+	}
+
+	// HTMX trigger filters require eval() and are blocked by CSP.
+	// Native buttons make them unnecessary.
+	if strings.Contains(body, "keyup[") || strings.Contains(body, "keydown[") {
+		t.Error("coverage cells must not emit HTMX trigger filters that require eval()")
+	}
+
+	// CSP must stay strict.
+	csp := rr.Header().Get("Content-Security-Policy")
+	if strings.Contains(csp, "unsafe-eval") {
+		t.Errorf("dashboard CSP must not include 'unsafe-eval'; got %q", csp)
 	}
 }
 

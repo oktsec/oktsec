@@ -167,9 +167,10 @@ a.ov-metric:hover{background:var(--surface2)}
 .cov-empty{padding:24px;text-align:center;color:var(--text3);font-size:var(--text-sm)}
 .cov-empty a{color:var(--accent);text-decoration:none}
 .cov-empty a:hover{text-decoration:underline}
-.cov-cell{cursor:pointer;transition:background 0.12s ease}
-.cov-cell:hover{background:rgba(88,166,255,0.06)}
-.cov-cell:focus{outline:2px solid var(--accent);outline-offset:-2px}
+.cov-cell{padding:0;vertical-align:top;white-space:nowrap}
+.cov-cell-btn{width:100%;min-height:52px;display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:10px 12px;background:transparent;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:var(--radius-sm);transition:background 0.12s ease}
+.cov-cell-btn:hover{background:rgba(88,166,255,0.06)}
+.cov-cell-btn:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 </style>
 <div class="ov-card" style="margin-bottom:var(--sp-4)">
   <div style="display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)">
@@ -197,30 +198,39 @@ a.ov-metric:hover{background:var(--surface2)}
         <td><span class="cov-connector">{{.ConnectorLabel}}</span></td>
         {{$pid := .PrincipalID}}
         {{with index .Cells "mcp_http"}}
-        <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on MCP Gateway"
-            hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=mcp_http"
-            hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"
-            hx-target="#panel-content" hx-swap="innerHTML">
-          <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
-          {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+        <td class="cov-cell">
+          <button type="button" class="cov-cell-btn"
+                  aria-label="Show activity for {{$pid}} on MCP Gateway"
+                  hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=mcp_http"
+                  hx-trigger="click"
+                  hx-target="#panel-content" hx-swap="innerHTML">
+            <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
+            {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+          </button>
         </td>
         {{else}}<td><span class="cov-badge blind">Blind</span></td>{{end}}
         {{with index .Cells "http_egress_proxy"}}
-        <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on Egress Proxy"
-            hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=http_egress_proxy"
-            hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"
-            hx-target="#panel-content" hx-swap="innerHTML">
-          <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
-          {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+        <td class="cov-cell">
+          <button type="button" class="cov-cell-btn"
+                  aria-label="Show activity for {{$pid}} on Egress Proxy"
+                  hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=http_egress_proxy"
+                  hx-trigger="click"
+                  hx-target="#panel-content" hx-swap="innerHTML">
+            <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
+            {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+          </button>
         </td>
         {{else}}<td><span class="cov-badge blind">Blind</span></td>{{end}}
         {{with index .Cells "hooks"}}
-        <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on Hooks"
-            hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=hooks"
-            hx-trigger="click, keyup[key=='Enter'], keyup[key==' ']"
-            hx-target="#panel-content" hx-swap="innerHTML">
-          <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
-          {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+        <td class="cov-cell">
+          <button type="button" class="cov-cell-btn"
+                  aria-label="Show activity for {{$pid}} on Hooks"
+                  hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=hooks"
+                  hx-trigger="click"
+                  hx-target="#panel-content" hx-swap="innerHTML">
+            <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
+            {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+          </button>
         </td>
         {{else}}<td><span class="cov-badge blind">Blind</span></td>{{end}}
         <td><span class="cov-identity">{{.IdentityList}}</span></td>
