@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -11,9 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/auditcheck"
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/coverage"
 	"github.com/oktsec/oktsec/internal/dashboard/static"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/graph"
@@ -63,6 +66,16 @@ type Server struct {
 	graphCache      *graph.AgentGraph
 	graphCacheRange string
 	graphCacheTime  time.Time
+
+	// Lazily-built activity store for coverage attribution. nil when
+	// the audit store does not expose a *sql.DB (test mocks) or when
+	// activity.Migrate failed at startup. Cached because Migrate is
+	// idempotent but not free; the resulting *activity.SQLStore is
+	// safe for concurrent use. The coverage reader wraps a fresh
+	// circuit breaker around this store on every render so a transient
+	// stall cannot permanently disable activity attribution.
+	coverageActivityOnce sync.Once
+	coverageActivityVal  activity.Store
 }
 
 // NewServer creates a dashboard server with access-code authentication.
@@ -109,6 +122,78 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 // When set, the dashboard will not spawn a child gateway process.
 func (s *Server) SetGatewayManaged() {
 	s.gwManaged = true
+}
+
+// coverageActivityBreakerThreshold is the number of consecutive
+// activity-store failures the per-render circuit breaker tolerates
+// before short-circuiting for the rest of the render. Combined with
+// coverage.activityLastSeenTimeout, this caps the worst-case render-
+// time contribution from a stalled activity store at
+// (timeout × threshold) regardless of principal count.
+const coverageActivityBreakerThreshold = 3
+
+// coverageReader returns the AuditReader coverage.Compute should use
+// for LastSeen attribution. The activity store is cached on first use
+// (sync.Once around the migrate-once dance), but the wrapper returned
+// here is built fresh per render so:
+//
+//   - the per-render circuit breaker state does not leak between
+//     unrelated dashboard requests, and
+//   - a transient activity stall does not permanently disable
+//     activity attribution across the process lifetime.
+//
+// When the audit store does not expose a *sql.DB (test mocks, future
+// stores), this returns the audit reader directly and Phase 2A
+// behavior is preserved.
+func (s *Server) coverageReader() coverage.AuditReader {
+	store := s.coverageActivityStore()
+	if store == nil {
+		return s.audit
+	}
+	activityReader := coverage.NewCircuitBreakerReader(
+		coverage.ActivityLastSeen{Store: store},
+		coverageActivityBreakerThreshold,
+	)
+	return coverage.HybridLastSeenReader{
+		Activity: activityReader,
+		Audit:    s.audit,
+	}
+}
+
+// coverageActivityStore returns the cached activity.Store the
+// coverage reader wraps, or nil when the audit store cannot back one.
+// Migrate is idempotent but not free, so the sync.Once avoids
+// re-running it on every coverage render.
+func (s *Server) coverageActivityStore() activity.Store {
+	s.coverageActivityOnce.Do(func() {
+		s.coverageActivityVal = s.buildActivityStoreForCoverage()
+	})
+	return s.coverageActivityVal
+}
+
+func (s *Server) buildActivityStoreForCoverage() activity.Store {
+	type dbBackedAuditStore interface {
+		DB() *sql.DB
+		DialectName() string
+	}
+	dbs, ok := s.audit.(dbBackedAuditStore)
+	if !ok {
+		return nil
+	}
+	db := dbs.DB()
+	if db == nil {
+		return nil
+	}
+	dialect := activity.Dialect(dbs.DialectName())
+	if dialect == "" {
+		s.logger.Warn("coverage reader: audit store reports unknown dialect; falling back to audit-only")
+		return nil
+	}
+	if err := activity.Migrate(db, dialect); err != nil {
+		s.logger.Warn("coverage reader: activity migrate failed; falling back to audit-only", "error", err)
+		return nil
+	}
+	return activity.NewSQLStore(db, dialect)
 }
 
 // SetLLMQueue attaches the LLM queue for budget status display.

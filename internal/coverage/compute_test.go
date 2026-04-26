@@ -134,8 +134,8 @@ func TestCompute_LegacyLoopbackHeaderObservedNotProtected(t *testing.T) {
 	if mcp.TrustLevel != "trusted_local" {
 		t.Errorf("MCP trust level = %q; want trusted_local", mcp.TrustLevel)
 	}
-	if mcp.ConnectorID != ConnectorLegacyLocalHeader {
-		t.Errorf("connector = %q; want %s", mcp.ConnectorID, ConnectorLegacyLocalHeader)
+	if mcp.ConnectorID != ConnectorLegacyLoopbackHeader {
+		t.Errorf("connector = %q; want %s", mcp.ConnectorID, ConnectorLegacyLoopbackHeader)
 	}
 }
 
@@ -234,10 +234,11 @@ func TestCompute_RevokedTokenDoesNotProtect(t *testing.T) {
 }
 
 // 9b. An expired-only gateway_bearer token must NOT label the principal
-// as generic-mcp-http. inferConnectorIDFromActive uses the same active
-// set Compute uses for coverage, so an expired token is invisible to
-// both. Without this guard, the matrix would advertise a connector the
-// principal cannot actually use.
+// as generic-mcp-http. The coverage layer filters revoked/expired tokens
+// before calling the connector registry, so an expired token is invisible
+// to both. In enterprise profile there is no loopback fallback either,
+// so the connector label is "Unknown source": the principal exists in
+// config but has no working auth path on any surface.
 func TestCompute_ExpiredTokenDoesNotInferConnector(t *testing.T) {
 	p := principalWith("local-codex", "gateway_bearer")
 	p.Tokens[0].ExpiresAt = "2026-01-02T00:00:00Z" // already in the past
@@ -249,9 +250,9 @@ func TestCompute_ExpiredTokenDoesNotInferConnector(t *testing.T) {
 	cells := Compute(cfg, nil)
 
 	mcp := pickCell(t, cells, "local-codex", SurfaceMCPHTTP)
-	if mcp.ConnectorID != ConnectorLegacyLocalHeader {
-		t.Errorf("connector = %q; want %s when the only token is expired",
-			mcp.ConnectorID, ConnectorLegacyLocalHeader)
+	if mcp.ConnectorID != ConnectorUnknown {
+		t.Errorf("connector = %q; want %s when the only token is expired in enterprise mode",
+			mcp.ConnectorID, ConnectorUnknown)
 	}
 	if mcp.Coverage == CoverageProtected {
 		t.Errorf("MCP cell = %+v; an expired gateway_bearer must not protect", mcp)

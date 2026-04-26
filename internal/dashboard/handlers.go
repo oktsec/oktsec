@@ -227,7 +227,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// Coverage matrix is computed once for the Overview render. Its rows
 	// are pivoted into per-principal table rows by the template; each
 	// surface column shows the corresponding cell's badge + limitation.
-	coverageRows := buildCoverageRows(coverage.Compute(s.cfg, s.audit))
+	coverageRows := buildCoverageRows(coverage.Compute(s.cfg, s.coverageReader()))
 
 	data := map[string]any{
 		"Active":        "overview",
@@ -4982,7 +4982,7 @@ func (s *Server) handleSaveCategoryWebhooks(w http.ResponseWriter, r *http.Reque
 // LastSeenByPrincipalSurface, so coverage.Compute can attribute the
 // "last seen" timestamp to each cell without extra wiring.
 func (s *Server) handleAPICoverage(w http.ResponseWriter, r *http.Request) {
-	cells := coverage.Compute(s.cfg, s.audit)
+	cells := coverage.Compute(s.cfg, s.coverageReader())
 	s.renderJSON(w, cells)
 }
 
