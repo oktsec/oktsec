@@ -16,6 +16,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 
+	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
@@ -27,6 +28,14 @@ import (
 	"github.com/oktsec/oktsec/internal/proxy"
 	"github.com/oktsec/oktsec/internal/verdict"
 )
+
+// activityWriter is the narrow projection of activity.Store the gateway
+// uses. Defined locally so tests can inject a stub without depending on
+// the full Store interface (Query, ListByCoverageCell, etc.). Production
+// passes an *activity.SQLStore; tests pass a recorder.
+type activityWriter interface {
+	Insert(ctx context.Context, e activity.Event) error
+}
 
 // Version is set from the CLI at startup (via ldflags).
 var Version = "dev"
@@ -125,6 +134,14 @@ type Gateway struct {
 	resolver       resolve.Resolver
 	resolverConfig resolve.Config
 	requireAuth    bool // derived from cfg.Gateway.RequireAuth + deployment profile
+
+	// activity emits one normalized activity event per audit row so the
+	// dashboard coverage matrix can show real evidence behind each cell.
+	// May be nil when the audit store does not expose a *sql.DB (e.g.,
+	// some test scaffolds) or when activity migration failed at startup —
+	// in either case the gateway logs only audit and the dashboard falls
+	// back to its audit-backed last-seen reader.
+	activity activityWriter
 }
 
 // authMiddleware runs the identity resolver for every gateway request,
@@ -220,6 +237,82 @@ func buildResolver(cfg *config.Config) resolve.Resolver {
 	return resolve.NewDefaultResolver(store, nil)
 }
 
+// buildGatewayActivity constructs the activity store the gateway uses
+// for dual-write. Lives in NewGateway (and newGatewayForTest) so the
+// gateway is wired exactly the same whether oktsec runs standalone
+// (`oktsec gateway`) or as part of `oktsec serve`. Returns nil when the
+// audit store does not expose a *sql.DB or migration fails: callers
+// continue with audit-only logging and the coverage matrix falls back
+// to its audit-backed reader.
+func buildGatewayActivity(auditStore *audit.Store, logger *slog.Logger) activityWriter {
+	if auditStore == nil {
+		return nil
+	}
+	db := auditStore.DB()
+	if db == nil {
+		return nil
+	}
+	dialect := activity.Dialect(auditStore.DialectName())
+	if dialect == "" {
+		// Unknown dialect; do not invent a default. Coverage will fall
+		// back to the audit-backed last-seen reader.
+		logger.Warn("activity store skipped: audit store reports unknown dialect")
+		return nil
+	}
+	if err := activity.Migrate(db, dialect); err != nil {
+		logger.Warn("activity store skipped: migrate failed", "error", err)
+		return nil
+	}
+	return activity.NewSQLStore(db, dialect)
+}
+
+// coverageFromAuth maps an auth method id to the coverage label the
+// dashboard should attribute to a single observed event. trusted_local
+// is observed (not protected) because the loopback header path cannot
+// guarantee the policy principal — it is convenience identity for
+// local-mode back-compat.
+func coverageFromAuth(method string) activity.CoverageMode {
+	switch method {
+	case "bearer_token", "proxy_token", "hook_token":
+		return activity.CoverageProtected
+	case "trusted_loopback":
+		return activity.CoverageObserved
+	}
+	return activity.CoverageObserved
+}
+
+// confidenceFromAuth maps an auth method id to the dashboard confidence
+// hint. Numbers come from the spec; 0 for unknown so the dashboard can
+// surface diagnostic-quality rows separately.
+func confidenceFromAuth(method string) int {
+	switch method {
+	case "bearer_token", "proxy_token":
+		return 100
+	case "hook_token":
+		return 100
+	case "trusted_loopback":
+		return 80
+	}
+	return 0
+}
+
+// principalIDOrUnknown enforces activity.Event's PrincipalID-required
+// invariant for surfaces that allow anonymous local telemetry (hooks).
+// The gateway never produces an empty principal in normal flow but
+// handlers run during startup edge cases where the field can be empty.
+func principalIDOrUnknown(id string) string {
+	if id == "" {
+		return "unknown"
+	}
+	return id
+}
+
+// activityInsertTimeout bounds the dual-write so a stalled DB cannot
+// pin a goroutine indefinitely. 2s is generous for a single insert on
+// SQLite WAL and short enough that a misbehaving Postgres does not fan
+// out goroutines forever.
+const activityInsertTimeout = 2 * time.Second
+
 // NewGateway creates a gateway from the given configuration.
 // Callers must call Start to begin serving and Shutdown to stop.
 // If sharedStore is non-nil, the gateway uses it instead of creating its own.
@@ -262,6 +355,7 @@ func NewGateway(cfg *config.Config, logger *slog.Logger, sharedStore *audit.Stor
 		resolver:          buildResolver(cfg),
 		resolverConfig:    policy.ResolverConfig,
 		requireAuth:       policy.RequireAuth,
+		activity:          buildGatewayActivity(auditStore, logger),
 	}, nil
 }
 
@@ -285,7 +379,16 @@ func newGatewayForTest(cfg *config.Config, scanner *engine.Scanner, auditStore *
 		resolver:          buildResolver(cfg),
 		resolverConfig:    policy.ResolverConfig,
 		requireAuth:       policy.RequireAuth,
+		activity:          buildGatewayActivity(auditStore, logger),
 	}
+}
+
+// SetActivityStore lets callers inject a custom activityWriter (e.g., a
+// recorder in tests, or a future shared store wired by `oktsec serve`).
+// Pass nil to disable activity dual-write entirely. Safe to call before
+// the gateway starts serving; not safe to swap mid-flight.
+func (g *Gateway) SetActivityStore(w activityWriter) {
+	g.activity = w
 }
 
 // Start connects to all backends, discovers tools, and starts the HTTP server.
@@ -940,15 +1043,21 @@ func (g *Gateway) autoRegisterAgent(name string) {
 
 // logAudit writes an audit entry for a gateway tool call.
 // Optional extra strings: first is delegation_chain_hash.
-// logAudit writes one audit entry. The caller passes the resolved
-// requestIdentity so the audit row carries the same Principal that
-// drove the policy decision, plus the AuthMethod / TrustLevel /
-// ReportedActor provenance the resolver established.
+// logAudit writes one audit entry and emits the matching activity
+// event. The caller passes the resolved requestIdentity so the audit
+// row carries the same Principal that drove the policy decision, plus
+// the AuthMethod / TrustLevel / ReportedActor provenance the resolver
+// established.
 //
 // FromAgent and ToAgent both equal id.PrincipalID — historical: the
 // gateway logs every tool call as a self-edge from the principal. Other
 // surfaces (agent message API) populate ToAgent differently and call
 // audit.Log directly.
+//
+// emitGatewayActivity runs after the audit insert so every audit row
+// the gateway writes has a paired activity event. Activity emission is
+// async with a short timeout: a slow or failing activity store cannot
+// affect the request latency or the security decision.
 func (g *Gateway) logAudit(msgID string, id requestIdentity, tool, status, decision, findingsJSON, toolArgs, sessionID string, start time.Time, extra ...string) {
 	var delHash, delChain string
 	if len(extra) > 0 {
@@ -976,6 +1085,53 @@ func (g *Gateway) logAudit(msgID string, id requestIdentity, tool, status, decis
 		PrincipalTrustLevel: id.TrustLevel,
 		ReportedActor:       id.ReportedActor,
 	})
+	g.emitGatewayActivity(msgID, id, tool, status, decision, sessionID)
+}
+
+// emitGatewayActivity writes one activity event correlated to the
+// audit row just logged. Runs in a fresh background context with a
+// bounded timeout so a slow DB cannot delay the request handler.
+// Insert errors are logged at warn — they never affect the policy
+// decision or the audit row.
+//
+// The activity event uses a fresh UUID so two audit rows with the
+// same msgID (rare, but possible on certain post-decision paths) do
+// not collide on the activity primary key. Correlation back to the
+// audit row goes through AuditEntryID.
+func (g *Gateway) emitGatewayActivity(msgID string, id requestIdentity, tool, status, decision, sessionID string) {
+	if g.activity == nil {
+		return
+	}
+	ev := activity.Event{
+		ID:                  uuid.NewString(),
+		Timestamp:           time.Now().UTC(),
+		PrincipalID:         principalIDOrUnknown(id.PrincipalID),
+		ReportedActor:       id.ReportedActor,
+		AuthMethod:          id.AuthMethod,
+		PrincipalTrustLevel: id.TrustLevel,
+		Surface:             activity.SurfaceMCPHTTP,
+		EventType:           activity.EventMCPToolCall,
+		EvidenceType:        activity.EvidenceGateway,
+		SessionID:           sessionID,
+		AuditEntryID:        msgID,
+		Status:              status,
+		PolicyDecision:      decision,
+		CoverageMode:        coverageFromAuth(id.AuthMethod),
+		Confidence:          confidenceFromAuth(id.AuthMethod),
+		ResourceType:        "mcp_tool",
+		ResourceLabel:       tool,
+		ResourceID:          tool,
+	}
+	go func() {
+		// Detached context: the request context can be cancelled by the
+		// time the goroutine runs (client closed, response written), and
+		// activity should still land if the DB is reachable.
+		ctx, cancel := context.WithTimeout(context.Background(), activityInsertTimeout)
+		defer cancel()
+		if err := g.activity.Insert(ctx, ev); err != nil {
+			g.logger.Warn("activity insert failed", "error", err, "msg_id", msgID, "surface", "mcp_http")
+		}
+	}()
 }
 
 // Scanner returns the gateway's content scanner.
