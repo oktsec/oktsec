@@ -56,13 +56,41 @@ func CoverageDisplayName(c CoverageMode) string {
 	return string(c)
 }
 
-// LimitationShortLabel reduces the full Limitation sentence to a small
-// inline tag the cell can show under the badge without bloating the
-// row. The full text remains available as a tooltip; this is just a
-// summary that keeps the matrix scannable.
+// AllowedShortLabels is the closed set of short labels a coverage
+// cell may show under the badge. The dashboard UX spec keeps this
+// list small on purpose so the matrix stays scannable: any
+// limitation that does not map cleanly into one of these labels
+// shows nothing inline, and the operator opens the drawer for the
+// full sentence. A test asserts every value LimitationShortLabel
+// returns is either empty or in this set, so a future addition has
+// to update both places consciously.
+var AllowedShortLabels = []string{
+	"Surface off",
+	"Loopback only",
+	"No token",
+	"Telemetry only",
+	"Pre-action only",
+	"Post-action only",
+	"Domain only",
+}
+
+// LimitationShortLabel reduces the full Limitation sentence to one
+// of the AllowedShortLabels. Returns empty when the limitation does
+// not map to a label in that set — long copy never lands inside a
+// table cell. The full sentence remains in the badge tooltip and
+// in the drill-down drawer for cases that need it.
 //
-// Returns empty when the cell has no caveat (clean Protected, or a
-// Blind cell whose Limitation is already self-explanatory).
+// Case order matters: hook limitations describe both the pre- and
+// post-action stages in a single sentence ("pre-action hooks block
+// when client honors the decision; post-action hooks are observed
+// only"), so the more specific "pre-action hooks block" branch must
+// run before any bare "post-action" check.
+//
+// "Domain only" only fires for the pure CONNECT-tunneled case; the
+// protected-egress sentences that mention "domain-only" as one half
+// of a longer caveat ("bodies inspected ... HTTPS CONNECT is
+// domain-only ...") fall through to empty so the cell stays clean
+// and the drawer carries the full explanation.
 func LimitationShortLabel(c CoverageCell) string {
 	if c.Limitation == "" {
 		return ""
@@ -83,17 +111,13 @@ func LimitationShortLabel(c CoverageCell) string {
 		return "Telemetry only"
 	case strings.Contains(lim, "pre-action hooks block"):
 		return "Pre-action only"
-	case strings.Contains(lim, "domain-only"):
+	case strings.Contains(lim, "post-action hooks") &&
+		!strings.Contains(lim, "pre-action"):
+		return "Post-action only"
+	case strings.HasPrefix(lim, "domain-only"):
 		return "Domain only"
-	case strings.Contains(lim, "request bodies inspected"):
-		return "Request bodies inspected"
-	case strings.Contains(lim, "plain http bodies inspected"):
-		return "HTTP bodies inspected"
 	}
-	// Unknown limitation: take the first clause so something inline
-	// still appears; the tooltip carries the full detail.
-	if i := strings.IndexAny(lim, ".—;"); i > 0 {
-		return strings.TrimSpace(c.Limitation[:i])
-	}
-	return c.Limitation
+	// No mapping. Keep the cell quiet and let the drawer carry the
+	// full explanation when the operator clicks in.
+	return ""
 }

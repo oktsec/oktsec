@@ -14,6 +14,7 @@ import (
 	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/connectors"
+	"github.com/oktsec/oktsec/internal/coverage"
 )
 
 // seedActivityForTest writes one event into the test server's activity
@@ -484,6 +485,70 @@ func TestOverview_CoverageCellsAreClickable(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("overview missing clickable wiring %q", want)
 		}
+	}
+}
+
+// 8b. Whatever short label the cell renders under the badge must
+// be in coverage.AllowedShortLabels. Long copy in a table cell
+// breaks the matrix layout and the drawer is the right home for
+// full sentences. Regression guard for "the function fell through
+// to a free-form fallback".
+func TestOverview_CoverageCellsShortLabelStaysInAllowedSet(t *testing.T) {
+	srv := newTestServer(t)
+	// Seed three principals that exercise the three coverage states
+	// for at least one surface each — token-protected, loopback
+	// observed, and a Blind cell from disabled forward proxy.
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals,
+		config.PrincipalConfig{
+			ID: "with-gw", DisplayName: "with-gw", Kind: "agent",
+			Tokens: []config.PrincipalTokenConfig{{
+				ID: "gw1", Type: "gateway_bearer", Hash: "sha256:dummy",
+				CreatedAt: "2026-04-26T00:00:00Z",
+			}},
+		},
+		config.PrincipalConfig{ID: "loopback-only", DisplayName: "loopback-only", Kind: "agent"},
+	)
+	srv.cfg.Gateway.Enabled = true
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	allowed := map[string]bool{}
+	for _, s := range coverage.AllowedShortLabels {
+		allowed[s] = true
+	}
+
+	// Walk every <span class="cov-short" ...>SHORT</span> in the body
+	// and verify SHORT is in the closed set. Hand-rolled extraction so
+	// the test does not pull in an HTML parser for one assertion.
+	const open = `<span class="cov-short"`
+	const close = "</span>"
+	for i := 0; ; {
+		j := strings.Index(body[i:], open)
+		if j < 0 {
+			break
+		}
+		j += i
+		gt := strings.Index(body[j:], ">")
+		if gt < 0 {
+			break
+		}
+		end := strings.Index(body[j+gt:], close)
+		if end < 0 {
+			break
+		}
+		got := strings.TrimSpace(body[j+gt+1 : j+gt+end])
+		if got != "" && !allowed[got] {
+			t.Errorf("cov-short rendered %q which is not in AllowedShortLabels %v",
+				got, coverage.AllowedShortLabels)
+		}
+		i = j + gt + end + len(close)
 	}
 }
 
