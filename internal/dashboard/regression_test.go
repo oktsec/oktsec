@@ -290,8 +290,9 @@ func TestRegression_GraphCodeIsClientAgnostic(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read %s: %v", f, err)
 			}
-			// A specific client name as a literal in graph code paths would
-			// re-introduce a single-client assumption. Comments are fine; code is not.
+			// Graph code paths must remain client-agnostic: client identification
+			// belongs in the activity layer (Phase 1+), not in literal node names.
+			// Comments are exempt; only non-comment code lines are checked.
 			lines := strings.Split(data, "\n")
 			for i, line := range lines {
 				trimmed := strings.TrimSpace(line)
@@ -299,7 +300,7 @@ func TestRegression_GraphCodeIsClientAgnostic(t *testing.T) {
 					continue
 				}
 				if strings.Contains(line, `"claude-code"`) || strings.Contains(line, `'claude-code'`) {
-					t.Errorf("%s:%d hardcodes 'claude-code' in non-comment code: %s",
+					t.Errorf("%s:%d references a specific client name in non-comment code: %s",
 						f, i+1, strings.TrimSpace(line))
 				}
 			}

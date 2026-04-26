@@ -3983,9 +3983,8 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 
 	// Collapse gateway/tool edges: "agent → gateway/X" becomes "agent → gateway".
 	// Multiple tool calls from the same agent are merged into one edge.
-	// Routes that graph v1 cannot model as agent↔agent edges (forward-proxy
-	// domains, IP:port pairs, endpoints not in agentSet) are captured in
-	// `unrepresented` rather than dropped silently — see UnrepresentedRoute.
+	// Routes outside the agent↔agent model (forward-proxy domains, IP:port
+	// pairs, endpoints not in agentSet) are surfaced as UnrepresentedRoute.
 	type edgeKey struct{ from, to string }
 	merged := make(map[edgeKey]*graph.EdgeInput)
 	type unrepKey struct{ from, to, reason string }
@@ -4007,8 +4006,9 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		return strings.Contains(s, ":") || strings.Count(s, ".") >= 2
 	}
 	for _, es := range edgeStats {
-		// Forward proxy traffic (IP:port sources and domain destinations) cannot
-		// be drawn as an agent↔agent edge today. Surface it instead of dropping it.
+		// Forward-proxy traffic (IP:port sources and domain destinations) is
+		// outside the agent↔agent model in graph v1; route it to UnrepresentedRoute
+		// so it remains visible end-to-end.
 		if isForwardProxyEndpoint(es.From) || isForwardProxyEndpoint(es.To) {
 			captureUnrep(es.From, es.To, "forward_proxy_endpoint", es)
 			continue
@@ -4044,11 +4044,9 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		}
 	}
 
-	// No edge rewriting. The audit trail is the source of truth — if it records
-	// `clientA → agentB`, render that, even if visually less tidy. Synthesizing
-	// `gateway → agentB` based on a hardcoded client name lied about coverage and
-	// hid which client actually originated the traffic. (See client-agnostic
-	// activity layer spec, Phase 0.)
+	// Edges render with the originator the audit trail recorded. Alternate
+	// visual routes (collapsing or substituting nodes) require explicit
+	// activity-layer evidence; see the client-agnostic activity layer spec.
 	edges := make([]graph.EdgeInput, 0, len(merged))
 	for _, e := range merged {
 		if e.From == e.To {
@@ -4057,8 +4055,8 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		_, fromInSet := agentSet[e.From]
 		_, toInSet := agentSet[e.To]
 		if !fromInSet || !toInSet {
-			// Endpoint that is not a known agent — capture so the dashboard can
-			// surface it instead of pretending it didn't happen.
+			// Endpoint outside the configured agent set — surface as
+			// UnrepresentedRoute so the dashboard reflects it end-to-end.
 			captureUnrep(e.From, e.To, "non_agent_endpoint", audit.EdgeStat{
 				From: e.From, To: e.To, Total: e.Total,
 				Blocked: e.Blocked, Quarantined: e.Quarantined,
@@ -4101,10 +4099,8 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		toolTotals[tool] += ts.Total
 	}
 
-	// Top tools by total invocations. No client-name skips: a tool literally
-	// named "Agent" used to be filtered as "redundant with orchestration",
-	// which baked in an assumption about one specific client. If a tool is
-	// actually called, the user should see it.
+	// Top tools by total invocations. Selection is name-agnostic: any tool
+	// observed in the audit is eligible to appear.
 	type toolRank struct {
 		name  string
 		total int
@@ -4123,11 +4119,8 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		g.ToolNodes = append(g.ToolNodes, graph.ToolNode{Name: r.name, Total: r.total})
 	}
 
-	// Tool edges: only what the audit actually saw. We used to detect a
-	// single-source tool fan-in (typically: all hook events report the
-	// orchestrator as caller) and synthesize fake edges to subagents with
-	// invented per-edge counts so the graph "looked balanced". That fabricated
-	// data and presented it as real; removed in Phase 0.
+	// Tool edges are derived strictly from observed audit evidence. Alternate
+	// visual routes require explicit activity-layer evidence (Phase 1+).
 	for k, total := range toolEdgeMerged {
 		if topTools[k.tool] {
 			g.ToolEdges = append(g.ToolEdges, graph.ToolEdge{Agent: k.agent, Tool: k.tool, Total: total})

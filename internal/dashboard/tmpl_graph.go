@@ -172,7 +172,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 {{if .Graph.UnrepresentedRoutes}}
 <div class="card" id="unrepresented-routes-section">
   <h2>Routes seen but not represented in graph v1</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Forward-proxy domains, hostnames, and endpoints that the current agent-graph cannot model as node-to-node edges. Listed here so they are not silently dropped from coverage.</p>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Forward-proxy domains, hostnames, and endpoints outside the agent-to-agent model in graph v1. Listed here so they remain visible end-to-end.</p>
   <table>
     <thead><tr><th>From</th><th>To</th><th>Total</th><th>Blocked</th><th>Quarantined</th><th>Reason</th></tr></thead>
     <tbody id="ur-tbody">
@@ -299,11 +299,9 @@ function toggleGraphSidebar() {
     });
 
     // ── Build node + link arrays ──
-    // No client-name hardcode: the orchestrator hex render used to fire only
-    // when n.name === 'claude-code'. That made one specific client look like
-    // "the orchestrator" while every other client rendered as a peer agent.
-    // Until the activity layer ships an explicit role field, every non-tool
-    // node is rendered the same way.
+    // Node rendering is name-agnostic: every non-tool node uses the uniform
+    // agent treatment. Role-aware rendering (orchestrator, gateway, etc.)
+    // requires explicit activity-layer evidence (Phase 1+).
     var nodes = data.nodes.map(function(n) {
       return {name:n.name, isTool:false, isOrch:false, threat:n.threat_score, sent:n.total_sent||0, recv:n.total_recv||0, betweenness:n.betweenness!=null?n.betweenness:-1, x:cx, y:cy, _g:null};
     });
@@ -335,9 +333,8 @@ function toggleGraphSidebar() {
       agentNodes.push(i);
     });
 
-    // (Removed: positioning a hardcoded 'claude-code' node into a SOURCE
-    // column. The graph no longer assumes which client is the orchestrator.)
-    // Position gateway checkpoint (between col 1 and col 2)
+    // Source-column positioning is reserved for an explicit role/client model
+    // (Phase 1+). Position gateway checkpoint (between col 1 and col 2)
     if(gwIdx>=0){
       nodes[gwIdx].x=COL_GW;
       nodes[gwIdx].y=H*0.50;
@@ -406,11 +403,9 @@ function toggleGraphSidebar() {
 
     // Column headers
     var headerFont='font-size:9px;fill:#52525b;font-family:ui-monospace,SFMono-Regular,monospace;letter-spacing:0.08em';
-    // Two column headers (AGENTS, TOOLS). The leftmost zone used to be
-    // labeled SOURCE/CLIENTS for a hardcoded orchestrator node — until the
-    // activity layer ships an explicit client model, leaving it labeled is
-    // dishonest (it would imply Oktsec identifies clients today, which it
-    // does not).
+    // Two column headers (AGENTS, TOOLS). A CLIENTS header is reserved for
+    // when the activity layer ships an explicit client identification model
+    // (Phase 1+).
     [{label:'AGENTS', x:COL2}, {label:'TOOLS', x:COL3}].forEach(function(h){
       var ht=document.createElementNS(NS,'text');
       ht.setAttribute('x',h.x); ht.setAttribute('y',24);
