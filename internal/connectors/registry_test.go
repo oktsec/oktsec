@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// The Phase 2B.1 spec table is reproduced here as a single source of
-// truth: every row in the spec corresponds to one row in this table.
+// The Phase 2B.1 spec table is reproduced here as a single reference
+// point: every row in the spec corresponds to one row in this table.
 // A failure here means the wire-level connector inference would drift
 // from the documented matrix.
 func TestBuiltinRegistry_Infer(t *testing.T) {

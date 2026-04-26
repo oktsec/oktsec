@@ -31,9 +31,9 @@ func TestLimitationShortLabel_OnlyReturnsAllowedSet(t *testing.T) {
 		{"hooks pre-action -> Pre-action only", "pre-action hooks block when client honors the decision; post-action hooks are observed only", "Pre-action only"},
 		{"egress domain-only -> Domain only", "domain-only (HTTPS CONNECT and disabled body scanning)", "Domain only"},
 
-		// The previously-emitted long labels for protected egress with
-		// HTTPS body inspection have no scannable short form, so the
-		// cell shows nothing inline. The drawer carries the full text.
+		// Long labels for protected egress with HTTPS body inspection
+		// have no scannable short form, so the cell shows nothing
+		// inline. The drawer carries the full text.
 		{"plain HTTP body inspection -> empty", "plain HTTP bodies inspected; HTTPS CONNECT is domain-only unless inspection is enabled", ""},
 		{"request body inspection only -> empty", "request bodies inspected on plain HTTP; HTTPS CONNECT is domain-only", ""},
 
