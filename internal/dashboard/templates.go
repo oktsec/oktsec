@@ -434,8 +434,8 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
 .login-shell{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
 .login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px;max-width:420px;width:100%}
-.login-brand{font-family:var(--mono);font-size:1.05rem;font-weight:700;color:var(--text2);margin-bottom:20px;letter-spacing:-0.2px}
-.login-card h1{font-size:1.25rem;font-weight:600;color:var(--text);margin:0 0 8px 0;letter-spacing:-0.2px}
+.login-brand{font-family:var(--mono);font-size:1.05rem;font-weight:700;color:var(--text2);margin-bottom:20px;letter-spacing:0}
+.login-card h1{font-size:1.25rem;font-weight:600;color:var(--text);margin:0 0 8px 0;letter-spacing:0}
 .login-copy{color:var(--text2);font-size:0.9rem;margin:0 0 20px 0;line-height:1.5}
 .login-copy code{font-family:var(--mono);font-size:0.82rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px 6px;color:var(--text)}
 .login-error{margin:0 0 16px 0;padding:10px 12px;background:var(--danger-muted);border:1px solid var(--danger-border);border-radius:var(--radius-sm);color:var(--danger);font-size:0.85rem;line-height:1.4}

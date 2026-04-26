@@ -106,12 +106,19 @@ func TestLogin_ErrorUsesAlertRole(t *testing.T) {
 	}
 }
 
-// 5. Dashboard static assets (fonts, JS, images) must be reachable
-// without a session. Otherwise the auth middleware redirects the
-// browser's pre-auth font request to /dashboard/login HTML, which
-// the browser tries to decode as a font and fails with a console
-// error before the operator can sign in. Regression guard for the
-// pre-auth asset 302 issue observed during dashboard smoke testing.
+// 5. Dashboard static assets that the login page itself loads must
+// be reachable without a session AND must actually serve the asset.
+// Otherwise the auth middleware redirects the pre-auth request to
+// /dashboard/login HTML, which the browser tries to decode as a
+// font / CSS / JS and fails with a console error before the operator
+// can sign in. Regression guard for the pre-auth asset 302 issue
+// observed during dashboard smoke testing AND for an embed-path
+// regression that would silently drop the Inter font.
+//
+// We assert 200 + a non-HTML response: a 404 here would mean the
+// embed pattern (//go:embed fonts/*.woff2) stopped including the
+// font, and the login would silently fall back to a system font
+// without anyone noticing.
 func TestLogin_StaticAssetsBypassAuth(t *testing.T) {
 	srv := newTestServer(t)
 	handler := srv.Handler()
@@ -123,14 +130,23 @@ func TestLogin_StaticAssetsBypassAuth(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
+
 		if rr.Code == http.StatusFound {
 			t.Errorf("GET %s without session returned 302 to login; static assets must bypass auth", path)
 		}
-		// 200 (asset present) and 404 (asset absent in this build) are
-		// both acceptable here — the regression we are guarding is
-		// "the browser gets HTML when it asks for a binary".
-		if rr.Code != http.StatusOK && rr.Code != http.StatusNotFound {
-			t.Errorf("GET %s status = %d; want 200 or 404", path, rr.Code)
+		if rr.Code != http.StatusOK {
+			t.Errorf("GET %s status = %d; want 200 (login depends on this asset)", path, rr.Code)
+			continue
+		}
+		// The login page references each of these assets directly.
+		// If we ever start handing the browser an HTML body in their
+		// place the embed/path regression must fail this test.
+		ctype := rr.Header().Get("Content-Type")
+		if strings.HasPrefix(ctype, "text/html") {
+			t.Errorf("GET %s returned Content-Type %q; required login asset must not be HTML", path, ctype)
+		}
+		if bytes := rr.Body.Bytes(); len(bytes) > 0 && bytes[0] == '<' {
+			t.Errorf("GET %s body looks like HTML (first byte %q); required login asset must not be HTML", path, bytes[0])
 		}
 	}
 }
