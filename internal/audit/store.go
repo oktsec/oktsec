@@ -180,6 +180,21 @@ type Store struct {
 // DB returns the underlying *sql.DB for direct access (benchmarking/migrations).
 func (s *Store) DB() *sql.DB { return s.db }
 
+// DialectName returns "sqlite" or "postgres" so a peer table (e.g. the
+// activity event store added in Phase 2B.1) can run its own migrations
+// against the same DB handle without re-deriving the dialect from
+// cfg.DBBackend. Empty when the dialect is not one of the two known
+// values, which keeps callers honest about the unknown case.
+func (s *Store) DialectName() string {
+	switch s.dialect.(type) {
+	case SQLiteDialect:
+		return "sqlite"
+	case PostgresDialect:
+		return "postgres"
+	}
+	return ""
+}
+
 // NewStoreReadOnly opens the SQLite audit database in a mode that refuses to
 // auto-repair or rebuild chain hashes. The underlying sqlite connection is
 // additionally put under `PRAGMA query_only=ON` after init so any subsequent
