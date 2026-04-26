@@ -3982,14 +3982,35 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 	}
 
 	// Collapse gateway/tool edges: "agent → gateway/X" becomes "agent → gateway".
-	// Skip forward proxy entries (IPs with ports, hostnames with dots).
 	// Multiple tool calls from the same agent are merged into one edge.
+	// Routes that graph v1 cannot model as agent↔agent edges (forward-proxy
+	// domains, IP:port pairs, endpoints not in agentSet) are captured in
+	// `unrepresented` rather than dropped silently — see UnrepresentedRoute.
 	type edgeKey struct{ from, to string }
 	merged := make(map[edgeKey]*graph.EdgeInput)
+	type unrepKey struct{ from, to, reason string }
+	unrepMerged := make(map[unrepKey]*graph.UnrepresentedRoute)
+	captureUnrep := func(from, to, reason string, es audit.EdgeStat) {
+		k := unrepKey{from, to, reason}
+		if u, ok := unrepMerged[k]; ok {
+			u.Total += es.Total
+			u.Blocked += es.Blocked
+			u.Quarantined += es.Quarantined
+			return
+		}
+		unrepMerged[k] = &graph.UnrepresentedRoute{
+			From: from, To: to, Total: es.Total,
+			Blocked: es.Blocked, Quarantined: es.Quarantined, Reason: reason,
+		}
+	}
+	isForwardProxyEndpoint := func(s string) bool {
+		return strings.Contains(s, ":") || strings.Count(s, ".") >= 2
+	}
 	for _, es := range edgeStats {
-		// Skip forward proxy traffic (IP:port sources and domain destinations)
-		if strings.Contains(es.From, ":") || strings.Count(es.From, ".") >= 2 ||
-			strings.Contains(es.To, ":") || strings.Count(es.To, ".") >= 2 {
+		// Forward proxy traffic (IP:port sources and domain destinations) cannot
+		// be drawn as an agent↔agent edge today. Surface it instead of dropping it.
+		if isForwardProxyEndpoint(es.From) || isForwardProxyEndpoint(es.To) {
+			captureUnrep(es.From, es.To, "forward_proxy_endpoint", es)
 			continue
 		}
 		to := es.To
@@ -4023,37 +4044,42 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		}
 	}
 
-	// Rewrite orchestrator → agent edges as gateway → agent so the visual
-	// flow correctly shows: orchestrator → gateway → agents.
-	// The audit trail records these as claude-code → agent because the
-	// gateway is transparent, but visually all traffic routes through it.
-	hasGateway := false
-	for k := range merged {
-		if k.to == "gateway" || k.from == "gateway" {
-			hasGateway = true
-			break
-		}
-	}
-
+	// No edge rewriting. The audit trail is the source of truth — if it records
+	// `clientA → agentB`, render that, even if visually less tidy. Synthesizing
+	// `gateway → agentB` based on a hardcoded client name lied about coverage and
+	// hid which client actually originated the traffic. (See client-agnostic
+	// activity layer spec, Phase 0.)
 	edges := make([]graph.EdgeInput, 0, len(merged))
 	for _, e := range merged {
 		if e.From == e.To {
 			continue
 		}
-		if _, ok := agentSet[e.From]; !ok {
+		_, fromInSet := agentSet[e.From]
+		_, toInSet := agentSet[e.To]
+		if !fromInSet || !toInSet {
+			// Endpoint that is not a known agent — capture so the dashboard can
+			// surface it instead of pretending it didn't happen.
+			captureUnrep(e.From, e.To, "non_agent_endpoint", audit.EdgeStat{
+				From: e.From, To: e.To, Total: e.Total,
+				Blocked: e.Blocked, Quarantined: e.Quarantined,
+			})
 			continue
-		}
-		if _, ok := agentSet[e.To]; !ok {
-			continue
-		}
-		// Reroute: claude-code → agent becomes gateway → agent
-		if hasGateway && e.From == "claude-code" && e.To != "gateway" {
-			e.From = "gateway"
 		}
 		edges = append(edges, *e)
 	}
 
 	g := graph.Build(agents, edges)
+	// Attach unrepresented routes (sorted for stable rendering / tests).
+	for _, u := range unrepMerged {
+		g.UnrepresentedRoutes = append(g.UnrepresentedRoutes, *u)
+	}
+	sort.Slice(g.UnrepresentedRoutes, func(i, j int) bool {
+		if g.UnrepresentedRoutes[i].Total != g.UnrepresentedRoutes[j].Total {
+			return g.UnrepresentedRoutes[i].Total > g.UnrepresentedRoutes[j].Total
+		}
+		return g.UnrepresentedRoutes[i].From+g.UnrepresentedRoutes[i].To <
+			g.UnrepresentedRoutes[j].From+g.UnrepresentedRoutes[j].To
+	})
 
 	// Add tool usage edges from audit data.
 	// Strip gateway namespace prefixes and merge duplicates.
@@ -4075,7 +4101,10 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		toolTotals[tool] += ts.Total
 	}
 
-	// Limit to top 8 tools by total invocations.
+	// Top tools by total invocations. No client-name skips: a tool literally
+	// named "Agent" used to be filtered as "redundant with orchestration",
+	// which baked in an assumption about one specific client. If a tool is
+	// actually called, the user should see it.
 	type toolRank struct {
 		name  string
 		total int
@@ -4090,64 +4119,18 @@ func (s *Server) buildGraph(since string) *graph.AgentGraph {
 		if len(topTools) >= 5 {
 			break
 		}
-		// Skip "Agent" — orchestration is already shown by agent edges.
-		if r.name == "Agent" {
-			continue
-		}
 		topTools[r.name] = true
 		g.ToolNodes = append(g.ToolNodes, graph.ToolNode{Name: r.name, Total: r.total})
 	}
 
-	// Build tool edges. If all tool calls come from a single agent (e.g.
-	// orchestrator via hooks), distribute them across subagents for a
-	// realistic graph — agents use multiple tools and tools are shared.
-	var subagents []string
-	for _, e := range edges {
-		if (e.From == "claude-code" || e.From == "gateway") && e.To != "gateway" && e.To != "claude-code" {
-			if _, inCfg := s.cfg.Agents[e.To]; inCfg || len(e.To) <= 25 {
-				subagents = append(subagents, e.To)
-			}
-		}
-	}
-	sort.Strings(subagents)
-
-	// Check if tool data is single-source (all from one agent).
-	sourceAgents := make(map[string]bool)
-	for k := range toolEdgeMerged {
+	// Tool edges: only what the audit actually saw. We used to detect a
+	// single-source tool fan-in (typically: all hook events report the
+	// orchestrator as caller) and synthesize fake edges to subagents with
+	// invented per-edge counts so the graph "looked balanced". That fabricated
+	// data and presented it as real; removed in Phase 0.
+	for k, total := range toolEdgeMerged {
 		if topTools[k.tool] {
-			sourceAgents[k.agent] = true
-		}
-	}
-
-	if len(sourceAgents) <= 1 && len(subagents) > 0 {
-		// Distribute: each tool connects to 2-3 agents, round-robin offset.
-		toolList := make([]string, 0, len(topTools))
-		for _, r := range ranked {
-			if topTools[r.name] {
-				toolList = append(toolList, r.name)
-			}
-		}
-		for ti, tool := range toolList {
-			total := toolTotals[tool]
-			// Each tool connects to 2 or 3 subagents starting at offset.
-			fanout := 2
-			if len(subagents) >= 4 && ti%2 == 0 {
-				fanout = 3
-			}
-			for fi := 0; fi < fanout && fi < len(subagents); fi++ {
-				sa := subagents[(ti+fi)%len(subagents)]
-				share := total / fanout
-				if fi == 0 {
-					share = total - share*(fanout-1)
-				}
-				g.ToolEdges = append(g.ToolEdges, graph.ToolEdge{Agent: sa, Tool: tool, Total: share})
-			}
-		}
-	} else {
-		for k, total := range toolEdgeMerged {
-			if topTools[k.tool] {
-				g.ToolEdges = append(g.ToolEdges, graph.ToolEdge{Agent: k.agent, Tool: k.tool, Total: total})
-			}
+			g.ToolEdges = append(g.ToolEdges, graph.ToolEdge{Agent: k.agent, Tool: k.tool, Total: total})
 		}
 	}
 

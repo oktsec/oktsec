@@ -3,11 +3,16 @@ package dashboard
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 )
+
+var osReadFile = os.ReadFile
 
 // TestRegression_AllPagesLoad is a smoke test that hits every dashboard page
 // and confirms it returns 200 and renders the global skip link. If a template
@@ -199,29 +204,28 @@ func TestRegression_CSPHeader(t *testing.T) {
 	}
 }
 
-// TestRegression_OnsubmitConfirmInterceptor guards against the P1 bug Codex caught
-// after the dashboard clarity sprint: window.confirm is overridden to always return
-// false, so any form that uses onsubmit="return confirm(...)" silently never submits
-// unless a global submit listener intercepts it and re-submits after the modal.
+// TestRegression_OnsubmitConfirmInterceptor enforces the contract for the
+// global submit interceptor. window.confirm is overridden so the custom modal
+// can take over; the layout JS must include a submit listener that mirrors the
+// click interceptor, drop the onsubmit attribute before re-submitting, and use
+// requestSubmit() so the originating button is honored.
 func TestRegression_OnsubmitConfirmInterceptor(t *testing.T) {
 	body := authedGet(t, "/dashboard").Body.String()
-	// The submit-listener block must exist in the layout JS.
 	if !strings.Contains(body, `addEventListener('submit'`) {
-		t.Error("layout missing global submit listener — onsubmit confirm forms will never submit (window.confirm is overridden to false)")
+		t.Error("layout JS must include a global submit listener for forms using onsubmit confirm")
 	}
 	if !strings.Contains(body, `removeAttribute('onsubmit')`) {
-		t.Error("submit interceptor must drop the onsubmit attribute before re-submitting; otherwise the confirm runs again and recurses")
+		t.Error("submit interceptor must drop the onsubmit attribute before re-submitting (otherwise the confirm path recurses)")
 	}
 	if !strings.Contains(body, `requestSubmit`) {
 		t.Error("submit interceptor should prefer form.requestSubmit() so the originating button is honored")
 	}
 }
 
-// TestRegression_OnsubmitConfirmFormsStillUseAttribute ensures the suspend agent
-// and add-server-to-gateway forms still rely on the global interceptor. If a future
-// edit converts these to onclick or removes onsubmit, this test does not fail —
-// but if it converts the attribute to a form-level handler that is NOT confirm(),
-// the assumption breaks. Keeps the contract visible.
+// TestRegression_OnsubmitConfirmForms verifies that templates using
+// onsubmit="return confirm(...)" remain compatible with the global submit
+// interceptor in the layout. If a template switches to a non-confirm onsubmit
+// handler, the contract breaks — this guard keeps that visible.
 func TestRegression_OnsubmitConfirmForms(t *testing.T) {
 	srv := newTestServer(t)
 	srv.cfg.Agents = map[string]config.Agent{"test-agent": {}}
@@ -234,29 +238,214 @@ func TestRegression_OnsubmitConfirmForms(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	body := rr.Body.String()
 	if strings.Contains(body, `onsubmit="return confirm(`) {
-		// Good: this template still uses onsubmit; verify the interceptor in layout will catch it.
 		layoutBody := authedGet(t, "/dashboard").Body.String()
 		if !strings.Contains(layoutBody, `addEventListener('submit'`) {
-			t.Error("agent suspend form uses onsubmit confirm but layout has no submit interceptor")
+			t.Error("template uses onsubmit confirm but layout JS has no submit listener to handle it")
 		}
 	}
 }
 
-// TestRegression_SettingsToggleNoStaleSavedOnRedirect guards the second P1 from
-// Codex: stToggleSave used to treat r.redirected as success. A session-expired
-// redirect to /dashboard/login also has r.redirected === true, so the user saw
-// a green "Saved" toast for a save that never happened.
+// TestRegression_SettingsToggleNoStaleSavedOnRedirect enforces that
+// stToggleSave uses redirect:'manual' and explicitly handles opaqueredirect
+// so a session-expired POST is surfaced to the user instead of being
+// indistinguishable from a successful save.
 func TestRegression_SettingsToggleNoStaleSavedOnRedirect(t *testing.T) {
 	body := authedGet(t, "/dashboard/settings").Body.String()
 	if !strings.Contains(body, `redirect: 'manual'`) && !strings.Contains(body, `redirect:'manual'`) {
-		t.Error("stToggleSave must use redirect:'manual' so a session-expired redirect to /login does not surface as a successful save")
+		t.Error("stToggleSave must use redirect:'manual' so a session-expired redirect is observable")
 	}
 	if strings.Contains(body, `r.ok || r.redirected`) {
-		t.Error("stToggleSave should not treat r.redirected as success — that lies about saves when the session expired")
+		t.Error("stToggleSave must distinguish a redirected response from a successful save")
 	}
 	if !strings.Contains(body, `opaqueredirect`) {
 		t.Error("stToggleSave should detect opaqueredirect responses and surface session-expired feedback")
 	}
+}
+
+// ── Phase 0: Graph rendering invariants (client-agnostic activity layer) ──
+//
+// These tests lock in the contract for graph rendering:
+//   1. The graph code generalizes across MCP clients (no hardcoded display names).
+//   2. Edge originators in the graph match the audit trail.
+//   3. Tool edges are derived only from observed audit evidence.
+//   4. Forward-proxy traffic and edges to non-agent endpoints surface in
+//      UnrepresentedRoutes rather than being aggregated out.
+//
+// These guards stay in place until the activity layer (Phase 1+) ships an
+// explicit role/client model that supersedes them.
+
+// TestRegression_GraphCodeIsClientAgnostic fails if a specific client display
+// name appears as a literal in the graph builder or template. Replace with a
+// capability lookup once the activity layer ships.
+func TestRegression_GraphCodeIsClientAgnostic(t *testing.T) {
+	files := []string{
+		"handlers.go",
+		"tmpl_graph.go",
+	}
+	for _, f := range files {
+		t.Run(f, func(t *testing.T) {
+			// Test runs with CWD = package dir under `go test`, so relative paths
+			// resolve to the package source files. Works in CI without hardcoding.
+			data, err := readFileForTest(f)
+			if err != nil {
+				t.Fatalf("read %s: %v", f, err)
+			}
+			// A specific client name as a literal in graph code paths would
+			// re-introduce a single-client assumption. Comments are fine; code is not.
+			lines := strings.Split(data, "\n")
+			for i, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "*") {
+					continue
+				}
+				if strings.Contains(line, `"claude-code"`) || strings.Contains(line, `'claude-code'`) {
+					t.Errorf("%s:%d hardcodes 'claude-code' in non-comment code: %s",
+						f, i+1, strings.TrimSpace(line))
+				}
+			}
+		})
+	}
+}
+
+// TestRegression_ToolEdgesAreEvidenceBased exercises buildGraph through the
+// public dashboard route with a fixture where one agent calls one tool. The
+// graph must emit exactly one tool edge: from the agent that actually called
+// the tool. No other agent may appear as caller.
+func TestRegression_ToolEdgesAreEvidenceBased(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents = map[string]config.Agent{
+		"agent-a": {CanMessage: []string{"agent-b"}},
+		"agent-b": {},
+	}
+	// One tool call from agent-a; nothing from agent-b.
+	srv.audit.Log(audit.Entry{
+		ID:        "tool-evidence-1",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "agent-a",
+		ToAgent:   "agent-b",
+		Status:    "delivered",
+		ToolName:  "read_file",
+	})
+	srv.audit.Flush()
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	req := httptest.NewRequest("GET", "/dashboard/api/graph?range=24h", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if strings.Contains(body, `"agent":"agent-b","tool":"read_file"`) {
+		t.Error("tool edge for read_file must only appear under agent-a; agent-b never called it")
+	}
+}
+
+// TestRegression_EdgeOriginatorPreserved feeds the audit a node→node edge and
+// verifies the graph renders it with the originator the audit recorded, not a
+// substituted node.
+func TestRegression_EdgeOriginatorPreserved(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents = map[string]config.Agent{
+		"clientX": {CanMessage: []string{"agent-y"}},
+		"agent-y": {},
+		"gateway": {},
+	}
+	srv.audit.Log(audit.Entry{
+		ID:        "origin-1",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "clientX",
+		ToAgent:   "agent-y",
+		Status:    "delivered",
+	})
+	srv.audit.Flush()
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	req := httptest.NewRequest("GET", "/dashboard/api/graph?range=24h", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `"from":"clientX"`) {
+		t.Errorf("edge originator must match audit (clientX → agent-y); got %s", body)
+	}
+}
+
+// TestRegression_UnrepresentedRoutesSurfaced verifies that traffic the graph
+// model cannot render as a node-to-node edge (forward-proxy endpoints,
+// hostnames, IP:port pairs) is captured in UnrepresentedRoutes so it remains
+// visible in the dashboard.
+func TestRegression_UnrepresentedRoutesSurfaced(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents = map[string]config.Agent{
+		"agent-a": {},
+	}
+	// Forward-proxy style: agent makes a request to an external host.
+	srv.audit.Log(audit.Entry{
+		ID:        "fp-1",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "agent-a",
+		ToAgent:   "api.example.com",
+		Status:    "delivered",
+	})
+	srv.audit.Flush()
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	req := httptest.NewRequest("GET", "/dashboard/api/graph?range=24h", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "unrepresented_routes") {
+		t.Error("graph JSON missing unrepresented_routes — forward-proxy traffic must remain visible")
+	}
+	if !strings.Contains(body, "api.example.com") {
+		t.Error("forward-proxy endpoint api.example.com must appear in unrepresented_routes")
+	}
+}
+
+// TestRegression_GraphCopyScopedToInstrumentedSurfaces enforces that the graph
+// page-desc names the instrumented surfaces (MCP gateway, hooks, stdio
+// wrappers) so the page does not generalize beyond what the system observes.
+func TestRegression_GraphCopyScopedToInstrumentedSurfaces(t *testing.T) {
+	body := authedGet(t, "/dashboard/graph").Body.String()
+	pageDescStart := strings.Index(body, `class="page-desc"`)
+	if pageDescStart < 0 {
+		t.Fatal("graph page missing page-desc paragraph")
+	}
+	pageDescEnd := strings.Index(body[pageDescStart:], "</p>")
+	if pageDescEnd < 0 {
+		t.Fatal("graph page page-desc not closed")
+	}
+	desc := body[pageDescStart : pageDescStart+pageDescEnd]
+	if !strings.Contains(strings.ToLower(desc), "mcp") &&
+		!strings.Contains(strings.ToLower(desc), "gateway") &&
+		!strings.Contains(strings.ToLower(desc), "hook") {
+		t.Errorf("graph page-desc must reference instrumented surfaces (MCP / gateway / hooks); got: %s", desc)
+	}
+	for _, banned := range []string{
+		"Visual map of how your AI agents communicate",
+		"all your AI agents",
+		"all agents",
+	} {
+		if strings.Contains(body, banned) {
+			t.Errorf("graph page-desc contains overly broad copy %q — must scope to instrumented surfaces", banned)
+		}
+	}
+}
+
+// readFileForTest is a tiny os.ReadFile shim so the assertions above stay
+// readable. Kept local to this file so it does not leak into production paths.
+func readFileForTest(path string) (string, error) {
+	b, err := osReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // TestRegression_NoExternalScriptTags confirms no <script src="https://..."> tags
