@@ -84,11 +84,10 @@ type ToolEdge struct {
 	Total int    `json:"total"`
 }
 
-// UnrepresentedRoute is observed traffic that the current agent-graph model
-// (graph v1) cannot render as a node→node edge: forward-proxy domains, raw
-// hostnames, IP:port pairs. We surface them in the dashboard as a list so the
-// user knows the data was seen — silently dropping it would let the dashboard
-// look more covered than it actually is.
+// UnrepresentedRoute is observed traffic outside the agent-to-agent edge
+// model in graph v1: forward-proxy domains, raw hostnames, IP:port pairs.
+// These routes are surfaced in the dashboard alongside the graph so they
+// remain visible until the activity layer adds typed resource nodes.
 type UnrepresentedRoute struct {
 	From        string `json:"from"`
 	To          string `json:"to"`

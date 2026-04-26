@@ -471,7 +471,7 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
 {{if .UnrepresentedRoutes}}
 <div class="card" id="unrepresented-routes-section">
   <h2>Routes seen but not represented in graph v1</h2>
-  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Forward-proxy domains, hostnames, and endpoints that the current agent-graph cannot model as node-to-node edges. Listed here so they are not silently dropped from coverage.</p>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Forward-proxy domains, hostnames, and endpoints outside the agent-to-agent model in graph v1. Listed here so they remain visible end-to-end.</p>
   <table>
     <thead><tr><th>From</th><th>To</th><th>Total</th><th>Blocked</th><th>Quarantined</th><th>Reason</th></tr></thead>
     <tbody id="ur-tbody">{{range .UnrepresentedRoutes}}<tr class="ur-row"><td style="font-family:var(--mono);font-size:0.8rem">{{.From}}</td><td style="font-family:var(--mono);font-size:0.8rem">{{.To}}</td><td>{{.Total}}</td><td>{{.Blocked}}</td><td>{{.Quarantined}}</td><td style="color:var(--text3);font-size:0.75rem">{{.Reason}}</td></tr>{{end}}</tbody>
