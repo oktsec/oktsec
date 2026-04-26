@@ -7,6 +7,7 @@ package hooks
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity/resolve"
@@ -171,6 +173,30 @@ type HookStore interface {
 	UpsertHierarchy(h audit.HierarchyEntry) error
 }
 
+// activityWriter is the narrow projection of activity.Store the hooks
+// handler uses. Defined locally so tests can inject a stub without
+// depending on the full Store interface (Query, ListByCoverageCell,
+// etc.). Production passes an *activity.SQLStore; tests pass a recorder.
+type activityWriter interface {
+	Insert(ctx context.Context, e activity.Event) error
+}
+
+// dbBackedAuditStore is the optional capability the hooks handler
+// type-asserts on its HookStore at construction. *audit.Store satisfies
+// it; in-memory test mocks do not, in which case activity dual-write
+// stays disabled and the dashboard falls back to its audit-backed
+// reader. Lives here (not in audit) because the assertion is a hooks-
+// specific concern, not an audit contract.
+type dbBackedAuditStore interface {
+	DB() *sql.DB
+	DialectName() string
+}
+
+// activityInsertTimeout bounds the dual-write so a stalled DB cannot
+// pin a goroutine indefinitely. Mirrors the gateway / proxy constants
+// for behavior consistency across surfaces.
+const activityInsertTimeout = 2 * time.Second
+
 // sessionState tracks agent hierarchy within a session.
 type sessionState struct {
 	mu           sync.Mutex
@@ -195,6 +221,13 @@ type Handler struct {
 	resolver       resolve.Resolver
 	resolverConfig resolve.Config
 	requireAuth    bool
+
+	// activity emits one normalized activity event per audit row so the
+	// dashboard coverage matrix can show real evidence behind each hooks
+	// cell. Nil when the HookStore is not a *audit.Store-backed
+	// implementation (e.g., test mocks that do not expose a *sql.DB) or
+	// when activity migration failed at startup.
+	activity activityWriter
 }
 
 // NewHandler creates a hooks handler wired to the security pipeline.
@@ -208,6 +241,7 @@ func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, lo
 		resolver:       resolver,
 		resolverConfig: resolverCfg,
 		requireAuth:    requireAuth,
+		activity:       buildHooksActivity(store, logger),
 	}
 	// Periodic cleanup of old session states to prevent memory leaks.
 	go func() {
@@ -218,6 +252,102 @@ func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, lo
 		}
 	}()
 	return h
+}
+
+// SetActivityStore lets callers inject a custom activityWriter (e.g., a
+// recorder in tests). Pass nil to disable activity dual-write entirely.
+// Safe to call before the handler starts serving; not safe to swap
+// mid-flight.
+func (h *Handler) SetActivityStore(w activityWriter) {
+	h.activity = w
+}
+
+// buildHooksActivity returns an activityWriter when the underlying
+// HookStore exposes the *sql.DB needed to share the audit DB. Returns
+// nil when the store is a non-DB-backed mock or when migration fails;
+// in either case the dashboard falls back to its audit-backed reader.
+//
+// The type assertion is surface-local on purpose. The audit package
+// does not need to know that hooks dual-writes activity, and
+// hooks.HookStore stays clean for tests that do not exercise this
+// code path.
+func buildHooksActivity(store HookStore, logger *slog.Logger) activityWriter {
+	dbs, ok := store.(dbBackedAuditStore)
+	if !ok {
+		return nil
+	}
+	db := dbs.DB()
+	if db == nil {
+		return nil
+	}
+	dialect := activity.Dialect(dbs.DialectName())
+	if dialect == "" {
+		logger.Warn("activity store skipped: audit store reports unknown dialect", "surface", "hooks")
+		return nil
+	}
+	if err := activity.Migrate(db, dialect); err != nil {
+		logger.Warn("activity store skipped: migrate failed", "surface", "hooks", "error", err)
+		return nil
+	}
+	return activity.NewSQLStore(db, dialect)
+}
+
+// principalIDOrUnknown enforces activity.Event's PrincipalID-required
+// invariant. Hooks accept anonymous local telemetry by design (the
+// most common deployment path is unauthenticated localhost) so the
+// resolver can return an empty principal — emit "unknown" so the
+// activity row still validates and can be filtered out by the
+// dashboard's diagnostic-quality view.
+func principalIDOrUnknown(id string) string {
+	if id == "" {
+		return "unknown"
+	}
+	return id
+}
+
+// emitHookActivity writes one activity event correlated to the audit
+// row just logged. Runs in a fresh background context with a bounded
+// timeout so a slow DB cannot delay the request handler. Insert errors
+// are logged at warn — they never affect the policy decision or the
+// audit row.
+//
+// The activity event uses a fresh UUID for ID and stores msgID as
+// AuditEntryID for correlation. ResourceLabel carries the tool name so
+// the dashboard drill-down can show which tool the hook reported.
+func (h *Handler) emitHookActivity(msgID string, authResult resolve.Result, reportedActor string, ev *ToolEvent, status, decision string) {
+	if h.activity == nil {
+		return
+	}
+	event := activity.Event{
+		ID:                  uuid.New().String(),
+		Timestamp:           time.Now().UTC(),
+		PrincipalID:         principalIDOrUnknown(authResult.Principal.ID),
+		ReportedActor:       reportedActor,
+		AuthMethod:          string(authResult.Principal.AuthMethod),
+		PrincipalTrustLevel: string(authResult.Principal.TrustLevel),
+		Surface:             activity.SurfaceHooks,
+		EventType:           activity.EventHookEvent,
+		EvidenceType:        activity.EvidenceHook,
+		SessionID:           ev.SessionID,
+		AuditEntryID:        msgID,
+		Status:              status,
+		PolicyDecision:      decision,
+		CoverageMode:        activity.CoverageFromAuthMethod(string(authResult.Principal.AuthMethod)),
+		Confidence:          activity.ConfidenceFromAuthMethod(string(authResult.Principal.AuthMethod)),
+		ResourceType:        "mcp_tool",
+		ResourceLabel:       ev.ToolName,
+		ResourceID:          ev.ToolName,
+	}
+	go func() {
+		// Detached context: the request context can be cancelled by the
+		// time the goroutine runs, and activity should still land if the
+		// DB is reachable.
+		ctx, cancel := context.WithTimeout(context.Background(), activityInsertTimeout)
+		defer cancel()
+		if err := h.activity.Insert(ctx, event); err != nil {
+			h.logger.Warn("activity insert failed", "error", err, "msg_id", msgID, "surface", "hooks")
+		}
+	}()
 }
 
 // getSessionState returns or creates the session state for tracking agent hierarchy.
@@ -463,6 +593,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		PrincipalTrustLevel: string(authResult.Principal.TrustLevel),
 		ReportedActor:       reportedActor,
 	})
+
+	// Phase 2B.1: emit the paired activity event so the dashboard
+	// coverage matrix can show real evidence behind the hooks cell.
+	// Async with a 2s timeout — never blocks the response. The
+	// reportedActor passed here is the same value the audit row
+	// carries, so the two stay in lock-step.
+	h.emitHookActivity(msgID, authResult, reportedActor, &ev, status, decision)
 
 	// Update agent hierarchy table
 	if ev.SessionID != "" {

@@ -14,12 +14,27 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity/resolve"
 	"github.com/oktsec/oktsec/internal/verdict"
 )
+
+// activityWriter is the narrow projection of activity.Store the forward
+// proxy uses. Defined locally so tests can inject a stub without
+// depending on the full Store interface (Query, ListByCoverageCell,
+// etc.). Production passes an *activity.SQLStore; tests pass a recorder.
+type activityWriter interface {
+	Insert(ctx context.Context, e activity.Event) error
+}
+
+// activityInsertTimeout bounds the dual-write so a stalled DB cannot
+// pin a goroutine indefinitely. 2s is generous for a single insert on
+// SQLite WAL and short enough that a misbehaving Postgres does not fan
+// out goroutines forever. Mirrors the gateway constant.
+const activityInsertTimeout = 2 * time.Second
 
 // ForwardProxy implements an HTTP forward proxy that scans traffic with Aguara.
 // It handles CONNECT tunneling (HTTPS) and plain HTTP forwarding.
@@ -40,6 +55,14 @@ type ForwardProxy struct {
 	resolver       resolve.Resolver
 	resolverConfig resolve.Config
 	requireAuth    bool
+
+	// activity emits one normalized activity event per audit row so the
+	// dashboard coverage matrix can show real evidence behind each
+	// http_egress_proxy cell. May be nil when the audit store does not
+	// expose a *sql.DB or activity migration failed at startup — in
+	// either case the proxy logs only audit and the dashboard falls
+	// back to its audit-backed last-seen reader.
+	activity activityWriter
 }
 
 // NewForwardProxy creates a forward proxy with scanning and audit capabilities.
@@ -80,6 +103,7 @@ func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, au
 		},
 	}
 	fp.resolver, fp.resolverConfig, fp.requireAuth = buildForwardProxyIdentity(cfg, fullCfg)
+	fp.activity = buildForwardProxyActivity(auditStore, logger)
 
 	// Pre-create per-agent rate limiters
 	for name, agent := range agents {
@@ -462,11 +486,14 @@ func (fp *ForwardProxy) hasCategoryBlock(outcome *engine.ScanOutcome, policy *Re
 	return false
 }
 
-// proxyAuth captures the identity provenance fields the audit row needs
-// from the resolver. Built once per request after resolveIdentity and
-// passed to every logProxyEntry call so the policy principal and the
-// audit row can never drift.
+// proxyAuth captures the identity provenance fields the audit row and
+// activity event need from the resolver. Built once per request after
+// resolveIdentity and passed to every logProxyEntry call so the policy
+// principal and the audit row can never drift. PrincipalID is the
+// policy identity the resolver established for this request; activity
+// emission attributes the egress event to it.
 type proxyAuth struct {
+	PrincipalID   string
 	AuthMethod    string
 	TrustLevel    string
 	ReportedActor string
@@ -476,17 +503,23 @@ type proxyAuth struct {
 // snapshot the logProxyEntry calls expect.
 func authFromResolveResult(res resolve.Result) proxyAuth {
 	return proxyAuth{
+		PrincipalID:   res.Principal.ID,
 		AuthMethod:    string(res.Principal.AuthMethod),
 		TrustLevel:    string(res.Principal.TrustLevel),
 		ReportedActor: res.ReportedActor.ID,
 	}
 }
 
-// logProxyEntry writes an audit log entry for proxy traffic. The auth
-// snapshot threads identity provenance (auth_method,
-// principal_trust_level, reported_actor) through to the audit row so
-// downstream coverage / dashboard queries can attribute activity to the
-// egress surface without heuristics.
+// logProxyEntry writes an audit log entry for proxy traffic and emits
+// the matching activity event. The auth snapshot threads identity
+// provenance (auth_method, principal_trust_level, reported_actor)
+// through to the audit row so downstream coverage / dashboard queries
+// can attribute activity to the egress surface without heuristics.
+//
+// emitForwardProxyActivity runs after the audit insert so every audit
+// row the forward proxy writes has a paired activity event. Activity
+// emission is async with a short timeout: a slow or failing activity
+// store cannot affect the request latency or the security decision.
 func (fp *ForwardProxy) logProxyEntry(remoteAddr, method, host, status, policyDecision, rulesTriggered, sessionID string, bytesTransferred int64, start time.Time, auth proxyAuth) {
 	entry := audit.Entry{
 		ID:                  uuid.New().String(),
@@ -504,6 +537,99 @@ func (fp *ForwardProxy) logProxyEntry(remoteAddr, method, host, status, policyDe
 		ReportedActor:       auth.ReportedActor,
 	}
 	fp.audit.Log(entry)
+	fp.emitForwardProxyActivity(entry.ID, auth, host, method, status, policyDecision, sessionID)
+}
+
+// SetActivityStore lets callers inject a custom activityWriter (e.g., a
+// recorder in tests, or a future shared store wired by a higher-level
+// orchestrator). Pass nil to disable activity dual-write entirely. Safe
+// to call before the proxy starts serving; not safe to swap mid-flight.
+func (fp *ForwardProxy) SetActivityStore(w activityWriter) {
+	fp.activity = w
+}
+
+// emitForwardProxyActivity writes one activity event correlated to the
+// audit row just logged. Runs in a fresh background context with a
+// bounded timeout so a slow DB cannot delay the request handler.
+// Insert errors are logged at warn — they never affect the policy
+// decision or the audit row.
+//
+// The activity event uses a fresh UUID so two audit rows from the same
+// request (e.g., a CONNECT tunnel followed by a forward) do not
+// collide on the activity primary key. Correlation back to the audit
+// row goes through AuditEntryID.
+func (fp *ForwardProxy) emitForwardProxyActivity(auditID string, auth proxyAuth, host, method, status, policyDecision, sessionID string) {
+	if fp.activity == nil {
+		return
+	}
+	ev := activity.Event{
+		ID:                  uuid.New().String(),
+		Timestamp:           time.Now().UTC(),
+		PrincipalID:         principalIDOrUnknown(auth.PrincipalID),
+		ReportedActor:       auth.ReportedActor,
+		AuthMethod:          auth.AuthMethod,
+		PrincipalTrustLevel: auth.TrustLevel,
+		Surface:             activity.SurfaceHTTPEgressProxy,
+		EventType:           activity.EventEgressRequest,
+		EvidenceType:        activity.EvidenceProxy,
+		SessionID:           sessionID,
+		AuditEntryID:        auditID,
+		Status:              status,
+		PolicyDecision:      policyDecision,
+		CoverageMode:        activity.CoverageFromAuthMethod(auth.AuthMethod),
+		Confidence:          activity.ConfidenceFromAuthMethod(auth.AuthMethod),
+		ResourceType:        "http_host",
+		ResourceLabel:       host,
+		ResourceID:          method + " " + host,
+	}
+	go func() {
+		// Detached context: the request context can be cancelled by the
+		// time the goroutine runs (CONNECT tunnel torn down, response
+		// flushed), and activity should still land if the DB is reachable.
+		ctx, cancel := context.WithTimeout(context.Background(), activityInsertTimeout)
+		defer cancel()
+		if err := fp.activity.Insert(ctx, ev); err != nil {
+			fp.logger.Warn("activity insert failed", "error", err, "audit_id", auditID, "surface", "http_egress_proxy")
+		}
+	}()
+}
+
+// buildForwardProxyActivity constructs the activity store the forward
+// proxy uses for dual-write. Returns nil when the audit store is nil,
+// does not expose a *sql.DB, or migration fails: callers continue
+// audit-only and the coverage matrix falls back to its audit-backed
+// reader. Mirrors buildGatewayActivity in the gateway package; kept
+// per-package to avoid an import cycle on activityWriter.
+func buildForwardProxyActivity(auditStore *audit.Store, logger *slog.Logger) activityWriter {
+	if auditStore == nil {
+		return nil
+	}
+	db := auditStore.DB()
+	if db == nil {
+		return nil
+	}
+	dialect := activity.Dialect(auditStore.DialectName())
+	if dialect == "" {
+		logger.Warn("activity store skipped: audit store reports unknown dialect", "surface", "http_egress_proxy")
+		return nil
+	}
+	if err := activity.Migrate(db, dialect); err != nil {
+		logger.Warn("activity store skipped: migrate failed", "surface", "http_egress_proxy", "error", err)
+		return nil
+	}
+	return activity.NewSQLStore(db, dialect)
+}
+
+// principalIDOrUnknown enforces activity.Event's PrincipalID-required
+// invariant. The forward proxy can run unauthenticated in local mode,
+// in which case the resolver returns an empty principal — emit
+// "unknown" so the activity row still validates and can be filtered
+// out by the dashboard's diagnostic-quality view.
+func principalIDOrUnknown(id string) string {
+	if id == "" {
+		return "unknown"
+	}
+	return id
 }
 
 // dialTarget connects to the target host, chaining through the upstream proxy
