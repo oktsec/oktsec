@@ -27,6 +27,18 @@ type Entry struct {
 	AgentInstanceID     string `json:"agent_instance_id,omitempty"`     // unique sub-agent instance ID from client
 	RootAgent           string `json:"root_agent,omitempty"`            // original initiator of the chain
 	AgentDepth          int    `json:"agent_depth,omitempty"`           // 0=root, 1=sub-agent, 2=sub-sub-agent
+
+	// Identity provenance — populated by surface adapters that route the
+	// request through internal/identity/resolve. Older entries (and
+	// entries from adapters that have not migrated yet) leave these blank,
+	// which read as "unknown" by callers and dashboards.
+	//
+	// FromAgent always equals the policy Principal; these fields tell the
+	// reader HOW that Principal was established and what display-only
+	// actor name (subagent, model role, hook payload) accompanied it.
+	AuthMethod        string `json:"auth_method,omitempty"`         // bearer_token | trusted_loopback | proxy_token | hook_token | ed25519 | mtls | ""
+	PrincipalTrustLevel string `json:"principal_trust_level,omitempty"` // authenticated | trusted_local | observed | inferred | anonymous
+	ReportedActor     string `json:"reported_actor,omitempty"`      // display-only actor (subagent name, etc.); never used for policy
 }
 
 // HierarchyEntry tracks parent-child agent relationships within a session.
