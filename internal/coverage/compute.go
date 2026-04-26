@@ -72,7 +72,7 @@ func ComputeWith(cfg *config.Config, ar AuditReader, reg connectors.Registry) []
 // labeled accordingly. For PR4 the config-derived signal is enough to
 // keep local-mode deployments labeled as legacy-loopback-header (the
 // existing behavior) and enterprise-mode deployments without working
-// tokens labeled as unknown (an honest improvement).
+// tokens labeled as unknown (a more precise current-state label).
 func observedAuthMethodsFromConfig(cfg *config.Config) map[string]bool {
 	out := map[string]bool{}
 	if cfg == nil {

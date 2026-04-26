@@ -55,9 +55,9 @@ func TestBuiltinRegistry_Infer(t *testing.T) {
 		},
 		{
 			// No tokens, no loopback evidence (e.g. enterprise profile
-			// where the loopback header is rejected). The honest
+			// where the loopback header is rejected). The current-state
 			// label is unknown — the principal exists in config but
-			// has no working auth path.
+			// has no working auth path on any surface.
 			name:     "no active tokens and no observed evidence maps to unknown",
 			active:   map[string]bool{},
 			observed: map[string]bool{},
@@ -147,5 +147,51 @@ func TestBuiltinRegistry_CustomClientCoversAllSurfaces(t *testing.T) {
 func TestDefault_NotNil(t *testing.T) {
 	if Default() == nil {
 		t.Fatal("Default registry is nil")
+	}
+}
+
+// Mutating a connector returned from Get / List / Infer must not
+// affect later calls. The registry must hand back deep copies so a
+// caller that scribbles on Surfaces / AuthMethods / EventTypes
+// cannot poison Default() for the next dashboard request.
+func TestBuiltinRegistry_ReturnedConnectorsAreImmutable(t *testing.T) {
+	r := NewBuiltinRegistry()
+
+	first, ok := r.Get(IDGenericMCPHTTP)
+	if !ok {
+		t.Fatal("generic-mcp-http not registered")
+	}
+	if len(first.Surfaces) == 0 || len(first.Surfaces[0].AuthMethods) == 0 {
+		t.Fatal("test fixture: generic-mcp-http has no surfaces or auth methods")
+	}
+
+	// Scribble on the returned slices.
+	first.Surfaces[0].AuthMethods[0] = "POISONED"
+	first.Surfaces[0].EventTypes[0] = "POISONED"
+	first.Surfaces[0].Surface = "POISONED"
+
+	// A fresh Get must see the original values.
+	second, _ := r.Get(IDGenericMCPHTTP)
+	if got := second.Surfaces[0].AuthMethods[0]; got == "POISONED" {
+		t.Errorf("AuthMethods[0] mutation leaked back into the registry: got %q", got)
+	}
+	if got := second.Surfaces[0].EventTypes[0]; got == "POISONED" {
+		t.Errorf("EventTypes[0] mutation leaked back into the registry: got %q", got)
+	}
+	if got := second.Surfaces[0].Surface; got == "POISONED" {
+		t.Errorf("Surface mutation leaked back into the registry: got %q", got)
+	}
+
+	// Same contract via List and Infer.
+	for _, c := range r.List() {
+		if c.ID == IDGenericMCPHTTP {
+			if c.Surfaces[0].AuthMethods[0] == "POISONED" {
+				t.Error("List returned a poisoned connector")
+			}
+		}
+	}
+	inferred := r.Infer(map[string]bool{"gateway_bearer": true}, nil)
+	if inferred.Surfaces[0].AuthMethods[0] == "POISONED" {
+		t.Error("Infer returned a poisoned connector")
 	}
 }

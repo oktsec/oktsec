@@ -20,10 +20,9 @@ func (s stubReader) LastSeenByPrincipalSurface(principalID, surface string) (str
 	return s.stamps[principalID+"|"+surface], nil
 }
 
-// 1. When the activity reader has a row, the hybrid reader returns
-// it and never consults the audit reader. This is the common path
-// once activity has been running for a while.
-func TestHybridLastSeenReader_ActivityWins(t *testing.T) {
+// 1. When activity carries the later timestamp, the hybrid reader
+// returns it. Common path once activity has been wired up.
+func TestHybridLastSeenReader_ActivityWinsWhenNewer(t *testing.T) {
 	h := HybridLastSeenReader{
 		Activity: stubReader{stamps: map[string]string{"local-codex|mcp_http": "2026-04-26T10:00:00Z"}},
 		Audit:    stubReader{stamps: map[string]string{"local-codex|mcp_http": "2026-04-25T08:00:00Z"}},
@@ -37,7 +36,23 @@ func TestHybridLastSeenReader_ActivityWins(t *testing.T) {
 	}
 }
 
-// 2. When activity has no row for the pair, the audit fallback fills
+// 2. AUDIT can carry a NEWER row when activity missed an insert (the
+// dual-write goroutine raced with a query, the activity DB hiccupped,
+// etc.). The hybrid reader must surface the audit value in that case
+// so the dashboard does not show stale coverage. Regression guard for
+// the original "activity wins as soon as it has any row" bug.
+func TestHybridLastSeenReader_AuditWinsWhenNewer(t *testing.T) {
+	h := HybridLastSeenReader{
+		Activity: stubReader{stamps: map[string]string{"local-codex|mcp_http": "2026-04-25T08:00:00Z"}},
+		Audit:    stubReader{stamps: map[string]string{"local-codex|mcp_http": "2026-04-26T10:00:00Z"}},
+	}
+	got, _ := h.LastSeenByPrincipalSurface("local-codex", "mcp_http")
+	if got != "2026-04-26T10:00:00Z" {
+		t.Errorf("got = %q; want audit timestamp 2026-04-26T10:00:00Z (audit was newer)", got)
+	}
+}
+
+// 3. When activity has no row for the pair, the audit fallback fills
 // in the LastSeen so historical events from before activity was wired
 // up still appear in the matrix.
 func TestHybridLastSeenReader_FallsBackToAudit(t *testing.T) {
@@ -51,7 +66,7 @@ func TestHybridLastSeenReader_FallsBackToAudit(t *testing.T) {
 	}
 }
 
-// 3. An activity error is treated the same as an empty row: the audit
+// 4. An activity error is treated the same as an empty row: the audit
 // fallback still gets a chance. Activity is best-effort; an outage
 // there must not blank columns the operator already trusts.
 func TestHybridLastSeenReader_ActivityErrorFallsBack(t *testing.T) {
@@ -68,7 +83,7 @@ func TestHybridLastSeenReader_ActivityErrorFallsBack(t *testing.T) {
 	}
 }
 
-// 4. With both readers nil the hybrid returns empty cleanly. This is
+// 5. With both readers nil the hybrid returns empty cleanly. This is
 // the degenerate case Compute already handles by skipping the
 // LastSeen assignment, but the contract here keeps it from panicking.
 func TestHybridLastSeenReader_BothNil(t *testing.T) {
@@ -82,7 +97,7 @@ func TestHybridLastSeenReader_BothNil(t *testing.T) {
 	}
 }
 
-// 5. With activity present but audit nil, hybrid behaves like
+// 6. With activity present but audit nil, hybrid behaves like
 // activity-only. Useful in tests and a possible future state if the
 // audit store is replaced wholesale.
 func TestHybridLastSeenReader_ActivityOnly(t *testing.T) {
@@ -96,5 +111,34 @@ func TestHybridLastSeenReader_ActivityOnly(t *testing.T) {
 	// Pair with no row stays empty rather than erroring.
 	if got, _ = h.LastSeenByPrincipalSurface("local-codex", "mcp_http"); got != "" {
 		t.Errorf("got = %q; want empty for unknown pair", got)
+	}
+}
+
+// 7. Both readers parse, with sub-second precision differences. The
+// hybrid reader must compare instants, not strings, so an audit value
+// with no fractional seconds can still win against an activity value
+// from a few millis earlier.
+func TestHybridLastSeenReader_NanosecondPrecisionCompared(t *testing.T) {
+	h := HybridLastSeenReader{
+		Activity: stubReader{stamps: map[string]string{"local-codex|mcp_http": "2026-04-26T10:00:00.500Z"}},
+		Audit:    stubReader{stamps: map[string]string{"local-codex|mcp_http": "2026-04-26T10:00:01Z"}},
+	}
+	got, _ := h.LastSeenByPrincipalSurface("local-codex", "mcp_http")
+	if got != "2026-04-26T10:00:01Z" {
+		t.Errorf("got = %q; want audit timestamp (0.5s later than activity)", got)
+	}
+}
+
+// 8. An unparseable timestamp on one side loses to a parseable one
+// on the other. The reader must not surface garbage just because the
+// "preferred" reader returned a malformed string.
+func TestHybridLastSeenReader_UnparseableLosesToParseable(t *testing.T) {
+	h := HybridLastSeenReader{
+		Activity: stubReader{stamps: map[string]string{"local-codex|mcp_http": "not-a-timestamp"}},
+		Audit:    stubReader{stamps: map[string]string{"local-codex|mcp_http": "2026-04-26T10:00:00Z"}},
+	}
+	got, _ := h.LastSeenByPrincipalSurface("local-codex", "mcp_http")
+	if got != "2026-04-26T10:00:00Z" {
+		t.Errorf("got = %q; want audit timestamp; activity was unparseable", got)
 	}
 }

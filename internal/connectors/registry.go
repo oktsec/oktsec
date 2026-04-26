@@ -20,19 +20,25 @@ func NewBuiltinRegistry() *BuiltinRegistry {
 
 // Get returns the connector with the given ID. The bool is false when
 // the ID is not registered; callers should treat that as IDUnknown
-// rather than panicking.
+// rather than panicking. Returned Connector is a deep copy so callers
+// cannot mutate the registry's authoritative state through the
+// returned slices.
 func (r *BuiltinRegistry) Get(id string) (Connector, bool) {
 	c, ok := r.items[id]
-	return c, ok
+	if !ok {
+		return Connector{}, false
+	}
+	return cloneConnector(c), true
 }
 
 // List returns every registered connector in a deterministic order so
-// dashboard rendering does not flicker between requests.
+// dashboard rendering does not flicker between requests. Each returned
+// Connector is a deep copy.
 func (r *BuiltinRegistry) List() []Connector {
 	out := make([]Connector, 0, len(r.items))
 	for _, id := range orderedIDs() {
 		if c, ok := r.items[id]; ok {
-			out = append(out, c)
+			out = append(out, cloneConnector(c))
 		}
 	}
 	return out
@@ -68,20 +74,45 @@ func (r *BuiltinRegistry) Infer(activeTokenTypes, observedAuthMethods map[string
 			lastActive = t
 		}
 	}
+	var picked string
 	switch {
 	case activeCount >= 2:
-		return r.items[IDCustomClient]
+		picked = IDCustomClient
 	case lastActive == "gateway_bearer":
-		return r.items[IDGenericMCPHTTP]
+		picked = IDGenericMCPHTTP
 	case lastActive == "proxy_basic":
-		return r.items[IDGenericEgressProxy]
+		picked = IDGenericEgressProxy
 	case lastActive == "hook_bearer":
-		return r.items[IDGenericHooks]
+		picked = IDGenericHooks
+	case observedAuthMethods["trusted_loopback"]:
+		picked = IDLegacyLoopbackHeader
+	default:
+		picked = IDUnknown
 	}
-	if observedAuthMethods["trusted_loopback"] {
-		return r.items[IDLegacyLoopbackHeader]
+	return cloneConnector(r.items[picked])
+}
+
+// cloneConnector returns a deep copy of c so callers cannot mutate the
+// registry's authoritative state via the returned slices. Surfaces
+// gets a fresh slice; each SurfaceCapability inside gets its own
+// AuthMethods and EventTypes copies. Strings are immutable in Go so
+// they can be assigned by value safely.
+func cloneConnector(c Connector) Connector {
+	out := c
+	if c.Surfaces != nil {
+		out.Surfaces = make([]SurfaceCapability, len(c.Surfaces))
+		for i, s := range c.Surfaces {
+			cp := s
+			if s.AuthMethods != nil {
+				cp.AuthMethods = append([]string(nil), s.AuthMethods...)
+			}
+			if s.EventTypes != nil {
+				cp.EventTypes = append([]string(nil), s.EventTypes...)
+			}
+			out.Surfaces[i] = cp
+		}
 	}
-	return r.items[IDUnknown]
+	return out
 }
 
 // defaultRegistry is the process-wide registry used by Default(). It

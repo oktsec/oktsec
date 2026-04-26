@@ -237,8 +237,8 @@ func TestCompute_RevokedTokenDoesNotProtect(t *testing.T) {
 // as generic-mcp-http. The coverage layer filters revoked/expired tokens
 // before calling the connector registry, so an expired token is invisible
 // to both. In enterprise profile there is no loopback fallback either,
-// so the honest connector label is "Unknown source": the principal
-// exists in config but has no working auth path.
+// so the connector label is "Unknown source": the principal exists in
+// config but has no working auth path on any surface.
 func TestCompute_ExpiredTokenDoesNotInferConnector(t *testing.T) {
 	p := principalWith("local-codex", "gateway_bearer")
 	p.Tokens[0].ExpiresAt = "2026-01-02T00:00:00Z" // already in the past
