@@ -318,12 +318,18 @@ func (h *Handler) emitHookActivity(msgID string, authResult resolve.Result, repo
 	if h.activity == nil {
 		return
 	}
+	authMethod := string(authResult.Principal.AuthMethod)
+	// Hook coverage is stage-aware: post_tool_use evidence cannot
+	// block (the action already ran) so even token-authenticated
+	// post-action hooks are Observed/60, not Protected/100. See
+	// activity.CoverageFromHookEvent.
+	coverage, confidence := activity.CoverageFromHookEvent(authMethod, ev.Event)
 	event := activity.Event{
 		ID:                  uuid.New().String(),
 		Timestamp:           time.Now().UTC(),
 		PrincipalID:         principalIDOrUnknown(authResult.Principal.ID),
 		ReportedActor:       reportedActor,
-		AuthMethod:          string(authResult.Principal.AuthMethod),
+		AuthMethod:          authMethod,
 		PrincipalTrustLevel: string(authResult.Principal.TrustLevel),
 		Surface:             activity.SurfaceHooks,
 		EventType:           activity.EventHookEvent,
@@ -332,8 +338,8 @@ func (h *Handler) emitHookActivity(msgID string, authResult resolve.Result, repo
 		AuditEntryID:        msgID,
 		Status:              status,
 		PolicyDecision:      decision,
-		CoverageMode:        activity.CoverageFromAuthMethod(string(authResult.Principal.AuthMethod)),
-		Confidence:          activity.ConfidenceFromAuthMethod(string(authResult.Principal.AuthMethod)),
+		CoverageMode:        coverage,
+		Confidence:          confidence,
 		ResourceType:        "mcp_tool",
 		ResourceLabel:       ev.ToolName,
 		ResourceID:          ev.ToolName,
@@ -469,10 +475,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Subagent type/id (when the client is running inside a sub-agent)
 	// is more specific than the surface header, which is more specific
 	// than whatever the payload supplied as agent.
+	//
+	// The payload agent is preserved as reported_actor whenever it is
+	// not redundant with the resolved principal — covering two cases:
+	//   - resolver established a different principal and the payload
+	//     tried to claim another (forensic record of the spoof);
+	//   - no principal was established (unauthenticated local hook),
+	//     so the payload is the only actor signal we have. principal
+	//     stays unknown — reported_actor is display metadata only and
+	//     never an input to policy decisions.
 	reportedActor := authResult.ReportedActor.ID
-	if ev.AgentType != "" {
+	switch {
+	case ev.AgentType != "":
 		reportedActor = ev.AgentType
-	} else if reportedActor == "" && originalPayloadAgent != "" && originalPayloadAgent != ev.Agent {
+	case reportedActor == "" && originalPayloadAgent != "" && originalPayloadAgent != authResult.Principal.ID:
 		reportedActor = originalPayloadAgent
 	}
 

@@ -148,7 +148,11 @@ func TestHooksActivity_ReportedActorDoesNotReplacePrincipal(t *testing.T) {
 // 3. Unauthenticated local hook (no Authorization header, local
 // profile) still emits an activity event so the dashboard sees the
 // surface as Observed rather than Blind. Empty principal collapses to
-// "unknown" so the row validates.
+// "unknown", and the payload-supplied agent is preserved as
+// reported_actor — that is the only actor signal the client gave us
+// and dropping it would lose evidence (regression guard for the
+// originalPayloadAgent != ev.Agent fallback that used to skip this
+// path).
 func TestHooksActivity_UnauthenticatedIsObserved(t *testing.T) {
 	h, _, cleanup := hooksHandlerWithPrincipal(t, "local-codex", nil)
 	defer cleanup()
@@ -176,6 +180,9 @@ func TestHooksActivity_UnauthenticatedIsObserved(t *testing.T) {
 	if ev.PrincipalID != "unknown" {
 		t.Errorf("principal = %q; want unknown (anonymous local hook)", ev.PrincipalID)
 	}
+	if ev.ReportedActor != "claude-code" {
+		t.Errorf("reported_actor = %q; want claude-code (payload agent must be preserved when no principal)", ev.ReportedActor)
+	}
 	if ev.CoverageMode != activity.CoverageObserved {
 		t.Errorf("coverage = %q; want observed", ev.CoverageMode)
 	}
@@ -184,6 +191,53 @@ func TestHooksActivity_UnauthenticatedIsObserved(t *testing.T) {
 	}
 	if ev.Surface != activity.SurfaceHooks {
 		t.Errorf("surface = %q; want hooks", ev.Surface)
+	}
+}
+
+// 6. Post-action hooks (post_tool_use) carrying a valid hook_token
+// are NOT Protected — the action already ran and oktsec cannot block.
+// They are Observed evidence with confidence 60 per the Phase 2B.1
+// spec ladder. The Phase 2B.1 invariant "Protected means oktsec can
+// block before action" depends on this distinction; without it, every
+// post-action hook would inflate the coverage matrix.
+func TestHooksActivity_PostToolUseIsObservedEvenWithToken(t *testing.T) {
+	h, raw, cleanup := hooksHandlerWithPrincipal(t, "local-codex", nil)
+	defer cleanup()
+	rec := &recordingActivityWriter{}
+	h.SetActivityStore(rec)
+
+	body, _ := json.Marshal(ToolEvent{
+		ToolName:   "Read",
+		ToolInput:  json.RawMessage(`{"file_path":"/tmp/x"}`),
+		ToolOutput: "ok",
+		Agent:      "local-codex",
+		SessionID:  "sess-post",
+		Event:      "post_tool_use",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/hooks/event", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+raw)
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:1"
+
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec2.Code)
+	}
+
+	events := waitForHookActivity(t, rec, 1)
+	ev := events[0]
+	if ev.PrincipalID != "local-codex" {
+		t.Errorf("principal = %q; want local-codex", ev.PrincipalID)
+	}
+	if ev.AuthMethod != "hook_token" {
+		t.Errorf("auth_method = %q; want hook_token", ev.AuthMethod)
+	}
+	if ev.CoverageMode != activity.CoverageObserved {
+		t.Errorf("coverage = %q; want observed (post_tool_use cannot block, even with hook_token)", ev.CoverageMode)
+	}
+	if ev.Confidence != 60 {
+		t.Errorf("confidence = %d; want 60 (authenticated post-action evidence per Phase 2B.1 ladder)", ev.Confidence)
 	}
 }
 

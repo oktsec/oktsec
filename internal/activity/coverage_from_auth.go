@@ -39,3 +39,30 @@ func ConfidenceFromAuthMethod(method string) int {
 	}
 	return 0
 }
+
+// HookEventPostToolUse is the normalized stage name for hooks that
+// fire after the tool ran. Kept as a constant so the coverage helper
+// and any future hook-stage logic agree on the wire value.
+const HookEventPostToolUse = "post_tool_use"
+
+// CoverageFromHookEvent returns the coverage label and confidence the
+// dashboard should attribute to a single hook event. It accounts for
+// the hook stage, which CoverageFromAuthMethod alone cannot:
+//
+//   - pre_tool_use is the only stage where oktsec can block before the
+//     action ran; with token auth it is genuinely Protected/100.
+//   - post_tool_use is evidence after the fact. Even when carried by a
+//     valid hook_token the surface cannot block, so it is Observed
+//     with confidence 60 per the Phase 2B.1 spec ladder.
+//
+// Unauthenticated hooks (any stage) inherit the auth-method-only
+// mapping — they were already Observed with low confidence and the
+// stage does not change that.
+func CoverageFromHookEvent(authMethod, hookEvent string) (CoverageMode, int) {
+	base := CoverageFromAuthMethod(authMethod)
+	conf := ConfidenceFromAuthMethod(authMethod)
+	if hookEvent == HookEventPostToolUse && base == CoverageProtected {
+		return CoverageObserved, 60
+	}
+	return base, conf
+}
