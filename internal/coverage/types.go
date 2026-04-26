@@ -66,10 +66,10 @@ type CoverageCell struct {
 
 	Coverage CoverageMode `json:"coverage"`
 
-	// Limitation is the one-sentence operator-facing reason a cell is not
-	// fully protected. Examples: "no proxy_basic token configured",
-	// "domain-only (HTTPS CONNECT)", "post-action only". Empty when
-	// Coverage is protected and there is no caveat.
+	// Limitation is the one-sentence operator-facing reason a cell is
+	// not in the protected state. Examples: "no proxy_basic token
+	// configured", "domain-only (HTTPS CONNECT)", "post-action only".
+	// Empty when Coverage is protected and there is no caveat.
 	Limitation string `json:"limitation,omitempty"`
 
 	// LastSeen is the most recent audit timestamp attributing activity
