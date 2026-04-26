@@ -167,6 +167,9 @@ a.ov-metric:hover{background:var(--surface2)}
 .cov-empty{padding:24px;text-align:center;color:var(--text3);font-size:var(--text-sm)}
 .cov-empty a{color:var(--accent);text-decoration:none}
 .cov-empty a:hover{text-decoration:underline}
+.cov-cell{cursor:pointer;transition:background 0.12s ease}
+.cov-cell:hover{background:rgba(88,166,255,0.06)}
+.cov-cell:focus{outline:2px solid var(--accent);outline-offset:-2px}
 </style>
 <div class="ov-card" style="margin-bottom:var(--sp-4)">
   <div style="display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)">
@@ -192,20 +195,27 @@ a.ov-metric:hover{background:var(--surface2)}
       <tr>
         <td><span class="cov-principal">{{.PrincipalID}}</span></td>
         <td><span class="cov-connector">{{.ConnectorLabel}}</span></td>
+        {{$pid := .PrincipalID}}
         {{with index .Cells "mcp_http"}}
-        <td>
+        <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on MCP Gateway"
+            hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=mcp_http"
+            hx-target="#panel-content" hx-swap="innerHTML">
           <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
           {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
         </td>
         {{else}}<td><span class="cov-badge blind">Blind</span></td>{{end}}
         {{with index .Cells "http_egress_proxy"}}
-        <td>
+        <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on Egress Proxy"
+            hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=http_egress_proxy"
+            hx-target="#panel-content" hx-swap="innerHTML">
           <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
           {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
         </td>
         {{else}}<td><span class="cov-badge blind">Blind</span></td>{{end}}
         {{with index .Cells "hooks"}}
-        <td>
+        <td class="cov-cell" tabindex="0" role="button" aria-label="Show activity for {{$pid}} on Hooks"
+            hx-get="/dashboard/api/coverage/cell?principal_id={{$pid}}&surface=hooks"
+            hx-target="#panel-content" hx-swap="innerHTML">
           <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
           {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
         </td>
