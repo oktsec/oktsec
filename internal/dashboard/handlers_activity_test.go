@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -221,6 +222,193 @@ func TestCoverageCellDrawer_RendersHeaderAndEvents(t *testing.T) {
 	}
 	if strings.Contains(body, "No activity recorded") {
 		t.Error("drawer should not show empty state when an event exists")
+	}
+}
+
+// 5b. Protected drawer carries the pre-action explanation and does
+// NOT surface a next-action — Protected is the goal state, so
+// pushing the operator toward another action would be misleading.
+func TestCoverageCellDrawer_ProtectedExplanationNoNextAction(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=local-codex&surface=mcp_http", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Why this state") {
+		t.Error("drawer must include Why this state section")
+	}
+	if !strings.Contains(body, "pre-action path") {
+		t.Errorf("Protected drawer must include 'pre-action path'; body = %s", body)
+	}
+	if strings.Contains(body, `class="cd-next-hint"`) || strings.Contains(body, `class="cd-next-cmd"`) {
+		t.Error("Protected drawer must NOT show a next-action block")
+	}
+}
+
+// 5c. Observed drawer carries the telemetry-without-blocking
+// explanation and the current CLI command for issuing the right
+// token. Token issuance is a CLI workflow today (oktsec tokens
+// create), not a dashboard one — the drawer must not link to a
+// Settings page that cannot perform the action. Regression guard
+// for the "describe capability the UI does not have" failure mode.
+func TestCoverageCellDrawer_ObservedShowsCLICommand(t *testing.T) {
+	srv := newTestServer(t)
+	// Hooks in local profile with no hook_bearer token => observed.
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=local-codex&surface=hooks", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "telemetry") {
+		t.Errorf("Observed drawer must include 'telemetry'; body = %s", body)
+	}
+	wantCmd := "oktsec tokens create --principal local-codex --type hook_bearer"
+	if !strings.Contains(body, wantCmd) {
+		t.Errorf("Observed drawer must surface the current CLI command %q; body = %s", wantCmd, body)
+	}
+	// Must NOT link to Settings — Settings cannot issue tokens today.
+	if strings.Contains(body, `href="/dashboard/settings"`) {
+		t.Error("drawer must not link the next-action to /dashboard/settings (cannot issue tokens)")
+	}
+}
+
+// 5d. Blind drawer carries the no-protection explanation and the
+// current CLI command for the surface in question. Egress proxy
+// off + no proxy_basic token reaches this state.
+func TestCoverageCellDrawer_BlindShowsCLICommand(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+	// Egress surface is off in defaults; the principal has no proxy
+	// token, so the egress cell is Blind.
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=local-codex&surface=http_egress_proxy", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "no active protection") {
+		t.Errorf("Blind drawer must include 'no active protection'; body = %s", body)
+	}
+	wantCmd := "oktsec tokens create --principal local-codex --type proxy_basic"
+	if !strings.Contains(body, wantCmd) {
+		t.Errorf("Blind drawer must surface the egress CLI command %q; body = %s", wantCmd, body)
+	}
+}
+
+// 5d3. The CLI command surfaced by the drawer must be safe to copy
+// and paste. principalID flows in from the request query string and
+// from operator-controlled config, so a value with shell
+// metacharacters (spaces, semicolons, quotes) must be POSIX
+// single-quoted before it lands in the rendered command. Otherwise
+// the dashboard would teach an unsafe shell snippet to whoever pastes
+// it. Regression guard for that exact failure mode.
+func TestCoverageCellDrawer_PrincipalIDIsShellQuoted(t *testing.T) {
+	srv := newTestServer(t)
+	// Add a principal whose name contains shell metacharacters. The
+	// CLI command in the drawer must wrap it in single quotes so a
+	// copy-paste cannot run anything other than `oktsec tokens create
+	// --principal '<name>' ...`.
+	pid := "bad; echo pwned"
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals, config.PrincipalConfig{
+		ID:          pid,
+		DisplayName: pid,
+		Kind:        "agent",
+	})
+	srv.cfg.Gateway.Enabled = true
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET",
+		"/dashboard/api/coverage/cell?principal_id="+url.QueryEscape(pid)+"&surface=mcp_http", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	// html/template escapes the single quotes as &#39; in source so
+	// the HTML stays safe; browsers render and copy-paste the
+	// unescaped form 'bad; echo pwned'. The contract we assert here
+	// is that the escaped quotes wrap the principal — without them
+	// the operator would copy a command that runs `echo pwned`.
+	wantCmd := "oktsec tokens create --principal &#39;bad; echo pwned&#39; --type gateway_bearer"
+	if !strings.Contains(body, wantCmd) {
+		t.Errorf("drawer must shell-quote principal with metacharacters; want %q in body", wantCmd)
+	}
+	// Defense-in-depth: the unquoted form must not appear anywhere
+	// in the rendered command surface area.
+	if strings.Contains(body, "--principal bad; echo pwned --type") {
+		t.Error("drawer rendered the unquoted principal — copy-paste would execute the metacharacter")
+	}
+}
+
+// 5d4. The MCP gateway drawer surfaces the gateway_bearer CLI
+// command for non-Protected states. Covers the third surface so the
+// CLI-command contract is exhaustive across all three.
+func TestCoverageCellDrawer_MCPHTTPShowsGatewayBearerCommand(t *testing.T) {
+	srv := newTestServer(t)
+	// Add a principal with NO tokens so mcp_http resolves to a
+	// non-Protected state in local profile (loopback observed).
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals, config.PrincipalConfig{
+		ID:          "claude-code",
+		DisplayName: "claude-code",
+		Kind:        "agent",
+	})
+	srv.cfg.Gateway.Enabled = true
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=claude-code&surface=mcp_http", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	wantCmd := "oktsec tokens create --principal claude-code --type gateway_bearer"
+	if !strings.Contains(body, wantCmd) {
+		t.Errorf("non-Protected mcp_http drawer must surface the gateway_bearer CLI command %q; body = %s",
+			wantCmd, body)
+	}
+}
+
+// 5e. The explanation text must stay neutral. Forbidden vocabulary
+// from the public-artifact rule must not slip into the drawer body.
+func TestCoverageCellDrawer_ExplanationStaysNeutral(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	for _, surface := range []string{"mcp_http", "http_egress_proxy", "hooks"} {
+		req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=local-codex&surface="+surface, nil)
+		req.AddCookie(cookie)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		body := strings.ToLower(rr.Body.String())
+		for _, banned := range []string{"fully protected", "complete coverage", "blind failure", "honest", "fake"} {
+			if strings.Contains(body, banned) {
+				t.Errorf("surface %q drawer contains forbidden phrase %q", surface, banned)
+			}
+		}
 	}
 }
 

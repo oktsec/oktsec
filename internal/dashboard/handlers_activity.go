@@ -4,7 +4,9 @@ import (
 	"context"
 	"html/template"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/activity"
@@ -208,7 +210,10 @@ func (s *Server) connectorIDsByPrincipal() map[string]string {
 // JSON, because the rest of the dashboard's drill-down infrastructure
 // (the slide-in panel, panel-overlay, openPanel JS) is HTMX-driven.
 //
-// The fragment shows: principal, surface, coverage label, connector,
+// The fragment shows: principal, surface, coverage label, connector;
+// a short "Why this state" explanation that translates the wire-level
+// label into operator language; an optional next-action block (a CLI
+// command operators can copy-paste) when coverage is not Protected;
 // then the last drillDownEventLimit activity events newest-first.
 // Empty state is explicit so the operator sees "No activity recorded
 // for this surface yet." instead of a blank pane.
@@ -236,6 +241,8 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 		CoverageLabel string
 		ConnectorID   string
 		Connector     string
+		Explanation   string
+		NextAction    coverageAction
 		Events        []activityEventDTO
 		Limit         int
 	}{
@@ -246,6 +253,8 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 		CoverageLabel: coverageBadgeLabel(cellCoverage),
 		ConnectorID:   cellConnector,
 		Connector:     coverage.ConnectorDisplayName(cellConnector),
+		Explanation:   coverageExplanation(cellCoverage),
+		NextAction:    coverageNextAction(cellCoverage, surface, principalID),
 		Limit:         drillDownEventLimit,
 	}
 
@@ -314,6 +323,105 @@ func coverageBadgeLabel(c string) string {
 	return ""
 }
 
+// coverageExplanation returns the operator-facing one-sentence
+// answer to "why is this cell in this state?". Wording is the
+// canonical contract from the Phase 2B.1 dashboard UX spec — change
+// it here, not in the template, so all three coverage states stay in
+// lock-step. Deliberately neutral (no "fully", "complete", "blind
+// failure"): Protected does not imply global coverage and Observed
+// does not imply blocking.
+func coverageExplanation(coverage string) string {
+	switch coverage {
+	case "protected":
+		return "Oktsec is in the pre-action path with authenticated identity for this surface."
+	case "observed":
+		return "Oktsec has telemetry for this surface, but cannot claim pre-action blocking."
+	case "blind":
+		return "Oktsec has no active protection or usable telemetry for this surface."
+	}
+	return "No coverage state is available for this surface."
+}
+
+// coverageAction is the optional next step the drawer surfaces when
+// coverage is not Protected. It carries a one-sentence Hint plus the
+// CLI Command an operator can copy-paste — token issuance is a CLI
+// workflow today, not a dashboard one, so the drawer must not link
+// to an in-app screen that cannot perform the action. Empty Hint
+// means "render nothing" and the template skips the block.
+type coverageAction struct {
+	Hint    string
+	Command string
+}
+
+// coverageNextAction returns the next step a non-Protected cell can
+// take, as the actual CLI command an operator runs. Token issuance
+// lives in `oktsec tokens create`, so the action shows that command
+// pre-filled with the principal id rather than a link to
+// /dashboard/settings (which exists, but does not currently issue
+// gateway_bearer / proxy_basic / hook_bearer tokens — pointing
+// there would describe a capability the UI does not have).
+//
+// The principal id is shell-quoted via shellQuotePrincipal so a
+// crafted query string (or an unusual configured principal name)
+// cannot produce a copy-paste-unsafe command. Plain identifiers stay
+// unquoted so the common case still reads cleanly.
+//
+// Protected cells return the zero value and the template renders
+// nothing — Protected is the goal state and a "fix this" affordance
+// would be misleading.
+func coverageNextAction(coverage, surface, principalID string) coverageAction {
+	if coverage == "protected" {
+		return coverageAction{}
+	}
+	pid := shellQuotePrincipal(principalID)
+	switch surface {
+	case "mcp_http":
+		return coverageAction{
+			Hint:    "Issue a gateway bearer token from the CLI:",
+			Command: "oktsec tokens create --principal " + pid + " --type gateway_bearer",
+		}
+	case "http_egress_proxy":
+		return coverageAction{
+			Hint:    "Issue a forward-proxy token from the CLI:",
+			Command: "oktsec tokens create --principal " + pid + " --type proxy_basic",
+		}
+	case "hooks":
+		return coverageAction{
+			Hint:    "Issue a hook bearer token from the CLI:",
+			Command: "oktsec tokens create --principal " + pid + " --type hook_bearer",
+		}
+	}
+	return coverageAction{}
+}
+
+// safePrincipalCharsRE matches values that are safe to render as a
+// single shell argument without quoting: ASCII letters, digits, and
+// the three punctuation characters principals commonly use. Anything
+// outside this set goes through POSIX single-quote escaping so a
+// metacharacter cannot turn the rendered command into something the
+// operator would not knowingly run.
+var safePrincipalCharsRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// shellQuotePrincipal returns s wrapped for safe inclusion as a
+// single shell argument. Plain identifiers pass through unchanged so
+// the common command stays readable; anything else gets POSIX
+// single-quote escaping (wrap in '...', then replace embedded '
+// with '\''). Empty string becomes '' so the operator sees an
+// obviously-blank slot rather than a silently-missing argument.
+//
+// We cannot use shell-specific helpers (no shellescape package) so
+// the implementation stays small and dependency-free. POSIX rules
+// are intentionally portable across bash, zsh, and dash.
+func shellQuotePrincipal(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if safePrincipalCharsRE.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // coverageCellDrawerTmpl renders the slide-in drawer body for one
 // (principal, surface) cell. Inline CSS is scoped to .cd-* so it
 // cannot collide with the rest of the dashboard.
@@ -328,6 +436,11 @@ var coverageCellDrawerTmpl = template.Must(template.New("coverage-cell-drawer").
 .cd-badge.protected{background:rgba(63,185,80,0.12);color:var(--success);border:1px solid rgba(63,185,80,0.30)}
 .cd-badge.observed{background:rgba(88,166,255,0.10);color:var(--accent);border:1px solid rgba(88,166,255,0.25)}
 .cd-badge.blind{background:transparent;color:var(--text3);border:1px solid var(--border)}
+.cd-explain{padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border-subtle)}
+.cd-explain-title{margin:0 0 var(--sp-2) 0;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-wide);color:var(--text3);font-weight:600}
+.cd-explain-body{margin:0;font-size:var(--text-sm);color:var(--text);line-height:1.5}
+.cd-next-hint{margin:var(--sp-2) 0 4px 0;font-size:var(--text-sm);color:var(--text2)}
+.cd-next-cmd{margin:0;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);font-family:var(--mono);font-size:var(--text-xs);color:var(--accent-light);white-space:pre-wrap;word-break:break-all;overflow-x:auto}
 .cd-events{padding:var(--sp-3) var(--sp-4)}
 .cd-events h4{margin:0 0 var(--sp-2) 0;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-wide);color:var(--text3)}
 .cd-event{padding:var(--sp-2) 0;border-bottom:1px solid var(--border-subtle);font-size:var(--text-sm)}
@@ -345,6 +458,14 @@ var coverageCellDrawerTmpl = template.Must(template.New("coverage-cell-drawer").
     {{if .Connector}}<span><b>Connector:</b> {{.Connector}}</span>{{end}}
     <span><b>Surface:</b> {{.Surface}}</span>
   </div>
+</div>
+<div class="cd-explain">
+  <h4 class="cd-explain-title">Why this state</h4>
+  <p class="cd-explain-body">{{.Explanation}}</p>
+  {{if .NextAction.Hint}}
+  <p class="cd-next-hint">{{.NextAction.Hint}}</p>
+  <pre class="cd-next-cmd"><code>{{.NextAction.Command}}</code></pre>
+  {{end}}
 </div>
 <div class="cd-events">
   <h4>Last {{.Limit}} activity events</h4>
