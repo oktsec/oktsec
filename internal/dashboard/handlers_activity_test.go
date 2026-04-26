@@ -332,9 +332,9 @@ func TestOverview_CoverageCellsActivateOnKeyboard(t *testing.T) {
 // activity_events). The handler resolves the connector to the set of
 // matching principals and pushes the filter into SQL via PrincipalIDs
 // so the LIMIT applies AFTER the connector filter, never before.
-// Regression guard for the original bug where connector_id was passed
-// straight through to activity.Query and matched zero rows because
-// surface adapters never populate Event.ConnectorID.
+// Regression guard: connector_id must match rows whose principal
+// currently maps to that connector even when Event.ConnectorID is
+// empty (which surface adapters always leave it).
 func TestActivityAPI_ConnectorIDFilterPostQueryDerived(t *testing.T) {
 	srv := newTestServer(t)
 	// Two principals: one custom-client (gateway + hook tokens),
@@ -400,13 +400,13 @@ func TestActivityAPI_ConnectorIDFilterPostQueryDerived(t *testing.T) {
 	}
 }
 
-// 11. The connector_id filter must survive the LIMIT cutoff. Codex's
-// scenario: many recent events from one connector, plus one older
-// event from a different connector. Asking for limit=N of the rare
-// connector must still return its event even when the recent N+
-// events all belong to other connectors. Regression guard for the
-// "post-filter after LIMIT" bug — the fix pushes the connector
-// filter into SQL via PrincipalIDs so LIMIT applies AFTER.
+// 11. The connector_id filter must survive the LIMIT cutoff.
+// Limit-cutoff regression scenario: many recent events from one
+// connector, plus one older event from a different connector.
+// Asking for limit=N of the rare connector must still return its
+// event even when the recent N+ events all belong to other
+// connectors. The connector filter has to apply BEFORE the LIMIT,
+// which is why PrincipalIDs is pushed into SQL.
 func TestActivityAPI_ConnectorIDFilterSurvivesLimit(t *testing.T) {
 	srv := newTestServer(t)
 	seedPrincipalWithGatewayBearer(srv, "noisy-single-surface")
@@ -470,10 +470,11 @@ func TestActivityAPI_ConnectorIDFilterSurvivesLimit(t *testing.T) {
 	handler := srv.Handler()
 	cookie := loginSession(t, srv, handler)
 
-	// limit=50: under the old "post-filter after LIMIT" code, the
-	// store would return the 50 most recent events (all noisy), the
-	// post-filter would discard all of them, and the response would
-	// be []. With the IN-clause-in-SQL fix, the rare event survives.
+	// limit=50: with the connector filter pushed into SQL via the
+	// PrincipalIDs IN clause, the store returns the 50 most recent
+	// events from the matching principal set (rare-multi-surface).
+	// Without the SQL push-down, a post-filter applied AFTER the
+	// LIMIT would discard all 50 noisy rows and return [].
 	req := httptest.NewRequest("GET",
 		"/dashboard/api/activity?connector_id="+connectors.IDCustomClient+"&limit=50", nil)
 	req.AddCookie(cookie)
