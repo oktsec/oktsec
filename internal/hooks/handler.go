@@ -328,12 +328,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// When the resolver established a Principal (token-authenticated or
 	// trusted_local loopback header), it overrides the payload-supplied
-	// agent name. The original ev.Agent value is preserved by normalize()
-	// and remains visible to operators via the audit reported_actor
-	// column further down — not because it grants any authority, but
-	// because it is useful display metadata.
+	// agent name. The payload value is preserved here for the audit
+	// reported_actor column further down — not because it grants any
+	// authority, but because it is useful display metadata.
+	originalPayloadAgent := ev.Agent
 	if authResult.Principal.ID != "" && authResult.Principal.ID != "unknown" {
 		ev.Agent = authResult.Principal.ID
+	}
+	// Reported actor: take the most specific display name available.
+	// Subagent type/id (when the client is running inside a sub-agent)
+	// is more specific than the surface header, which is more specific
+	// than whatever the payload supplied as agent.
+	reportedActor := authResult.ReportedActor.ID
+	if ev.AgentType != "" {
+		reportedActor = ev.AgentType
+	} else if reportedActor == "" && originalPayloadAgent != "" && originalPayloadAgent != ev.Agent {
+		reportedActor = originalPayloadAgent
 	}
 
 	start := time.Now()
@@ -445,6 +455,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		AgentInstanceID:     ev.AgentID,
 		RootAgent:           rootAgent,
 		AgentDepth:          agentDepth,
+		// Identity provenance (PR coverage matrix dependency): writes
+		// the auth method / trust level / reported actor the resolver
+		// established for this hook. The coverage query upstream uses
+		// auth_method to attribute LastSeen to the hooks surface.
+		AuthMethod:          string(authResult.Principal.AuthMethod),
+		PrincipalTrustLevel: string(authResult.Principal.TrustLevel),
+		ReportedActor:       reportedActor,
 	})
 
 	// Update agent hierarchy table

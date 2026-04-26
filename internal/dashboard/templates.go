@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/oktsec/oktsec/internal/coverage"
 )
 
 // categoryOverrides pins the canonical casing for acronym-heavy category
@@ -130,6 +132,12 @@ func toFloat64(v any) float64 {
 // tmplFuncs is the shared FuncMap for all event-rendering templates.
 var tmplFuncs = template.FuncMap{
 	"humanDecision": humanReadableDecision,
+	// Coverage display helpers — let the Overview template render the
+	// matrix without reaching into the coverage package for vocabulary.
+	"covLabel": func(mode string) string {
+		return coverage.CoverageDisplayName(coverage.CoverageMode(mode))
+	},
+	"covShort": coverage.LimitationShortLabel,
 	"truncate": func(s string, n int) string {
 		if len(s) <= n {
 			return s

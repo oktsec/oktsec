@@ -148,6 +148,84 @@ a.ov-metric:hover{background:var(--surface2)}
   </div>
 </div>
 
+<!-- Coverage matrix: per-principal, per-surface protection state. -->
+<style>
+.cov-scroll{overflow-x:auto;margin:0 -4px}
+.cov-table{width:100%;min-width:760px;border-collapse:collapse;font-size:var(--text-sm)}
+.cov-table th{text-align:left;font-weight:600;color:var(--text3);font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-wide);padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+.cov-table td{padding:10px 12px;border-bottom:1px solid var(--border-subtle);vertical-align:top;white-space:nowrap}
+.cov-table tr:last-child td{border-bottom:none}
+.cov-principal{font-weight:600;color:var(--text);font-family:var(--mono)}
+.cov-connector{font-size:var(--text-xs);color:var(--text3)}
+.cov-badge{display:inline-block;padding:2px 8px;border-radius:var(--radius-sm);font-size:var(--text-xs);font-weight:600;letter-spacing:0.02em}
+.cov-badge.protected{background:rgba(63,185,80,0.12);color:var(--success);border:1px solid rgba(63,185,80,0.30)}
+.cov-badge.observed{background:rgba(88,166,255,0.10);color:var(--accent);border:1px solid rgba(88,166,255,0.25)}
+.cov-badge.blind{background:transparent;color:var(--text3);border:1px solid var(--border)}
+.cov-short{display:block;font-size:var(--text-xs);color:var(--text3);margin-top:3px;line-height:1.3;cursor:help}
+.cov-identity{font-size:var(--text-xs);color:var(--text2)}
+.cov-lastseen{font-size:var(--text-xs);color:var(--text2);font-family:var(--mono)}
+.cov-empty{padding:24px;text-align:center;color:var(--text3);font-size:var(--text-sm)}
+.cov-empty a{color:var(--accent);text-decoration:none}
+.cov-empty a:hover{text-decoration:underline}
+</style>
+<div class="ov-card" style="margin-bottom:var(--sp-4)">
+  <div style="display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)">
+    <h3 style="margin:0">Coverage matrix</h3>
+    <span style="font-size:var(--text-xs);color:var(--text3)">Per-principal, per-surface protection state</span>
+  </div>
+  {{if .CoverageRows}}
+  <div class="cov-scroll">
+  <table class="cov-table" aria-label="Coverage matrix by principal and surface">
+    <thead>
+      <tr>
+        <th>Principal</th>
+        <th>Connector</th>
+        <th>MCP Gateway</th>
+        <th>Egress Proxy</th>
+        <th>Hooks</th>
+        <th>Identity</th>
+        <th>Last seen</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .CoverageRows}}
+      <tr>
+        <td><span class="cov-principal">{{.PrincipalID}}</span></td>
+        <td><span class="cov-connector">{{.ConnectorLabel}}</span></td>
+        {{with index .Cells "mcp_http"}}
+        <td>
+          <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
+          {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+        </td>
+        {{else}}<td><span class="cov-badge blind">Blind</span></td>{{end}}
+        {{with index .Cells "http_egress_proxy"}}
+        <td>
+          <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
+          {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+        </td>
+        {{else}}<td><span class="cov-badge blind">Blind</span></td>{{end}}
+        {{with index .Cells "hooks"}}
+        <td>
+          <span class="cov-badge {{.Coverage}}" title="{{.Limitation}}">{{covLabel (printf "%s" .Coverage)}}</span>
+          {{$short := covShort .}}{{if $short}}<span class="cov-short" title="{{.Limitation}}">{{$short}}</span>{{end}}
+        </td>
+        {{else}}<td><span class="cov-badge blind">Blind</span></td>{{end}}
+        <td><span class="cov-identity">{{.IdentityList}}</span></td>
+        <td>{{if .LastSeen}}<span class="cov-lastseen" data-ts="{{.LastSeen}}">{{.LastSeen}}</span>{{else}}<span class="cov-lastseen" style="color:var(--text3)">No activity yet</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{else}}
+  <div class="cov-empty">
+    No principals configured yet.
+    <a href="https://oktsec.com/docs/guides/mcp-http-bearer-client/">Issue a bearer token</a>
+    to start populating the matrix.
+  </div>
+  {{end}}
+</div>
+
 <!-- Live Feed + Security Status -->
 <div class="ov-grid">
   <div class="card" style="margin-bottom:0">

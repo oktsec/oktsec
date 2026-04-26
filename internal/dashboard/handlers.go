@@ -25,6 +25,7 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/auditcheck"
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/coverage"
 	"github.com/oktsec/oktsec/internal/discover"
 	"github.com/oktsec/oktsec/internal/graph"
 	"github.com/oktsec/oktsec/internal/identity"
@@ -223,6 +224,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		ruleCount = s.scanner.RulesCount(r.Context())
 	}
 
+	// Coverage matrix is computed once for the Overview render. Its rows
+	// are pivoted into per-principal table rows by the template; each
+	// surface column shows the corresponding cell's badge + limitation.
+	coverageRows := buildCoverageRows(coverage.Compute(s.cfg, s.audit))
+
 	data := map[string]any{
 		"Active":        "overview",
 		"Stats":         stats,
@@ -248,6 +254,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"MemPoisonCount":  memPoisonCount,
 		"GuardEnabled":    s.cfg.Guard.Enabled,
 		"GuardAlerts":     guardEventCount,
+		"CoverageRows":    coverageRows,
 	}
 
 	s.populateLLMStats(data)
@@ -4968,4 +4975,84 @@ func (s *Server) handleSaveCategoryWebhooks(w http.ResponseWriter, r *http.Reque
 	}
 
 	http.Redirect(w, r, "/dashboard/rules/"+category, http.StatusFound)
+}
+
+// handleAPICoverage returns the per-principal × per-surface coverage
+// matrix as JSON. The audit store satisfies coverage.AuditReader via
+// LastSeenByPrincipalSurface, so coverage.Compute can attribute the
+// "last seen" timestamp to each cell without extra wiring.
+func (s *Server) handleAPICoverage(w http.ResponseWriter, r *http.Request) {
+	cells := coverage.Compute(s.cfg, s.audit)
+	s.renderJSON(w, cells)
+}
+
+// coverageRow is the per-principal projection the Overview template
+// renders. Each row is one principal with one column per surface.
+// Pivoting happens here so the template stays declarative.
+//
+// The display fields (ConnectorLabel, IdentityList) are pre-formatted
+// in this layer so the template never has to reach into the coverage
+// package's internal vocabulary.
+type coverageRow struct {
+	PrincipalID    string
+	ConnectorID    string
+	ConnectorLabel string                           // humanized: "Custom client"
+	IdentityList   string                           // humanized join: "Bearer token + Hook token"
+	LastSeen       string                           // most recent across surfaces (RFC3339)
+	Cells          map[string]coverage.CoverageCell // keyed by surface
+}
+
+// buildCoverageRows turns a flat slice of CoverageCell (one per
+// principal × surface) into one row per principal with the surface
+// cells indexed for direct template lookup. Identity column collapses
+// the distinct auth methods seen across this principal into a single
+// human-readable string.
+func buildCoverageRows(cells []coverage.CoverageCell) []coverageRow {
+	byPrincipal := make(map[string]*coverageRow)
+	order := []string{}
+	for _, c := range cells {
+		row, ok := byPrincipal[c.PrincipalID]
+		if !ok {
+			row = &coverageRow{
+				PrincipalID:    c.PrincipalID,
+				ConnectorID:    c.ConnectorID,
+				ConnectorLabel: coverage.ConnectorDisplayName(c.ConnectorID),
+				Cells:          make(map[string]coverage.CoverageCell),
+			}
+			byPrincipal[c.PrincipalID] = row
+			order = append(order, c.PrincipalID)
+		}
+		row.Cells[c.Surface] = c
+		// Track most-recent LastSeen across surfaces so the row column
+		// has a single value to show. Per-cell timestamps remain
+		// available for surface-specific tooltips.
+		if c.LastSeen > row.LastSeen {
+			row.LastSeen = c.LastSeen
+		}
+	}
+	// Identity column: unique auth methods, in surface iteration order so
+	// MCP > Egress > Hooks reads stably. Each method is humanized via the
+	// coverage package's display helper so the table never shows raw ids.
+	for _, row := range byPrincipal {
+		seen := make(map[string]bool)
+		var methods []string
+		for _, surface := range coverage.AllSurfaces {
+			c, ok := row.Cells[string(surface)]
+			if !ok || c.AuthMethod == "" || seen[c.AuthMethod] {
+				continue
+			}
+			seen[c.AuthMethod] = true
+			methods = append(methods, coverage.AuthMethodDisplayName(c.AuthMethod))
+		}
+		if len(methods) == 0 {
+			row.IdentityList = "Anonymous"
+		} else {
+			row.IdentityList = strings.Join(methods, " + ")
+		}
+	}
+	out := make([]coverageRow, 0, len(order))
+	for _, id := range order {
+		out = append(out, *byPrincipal[id])
+	}
+	return out
 }

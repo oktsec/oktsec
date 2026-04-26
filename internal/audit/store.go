@@ -1861,6 +1861,58 @@ func (s *Store) QueryReasoningByAuditID(auditEntryID string) (*ReasoningEntry, e
 	return &r, nil
 }
 
+// surfaceAuthMethods is the conservative mapping the coverage matrix
+// uses to attribute audit rows to a surface. Anonymous (auth_method="")
+// rows are deliberately NOT mapped to any surface — attributing them
+// would risk crediting a configured principal with activity from an
+// unauthenticated client that just happened to share a name in its
+// payload.
+var surfaceAuthMethods = map[string][]string{
+	"mcp_http":          {"bearer_token", "trusted_loopback"},
+	"http_egress_proxy": {"proxy_token", "trusted_loopback"},
+	"hooks":             {"hook_token"},
+}
+
+// LastSeenByPrincipalSurface returns the most recent timestamp (RFC3339)
+// for audit rows attributable to the given principal on the given
+// surface. Returns "" without an error when there is no matching row.
+//
+// Attribution requires both:
+//   - from_agent equals principalID, and
+//   - auth_method is one of the surface's recognized authenticated paths.
+//
+// Anonymous rows (auth_method="") never count even if from_agent matches,
+// because that would let a stray unauthenticated event credit a
+// configured principal in the coverage matrix.
+func (s *Store) LastSeenByPrincipalSurface(principalID, surface string) (string, error) {
+	methods, ok := surfaceAuthMethods[surface]
+	if !ok || principalID == "" {
+		return "", nil
+	}
+	// Build the IN (?, ?) placeholder list with the dialect's syntax so
+	// the same query works on SQLite and Postgres.
+	placeholders := make([]string, len(methods))
+	args := make([]any, 0, len(methods)+1)
+	args = append(args, principalID)
+	for i, m := range methods {
+		placeholders[i] = s.dialect.Placeholder(i + 2)
+		args = append(args, m)
+	}
+	q := fmt.Sprintf(
+		"SELECT MAX(timestamp) FROM audit_log WHERE from_agent = %s AND auth_method IN (%s)",
+		s.dialect.Placeholder(1),
+		strings.Join(placeholders, ","),
+	)
+	var ts sql.NullString
+	if err := s.db.QueryRow(q, args...).Scan(&ts); err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", fmt.Errorf("querying last seen for %s on %s: %w", principalID, surface, err)
+	}
+	return ts.String, nil
+}
+
 // expiryLoop periodically expires old quarantine items and purges old audit entries.
 func (s *Store) expiryLoop() {
 	ticker := time.NewTicker(60 * time.Second)

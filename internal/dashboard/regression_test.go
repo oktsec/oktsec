@@ -449,6 +449,134 @@ func readFileForTest(path string) (string, error) {
 	return string(b), nil
 }
 
+// TestRegression_OverviewRendersCoverageMatrix verifies the Coverage
+// section appears in the Overview page with one row per principal and
+// the right badges. This is the user-visible payoff of Phase 2A.
+func TestRegression_OverviewRendersCoverageMatrix(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals,
+		config.PrincipalConfig{
+			ID: "local-codex", DisplayName: "local-codex", Kind: "agent",
+			Tokens: []config.PrincipalTokenConfig{{
+				ID: "tok-1", Type: "gateway_bearer", Hash: "sha256:dummy",
+				CreatedAt: "2026-04-26T00:00:00Z",
+			}},
+		},
+		config.PrincipalConfig{
+			ID: "researcher", DisplayName: "researcher", Kind: "agent",
+			Tokens: []config.PrincipalTokenConfig{{
+				ID: "tok-2", Type: "proxy_basic", Hash: "sha256:dummy",
+				CreatedAt: "2026-04-26T00:00:00Z",
+			}},
+		},
+	)
+	srv.cfg.Gateway.Enabled = true
+	srv.cfg.ForwardProxy.Enabled = true
+	// Enterprise profile so principals without a token of the matching
+	// type fall to blind (not the legacy loopback observed path). That
+	// makes the matrix exercise both protected and blind in one go.
+	srv.cfg.Deployment.Profile = "enterprise"
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		"Coverage matrix",       // section header
+		"local-codex",           // principal #1
+		"researcher",            // principal #2
+		"Generic MCP HTTP",      // humanized connector for gateway_bearer-only
+		"Generic egress proxy",  // humanized connector for proxy_basic-only
+		"cov-badge protected",
+		"cov-badge blind",       // researcher has no gateway_bearer → mcp_http blind in enterprise
+		"Bearer token",          // humanized identity for local-codex
+		"Proxy token",           // humanized identity for researcher
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Overview missing %q in coverage matrix; first 400 chars after Coverage:\n%s",
+				want, snippetAfter(body, "Coverage", 400))
+		}
+	}
+}
+
+func snippetAfter(s, anchor string, n int) string {
+	i := strings.Index(s, anchor)
+	if i < 0 {
+		return "(anchor not found)"
+	}
+	end := i + n
+	if end > len(s) {
+		end = len(s)
+	}
+	return s[i:end]
+}
+
+// TestRegression_OverviewCoverageEmptyState verifies the empty state
+// when no principals are configured yet — important for first-run
+// experience so a fresh install does not look broken.
+func TestRegression_OverviewCoverageEmptyState(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Identity.Principals = nil
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	body := rr.Body.String()
+	if !strings.Contains(body, "No principals configured yet") {
+		t.Errorf("empty state missing; body fragment around Coverage:\n%s",
+			snippetAfter(body, "Coverage", 400))
+	}
+	if !strings.Contains(body, "Issue a bearer token") {
+		t.Error("empty state should link to bearer-token guide")
+	}
+}
+
+// TestRegression_CoverageAPIReturnsJSON exercises the /dashboard/api/coverage
+// endpoint added in Phase 2A. It seeds a principal with a gateway_bearer
+// token so the matrix has at least one cell with content, then asserts
+// the JSON shape contains the surface and the principal id.
+func TestRegression_CoverageAPIReturnsJSON(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals, config.PrincipalConfig{
+		ID: "local-codex", DisplayName: "local-codex", Kind: "agent",
+		Tokens: []config.PrincipalTokenConfig{{
+			ID: "tok-1", Type: "gateway_bearer", Hash: "sha256:dummy",
+			CreatedAt: "2026-04-26T00:00:00Z",
+		}},
+	})
+	srv.cfg.Gateway.Enabled = true
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"principal_id":"local-codex"`) {
+		t.Errorf("response missing principal_id; body=%s", body)
+	}
+	if !strings.Contains(body, `"surface":"mcp_http"`) {
+		t.Errorf("response missing mcp_http surface; body=%s", body)
+	}
+	if !strings.Contains(body, `"coverage":"protected"`) {
+		t.Errorf("gateway_bearer + enabled gateway should produce a protected cell; body=%s", body)
+	}
+}
+
 // TestRegression_NoExternalScriptTags confirms no <script src="https://..."> tags
 // appear in any dashboard page. All assets are served from the binary.
 func TestRegression_NoExternalScriptTags(t *testing.T) {
