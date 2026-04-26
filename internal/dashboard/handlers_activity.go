@@ -208,10 +208,13 @@ func (s *Server) connectorIDsByPrincipal() map[string]string {
 // JSON, because the rest of the dashboard's drill-down infrastructure
 // (the slide-in panel, panel-overlay, openPanel JS) is HTMX-driven.
 //
-// The fragment shows: principal, surface, coverage label, connector,
-// then the last drillDownEventLimit activity events newest-first.
-// Empty state is explicit so the operator sees "No activity recorded
-// for this surface yet." instead of a blank pane.
+// The fragment shows: principal, surface, coverage label, connector;
+// a short "Why this state" explanation that translates the wire-level
+// label into operator language; an optional next-action link when
+// coverage is not Protected; then the last drillDownEventLimit
+// activity events newest-first. Empty state is explicit so the
+// operator sees "No activity recorded for this surface yet." instead
+// of a blank pane.
 func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request) {
 	principalID := r.URL.Query().Get("principal_id")
 	surface := r.URL.Query().Get("surface")
@@ -236,6 +239,8 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 		CoverageLabel string
 		ConnectorID   string
 		Connector     string
+		Explanation   string
+		NextAction    coverageAction
 		Events        []activityEventDTO
 		Limit         int
 	}{
@@ -246,6 +251,8 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 		CoverageLabel: coverageBadgeLabel(cellCoverage),
 		ConnectorID:   cellConnector,
 		Connector:     coverage.ConnectorDisplayName(cellConnector),
+		Explanation:   coverageExplanation(cellCoverage),
+		NextAction:    coverageNextAction(cellCoverage, surface),
 		Limit:         drillDownEventLimit,
 	}
 
@@ -314,6 +321,56 @@ func coverageBadgeLabel(c string) string {
 	return ""
 }
 
+// coverageExplanation returns the operator-facing one-sentence
+// answer to "why is this cell in this state?". Wording is the
+// canonical contract from the Phase 2B.1 dashboard UX spec — change
+// it here, not in the template, so all three coverage states stay in
+// lock-step. Deliberately neutral (no "fully", "complete", "blind
+// failure"): Protected does not imply global coverage and Observed
+// does not imply blocking.
+func coverageExplanation(coverage string) string {
+	switch coverage {
+	case "protected":
+		return "Oktsec is in the pre-action path with authenticated identity for this surface."
+	case "observed":
+		return "Oktsec has telemetry for this surface, but cannot claim pre-action blocking."
+	case "blind":
+		return "Oktsec has no active protection or usable telemetry for this surface."
+	}
+	return "No coverage state is available for this surface."
+}
+
+// coverageAction is the optional next step the drawer surfaces when
+// coverage is not Protected. Empty Label means "render nothing"; the
+// template skips the link in that case so a Protected cell stays
+// quiet and a Blind cell does not get a misleading "fix this"
+// affordance when no in-app route applies.
+type coverageAction struct {
+	Label string
+	Href  string
+}
+
+// coverageNextAction picks the surface-specific link that improves
+// coverage when the cell is not Protected. We point at the in-app
+// Settings page for every surface (it is the single route where
+// tokens, profile auth, and surface enablement are configured) so
+// we never link to a route that does not exist. Protected cells
+// return the zero value and the template renders no link.
+func coverageNextAction(coverage, surface string) coverageAction {
+	if coverage == "protected" {
+		return coverageAction{}
+	}
+	switch surface {
+	case "mcp_http":
+		return coverageAction{Label: "Issue a gateway bearer token", Href: "/dashboard/settings"}
+	case "http_egress_proxy":
+		return coverageAction{Label: "Configure egress proxy auth", Href: "/dashboard/settings"}
+	case "hooks":
+		return coverageAction{Label: "Configure hook token", Href: "/dashboard/settings"}
+	}
+	return coverageAction{Label: "Review coverage settings", Href: "/dashboard/settings"}
+}
+
 // coverageCellDrawerTmpl renders the slide-in drawer body for one
 // (principal, surface) cell. Inline CSS is scoped to .cd-* so it
 // cannot collide with the rest of the dashboard.
@@ -328,6 +385,11 @@ var coverageCellDrawerTmpl = template.Must(template.New("coverage-cell-drawer").
 .cd-badge.protected{background:rgba(63,185,80,0.12);color:var(--success);border:1px solid rgba(63,185,80,0.30)}
 .cd-badge.observed{background:rgba(88,166,255,0.10);color:var(--accent);border:1px solid rgba(88,166,255,0.25)}
 .cd-badge.blind{background:transparent;color:var(--text3);border:1px solid var(--border)}
+.cd-explain{padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border-subtle)}
+.cd-explain-title{margin:0 0 var(--sp-2) 0;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-wide);color:var(--text3);font-weight:600}
+.cd-explain-body{margin:0;font-size:var(--text-sm);color:var(--text);line-height:1.5}
+.cd-next{display:inline-block;margin-top:var(--sp-2);font-size:var(--text-sm);color:var(--accent);text-decoration:none}
+.cd-next:hover{text-decoration:underline}
 .cd-events{padding:var(--sp-3) var(--sp-4)}
 .cd-events h4{margin:0 0 var(--sp-2) 0;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-wide);color:var(--text3)}
 .cd-event{padding:var(--sp-2) 0;border-bottom:1px solid var(--border-subtle);font-size:var(--text-sm)}
@@ -345,6 +407,11 @@ var coverageCellDrawerTmpl = template.Must(template.New("coverage-cell-drawer").
     {{if .Connector}}<span><b>Connector:</b> {{.Connector}}</span>{{end}}
     <span><b>Surface:</b> {{.Surface}}</span>
   </div>
+</div>
+<div class="cd-explain">
+  <h4 class="cd-explain-title">Why this state</h4>
+  <p class="cd-explain-body">{{.Explanation}}</p>
+  {{if .NextAction.Label}}<a class="cd-next" href="{{.NextAction.Href}}">{{.NextAction.Label}} &rarr;</a>{{end}}
 </div>
 <div class="cd-events">
   <h4>Last {{.Limit}} activity events</h4>

@@ -224,6 +224,111 @@ func TestCoverageCellDrawer_RendersHeaderAndEvents(t *testing.T) {
 	}
 }
 
+// 5b. Protected drawer carries the pre-action explanation and does
+// NOT surface a next-action link — Protected is the goal state, so
+// pushing the operator toward Settings would be misleading.
+func TestCoverageCellDrawer_ProtectedExplanationNoNextAction(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=local-codex&surface=mcp_http", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "Why this state") {
+		t.Error("drawer must include Why this state section")
+	}
+	if !strings.Contains(body, "pre-action path") {
+		t.Errorf("Protected drawer must include 'pre-action path'; body = %s", body)
+	}
+	if strings.Contains(body, `class="cd-next"`) {
+		t.Error("Protected drawer must NOT show a next-action link")
+	}
+}
+
+// 5c. Observed drawer carries the telemetry-without-blocking
+// explanation and a next-action link. The wording is the operator-
+// facing translation of "Oktsec sees but cannot block".
+func TestCoverageCellDrawer_ObservedExplanationAndNextAction(t *testing.T) {
+	srv := newTestServer(t)
+	// Hooks in local profile with no hook_bearer token => observed.
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=local-codex&surface=hooks", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "telemetry") {
+		t.Errorf("Observed drawer must include 'telemetry'; body = %s", body)
+	}
+	if !strings.Contains(body, "Configure hook token") {
+		t.Errorf("Observed drawer must surface a hooks-specific next-action; body = %s", body)
+	}
+	if !strings.Contains(body, `href="/dashboard/settings"`) {
+		t.Errorf("next-action link must point at an existing route; body = %s", body)
+	}
+}
+
+// 5d. Blind drawer carries the no-protection explanation and a
+// next-action link so the operator has somewhere to go to fix the
+// configuration. Egress proxy off + no proxy_basic token reaches
+// this state.
+func TestCoverageCellDrawer_BlindExplanationAndNextAction(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+	// Egress surface is off in defaults; the principal has no proxy
+	// token, so the egress cell is Blind.
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=local-codex&surface=http_egress_proxy", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "no active protection") {
+		t.Errorf("Blind drawer must include 'no active protection'; body = %s", body)
+	}
+	if !strings.Contains(body, "Configure egress proxy auth") {
+		t.Errorf("Blind drawer must surface egress-specific next-action; body = %s", body)
+	}
+}
+
+// 5e. The explanation text must stay neutral. Forbidden vocabulary
+// from the public-artifact rule must not slip into the drawer body.
+func TestCoverageCellDrawer_ExplanationStaysNeutral(t *testing.T) {
+	srv := newTestServer(t)
+	seedPrincipalWithGatewayBearer(srv, "local-codex")
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	for _, surface := range []string{"mcp_http", "http_egress_proxy", "hooks"} {
+		req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=local-codex&surface="+surface, nil)
+		req.AddCookie(cookie)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		body := strings.ToLower(rr.Body.String())
+		for _, banned := range []string{"fully protected", "complete coverage", "blind failure", "honest", "fake"} {
+			if strings.Contains(body, banned) {
+				t.Errorf("surface %q drawer contains forbidden phrase %q", surface, banned)
+			}
+		}
+	}
+}
+
 // 6. Empty-state copy is shown when no activity is recorded for the
 // (principal, surface) pair. The header still renders so the operator
 // can see "yes I clicked the right cell, it just has no data yet".
