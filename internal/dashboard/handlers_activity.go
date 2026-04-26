@@ -4,7 +4,9 @@ import (
 	"context"
 	"html/template"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/activity"
@@ -358,6 +360,11 @@ type coverageAction struct {
 // does not currently issue gateway_bearer / proxy_basic / hook_bearer
 // tokens — that would violate the community-repo truth constraint).
 //
+// The principal id is shell-quoted via shellQuotePrincipal so a
+// crafted query string (or an unusual configured principal name)
+// cannot produce a copy-paste-unsafe command. Plain identifiers stay
+// unquoted so the common case still reads cleanly.
+//
 // Protected cells return the zero value and the template renders
 // nothing — Protected is the goal state and a "fix this" affordance
 // would be misleading.
@@ -365,10 +372,7 @@ func coverageNextAction(coverage, surface, principalID string) coverageAction {
 	if coverage == "protected" {
 		return coverageAction{}
 	}
-	pid := principalID
-	if pid == "" {
-		pid = "<principal>"
-	}
+	pid := shellQuotePrincipal(principalID)
 	switch surface {
 	case "mcp_http":
 		return coverageAction{
@@ -387,6 +391,34 @@ func coverageNextAction(coverage, surface, principalID string) coverageAction {
 		}
 	}
 	return coverageAction{}
+}
+
+// safePrincipalCharsRE matches values that are safe to render as a
+// single shell argument without quoting: ASCII letters, digits, and
+// the three punctuation characters principals commonly use. Anything
+// outside this set goes through POSIX single-quote escaping so a
+// metacharacter cannot turn the rendered command into something the
+// operator would not knowingly run.
+var safePrincipalCharsRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// shellQuotePrincipal returns s wrapped for safe inclusion as a
+// single shell argument. Plain identifiers pass through unchanged so
+// the common command stays readable; anything else gets POSIX
+// single-quote escaping (wrap in '...', then replace embedded '
+// with '\''). Empty string becomes '' so the operator sees an
+// obviously-blank slot rather than a silently-missing argument.
+//
+// We cannot use shell-specific helpers (no shellescape package) so
+// the implementation stays small and dependency-free. POSIX rules
+// are intentionally portable across bash, zsh, and dash.
+func shellQuotePrincipal(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if safePrincipalCharsRE.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // coverageCellDrawerTmpl renders the slide-in drawer body for one

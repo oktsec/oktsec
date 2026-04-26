@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -311,7 +312,54 @@ func TestCoverageCellDrawer_BlindShowsHonestCLICommand(t *testing.T) {
 	}
 }
 
-// 5d2. The MCP gateway drawer surfaces the gateway_bearer CLI
+// 5d3. The CLI command surfaced by the drawer must be safe to copy
+// and paste. principalID flows in from the request query string and
+// from operator-controlled config, so a value with shell
+// metacharacters (spaces, semicolons, quotes) must be POSIX
+// single-quoted before it lands in the rendered command. Otherwise
+// the dashboard would teach an unsafe shell snippet to whoever pastes
+// it. Regression guard for that exact failure mode.
+func TestCoverageCellDrawer_PrincipalIDIsShellQuoted(t *testing.T) {
+	srv := newTestServer(t)
+	// Add a principal whose name contains shell metacharacters. The
+	// CLI command in the drawer must wrap it in single quotes so a
+	// copy-paste cannot run anything other than `oktsec tokens create
+	// --principal '<name>' ...`.
+	pid := "bad; echo pwned"
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals, config.PrincipalConfig{
+		ID:          pid,
+		DisplayName: pid,
+		Kind:        "agent",
+	})
+	srv.cfg.Gateway.Enabled = true
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET",
+		"/dashboard/api/coverage/cell?principal_id="+url.QueryEscape(pid)+"&surface=mcp_http", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	// html/template escapes the single quotes as &#39; in source so
+	// the HTML stays safe; browsers render and copy-paste the
+	// unescaped form 'bad; echo pwned'. The contract we assert here
+	// is that the escaped quotes wrap the principal — without them
+	// the operator would copy a command that runs `echo pwned`.
+	wantCmd := "oktsec tokens create --principal &#39;bad; echo pwned&#39; --type gateway_bearer"
+	if !strings.Contains(body, wantCmd) {
+		t.Errorf("drawer must shell-quote principal with metacharacters; want %q in body", wantCmd)
+	}
+	// Defense-in-depth: the unquoted form must not appear anywhere
+	// in the rendered command surface area.
+	if strings.Contains(body, "--principal bad; echo pwned --type") {
+		t.Error("drawer rendered the unquoted principal — copy-paste would execute the metacharacter")
+	}
+}
+
+// 5d4. The MCP gateway drawer surfaces the gateway_bearer CLI
 // command for non-Protected states. Covers the third surface so the
 // truthful-CLI contract is exhaustive across all three.
 func TestCoverageCellDrawer_MCPHTTPShowsGatewayBearerCommand(t *testing.T) {
