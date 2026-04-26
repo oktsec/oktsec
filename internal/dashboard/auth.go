@@ -240,6 +240,17 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Allow static assets (fonts, JS, images) without auth so the
+		// login page itself can render correctly. The redirect path
+		// would otherwise hand the browser an HTML 302 in place of a
+		// woff2/CSS/JS payload, which fails to decode and produces a
+		// console error before the operator can even sign in. Static
+		// assets are read-only from the embedded FS and contain no
+		// session-scoped data, so exempting them is safe.
+		if strings.HasPrefix(r.URL.Path, "/dashboard/static/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		cookie, err := r.Cookie(sessionCookieName)
 		if err != nil || !a.ValidateSession(cookie.Value) {

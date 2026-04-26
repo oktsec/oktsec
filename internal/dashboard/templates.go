@@ -422,67 +422,50 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   color-scheme:dark;
-  /* Canvas & Surfaces */
-  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;--border-muted:#21262d;
-  /* Text - WCAG AA validated */
-  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;--text-on-emphasis:#ffffff;
-  /* Accent / Info */
-  --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;--accent-muted:rgba(56,139,253,0.15);--accent-border:rgba(56,139,253,0.30);
-  /* Semantic */
-  --danger:#f85149;--danger-emphasis:#da3633;--danger-muted:rgba(248,81,73,0.15);--danger-border:rgba(248,81,73,0.30);
-  --success:#3fb950;--success-emphasis:#238636;--success-muted:rgba(63,185,80,0.15);--success-border:rgba(63,185,80,0.30);
-  --warn:#d29922;--warn-emphasis:#9e6a03;--warn-muted:rgba(210,153,34,0.15);--warn-border:rgba(210,153,34,0.30);
-  /* Purple (agent/session identity) */
-  --purple:#bc8cff;--purple-emphasis:#8b5cf6;--purple-muted:rgba(188,140,255,0.15);--purple-border:rgba(188,140,255,0.30);
-  /* Typography */
+  --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;
+  --accent:#58a6ff;--accent-dim:#1f6feb;--accent-border:rgba(56,139,253,0.30);
+  --danger:#f85149;--danger-muted:rgba(248,81,73,0.10);--danger-border:rgba(248,81,73,0.30);
+  --radius-sm:6px;--radius-md:8px;--radius-lg:12px;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
 }
 @font-face{font-family:'Inter';src:url('/dashboard/static/fonts/Inter.woff2') format('woff2');font-weight:100 900;font-style:normal;font-display:swap}
-@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
-body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
-.backdrop{display:none}
-.login-card{position:relative;z-index:1;background:#161b22;border:1px solid #30363d;border-radius:12px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.4);animation:fadeIn 0.4s ease-out}
-.icon{margin-bottom:20px}
-.icon svg{width:48px;height:48px;color:var(--accent)}
-.logo{font-family:var(--mono);font-size:1.5rem;font-weight:700;letter-spacing:-0.3px;margin-bottom:8px;color:var(--text)}
-.subtitle{color:var(--text2);font-size:0.85rem;margin-bottom:32px}
-.help{color:var(--text3);font-size:0.78rem;margin-bottom:24px;line-height:1.6}
-.help code{background:#21262d;padding:2px 6px;border-radius:4px;font-family:var(--mono);font-size:0.75rem;color:#e6edf3;border:1px solid #30363d}
-input[type=text]{
-  width:100%;padding:12px 16px;background:#0d1117;border:1px solid #30363d;
-  border-radius:8px;color:var(--text);font-family:var(--mono);font-size:1.2rem;
-  text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.15s,box-shadow 0.15s;
-}
-input[type=text]:focus{border-color:#58a6ff;box-shadow:0 0 0 3px rgba(56,139,253,0.15)}
-input[type=text]::placeholder{letter-spacing:0;font-size:0.85rem;color:var(--text3)}
-button{
-  width:100%;padding:12px 16px;margin-top:16px;background:#1f6feb;color:#fff;
-  border:1px solid rgba(56,139,253,0.30);border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;
-  transition:background 0.15s,transform 0.1s;
-}
-button:hover{background:#388bfd}
-button:active{transform:scale(0.98)}
-.error{display:flex;align-items:center;gap:8px;justify-content:center;margin-top:14px;padding:10px 14px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.2);border-radius:8px;color:var(--danger);font-size:0.82rem}
-.error svg{flex-shrink:0;width:16px;height:16px}
-.footer{margin-top:32px;color:var(--text3);font-size:0.72rem}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+.login-shell{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:32px;max-width:420px;width:100%}
+.login-brand{font-family:var(--mono);font-size:1.05rem;font-weight:700;color:var(--text2);margin-bottom:20px;letter-spacing:0}
+.login-card h1{font-size:1.25rem;font-weight:600;color:var(--text);margin:0 0 8px 0;letter-spacing:0}
+.login-copy{color:var(--text2);font-size:0.9rem;margin:0 0 20px 0;line-height:1.5}
+.login-copy code{font-family:var(--mono);font-size:0.82rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1px 6px;color:var(--text)}
+.login-error{margin:0 0 16px 0;padding:10px 12px;background:var(--danger-muted);border:1px solid var(--danger-border);border-radius:var(--radius-sm);color:var(--danger);font-size:0.85rem;line-height:1.4}
+.login-field{display:block;font-size:0.78rem;font-weight:500;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em}
+.login-input{width:100%;padding:11px 14px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text);font-family:var(--mono);font-size:1.1rem;text-align:center;letter-spacing:4px;outline:none;transition:border-color 0.15s,box-shadow 0.15s}
+.login-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(56,139,253,0.15)}
+.login-input::placeholder{color:var(--text3);letter-spacing:0;font-size:0.85rem}
+.login-submit{width:100%;margin-top:14px;padding:11px 14px;background:var(--accent-dim);color:#fff;border:1px solid var(--accent-border);border-radius:var(--radius-md);font-size:0.95rem;font-weight:600;cursor:pointer;transition:background 0.15s}
+.login-submit:hover{background:var(--accent)}
+.login-submit:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.login-foot{margin:20px 0 0 0;color:var(--text3);font-size:0.78rem}
 </style>
 </head>
 <body>
-<div class="backdrop"></div>
-<div class="login-card">
-  <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><rect x="9" y="11" width="6" height="5" rx="1"/><path d="M12 11V9a2 2 0 0 0-4 0"/></svg></div>
-  <div class="logo">oktsec</div>
-  <div class="subtitle">Dashboard Access</div>
-  <p class="help">Enter the access code shown in your terminal.<br>Run <code>oktsec run</code> to get a code.<br><small style="color:#9ca3af">Code changes each time the server restarts.</small></p>
-  <form method="POST" action="/dashboard/login" autocomplete="off">
-    <label for="login-code" class="sr-only">Access code</label>
-    <input type="text" id="login-code" name="code" placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric" autofocus required>
-    <button type="submit">Authenticate</button>
-  </form>
-  {{if .Error}}<div class="error"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>{{.Error}}</div>{{end}}
-  <p class="footer">Local access only <span style="opacity:0.4;margin:0 6px">&middot;</span> 127.0.0.1</p>
-</div>
+<main class="login-shell">
+  <section class="login-card" aria-labelledby="login-title">
+    <div class="login-brand">oktsec</div>
+    <h1 id="login-title">Dashboard access</h1>
+    <p class="login-copy">Enter the 8-digit access code printed by <code>oktsec run</code>. The code rotates each time the server restarts.</p>
+    {{if .Error}}<div class="login-error" role="alert">{{.Error}}</div>{{end}}
+    <form method="POST" action="/dashboard/login" autocomplete="off">
+      <label for="login-code" class="login-field">Access code</label>
+      <input class="login-input" type="text" id="login-code" name="code"
+             placeholder="00000000" maxlength="8" pattern="\d{8}" inputmode="numeric"
+             autocomplete="off" autofocus required aria-describedby="login-code-help">
+      <button type="submit" class="login-submit">Continue</button>
+    </form>
+    <p id="login-code-help" class="login-foot">Local dashboard &middot; code rotates on restart</p>
+  </section>
+</main>
 </body>
 </html>`))
 
