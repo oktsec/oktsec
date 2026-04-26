@@ -3237,6 +3237,11 @@ func (s *Server) handleLLM(w http.ResponseWriter, r *http.Request) {
 
 	triageCounts := s.audit.QueryLLMTriageCounts()
 
+	ruleCount := 0
+	if s.scanner != nil {
+		ruleCount = s.scanner.RulesCount(r.Context())
+	}
+
 	data := map[string]any{
 		"Active":       "llm",
 		"Enabled":      s.cfg.LLM.Enabled,
@@ -3245,6 +3250,7 @@ func (s *Server) handleLLM(w http.ResponseWriter, r *http.Request) {
 		"Analyses":     analyses,
 		"BudgetStatus": budgetStatus,
 		"Triage":       triageCounts,
+		"RuleCount":    ruleCount,
 	}
 
 	s.renderTemplate(w, llmTmpl, data)

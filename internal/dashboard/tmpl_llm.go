@@ -81,7 +81,7 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 <div class="card">
   <h2 style="font-size:1rem;margin-bottom:12px">Enable AI-Powered Detection</h2>
   <p style="color:var(--text2);font-size:0.82rem;line-height:1.6;margin-bottom:8px">
-    oktsec's 230 rules catch known threats instantly. Add an AI layer to detect what patterns miss:
+    oktsec's {{.RuleCount}} rules catch known threats instantly. Add an AI layer to detect what patterns miss:
   </p>
   <ul style="color:var(--text2);font-size:0.82rem;line-height:1.8;margin:0 0 20px 18px;padding:0">
     <li>Semantic data exfiltration disguised as normal messages</li>

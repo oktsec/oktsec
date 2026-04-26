@@ -22,7 +22,10 @@ import (
 // banned term in one place does not silently expand the rule for
 // every surface.
 var bannedOverviewPhrases = []string{
-	// Hard-banned product claims (spec "Avoid public claims").
+	// Hard-banned product claims that imply universal visibility
+	// or coverage Oktsec does not have. The coverage matrix has
+	// explicit Blind states; this list keeps the empty state and
+	// the populated state from claiming otherwise.
 	"sees all",
 	"sees everything",
 	"see everything",
@@ -32,7 +35,13 @@ var bannedOverviewPhrases = []string{
 	"complete runtime protection",
 	"all agents are protected",
 	"fully protected",
-	// Unsupported auth/edition features (spec "Truth Constraints").
+	// Unqualified "every tool call" promises imply universal
+	// visibility; only routed calls are observable. Qualified
+	// forms ("every tool call routed through Oktsec", "routed
+	// tool calls") are allowed and intentionally not in the list.
+	"every tool call your ai agents make",
+	"every tool call scanned",
+	// Unsupported auth/edition feature terms.
 	"sso",
 	"saml",
 	"passkey",
@@ -127,6 +136,44 @@ func TestPublicArtifactSweep_EmptyStateRuleCountIsLive(t *testing.T) {
 	for _, stale := range []string{"230 detection rules", "230 rules"} {
 		if strings.Contains(body, stale) {
 			t.Errorf("empty state shows stale literal rule count %q; should be {{.RuleCount}}", stale)
+		}
+	}
+}
+
+// 4. The LLM page setup state (LLM disabled, the default for a
+// fresh install) reads as a public marketing surface. It must
+// follow the same banned-phrase contract as the Overview AND must
+// not carry a hardcoded rule-count literal — the count must come
+// from the live scanner. Regression for the drift the PR review
+// caught after the Overview-only first pass.
+func TestPublicArtifactSweep_LLMPageStaysAccurate(t *testing.T) {
+	srv := newTestServer(t)
+	// LLM is disabled by default in newTestServer's config, which
+	// hits the setup-state branch in tmpl_llm.go.
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/llm", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+
+	// Same banned-phrase contract.
+	lower := strings.ToLower(body)
+	for _, banned := range bannedOverviewPhrases {
+		if strings.Contains(lower, banned) {
+			t.Errorf("LLM page body contains banned phrase %q", banned)
+		}
+	}
+	// Same stale-literal-count contract.
+	for _, stale := range []string{"230 detection rules", "230 rules", "oktsec's 230"} {
+		if strings.Contains(body, stale) {
+			t.Errorf("LLM page shows stale literal rule count %q; should be {{.RuleCount}}", stale)
 		}
 	}
 }

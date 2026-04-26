@@ -67,7 +67,7 @@ a.ov-metric:hover{background:var(--surface2)}
 <div class="empty-state">
   <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
   <h2>Welcome to oktsec</h2>
-  <div class="tagline">Real-time visibility into every tool call your AI agents make</div>
+  <div class="tagline">Real-time visibility into the tool calls your AI agents route through Oktsec</div>
   <p>Real-time monitoring for every tool call routed through Oktsec. Your pipeline is running. Start using your tools and activity will appear here.</p>
   <div class="empty-steps">
     <div class="empty-step">
@@ -80,7 +80,7 @@ a.ov-metric:hover{background:var(--surface2)}
     </div>
     <div class="empty-step">
       <span class="step-num">3</span>
-      <div><strong>Monitor in real time</strong><div class="step-desc">Every tool call scanned, threats flagged, audit trail built</div></div>
+      <div><strong>Monitor in real time</strong><div class="step-desc">Routed tool calls scanned, threats flagged, audit trail built</div></div>
     </div>
   </div>
 </div>
