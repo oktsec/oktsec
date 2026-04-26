@@ -225,8 +225,8 @@ func TestCoverageCellDrawer_RendersHeaderAndEvents(t *testing.T) {
 }
 
 // 5b. Protected drawer carries the pre-action explanation and does
-// NOT surface a next-action link — Protected is the goal state, so
-// pushing the operator toward Settings would be misleading.
+// NOT surface a next-action — Protected is the goal state, so
+// pushing the operator toward another action would be misleading.
 func TestCoverageCellDrawer_ProtectedExplanationNoNextAction(t *testing.T) {
 	srv := newTestServer(t)
 	seedPrincipalWithGatewayBearer(srv, "local-codex")
@@ -246,15 +246,18 @@ func TestCoverageCellDrawer_ProtectedExplanationNoNextAction(t *testing.T) {
 	if !strings.Contains(body, "pre-action path") {
 		t.Errorf("Protected drawer must include 'pre-action path'; body = %s", body)
 	}
-	if strings.Contains(body, `class="cd-next"`) {
-		t.Error("Protected drawer must NOT show a next-action link")
+	if strings.Contains(body, `class="cd-next-hint"`) || strings.Contains(body, `class="cd-next-cmd"`) {
+		t.Error("Protected drawer must NOT show a next-action block")
 	}
 }
 
 // 5c. Observed drawer carries the telemetry-without-blocking
-// explanation and a next-action link. The wording is the operator-
-// facing translation of "Oktsec sees but cannot block".
-func TestCoverageCellDrawer_ObservedExplanationAndNextAction(t *testing.T) {
+// explanation and the truthful CLI command for issuing the right
+// token. Token issuance is a CLI workflow today (oktsec tokens
+// create), not a dashboard one — the drawer must not link to a
+// Settings page that cannot perform the action. Regression guard
+// for the "promise capability the UI does not have" failure mode.
+func TestCoverageCellDrawer_ObservedShowsHonestCLICommand(t *testing.T) {
 	srv := newTestServer(t)
 	// Hooks in local profile with no hook_bearer token => observed.
 	seedPrincipalWithGatewayBearer(srv, "local-codex")
@@ -271,19 +274,20 @@ func TestCoverageCellDrawer_ObservedExplanationAndNextAction(t *testing.T) {
 	if !strings.Contains(body, "telemetry") {
 		t.Errorf("Observed drawer must include 'telemetry'; body = %s", body)
 	}
-	if !strings.Contains(body, "Configure hook token") {
-		t.Errorf("Observed drawer must surface a hooks-specific next-action; body = %s", body)
+	wantCmd := "oktsec tokens create --principal local-codex --type hook_bearer"
+	if !strings.Contains(body, wantCmd) {
+		t.Errorf("Observed drawer must surface the truthful CLI command %q; body = %s", wantCmd, body)
 	}
-	if !strings.Contains(body, `href="/dashboard/settings"`) {
-		t.Errorf("next-action link must point at an existing route; body = %s", body)
+	// Must NOT link to Settings — Settings cannot issue tokens today.
+	if strings.Contains(body, `href="/dashboard/settings"`) {
+		t.Error("drawer must not link the next-action to /dashboard/settings (cannot issue tokens)")
 	}
 }
 
-// 5d. Blind drawer carries the no-protection explanation and a
-// next-action link so the operator has somewhere to go to fix the
-// configuration. Egress proxy off + no proxy_basic token reaches
-// this state.
-func TestCoverageCellDrawer_BlindExplanationAndNextAction(t *testing.T) {
+// 5d. Blind drawer carries the no-protection explanation and the
+// truthful CLI command for the surface in question. Egress proxy
+// off + no proxy_basic token reaches this state.
+func TestCoverageCellDrawer_BlindShowsHonestCLICommand(t *testing.T) {
 	srv := newTestServer(t)
 	seedPrincipalWithGatewayBearer(srv, "local-codex")
 	// Egress surface is off in defaults; the principal has no proxy
@@ -301,8 +305,39 @@ func TestCoverageCellDrawer_BlindExplanationAndNextAction(t *testing.T) {
 	if !strings.Contains(body, "no active protection") {
 		t.Errorf("Blind drawer must include 'no active protection'; body = %s", body)
 	}
-	if !strings.Contains(body, "Configure egress proxy auth") {
-		t.Errorf("Blind drawer must surface egress-specific next-action; body = %s", body)
+	wantCmd := "oktsec tokens create --principal local-codex --type proxy_basic"
+	if !strings.Contains(body, wantCmd) {
+		t.Errorf("Blind drawer must surface the egress CLI command %q; body = %s", wantCmd, body)
+	}
+}
+
+// 5d2. The MCP gateway drawer surfaces the gateway_bearer CLI
+// command for non-Protected states. Covers the third surface so the
+// truthful-CLI contract is exhaustive across all three.
+func TestCoverageCellDrawer_MCPHTTPShowsGatewayBearerCommand(t *testing.T) {
+	srv := newTestServer(t)
+	// Add a principal with NO tokens so mcp_http resolves to a
+	// non-Protected state in local profile (loopback observed).
+	srv.cfg.Identity.Principals = append(srv.cfg.Identity.Principals, config.PrincipalConfig{
+		ID:          "claude-code",
+		DisplayName: "claude-code",
+		Kind:        "agent",
+	})
+	srv.cfg.Gateway.Enabled = true
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("GET", "/dashboard/api/coverage/cell?principal_id=claude-code&surface=mcp_http", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	wantCmd := "oktsec tokens create --principal claude-code --type gateway_bearer"
+	if !strings.Contains(body, wantCmd) {
+		t.Errorf("non-Protected mcp_http drawer must surface the gateway_bearer CLI command %q; body = %s",
+			wantCmd, body)
 	}
 }
 

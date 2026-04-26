@@ -252,7 +252,7 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 		ConnectorID:   cellConnector,
 		Connector:     coverage.ConnectorDisplayName(cellConnector),
 		Explanation:   coverageExplanation(cellCoverage),
-		NextAction:    coverageNextAction(cellCoverage, surface),
+		NextAction:    coverageNextAction(cellCoverage, surface, principalID),
 		Limit:         drillDownEventLimit,
 	}
 
@@ -341,34 +341,52 @@ func coverageExplanation(coverage string) string {
 }
 
 // coverageAction is the optional next step the drawer surfaces when
-// coverage is not Protected. Empty Label means "render nothing"; the
-// template skips the link in that case so a Protected cell stays
-// quiet and a Blind cell does not get a misleading "fix this"
-// affordance when no in-app route applies.
+// coverage is not Protected. It carries a one-sentence Hint plus the
+// CLI Command an operator can copy-paste — token issuance is a CLI
+// workflow today, not a dashboard one, so the drawer must not link
+// to an in-app screen that cannot perform the action. Empty Hint
+// means "render nothing" and the template skips the block.
 type coverageAction struct {
-	Label string
-	Href  string
+	Hint    string
+	Command string
 }
 
-// coverageNextAction picks the surface-specific link that improves
-// coverage when the cell is not Protected. We point at the in-app
-// Settings page for every surface (it is the single route where
-// tokens, profile auth, and surface enablement are configured) so
-// we never link to a route that does not exist. Protected cells
-// return the zero value and the template renders no link.
-func coverageNextAction(coverage, surface string) coverageAction {
+// coverageNextAction returns the truthful next step a non-Protected
+// cell can take. Token issuance lives in `oktsec tokens create`, so
+// the action shows that CLI command pre-filled with the principal
+// id rather than a link to /dashboard/settings (which exists, but
+// does not currently issue gateway_bearer / proxy_basic / hook_bearer
+// tokens — that would violate the community-repo truth constraint).
+//
+// Protected cells return the zero value and the template renders
+// nothing — Protected is the goal state and a "fix this" affordance
+// would be misleading.
+func coverageNextAction(coverage, surface, principalID string) coverageAction {
 	if coverage == "protected" {
 		return coverageAction{}
 	}
+	pid := principalID
+	if pid == "" {
+		pid = "<principal>"
+	}
 	switch surface {
 	case "mcp_http":
-		return coverageAction{Label: "Issue a gateway bearer token", Href: "/dashboard/settings"}
+		return coverageAction{
+			Hint:    "Issue a gateway bearer token from the CLI:",
+			Command: "oktsec tokens create --principal " + pid + " --type gateway_bearer",
+		}
 	case "http_egress_proxy":
-		return coverageAction{Label: "Configure egress proxy auth", Href: "/dashboard/settings"}
+		return coverageAction{
+			Hint:    "Issue a forward-proxy token from the CLI:",
+			Command: "oktsec tokens create --principal " + pid + " --type proxy_basic",
+		}
 	case "hooks":
-		return coverageAction{Label: "Configure hook token", Href: "/dashboard/settings"}
+		return coverageAction{
+			Hint:    "Issue a hook bearer token from the CLI:",
+			Command: "oktsec tokens create --principal " + pid + " --type hook_bearer",
+		}
 	}
-	return coverageAction{Label: "Review coverage settings", Href: "/dashboard/settings"}
+	return coverageAction{}
 }
 
 // coverageCellDrawerTmpl renders the slide-in drawer body for one
@@ -388,8 +406,8 @@ var coverageCellDrawerTmpl = template.Must(template.New("coverage-cell-drawer").
 .cd-explain{padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border-subtle)}
 .cd-explain-title{margin:0 0 var(--sp-2) 0;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-wide);color:var(--text3);font-weight:600}
 .cd-explain-body{margin:0;font-size:var(--text-sm);color:var(--text);line-height:1.5}
-.cd-next{display:inline-block;margin-top:var(--sp-2);font-size:var(--text-sm);color:var(--accent);text-decoration:none}
-.cd-next:hover{text-decoration:underline}
+.cd-next-hint{margin:var(--sp-2) 0 4px 0;font-size:var(--text-sm);color:var(--text2)}
+.cd-next-cmd{margin:0;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);font-family:var(--mono);font-size:var(--text-xs);color:var(--accent-light);white-space:pre-wrap;word-break:break-all;overflow-x:auto}
 .cd-events{padding:var(--sp-3) var(--sp-4)}
 .cd-events h4{margin:0 0 var(--sp-2) 0;font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-wide);color:var(--text3)}
 .cd-event{padding:var(--sp-2) 0;border-bottom:1px solid var(--border-subtle);font-size:var(--text-sm)}
@@ -411,7 +429,10 @@ var coverageCellDrawerTmpl = template.Must(template.New("coverage-cell-drawer").
 <div class="cd-explain">
   <h4 class="cd-explain-title">Why this state</h4>
   <p class="cd-explain-body">{{.Explanation}}</p>
-  {{if .NextAction.Label}}<a class="cd-next" href="{{.NextAction.Href}}">{{.NextAction.Label}} &rarr;</a>{{end}}
+  {{if .NextAction.Hint}}
+  <p class="cd-next-hint">{{.NextAction.Hint}}</p>
+  <pre class="cd-next-cmd"><code>{{.NextAction.Command}}</code></pre>
+  {{end}}
 </div>
 <div class="cd-events">
   <h4>Last {{.Limit}} activity events</h4>
