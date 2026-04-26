@@ -213,6 +213,18 @@ func buildWhere(d Dialect, q Query) (string, []any) {
 		args = append(args, val)
 	}
 	add("principal_id", q.PrincipalID)
+	if len(q.PrincipalIDs) > 0 {
+		// IN clause for the multi-principal filter the dashboard's
+		// connector_id drill-down uses. Each value gets its own
+		// placeholder so the dialect-aware placeholder() keeps
+		// SQLite "?" and Postgres "$N" both correct.
+		ph := make([]string, len(q.PrincipalIDs))
+		for i, id := range q.PrincipalIDs {
+			ph[i] = placeholder(d, len(args)+1)
+			args = append(args, id)
+		}
+		clauses = append(clauses, "principal_id IN ("+strings.Join(ph, ", ")+")")
+	}
 	add("surface", q.Surface)
 	add("connector_id", q.ConnectorID)
 	add("workspace_id", q.WorkspaceID)

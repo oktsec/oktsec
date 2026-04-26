@@ -187,6 +187,84 @@ func TestSQLStore_QueryFiltersComposeAcrossPrincipalAndSurface(t *testing.T) {
 	}
 }
 
+// 4b. Query.PrincipalIDs filters with an IN clause and AND-combines
+// with the other constraints. The dashboard uses this to push a
+// connector_id drill-down into SQL: it resolves the connector to the
+// set of currently-matching principals and passes them here so the
+// LIMIT applies AFTER the connector filter, not before.
+func TestSQLStore_QueryPrincipalIDsInClause(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	a := validEvent("a") // local-codex
+	b := validEvent("b")
+	b.PrincipalID = "researcher"
+	c := validEvent("c")
+	c.PrincipalID = "third-party"
+	for _, e := range []Event{a, b, c} {
+		if err := store.Insert(ctx, e); err != nil {
+			t.Fatalf("insert %s: %v", e.ID, err)
+		}
+	}
+
+	got, err := store.Query(ctx, Query{
+		PrincipalIDs: []string{"local-codex", "researcher"},
+	})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("PrincipalIDs IN clause returned %d events; want 2 (a + b)", len(got))
+	}
+	gotIDs := map[string]bool{}
+	for _, e := range got {
+		gotIDs[e.ID] = true
+	}
+	if !gotIDs["a"] || !gotIDs["b"] || gotIDs["c"] {
+		t.Errorf("returned IDs = %v; want exactly {a, b}", gotIDs)
+	}
+}
+
+// 4c. Newer events from non-matching principals do not push older
+// matching events out of a Limit-bounded result. This is the
+// connector_id drill-down regression: with the IN clause pushed into
+// SQL, asking for limit=1 of {a, c} where c is newer must return c —
+// b ("researcher", newest) is excluded by the filter, not by the
+// limit. Without the IN-in-SQL change, the same query would order by
+// timestamp first and lose c to a post-filter.
+func TestSQLStore_PrincipalIDsLimitAppliesAfterFilter(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	old := validEvent("old")
+	old.Timestamp = time.Date(2026, 4, 26, 10, 0, 0, 0, time.UTC)
+	newish := validEvent("newish")
+	newish.PrincipalID = "researcher"
+	newish.Timestamp = time.Date(2026, 4, 26, 11, 0, 0, 0, time.UTC) // newest, but not in IN set
+	matching := validEvent("matching")
+	matching.PrincipalID = "third-party"
+	matching.Timestamp = time.Date(2026, 4, 26, 10, 30, 0, 0, time.UTC)
+	for _, e := range []Event{old, newish, matching} {
+		if err := store.Insert(ctx, e); err != nil {
+			t.Fatalf("insert %s: %v", e.ID, err)
+		}
+	}
+
+	// Filter to {old, matching}, limit 1: must return matching (the
+	// newer of the two), NOT newish (which is newer overall but not
+	// in the IN set).
+	got, err := store.Query(ctx, Query{
+		PrincipalIDs: []string{"local-codex", "third-party"},
+		Limit:        1,
+	})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "matching" {
+		t.Errorf("limit-with-IN result = %v; want exactly [matching]", ids(got))
+	}
+}
+
 // 5. Query Limit is bounded: zero or negative inputs default; oversized
 // inputs are capped. Forgetting to set Limit cannot accidentally page
 // through the entire table.

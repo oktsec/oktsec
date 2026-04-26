@@ -39,8 +39,9 @@ func TestHybridLastSeenReader_ActivityWinsWhenNewer(t *testing.T) {
 // 2. AUDIT can carry a NEWER row when activity missed an insert (the
 // dual-write goroutine raced with a query, the activity DB hiccupped,
 // etc.). The hybrid reader must surface the audit value in that case
-// so the dashboard does not show stale coverage. Regression guard for
-// the original "activity wins as soon as it has any row" bug.
+// so the dashboard does not show stale coverage. Regression guard:
+// always surface the latest evidence regardless of which reader
+// recorded it.
 func TestHybridLastSeenReader_AuditWinsWhenNewer(t *testing.T) {
 	h := HybridLastSeenReader{
 		Activity: stubReader{stamps: map[string]string{"local-codex|mcp_http": "2026-04-25T08:00:00Z"}},

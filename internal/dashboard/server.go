@@ -418,6 +418,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/api/graph/tables", s.handleAPIGraphTables)
 	s.mux.HandleFunc("GET /dashboard/api/graph/events", s.handleAPIGraphEvents)
 
+	// Phase 2B.1 PR5: activity drill-down. JSON endpoint for scripting
+	// callers; HTML fragment endpoint feeds the Overview cell drawer.
+	s.mux.HandleFunc("GET /dashboard/api/activity", s.handleAPIActivity)
+	s.mux.HandleFunc("GET /dashboard/api/coverage/cell", s.handleCoverageCellDrawer)
+
 	// Export & Report
 	s.mux.HandleFunc("GET /dashboard/api/export/csv", s.handleExportCSV)
 	s.mux.HandleFunc("GET /dashboard/api/export/json", s.handleExportJSON)
