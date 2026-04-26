@@ -253,12 +253,12 @@ func TestCoverageCellDrawer_ProtectedExplanationNoNextAction(t *testing.T) {
 }
 
 // 5c. Observed drawer carries the telemetry-without-blocking
-// explanation and the truthful CLI command for issuing the right
+// explanation and the current CLI command for issuing the right
 // token. Token issuance is a CLI workflow today (oktsec tokens
 // create), not a dashboard one — the drawer must not link to a
 // Settings page that cannot perform the action. Regression guard
-// for the "promise capability the UI does not have" failure mode.
-func TestCoverageCellDrawer_ObservedShowsHonestCLICommand(t *testing.T) {
+// for the "describe capability the UI does not have" failure mode.
+func TestCoverageCellDrawer_ObservedShowsCLICommand(t *testing.T) {
 	srv := newTestServer(t)
 	// Hooks in local profile with no hook_bearer token => observed.
 	seedPrincipalWithGatewayBearer(srv, "local-codex")
@@ -277,7 +277,7 @@ func TestCoverageCellDrawer_ObservedShowsHonestCLICommand(t *testing.T) {
 	}
 	wantCmd := "oktsec tokens create --principal local-codex --type hook_bearer"
 	if !strings.Contains(body, wantCmd) {
-		t.Errorf("Observed drawer must surface the truthful CLI command %q; body = %s", wantCmd, body)
+		t.Errorf("Observed drawer must surface the current CLI command %q; body = %s", wantCmd, body)
 	}
 	// Must NOT link to Settings — Settings cannot issue tokens today.
 	if strings.Contains(body, `href="/dashboard/settings"`) {
@@ -286,9 +286,9 @@ func TestCoverageCellDrawer_ObservedShowsHonestCLICommand(t *testing.T) {
 }
 
 // 5d. Blind drawer carries the no-protection explanation and the
-// truthful CLI command for the surface in question. Egress proxy
+// current CLI command for the surface in question. Egress proxy
 // off + no proxy_basic token reaches this state.
-func TestCoverageCellDrawer_BlindShowsHonestCLICommand(t *testing.T) {
+func TestCoverageCellDrawer_BlindShowsCLICommand(t *testing.T) {
 	srv := newTestServer(t)
 	seedPrincipalWithGatewayBearer(srv, "local-codex")
 	// Egress surface is off in defaults; the principal has no proxy
@@ -361,7 +361,7 @@ func TestCoverageCellDrawer_PrincipalIDIsShellQuoted(t *testing.T) {
 
 // 5d4. The MCP gateway drawer surfaces the gateway_bearer CLI
 // command for non-Protected states. Covers the third surface so the
-// truthful-CLI contract is exhaustive across all three.
+// CLI-command contract is exhaustive across all three.
 func TestCoverageCellDrawer_MCPHTTPShowsGatewayBearerCommand(t *testing.T) {
 	srv := newTestServer(t)
 	// Add a principal with NO tokens so mcp_http resolves to a

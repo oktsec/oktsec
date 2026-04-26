@@ -212,11 +212,11 @@ func (s *Server) connectorIDsByPrincipal() map[string]string {
 //
 // The fragment shows: principal, surface, coverage label, connector;
 // a short "Why this state" explanation that translates the wire-level
-// label into operator language; an optional next-action link when
-// coverage is not Protected; then the last drillDownEventLimit
-// activity events newest-first. Empty state is explicit so the
-// operator sees "No activity recorded for this surface yet." instead
-// of a blank pane.
+// label into operator language; an optional next-action block (a CLI
+// command operators can copy-paste) when coverage is not Protected;
+// then the last drillDownEventLimit activity events newest-first.
+// Empty state is explicit so the operator sees "No activity recorded
+// for this surface yet." instead of a blank pane.
 func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request) {
 	principalID := r.URL.Query().Get("principal_id")
 	surface := r.URL.Query().Get("surface")
@@ -353,12 +353,13 @@ type coverageAction struct {
 	Command string
 }
 
-// coverageNextAction returns the truthful next step a non-Protected
-// cell can take. Token issuance lives in `oktsec tokens create`, so
-// the action shows that CLI command pre-filled with the principal
-// id rather than a link to /dashboard/settings (which exists, but
-// does not currently issue gateway_bearer / proxy_basic / hook_bearer
-// tokens — that would violate the community-repo truth constraint).
+// coverageNextAction returns the next step a non-Protected cell can
+// take, as the actual CLI command an operator runs. Token issuance
+// lives in `oktsec tokens create`, so the action shows that command
+// pre-filled with the principal id rather than a link to
+// /dashboard/settings (which exists, but does not currently issue
+// gateway_bearer / proxy_basic / hook_bearer tokens — pointing
+// there would describe a capability the UI does not have).
 //
 // The principal id is shell-quoted via shellQuotePrincipal so a
 // crafted query string (or an unusual configured principal name)
