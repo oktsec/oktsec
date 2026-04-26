@@ -191,7 +191,10 @@ func TestGatewayAuth_LocalLegacyLoopbackHeaderStillWorks(t *testing.T) {
 // the hash matches. Lookup-time revalidation contract from the resolver.
 func TestGatewayAuth_ExpiredTokenRejected(t *testing.T) {
 	cfg := &config.Config{
-		Gateway: config.GatewayConfig{Enabled: true, RequireAuth: "true"},
+		Gateway: config.GatewayConfig{
+			Enabled:           true,
+			SurfaceAuthConfig: config.SurfaceAuthConfig{RequireAuth: "true"},
+		},
 		Agents:  map[string]config.Agent{},
 	}
 	raw, hash, err := resolve.GenerateRawToken(resolve.TokenTypeGatewayBearer)

@@ -8,19 +8,48 @@ The forward proxy scans all outbound HTTP traffic. With per-agent egress control
 
 ## Agent identification
 
-Agents identify themselves via the `X-Oktsec-Agent` header on proxy requests:
+Agents identify themselves to the forward proxy through one of two paths.
+
+### Recommended: proxy bearer token
+
+Issue a `proxy_basic` token via the CLI:
 
 ```bash
-curl -x http://localhost:8081 \
-  -H "X-Oktsec-Agent: researcher" \
-  http://api.google.com/test
+oktsec tokens create --principal researcher --type proxy_basic --expires 30d
 ```
+
+The CLI prints the raw token once. Use it as the username in the proxy URL with an empty password — the standard `Proxy-Authorization: Basic` mechanism every HTTP client supports natively:
+
+```bash
+HTTP_PROXY=http://okt_proxy_<raw>:@127.0.0.1:8083
+HTTPS_PROXY=http://okt_proxy_<raw>:@127.0.0.1:8083
+```
+
+Or with curl:
+
+```bash
+curl -x http://okt_proxy_<raw>:@127.0.0.1:8083 https://api.example.com/test
+```
+
+Oktsec strips the `Proxy-Authorization` header before forwarding so the token never reaches the upstream destination. The raw value is stored only as a salted SHA-256 hash. See the [bearer-token guide](mcp-http-bearer-client.md) for the full token model (principal vs reported actor, local vs enterprise, rotation).
+
+### Legacy local: X-Oktsec-Agent header
+
+For backwards compatibility, the `X-Oktsec-Agent` header still works in local profile when the request originates from loopback:
+
+```bash
+curl -x http://localhost:8083 \
+  -H "X-Oktsec-Agent: researcher" \
+  http://api.example.com/test
+```
+
+This path is rejected in enterprise profile and when `forward_proxy.require_auth=true`. Use the bearer-token path for any setup beyond a single-developer laptop.
 
 The header is:
 
-- Read by the forward proxy before policy evaluation
+- Read by the forward proxy as a `trusted_local` principal source
 - **Stripped before forwarding upstream** (never leaked to destination)
-- Optional — requests without it fall back to global rules
+- Optional — requests without it fall back to global rules in local profile
 
 ## Configuration
 

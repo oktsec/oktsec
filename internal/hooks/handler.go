@@ -19,9 +19,55 @@ import (
 	"github.com/google/uuid"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/identity/resolve"
 	"github.com/oktsec/oktsec/internal/verdict"
 	"github.com/oktsec/oktsec/internal/config"
 )
+
+// buildHooksIdentity wires the hooks endpoint into the same identity
+// contract gateway and forward proxy use. cfg may be nil (test paths
+// that build a minimal handler); in that case the resolver runs against
+// an empty principal store and the surface stays in observed-coverage
+// mode, matching the historic behavior.
+func buildHooksIdentity(cfg *config.Config) (resolve.Resolver, resolve.Config, bool) {
+	var principals []resolve.ConfigPrincipal
+	var deployProfile string
+	var requireSurface bool
+	var hooksCfg config.HooksConfig
+	if cfg != nil {
+		deployProfile = cfg.Deployment.Profile
+		requireSurface = cfg.Deployment.RequireSurfaceAuth
+		hooksCfg = cfg.Hooks
+		for _, p := range cfg.Identity.Principals {
+			toks := make([]resolve.ConfigToken, 0, len(p.Tokens))
+			for _, t := range p.Tokens {
+				toks = append(toks, resolve.ConfigToken{
+					ID: t.ID, Type: t.Type, Hash: t.Hash,
+					CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt, RevokedAt: t.RevokedAt,
+				})
+			}
+			principals = append(principals, resolve.ConfigPrincipal{
+				ID: p.ID, DisplayName: p.DisplayName, Kind: p.Kind,
+				WorkspaceID: p.WorkspaceID, AllowedSurfaces: p.AllowedSurfaces,
+				Tokens: toks,
+			})
+		}
+	}
+	store := resolve.NewMemoryTokenStoreWithClock(resolve.PrincipalsFromConfig(principals), nil)
+	resolver := resolve.NewDefaultResolver(store, nil)
+
+	policy := resolve.DerivePolicy(resolve.SurfaceAuthInput{
+		Surface:                  resolve.SurfaceHooks,
+		Profile:                  resolve.ProfileFromString(deployProfile),
+		RequireSurfaceAuth:       requireSurface,
+		RequireAuthOverride:      hooksCfg.RequireAuth,
+		AuthMethods:              hooksCfg.AuthMethods,
+		TrustedLoopbackHeaders:   hooksCfg.TrustedLoopbackHeaders,
+		AllowedTokenTypes:        []resolve.TokenType{resolve.TokenTypeHookBearer},
+		ReportedActorPayloadKeys: []string{"agent_type", "agent_id"},
+	})
+	return resolver, policy.ResolverConfig, policy.RequireAuth
+}
 
 // ToolEvent is the client-agnostic payload for a tool call event.
 // Clients normalize their native format into these fields, or send them
@@ -141,15 +187,27 @@ type Handler struct {
 	cfg      *config.Config
 	logger   *slog.Logger
 	sessions sync.Map // session_id -> *sessionState
+
+	// Identity stack: same shape as gateway and forward proxy. The
+	// resolver is always non-nil so the hot path never has to nil-check.
+	// In local profile, hooks without a token continue to be accepted as
+	// observed coverage; require_auth flips that to fail-closed.
+	resolver       resolve.Resolver
+	resolverConfig resolve.Config
+	requireAuth    bool
 }
 
 // NewHandler creates a hooks handler wired to the security pipeline.
 func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, logger *slog.Logger) *Handler {
+	resolver, resolverCfg, requireAuth := buildHooksIdentity(cfg)
 	h := &Handler{
-		scanner: scanner,
-		store:   store,
-		cfg:     cfg,
-		logger:  logger,
+		scanner:        scanner,
+		store:          store,
+		cfg:            cfg,
+		logger:         logger,
+		resolver:       resolver,
+		resolverConfig: resolverCfg,
+		requireAuth:    requireAuth,
 	}
 	// Periodic cleanup of old session states to prevent memory leaks.
 	go func() {
@@ -237,6 +295,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Identity resolution runs before the body parse so unauthenticated
+	// requests in fail-closed mode return 401 without paying the scan
+	// cost. The Result is reused below to seed Principal / ReportedActor
+	// on the audit row.
+	authResult, _ := h.resolver.Resolve(r.Context(), h.resolverConfig, resolve.Evidence{
+		Surface:     resolve.SurfaceHooks,
+		Header:      r.Header,
+		RemoteAddr:  r.RemoteAddr,
+		ConfigAgent: r.Header.Get("X-Oktsec-Agent"),
+	})
+	if h.requireAuth {
+		if err := authResult.RequireMinimumTrust(resolve.TrustAuthenticated); err != nil {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="oktsec hooks"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	}
+
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
 	if err != nil {
 		http.Error(w, "read error", http.StatusBadRequest)
@@ -249,6 +325,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ev.normalize(r)
+
+	// When the resolver established a Principal (token-authenticated or
+	// trusted_local loopback header), it overrides the payload-supplied
+	// agent name. The original ev.Agent value is preserved by normalize()
+	// and remains visible to operators via the audit reported_actor
+	// column further down — not because it grants any authority, but
+	// because it is useful display metadata.
+	if authResult.Principal.ID != "" && authResult.Principal.ID != "unknown" {
+		ev.Agent = authResult.Principal.ID
+	}
 
 	start := time.Now()
 

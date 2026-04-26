@@ -39,6 +39,7 @@ type Config struct {
 	ForwardProxy   ForwardProxyConfig             `yaml:"forward_proxy,omitempty"`
 	Alerting       AlertingConfig                 `yaml:"alerting,omitempty"`
 	Gateway        GatewayConfig                  `yaml:"gateway,omitempty"`
+	Hooks          HooksConfig                    `yaml:"hooks,omitempty"`
 	MCPServers     map[string]MCPServerConfig     `yaml:"mcp_servers,omitempty"`
 	LLM            LLMConfig                      `yaml:"llm,omitempty"`
 	Telemetry      TelemetryConfig                `yaml:"telemetry,omitempty"`
@@ -430,9 +431,48 @@ type ForwardProxyConfig struct {
 	ScanRequests   bool     `yaml:"scan_requests"`              // Scan outbound HTTP bodies (default: true)
 	ScanResponses  bool     `yaml:"scan_responses"`             // Scan inbound HTTP bodies (default: false)
 	MaxBodySize    int64    `yaml:"max_body_size,omitempty"`    // Max body to scan in bytes (default: 1MB)
+
+	// Per-surface auth (proxy_basic tokens). Reads forward_proxy.require_auth,
+	// forward_proxy.auth_methods, forward_proxy.trusted_loopback_headers in YAML.
+	SurfaceAuthConfig `yaml:",inline"`
+}
+
+// HooksConfig configures the hook ingestion endpoint that surfaces use to
+// emit pre/post-tool telemetry. Auth is opt-in: in local profile an
+// unauthenticated hook is recorded as observed coverage; in enterprise
+// profile (or when require_auth=true) the request is rejected.
+type HooksConfig struct {
+	// Per-surface auth (hook_bearer tokens). Reads hooks.require_auth, etc.
+	SurfaceAuthConfig `yaml:",inline"`
 }
 
 // GatewayConfig configures the MCP gateway mode.
+// SurfaceAuthConfig is the per-surface auth knob shared by gateway,
+// forward proxy, and hooks. Each surface embeds this in its own config
+// section so the operator sees the same three fields with consistent
+// semantics. The surface adapter passes them through resolve.DerivePolicy.
+type SurfaceAuthConfig struct {
+	// RequireAuth controls whether the surface rejects requests that the
+	// identity resolver cannot authenticate. Values:
+	//   "auto"  — derive from deployment profile (enterprise => true)
+	//   "true"  — always require an authenticated principal
+	//   "false" — accept anonymous requests (local-only setups)
+	// Empty defaults to "auto".
+	RequireAuth string `yaml:"require_auth,omitempty"`
+
+	// AuthMethods restricts which identity methods the surface accepts.
+	// Values: "bearer_token", "proxy_basic_token", "hook_token", "mtls",
+	// "trusted_loopback_header". Empty defaults to the surface's natural
+	// token type plus the loopback header in local profile.
+	AuthMethods []string `yaml:"auth_methods,omitempty"`
+
+	// TrustedLoopbackHeaders lets the legacy X-Oktsec-Agent header act as
+	// a Principal (TrustLocal) when the request originates from loopback.
+	// Honored only in local profile; enterprise always treats the header
+	// as reported-actor metadata.
+	TrustedLoopbackHeaders bool `yaml:"trusted_loopback_headers,omitempty"`
+}
+
 type GatewayConfig struct {
 	Enabled                bool   `yaml:"enabled"`
 	Port                   int    `yaml:"port"`                      // default 9090
@@ -448,25 +488,10 @@ type GatewayConfig struct {
 	// where every agent should be reviewed before it can execute tools.
 	DisableAutoRegister bool `yaml:"disable_auto_register,omitempty"`
 
-	// RequireAuth controls whether the gateway rejects requests that the
-	// identity resolver cannot authenticate. Values:
-	//   "auto"  — derive from deployment profile (enterprise => true)
-	//   "true"  — always require an authenticated principal
-	//   "false" — accept anonymous requests (local-only setups)
-	// Empty defaults to "auto".
-	RequireAuth string `yaml:"require_auth,omitempty"`
-
-	// AuthMethods restricts which identity methods the gateway accepts.
-	// Allowed values: "bearer_token", "mtls", "trusted_loopback_header".
-	// Empty defaults to ["bearer_token", "trusted_loopback_header"] in
-	// local profile and ["bearer_token", "mtls"] in enterprise.
-	AuthMethods []string `yaml:"auth_methods,omitempty"`
-
-	// TrustedLoopbackHeaders lets the legacy X-Oktsec-Agent header act as
-	// a Principal (TrustLocal) when the request originates from loopback.
-	// Honored only in local profile; enterprise always treats the header
-	// as reported-actor metadata.
-	TrustedLoopbackHeaders bool `yaml:"trusted_loopback_headers,omitempty"`
+	// SurfaceAuthConfig is embedded inline so cfg.Gateway.RequireAuth /
+	// AuthMethods / TrustedLoopbackHeaders read directly from
+	// gateway.require_auth, gateway.auth_methods, etc. in YAML.
+	SurfaceAuthConfig `yaml:",inline"`
 }
 
 // MCPServerConfig defines a backend MCP server to proxy through the gateway.
