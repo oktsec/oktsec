@@ -53,46 +53,36 @@ For new integrations and enterprise deployments, use a bearer token.
 
 A principal is an identity Oktsec recognizes. Tokens are bound to one principal and stored as salted SHA-256 hashes — the raw secret is never persisted.
 
-> **Coming next**: `oktsec tokens create` will generate the raw token, hash it, and append the principal to your config in one command. Until that lands, generate the hash manually as shown below.
+### 1. Create the token with the CLI
 
-### 1. Generate a raw token and hash
-
-Pick a 32-byte random secret with the `okt_gw_` prefix and produce the storage hash. Any tool that produces SHA-256 with a salt works; the format is `sha256:<hex_salt>:<hex_digest>`.
-
-For a one-off, paste this into a Python REPL:
-
-```python
-import secrets, hashlib
-
-raw  = "okt_gw_" + secrets.token_hex(32)
-salt = secrets.token_bytes(16)
-hash_ = "sha256:" + salt.hex() + ":" + hashlib.sha256(salt + raw.encode()).hexdigest()
-
-print("RAW (show once, then discard):", raw)
-print("HASH (paste into config):", hash_)
+```bash
+oktsec tokens create --principal local-codex --type gateway_bearer --expires 30d
 ```
 
-Save the raw value somewhere safe and paste **only the hash** into config.
+The first time you create a token for a principal, Oktsec auto-creates the principal entry with `kind: agent` and reports it explicitly:
 
-### 2. Add the principal to `oktsec.yaml`
-
-```yaml
-identity:
-  principals:
-    - id: local-codex
-      display_name: Codex local agent
-      kind: agent
-      allowed_surfaces:
-        - mcp_http
-      tokens:
-        - id: gw-local-codex
-          type: gateway_bearer
-          hash: "sha256:<paste_hex_salt>:<paste_hex_digest>"
-          created_at: "2026-04-26T00:00:00Z"
-          # Optional fields:
-          # expires_at: "2027-04-26T00:00:00Z"
-          # revoked_at: "2026-05-15T00:00:00Z"
 ```
+Created principal "local-codex" with kind=agent.
+Created token "gw-local-codex-2026-04-26-a1b2c3" for principal "local-codex".
+Expires at 2026-05-26T00:00:00Z.
+
+Raw token (shown once, copy it now):
+
+  okt_gw_a1b2c3d4...
+
+Use it in your MCP client's Authorization header:
+
+  Authorization: Bearer okt_gw_a1b2c3d4...
+
+The hash has been saved to your config. The raw value above will not be displayed again.
+Reload the gateway (SIGHUP) for the new token to take effect immediately.
+```
+
+`--expires` accepts Go duration syntax (`24h`, `90m`) and the shortcuts `7d`, `30d`, `2w`, `1y`. Omit it for a non-expiring token.
+
+`--token-id` is optional; the CLI generates `<type-prefix>-<principal>-<date>-<random>` so two tokens on the same day do not collide. Pass `--token-id <id>` if you want a specific name.
+
+The raw value is the only thing the CLI ever prints. Copy it into your client immediately — there is no way to recover it later. The config keeps only the salted SHA-256 hash.
 
 Token types:
 
@@ -101,6 +91,15 @@ Token types:
 - `hook_bearer` — used by authenticated hook adapters.
 
 A leaked `gateway_bearer` token cannot authenticate to the forward proxy, and vice versa.
+
+### 2. Inspect existing tokens
+
+```bash
+oktsec tokens list
+oktsec tokens list --principal local-codex
+```
+
+Output is a table with the token id, type, status (`active` / `expired` / `revoked`), creation date, and expiry. The hash and raw value are never displayed.
 
 ### 3. Decide auth strictness
 
@@ -170,22 +169,19 @@ A 401 response means either the token did not match any active principal, the to
 
 ## Token rotation and revocation
 
-Until the CLI lands, rotate by appending a new token to the principal's `tokens:` list, distributing the new raw value to the client, then setting `revoked_at` on the old entry. Revoked tokens stop authenticating immediately on the next request — the resolver revalidates each token's active state on every lookup, not just at config load time.
+Rotate by creating a new token, distributing the new raw value to the client, then revoking the old one:
 
-```yaml
-tokens:
-  - id: gw-local-codex
-    type: gateway_bearer
-    hash: "sha256:..."
-    created_at: "2026-04-26T00:00:00Z"
-    revoked_at: "2026-05-15T00:00:00Z"   # this token no longer works
-  - id: gw-local-codex-2
-    type: gateway_bearer
-    hash: "sha256:..."                    # new hash, new raw value to the client
-    created_at: "2026-05-15T00:00:00Z"
+```bash
+# New token (raw value printed once)
+oktsec tokens create --principal local-codex --type gateway_bearer --expires 30d
+
+# Old token: keep the audit trail row, mark it revoked
+oktsec tokens revoke --principal local-codex --token gw-local-codex-2026-04-20-abc123
 ```
 
-Reload the gateway (SIGHUP) for the rebuild to pick up the changes.
+`revoke` sets `revoked_at` on the token row but leaves it in the config so audit history is preserved. Revoked tokens stop authenticating immediately on the next request — the resolver revalidates each token's active state on every lookup, not just at config load time.
+
+Reload the gateway (SIGHUP) so it picks up the rebuilt principal store.
 
 ## Related
 
