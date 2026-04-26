@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -11,9 +12,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/auditcheck"
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/coverage"
 	"github.com/oktsec/oktsec/internal/dashboard/static"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/graph"
@@ -63,6 +66,13 @@ type Server struct {
 	graphCache      *graph.AgentGraph
 	graphCacheRange string
 	graphCacheTime  time.Time
+
+	// Lazily-built coverage reader: prefers activity-backed last-seen,
+	// falls back to the audit-backed reader for the long tail. Built
+	// once because activity.Migrate is idempotent but not free, and
+	// the resulting *activity.SQLStore is safe for concurrent use.
+	coverageReaderOnce sync.Once
+	coverageReaderVal  coverage.AuditReader
 }
 
 // NewServer creates a dashboard server with access-code authentication.
@@ -109,6 +119,54 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 // When set, the dashboard will not spawn a child gateway process.
 func (s *Server) SetGatewayManaged() {
 	s.gwManaged = true
+}
+
+// coverageReader returns the AuditReader coverage.Compute should use
+// for LastSeen attribution. Built lazily on first use:
+//
+//   - When the audit store exposes a *sql.DB and a known dialect (the
+//     production case via *audit.Store), wrap an activity.SQLStore in
+//     a HybridLastSeenReader so activity-backed evidence wins and the
+//     audit fallback fills the long tail.
+//   - Otherwise (test mocks, future stores that do not expose DB
+//     access), return the audit reader directly. Phase 2A behavior is
+//     preserved without ceremony.
+//
+// activity.Migrate is idempotent so re-running it on the same DB is
+// safe; the sync.Once just avoids the work on every coverage render.
+func (s *Server) coverageReader() coverage.AuditReader {
+	s.coverageReaderOnce.Do(func() {
+		s.coverageReaderVal = s.buildCoverageReader()
+	})
+	return s.coverageReaderVal
+}
+
+func (s *Server) buildCoverageReader() coverage.AuditReader {
+	type dbBackedAuditStore interface {
+		DB() *sql.DB
+		DialectName() string
+	}
+	dbs, ok := s.audit.(dbBackedAuditStore)
+	if !ok {
+		return s.audit
+	}
+	db := dbs.DB()
+	if db == nil {
+		return s.audit
+	}
+	dialect := activity.Dialect(dbs.DialectName())
+	if dialect == "" {
+		s.logger.Warn("coverage reader: audit store reports unknown dialect; falling back to audit-only")
+		return s.audit
+	}
+	if err := activity.Migrate(db, dialect); err != nil {
+		s.logger.Warn("coverage reader: activity migrate failed; falling back to audit-only", "error", err)
+		return s.audit
+	}
+	return coverage.HybridLastSeenReader{
+		Activity: coverage.ActivityLastSeen{Store: activity.NewSQLStore(db, dialect)},
+		Audit:    s.audit,
+	}
 }
 
 // SetLLMQueue attaches the LLM queue for budget status display.

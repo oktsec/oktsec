@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/connectors"
 )
 
 // Compute folds the current configuration and audit observations into a
@@ -15,16 +16,31 @@ import (
 // The function is intentionally pure: it does not query the audit store
 // directly (callers pass a narrow AuditReader) and does not mutate cfg.
 // Tests can drive it with a fake AuditReader and any *config.Config.
+//
+// Connector inference goes through the package-level connectors.Default
+// registry so a future operator-defined connector layer can swap in
+// without touching coverage. Callers that want to inject a different
+// registry can use ComputeWith.
 func Compute(cfg *config.Config, ar AuditReader) []CoverageCell {
+	return ComputeWith(cfg, ar, connectors.Default())
+}
+
+// ComputeWith is Compute with an explicit Registry. Used by tests that
+// want to inject a custom registry; production wiring uses Compute.
+func ComputeWith(cfg *config.Config, ar AuditReader, reg connectors.Registry) []CoverageCell {
 	if cfg == nil {
 		return nil
 	}
+	if reg == nil {
+		reg = connectors.Default()
+	}
 	now := time.Now()
+	observedMethods := observedAuthMethodsFromConfig(cfg)
 
 	var cells []CoverageCell
 	for _, p := range cfg.Identity.Principals {
 		tokensByType := activeTokenTypes(p, now)
-		connector := inferConnectorIDFromActive(tokensByType)
+		connector := reg.Infer(tokensByType, observedMethods).ID
 		for _, surface := range AllSurfaces {
 			cell := computeCell(cfg, p, connector, surface, tokensByType)
 			if ar != nil {
@@ -42,6 +58,31 @@ func Compute(cfg *config.Config, ar AuditReader) []CoverageCell {
 		return cells[i].Surface < cells[j].Surface
 	})
 	return cells
+}
+
+// observedAuthMethodsFromConfig derives the auth-method evidence map
+// the registry needs from current configuration. Today the only piece
+// of evidence that comes from config (rather than from the activity
+// store) is whether the loopback header is honored on at least one
+// surface — that determines the legacy-loopback-header vs unknown
+// fork in the registry's inference rule.
+//
+// PR5 will plumb live activity-derived evidence on top of this so a
+// principal that has only ever shown wrapper-signed activity can be
+// labeled accordingly. For PR4 the config-derived signal is enough to
+// keep local-mode deployments labeled as legacy-loopback-header (the
+// existing behavior) and enterprise-mode deployments without working
+// tokens labeled as unknown (an honest improvement).
+func observedAuthMethodsFromConfig(cfg *config.Config) map[string]bool {
+	out := map[string]bool{}
+	if cfg == nil {
+		return out
+	}
+	if isLocalLoopbackHeaderActive(cfg, cfg.Gateway.SurfaceAuthConfig) ||
+		isLocalLoopbackHeaderActive(cfg, cfg.ForwardProxy.SurfaceAuthConfig) {
+		out["trusted_loopback"] = true
+	}
+	return out
 }
 
 // activeTokenTypes returns the set of TokenTypes the principal currently

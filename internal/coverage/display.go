@@ -15,8 +15,10 @@ func ConnectorDisplayName(id string) string {
 		return "Generic hooks"
 	case ConnectorCustomClient:
 		return "Custom client"
-	case ConnectorLegacyLocalHeader:
+	case ConnectorLegacyLoopbackHeader:
 		return "Legacy loopback header"
+	case ConnectorUnknown:
+		return "Unknown source"
 	}
 	return id
 }
