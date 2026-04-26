@@ -11,10 +11,17 @@ import (
 // lookup so a stalled or locked activity DB cannot pin a dashboard
 // render. The hybrid reader catches the resulting error and falls
 // back to the audit reader, so the operator sees the audit-backed
-// value instead of a hung page. 1.5s is generous for a single
-// indexed SELECT and tight enough that 3N queries per render
-// (principals × surfaces) stay bounded under failure.
-const activityLastSeenTimeout = 1500 * time.Millisecond
+// value instead of a hung page.
+//
+// 250ms is the per-cell ceiling: an indexed SELECT is sub-millisecond
+// in normal operation, so 250ms is ~250x normal latency. Combined
+// with the per-render circuit breaker (see CircuitBreakerReader),
+// the worst-case render-time contribution from a stalled activity
+// store is bounded at activityLastSeenTimeout × breaker_threshold
+// regardless of principal count. Without the smaller ceiling and the
+// breaker, 1.5s × 3 surfaces × N principals could stack into
+// multi-minute renders for enterprise-size deployments.
+const activityLastSeenTimeout = 250 * time.Millisecond
 
 // ActivityLastSeen adapts an activity.Store into the AuditReader
 // interface coverage.Compute expects. It exists because activity.Store

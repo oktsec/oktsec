@@ -67,12 +67,15 @@ type Server struct {
 	graphCacheRange string
 	graphCacheTime  time.Time
 
-	// Lazily-built coverage reader: prefers activity-backed last-seen,
-	// falls back to the audit-backed reader for the long tail. Built
-	// once because activity.Migrate is idempotent but not free, and
-	// the resulting *activity.SQLStore is safe for concurrent use.
-	coverageReaderOnce sync.Once
-	coverageReaderVal  coverage.AuditReader
+	// Lazily-built activity store for coverage attribution. nil when
+	// the audit store does not expose a *sql.DB (test mocks) or when
+	// activity.Migrate failed at startup. Cached because Migrate is
+	// idempotent but not free; the resulting *activity.SQLStore is
+	// safe for concurrent use. The coverage reader wraps a fresh
+	// circuit breaker around this store on every render so a transient
+	// stall cannot permanently disable activity attribution.
+	coverageActivityOnce sync.Once
+	coverageActivityVal  activity.Store
 }
 
 // NewServer creates a dashboard server with access-code authentication.
@@ -121,52 +124,76 @@ func (s *Server) SetGatewayManaged() {
 	s.gwManaged = true
 }
 
+// coverageActivityBreakerThreshold is the number of consecutive
+// activity-store failures the per-render circuit breaker tolerates
+// before short-circuiting for the rest of the render. Combined with
+// coverage.activityLastSeenTimeout, this caps the worst-case render-
+// time contribution from a stalled activity store at
+// (timeout × threshold) regardless of principal count.
+const coverageActivityBreakerThreshold = 3
+
 // coverageReader returns the AuditReader coverage.Compute should use
-// for LastSeen attribution. Built lazily on first use:
+// for LastSeen attribution. The activity store is cached on first use
+// (sync.Once around the migrate-once dance), but the wrapper returned
+// here is built fresh per render so:
 //
-//   - When the audit store exposes a *sql.DB and a known dialect (the
-//     production case via *audit.Store), wrap an activity.SQLStore in
-//     a HybridLastSeenReader so activity-backed evidence wins and the
-//     audit fallback fills the long tail.
-//   - Otherwise (test mocks, future stores that do not expose DB
-//     access), return the audit reader directly. Phase 2A behavior is
-//     preserved without ceremony.
+//   - the per-render circuit breaker state does not leak between
+//     unrelated dashboard requests, and
+//   - a transient activity stall does not permanently disable
+//     activity attribution across the process lifetime.
 //
-// activity.Migrate is idempotent so re-running it on the same DB is
-// safe; the sync.Once just avoids the work on every coverage render.
+// When the audit store does not expose a *sql.DB (test mocks, future
+// stores), this returns the audit reader directly and Phase 2A
+// behavior is preserved.
 func (s *Server) coverageReader() coverage.AuditReader {
-	s.coverageReaderOnce.Do(func() {
-		s.coverageReaderVal = s.buildCoverageReader()
-	})
-	return s.coverageReaderVal
+	store := s.coverageActivityStore()
+	if store == nil {
+		return s.audit
+	}
+	activityReader := coverage.NewCircuitBreakerReader(
+		coverage.ActivityLastSeen{Store: store},
+		coverageActivityBreakerThreshold,
+	)
+	return coverage.HybridLastSeenReader{
+		Activity: activityReader,
+		Audit:    s.audit,
+	}
 }
 
-func (s *Server) buildCoverageReader() coverage.AuditReader {
+// coverageActivityStore returns the cached activity.Store the
+// coverage reader wraps, or nil when the audit store cannot back one.
+// Migrate is idempotent but not free, so the sync.Once avoids
+// re-running it on every coverage render.
+func (s *Server) coverageActivityStore() activity.Store {
+	s.coverageActivityOnce.Do(func() {
+		s.coverageActivityVal = s.buildActivityStoreForCoverage()
+	})
+	return s.coverageActivityVal
+}
+
+func (s *Server) buildActivityStoreForCoverage() activity.Store {
 	type dbBackedAuditStore interface {
 		DB() *sql.DB
 		DialectName() string
 	}
 	dbs, ok := s.audit.(dbBackedAuditStore)
 	if !ok {
-		return s.audit
+		return nil
 	}
 	db := dbs.DB()
 	if db == nil {
-		return s.audit
+		return nil
 	}
 	dialect := activity.Dialect(dbs.DialectName())
 	if dialect == "" {
 		s.logger.Warn("coverage reader: audit store reports unknown dialect; falling back to audit-only")
-		return s.audit
+		return nil
 	}
 	if err := activity.Migrate(db, dialect); err != nil {
 		s.logger.Warn("coverage reader: activity migrate failed; falling back to audit-only", "error", err)
-		return s.audit
+		return nil
 	}
-	return coverage.HybridLastSeenReader{
-		Activity: coverage.ActivityLastSeen{Store: activity.NewSQLStore(db, dialect)},
-		Audit:    s.audit,
-	}
+	return activity.NewSQLStore(db, dialect)
 }
 
 // SetLLMQueue attaches the LLM queue for budget status display.
