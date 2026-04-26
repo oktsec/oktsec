@@ -28,7 +28,7 @@ func newTestForwardProxyWithAgents(t *testing.T, cfg *config.ForwardProxyConfig,
 	scanner := engine.NewScanner("")
 	t.Cleanup(func() { scanner.Close() })
 	rl := NewRateLimiter(0, 60)
-	fp := NewForwardProxy(cfg, scanner, store, rl, agents, logger, nil)
+	fp := NewForwardProxy(cfg, scanner, store, rl, agents, logger, nil, nil)
 	// Override transport to allow localhost connections in tests
 	// (safeDialContext blocks loopback IPs by design)
 	fp.transport = &http.Transport{}
@@ -284,6 +284,7 @@ func TestForwardProxy_PerAgent_AllowedDomain(t *testing.T) {
 	// With agent header: 127.0.0.1 in merged allowlist → allowed
 	req = httptest.NewRequest("GET", target.URL+"/get", nil)
 	req.Header.Set("X-Oktsec-Agent", "researcher")
+	req.RemoteAddr = "127.0.0.1:1" // resolver requires loopback for header-as-principal
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -320,6 +321,7 @@ func TestForwardProxy_PerAgent_BlockedDomain(t *testing.T) {
 	// With agent header: 127.0.0.1 in agent blocklist → blocked
 	req = httptest.NewRequest("GET", target.URL+"/get", nil)
 	req.Header.Set("X-Oktsec-Agent", "restricted")
+	req.RemoteAddr = "127.0.0.1:1" // resolver requires loopback for header-as-principal
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
@@ -366,6 +368,7 @@ func TestForwardProxy_PerAgent_CONNECT_Blocked(t *testing.T) {
 	req := httptest.NewRequest("CONNECT", "evil.com:443", nil)
 	req.Host = "evil.com:443"
 	req.Header.Set("X-Oktsec-Agent", "locked")
+	req.RemoteAddr = "127.0.0.1:1" // resolver requires loopback for header-as-principal
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

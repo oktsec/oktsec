@@ -17,6 +17,7 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/oktsec/oktsec/internal/identity/resolve"
 	"github.com/oktsec/oktsec/internal/verdict"
 )
 
@@ -32,10 +33,23 @@ type ForwardProxy struct {
 	logger          *slog.Logger
 	transport       *http.Transport
 	upstreamProxy   bool // true when HTTP_PROXY/HTTPS_PROXY is set
+
+	// Identity stack: same shape as the gateway. The resolver is always
+	// non-nil (empty principal store when nothing is configured) so the
+	// hot path never has to nil-check.
+	resolver       resolve.Resolver
+	resolverConfig resolve.Config
+	requireAuth    bool
 }
 
 // NewForwardProxy creates a forward proxy with scanning and audit capabilities.
-func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter RateStore, agents map[string]config.Agent, logger *slog.Logger, tb *config.TrustBoundaries) *ForwardProxy {
+//
+// fullCfg carries the deployment profile and identity.principals the
+// resolver needs. ForwardProxyConfig stays as the per-surface knob so
+// existing call sites that build cfg.ForwardProxy by hand continue to
+// work — they just lose surface auth, which is the correct fail-soft
+// behavior (no principal store ⇒ no tokens accepted).
+func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, auditStore *audit.Store, rateLimiter RateStore, agents map[string]config.Agent, logger *slog.Logger, tb *config.TrustBoundaries, fullCfg *config.Config) *ForwardProxy {
 	// When an upstream proxy is configured (e.g., inside Docker Sandbox),
 	// the transport dials the proxy, not the target. Use standard dialer
 	// for proxy connections; SSRF checks are applied at handler level.
@@ -65,6 +79,7 @@ func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, au
 			IdleConnTimeout:       90 * time.Second,
 		},
 	}
+	fp.resolver, fp.resolverConfig, fp.requireAuth = buildForwardProxyIdentity(cfg, fullCfg)
 
 	// Pre-create per-agent rate limiters
 	for name, agent := range agents {
@@ -96,11 +111,63 @@ func (fp *ForwardProxy) Wrap(mux http.Handler) http.Handler {
 	})
 }
 
-// extractAgent reads and strips the X-Oktsec-Agent header.
-func extractAgent(r *http.Request) string {
-	agent := r.Header.Get("X-Oktsec-Agent")
-	r.Header.Del("X-Oktsec-Agent")
-	return strings.TrimSpace(agent)
+// buildForwardProxyIdentity wires the forward proxy into the same
+// identity contract the gateway uses. fullCfg may be nil (legacy callers
+// that constructed only ForwardProxyConfig); in that case the resolver
+// runs against an empty principal store and the surface stays in
+// loopback-header mode for backwards compatibility.
+func buildForwardProxyIdentity(cfg *config.ForwardProxyConfig, fullCfg *config.Config) (resolve.Resolver, resolve.Config, bool) {
+	var principals []resolve.ConfigPrincipal
+	var deployProfile string
+	var requireSurface bool
+	if fullCfg != nil {
+		deployProfile = fullCfg.Deployment.Profile
+		requireSurface = fullCfg.Deployment.RequireSurfaceAuth
+		for _, p := range fullCfg.Identity.Principals {
+			toks := make([]resolve.ConfigToken, 0, len(p.Tokens))
+			for _, t := range p.Tokens {
+				toks = append(toks, resolve.ConfigToken{
+					ID: t.ID, Type: t.Type, Hash: t.Hash,
+					CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt, RevokedAt: t.RevokedAt,
+				})
+			}
+			principals = append(principals, resolve.ConfigPrincipal{
+				ID: p.ID, DisplayName: p.DisplayName, Kind: p.Kind,
+				WorkspaceID: p.WorkspaceID, AllowedSurfaces: p.AllowedSurfaces,
+				Tokens: toks,
+			})
+		}
+	}
+	store := resolve.NewMemoryTokenStoreWithClock(resolve.PrincipalsFromConfig(principals), nil)
+	resolver := resolve.NewDefaultResolver(store, nil)
+
+	policy := resolve.DerivePolicy(resolve.SurfaceAuthInput{
+		Surface:                resolve.SurfaceHTTPEgress,
+		Profile:                resolve.ProfileFromString(deployProfile),
+		RequireSurfaceAuth:     requireSurface,
+		RequireAuthOverride:    cfg.RequireAuth,
+		AuthMethods:            cfg.AuthMethods,
+		TrustedLoopbackHeaders: cfg.TrustedLoopbackHeaders,
+		AllowedTokenTypes:      []resolve.TokenType{resolve.TokenTypeProxyBasic},
+	})
+	return resolver, policy.ResolverConfig, policy.RequireAuth
+}
+
+// resolveIdentity runs the identity resolver against an incoming request
+// and returns the full Result. Callers use Result.Principal for policy,
+// Result.ReportedActor for display/audit, and Result.RequireMinimumTrust
+// to fail closed when require_auth is on. The legacy X-Oktsec-Agent
+// header is consumed via Evidence.ConfigAgent (loopback header path);
+// callers strip it from the request so it never reaches the upstream
+// destination. Proxy-Authorization is also stripped at the call site.
+func (fp *ForwardProxy) resolveIdentity(r *http.Request) resolve.Result {
+	res, _ := fp.resolver.Resolve(r.Context(), fp.resolverConfig, resolve.Evidence{
+		Surface:     resolve.SurfaceHTTPEgress,
+		Header:      r.Header,
+		RemoteAddr:  r.RemoteAddr,
+		ConfigAgent: r.Header.Get("X-Oktsec-Agent"),
+	})
+	return res
 }
 
 // extractSession reads and strips the X-Oktsec-Session header.
@@ -114,7 +181,20 @@ func extractSession(r *http.Request) string {
 func (fp *ForwardProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	host := r.Host
-	agent := extractAgent(r)
+	res := fp.resolveIdentity(r)
+	r.Header.Del("X-Oktsec-Agent")
+	r.Header.Del("Proxy-Authorization")
+	if fp.requireAuth {
+		if err := res.RequireMinimumTrust(resolve.TrustAuthenticated); err != nil {
+			w.Header().Set("Proxy-Authenticate", `Basic realm="oktsec forward proxy"`)
+			http.Error(w, "Proxy Authentication Required", http.StatusProxyAuthRequired)
+			return
+		}
+	}
+	agent := res.Principal.ID
+	if agent == "unknown" {
+		agent = ""
+	}
 	session := extractSession(r)
 
 	policy := fp.resolvePolicy(agent)
@@ -198,7 +278,20 @@ func (fp *ForwardProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if host == "" {
 		host = r.Host
 	}
-	agent := extractAgent(r)
+	res := fp.resolveIdentity(r)
+	r.Header.Del("X-Oktsec-Agent")
+	r.Header.Del("Proxy-Authorization")
+	if fp.requireAuth {
+		if err := res.RequireMinimumTrust(resolve.TrustAuthenticated); err != nil {
+			w.Header().Set("Proxy-Authenticate", `Basic realm="oktsec forward proxy"`)
+			http.Error(w, "Proxy Authentication Required", http.StatusProxyAuthRequired)
+			return
+		}
+	}
+	agent := res.Principal.ID
+	if agent == "unknown" {
+		agent = ""
+	}
 	session := extractSession(r)
 	logAgent := fp.logAgent(agent, r.RemoteAddr)
 

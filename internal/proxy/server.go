@@ -360,7 +360,7 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	// Forward proxy on dedicated port (separate from dashboard/API)
 	if cfg.ForwardProxy.Enabled {
 		fp := NewForwardProxy(&cfg.ForwardProxy, scanner, auditStore,
-			NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS), cfg.Agents, logger, &cfg.TrustBoundaries)
+			NewRateLimiter(cfg.RateLimit.PerAgent, cfg.RateLimit.WindowS), cfg.Agents, logger, &cfg.TrustBoundaries, cfg)
 
 		fwdBind := cfg.ForwardProxy.Bind
 		if fwdBind == "" {
