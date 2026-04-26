@@ -58,7 +58,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
 	parent_agent TEXT DEFAULT '',
 	agent_instance_id TEXT DEFAULT '',
 	root_agent TEXT DEFAULT '',
-	agent_depth INTEGER DEFAULT 0
+	agent_depth INTEGER DEFAULT 0,
+	auth_method TEXT DEFAULT '',
+	principal_trust_level TEXT DEFAULT '',
+	reported_actor TEXT DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_log(status);
@@ -560,7 +563,11 @@ func (s *Store) Log(entry Entry) {
 
 // auditSelectCols is the shared SELECT column list for audit queries.
 // Update this constant (and the corresponding Scan calls) when adding columns.
-const auditSelectCols = "id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,''), COALESCE(parent_agent,''), COALESCE(agent_instance_id,''), COALESCE(root_agent,''), COALESCE(agent_depth,0)"
+//
+// COALESCE on identity provenance fields is required for backward
+// compatibility: rows written before the migration ran will have NULLs in
+// those columns until they age out, and Scan into string would fail.
+const auditSelectCols = "id, timestamp, from_agent, to_agent, COALESCE(tool_name,''), content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, COALESCE(intent,''), COALESCE(session_id,''), COALESCE(entry_hash,''), COALESCE(delegation_chain_hash,''), COALESCE(delegation_chain,''), COALESCE(parent_agent,''), COALESCE(agent_instance_id,''), COALESCE(root_agent,''), COALESCE(agent_depth,0), COALESCE(auth_method,''), COALESCE(principal_trust_level,''), COALESCE(reported_actor,'')"
 
 // Query returns audit entries matching the given filters.
 func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
@@ -629,7 +636,7 @@ func (s *Store) Query(opts QueryOpts) ([]Entry, error) {
 		var fp, rules sql.NullString
 		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 			&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-			&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain, &e.ParentAgent, &e.AgentInstanceID, &e.RootAgent, &e.AgentDepth); err != nil {
+			&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain, &e.ParentAgent, &e.AgentInstanceID, &e.RootAgent, &e.AgentDepth, &e.AuthMethod, &e.PrincipalTrustLevel, &e.ReportedActor); err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 		e.PubkeyFingerprint = fp.String
@@ -712,7 +719,7 @@ func (s *Store) QueryByID(id string) (*Entry, error) {
 	var fp, rules sql.NullString
 	if err := row.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent, &e.ToolName, &e.ContentHash,
 		&e.SignatureVerified, &fp, &e.Status, &rules, &e.PolicyDecision, &e.LatencyMs,
-		&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain, &e.ParentAgent, &e.AgentInstanceID, &e.RootAgent, &e.AgentDepth); err != nil {
+		&e.Intent, &e.SessionID, &e.EntryHash, &e.DelegationChainHash, &e.DelegationChain, &e.ParentAgent, &e.AgentInstanceID, &e.RootAgent, &e.AgentDepth, &e.AuthMethod, &e.PrincipalTrustLevel, &e.ReportedActor); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -876,7 +883,7 @@ func (s *Store) writeLoop() {
 			continue
 		}
 
-		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, tool_name, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature, delegation_chain_hash, delegation_chain, parent_agent, agent_instance_id, root_agent, agent_depth) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		stmt, err := tx.Prepare(`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, tool_name, content_hash, signature_verified, pubkey_fingerprint, status, rules_triggered, policy_decision, latency_ms, intent, session_id, prev_hash, entry_hash, proxy_signature, delegation_chain_hash, delegation_chain, parent_agent, agent_instance_id, root_agent, agent_depth, auth_method, principal_trust_level, reported_actor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			s.logger.Error("audit batch prepare failed", "error", err)
 			_ = tx.Rollback()
@@ -892,6 +899,7 @@ func (s *Store) writeLoop() {
 				batch[i].PolicyDecision, batch[i].LatencyMs, batch[i].Intent, batch[i].SessionID,
 				batch[i].PrevHash, batch[i].EntryHash, batch[i].ProxySignature, batch[i].DelegationChainHash, batch[i].DelegationChain,
 				batch[i].ParentAgent, batch[i].AgentInstanceID, batch[i].RootAgent, batch[i].AgentDepth,
+				batch[i].AuthMethod, batch[i].PrincipalTrustLevel, batch[i].ReportedActor,
 			)
 			if err != nil {
 				s.logger.Error("audit write failed", "id", batch[i].ID, "error", err)

@@ -20,6 +20,7 @@ type TrustBoundaries struct {
 // Config is the top-level oktsec configuration.
 type Config struct {
 	Version          string                         `yaml:"version"`
+	Deployment       DeploymentConfig               `yaml:"deployment,omitempty"`
 	Server           ServerConfig                   `yaml:"server"`
 	Identity         IdentityConfig                 `yaml:"identity"`
 	TrustBoundaries  TrustBoundaries                `yaml:"trust_boundaries,omitempty"`
@@ -180,10 +181,54 @@ type ServerConfig struct {
 
 // IdentityConfig configures agent identity verification.
 type IdentityConfig struct {
-	KeysDir            string          `yaml:"keys_dir"`
-	RequireSignature   bool            `yaml:"require_signature"`
-	RequireDelegation  bool            `yaml:"require_delegation,omitempty"`
-	Ephemeral          EphemeralConfig `yaml:"ephemeral,omitempty"`
+	KeysDir            string             `yaml:"keys_dir"`
+	RequireSignature   bool               `yaml:"require_signature"`
+	RequireDelegation  bool               `yaml:"require_delegation,omitempty"`
+	Ephemeral          EphemeralConfig    `yaml:"ephemeral,omitempty"`
+
+	// Principals declares authenticated identities (agents, services) that
+	// surface adapters can resolve from bearer/proxy/hook tokens, mTLS
+	// certificates, or Ed25519 signatures. Tokens are stored as salted
+	// SHA-256 hashes; raw secrets must be shown to the operator exactly
+	// once at creation and never logged.
+	Principals []PrincipalConfig `yaml:"principals,omitempty"`
+}
+
+// PrincipalConfig is the on-disk shape of a Principal that surface
+// adapters use for policy decisions. The shape mirrors
+// resolve.PrincipalRecord; the resolve package converts between them at
+// resolver-build time so the resolver does not depend on the config
+// package.
+type PrincipalConfig struct {
+	ID              string                 `yaml:"id"`
+	DisplayName     string                 `yaml:"display_name,omitempty"`
+	Kind            string                 `yaml:"kind,omitempty"` // agent, user, service, workspace
+	WorkspaceID     string                 `yaml:"workspace_id,omitempty"`
+	AllowedSurfaces []string               `yaml:"allowed_surfaces,omitempty"` // e.g. ["mcp_http", "http_egress_proxy"]
+	Tokens          []PrincipalTokenConfig `yaml:"tokens,omitempty"`
+}
+
+// PrincipalTokenConfig is one token bound to a Principal. The Hash field
+// is the salted SHA-256 of the raw secret in the format
+// `sha256:<hex_salt>:<hex_digest>`. The raw token is never persisted.
+type PrincipalTokenConfig struct {
+	ID         string `yaml:"id"`
+	Type       string `yaml:"type"`              // gateway_bearer, proxy_basic, hook_bearer
+	Hash       string `yaml:"hash"`              // sha256:<salt>:<hex>
+	CreatedAt  string `yaml:"created_at,omitempty"`
+	ExpiresAt  string `yaml:"expires_at,omitempty"`
+	RevokedAt  string `yaml:"revoked_at,omitempty"`
+	LastUsedAt string `yaml:"last_used_at,omitempty"`
+}
+
+// DeploymentConfig declares how this oktsec instance is deployed. Profile
+// changes the default fail-closed behavior of surface adapters: local
+// allows trusted-loopback fallbacks for friction-light onboarding;
+// enterprise requires authenticated identity on every protected path.
+type DeploymentConfig struct {
+	Profile            string `yaml:"profile,omitempty"`              // local | enterprise (default: local)
+	OrgID              string `yaml:"org_id,omitempty"`               // tenant id, enterprise
+	RequireSurfaceAuth bool   `yaml:"require_surface_auth,omitempty"` // forces fail-closed on every surface
 }
 
 // EphemeralConfig controls task-scoped ephemeral key issuance.
@@ -402,6 +447,26 @@ type GatewayConfig struct {
 	// permissive defaults. Set true in production / stricter deployments
 	// where every agent should be reviewed before it can execute tools.
 	DisableAutoRegister bool `yaml:"disable_auto_register,omitempty"`
+
+	// RequireAuth controls whether the gateway rejects requests that the
+	// identity resolver cannot authenticate. Values:
+	//   "auto"  — derive from deployment profile (enterprise => true)
+	//   "true"  — always require an authenticated principal
+	//   "false" — accept anonymous requests (local-only setups)
+	// Empty defaults to "auto".
+	RequireAuth string `yaml:"require_auth,omitempty"`
+
+	// AuthMethods restricts which identity methods the gateway accepts.
+	// Allowed values: "bearer_token", "mtls", "trusted_loopback_header".
+	// Empty defaults to ["bearer_token", "trusted_loopback_header"] in
+	// local profile and ["bearer_token", "mtls"] in enterprise.
+	AuthMethods []string `yaml:"auth_methods,omitempty"`
+
+	// TrustedLoopbackHeaders lets the legacy X-Oktsec-Agent header act as
+	// a Principal (TrustLocal) when the request originates from loopback.
+	// Honored only in local profile; enterprise always treats the header
+	// as reported-actor metadata.
+	TrustedLoopbackHeaders bool `yaml:"trusted_loopback_headers,omitempty"`
 }
 
 // MCPServerConfig defines a backend MCP server to proxy through the gateway.

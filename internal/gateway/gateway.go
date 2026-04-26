@@ -20,6 +20,7 @@ import (
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity"
+	"github.com/oktsec/oktsec/internal/identity/resolve"
 	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/mcputil"
 	"github.com/oktsec/oktsec/internal/netutil"
@@ -35,6 +36,46 @@ type contextKey string
 const agentContextKey contextKey = "oktsec-agent"
 const sessionContextKey contextKey = "oktsec-session"
 const delegationContextKey contextKey = "oktsec-delegation"
+const reportedActorContextKey contextKey = "oktsec-reported-actor"
+const authMethodContextKey contextKey = "oktsec-auth-method"
+const trustLevelContextKey contextKey = "oktsec-trust-level"
+
+// requestIdentity is the identity bundle the gateway carries from the
+// auth middleware down to logAudit. Built once per request via
+// identityFromContext so handlers do not have to reach into context for
+// each field — and so audit calls cannot accidentally pass the wrong
+// principal to the security pipeline.
+//
+// PrincipalID is the only identity policy code may use. AuthMethod and
+// TrustLevel record HOW it was established; ReportedActor is the
+// display-only actor the surface saw alongside it (subagent name,
+// payload field, hook body) and never affects policy.
+type requestIdentity struct {
+	PrincipalID   string
+	AuthMethod    string
+	TrustLevel    string
+	ReportedActor string
+}
+
+// identityFromContext lifts the values the auth middleware put into ctx
+// into a single struct. Empty fields are returned as "" — handlers and
+// logAudit treat that as "no information" rather than failing.
+func identityFromContext(ctx context.Context) requestIdentity {
+	var id requestIdentity
+	if v, ok := ctx.Value(agentContextKey).(string); ok {
+		id.PrincipalID = v
+	}
+	if v, ok := ctx.Value(authMethodContextKey).(string); ok {
+		id.AuthMethod = v
+	}
+	if v, ok := ctx.Value(trustLevelContextKey).(string); ok {
+		id.TrustLevel = v
+	}
+	if v, ok := ctx.Value(reportedActorContextKey).(string); ok {
+		id.ReportedActor = v
+	}
+	return id
+}
 
 // toolMapping maps a frontend tool name to its backend.
 type toolMapping struct {
@@ -76,6 +117,107 @@ type Gateway struct {
 	registeredAgents  map[string]bool
 	registeredMu      sync.Mutex
 	cfgPath           string
+
+	// resolver and resolverConfig together decide which Principal a
+	// request belongs to. The resolver is always non-nil — even when no
+	// principals are configured the store is empty rather than nil so the
+	// adapter never has to nil-check before each Resolve.
+	resolver       resolve.Resolver
+	resolverConfig resolve.Config
+	requireAuth    bool // derived from cfg.Gateway.RequireAuth + deployment profile
+}
+
+// authMiddleware runs the identity resolver for every gateway request,
+// fails closed when require_auth is on, and exposes the resolved Principal
+// (plus reported actor and auth method) to downstream handlers via the
+// request context. Extracted for testability so identity contracts can be
+// exercised without spinning up the full MCP backend stack.
+func (g *Gateway) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		evidence := resolve.Evidence{
+			Surface:     resolve.SurfaceMCPHTTP,
+			Header:      r.Header,
+			RemoteAddr:  r.RemoteAddr,
+			ConfigAgent: r.Header.Get("X-Oktsec-Agent"),
+		}
+		result, err := g.resolver.Resolve(r.Context(), g.resolverConfig, evidence)
+		if err != nil {
+			// Resolver should not error on well-formed paths today, but
+			// any transport-style failure fails closed rather than
+			// continuing with no identity.
+			http.Error(w, "identity resolver error", http.StatusInternalServerError)
+			return
+		}
+		if g.requireAuth {
+			if trustErr := result.RequireMinimumTrust(resolve.TrustAuthenticated); trustErr != nil {
+				w.Header().Set("WWW-Authenticate", `Bearer realm="oktsec gateway"`)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		ctx := context.WithValue(r.Context(), agentContextKey, result.Principal.ID)
+		ctx = context.WithValue(ctx, authMethodContextKey, string(result.Principal.AuthMethod))
+		ctx = context.WithValue(ctx, trustLevelContextKey, string(result.Principal.TrustLevel))
+		if result.ReportedActor.ID != "" {
+			ctx = context.WithValue(ctx, reportedActorContextKey, result.ReportedActor.ID)
+		}
+		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
+			ctx = context.WithValue(ctx, sessionContextKey, sid)
+		}
+		if del := r.Header.Get("X-Oktsec-Delegation"); del != "" {
+			ctx = context.WithValue(ctx, delegationContextKey, del)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// gatewaySurfacePolicy derives the per-surface identity contract for the
+// MCP gateway. Same helper (resolve.DerivePolicy) will be used by hooks
+// and the forward proxy when those surfaces migrate; the gateway just
+// fills in its own AuthMethods / TrustedLoopbackHeaders / RequireAuth
+// from cfg.Gateway.
+func gatewaySurfacePolicy(cfg *config.Config) resolve.SurfacePolicy {
+	return resolve.DerivePolicy(resolve.SurfaceAuthInput{
+		Surface:                 resolve.SurfaceMCPHTTP,
+		Profile:                 resolve.ProfileFromString(cfg.Deployment.Profile),
+		RequireSurfaceAuth:      cfg.Deployment.RequireSurfaceAuth,
+		RequireAuthOverride:     cfg.Gateway.RequireAuth,
+		AuthMethods:             cfg.Gateway.AuthMethods,
+		TrustedLoopbackHeaders:  cfg.Gateway.TrustedLoopbackHeaders,
+		ReportedActorHeaderName: "X-Oktsec-Reported-Actor",
+		AllowedTokenTypes:       []resolve.TokenType{resolve.TokenTypeGatewayBearer},
+	})
+}
+
+// configPrincipalsFor projects cfg.Identity.Principals into the
+// resolve-package shape so the resolver does not import config.
+func configPrincipalsFor(cfg *config.Config) []resolve.ConfigPrincipal {
+	out := make([]resolve.ConfigPrincipal, 0, len(cfg.Identity.Principals))
+	for _, p := range cfg.Identity.Principals {
+		toks := make([]resolve.ConfigToken, 0, len(p.Tokens))
+		for _, t := range p.Tokens {
+			toks = append(toks, resolve.ConfigToken{
+				ID: t.ID, Type: t.Type, Hash: t.Hash,
+				CreatedAt: t.CreatedAt, ExpiresAt: t.ExpiresAt, RevokedAt: t.RevokedAt,
+			})
+		}
+		out = append(out, resolve.ConfigPrincipal{
+			ID: p.ID, DisplayName: p.DisplayName, Kind: p.Kind,
+			WorkspaceID: p.WorkspaceID, AllowedSurfaces: p.AllowedSurfaces,
+			Tokens: toks,
+		})
+	}
+	return out
+}
+
+// buildResolver constructs the resolver/store the gateway uses for every
+// request. The store is always non-nil — even when no principals are
+// configured the bucket is empty and Lookup just returns ErrNoToken — so
+// the request path never has to nil-check before resolving.
+func buildResolver(cfg *config.Config) resolve.Resolver {
+	principals := resolve.PrincipalsFromConfig(configPrincipalsFor(cfg))
+	store := resolve.NewMemoryTokenStoreWithClock(principals, nil)
+	return resolve.NewDefaultResolver(store, nil)
 }
 
 // NewGateway creates a gateway from the given configuration.
@@ -103,6 +245,7 @@ func NewGateway(cfg *config.Config, logger *slog.Logger, sharedStore *audit.Stor
 
 	agentConstraints, agentChainRules := buildConstraintMaps(cfg)
 
+	policy := gatewaySurfacePolicy(cfg)
 	return &Gateway{
 		cfg:               cfg,
 		backends:          make(map[string]*Backend),
@@ -116,12 +259,16 @@ func NewGateway(cfg *config.Config, logger *slog.Logger, sharedStore *audit.Stor
 		constraintChecker: NewConstraintChecker(agentConstraints, agentChainRules),
 		logger:            logger,
 		registeredAgents:  make(map[string]bool),
+		resolver:          buildResolver(cfg),
+		resolverConfig:    policy.ResolverConfig,
+		requireAuth:       policy.RequireAuth,
 	}, nil
 }
 
 // newGatewayForTest creates a gateway with injected dependencies (no real scanner/audit).
 func newGatewayForTest(cfg *config.Config, scanner *engine.Scanner, auditStore *audit.Store, logger *slog.Logger) *Gateway {
 	agentConstraints, agentChainRules := buildConstraintMaps(cfg)
+	policy := gatewaySurfacePolicy(cfg)
 	return &Gateway{
 		cfg:               cfg,
 		backends:          make(map[string]*Backend),
@@ -134,6 +281,10 @@ func newGatewayForTest(cfg *config.Config, scanner *engine.Scanner, auditStore *
 		policyEnforcer:    NewToolPolicyEnforcer(),
 		constraintChecker: NewConstraintChecker(agentConstraints, agentChainRules),
 		logger:            logger,
+		registeredAgents:  make(map[string]bool),
+		resolver:          buildResolver(cfg),
+		resolverConfig:    policy.ResolverConfig,
+		requireAuth:       policy.RequireAuth,
 	}
 }
 
@@ -223,21 +374,7 @@ func (g *Gateway) Start(ctx context.Context) error {
 		nil,
 	)
 
-	// Wrap with middleware for agent header and session ID injection
-	agentMiddleware := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		agent := r.Header.Get("X-Oktsec-Agent")
-		if agent == "" {
-			agent = "unknown"
-		}
-		ctx := context.WithValue(r.Context(), agentContextKey, agent)
-		if sid := r.Header.Get("Mcp-Session-Id"); sid != "" {
-			ctx = context.WithValue(ctx, sessionContextKey, sid)
-		}
-		if del := r.Header.Get("X-Oktsec-Delegation"); del != "" {
-			ctx = context.WithValue(ctx, delegationContextKey, del)
-		}
-		streamable.ServeHTTP(w, r.WithContext(ctx))
-	})
+	agentMiddleware := g.authMiddleware(streamable)
 
 	// Bind with auto-port
 	bind := g.cfg.Gateway.Bind
@@ -411,19 +548,27 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		start := time.Now()
 		msgID := uuid.New().String()
 
-		// 1. Extract agent name from context (parent identity from HTTP header)
-		agent, _ := ctx.Value(agentContextKey).(string)
-		if agent == "" {
-			agent = "unknown"
+		// 1. Lift the resolved Principal + provenance the auth middleware
+		// stored on ctx into a single struct. Every audit row written for
+		// this request will carry the same identity bundle, so the policy
+		// principal cannot drift from what the audit reader sees.
+		id := identityFromContext(ctx)
+		if id.PrincipalID == "" {
+			id.PrincipalID = "unknown"
 		}
+		agent := id.PrincipalID
 
-		// 1a. Extract sub-agent identity from tool arguments.
-		// policyAgent is the immutable principal for ALL security
-		// decisions. _oktsec_agent is metadata for audit logs only.
+		// 1a. Extract sub-agent identity from tool arguments. The
+		// _oktsec_agent param is metadata for audit only — it never
+		// becomes the policy principal regardless of value. If the
+		// payload supplied a sub-agent it is the most specific reported
+		// actor we have, so it overrides whatever the surface header
+		// declared.
 		policyAgent := agent
 		subAgent := extractAndStripAgentParam(req)
 		if subAgent != "" {
 			g.autoRegisterAgent(subAgent)
+			id.ReportedActor = subAgent
 		}
 
 		// 1b. Extract tool arguments summary for audit (after stripping _oktsec_agent)
@@ -447,7 +592,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 				if maxDepth := resolveDelegationDepth(g.cfg, policyAgent); maxDepth > 0 && chainResult.Depth > maxDepth {
 					g.logger.Warn("delegation depth exceeded",
 						"agent", agent, "depth", chainResult.Depth, "max", maxDepth)
-					g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionDelegationDepthExceeded, "[]", toolArgs, sessionID, start)
+					g.logAudit(msgID, id, m.OriginalName, audit.StatusBlocked, audit.DecisionDelegationDepthExceeded, "[]", toolArgs, sessionID, start)
 					return toolError(fmt.Sprintf("delegation depth %d exceeds max %d", chainResult.Depth, maxDepth)), nil
 				}
 				delegationChainHash = chainResult.ChainHash
@@ -467,7 +612,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 
 		// 2. Rate limit check
 		if !g.rateLimiter.Allow(policyAgent) {
-			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionRateLimited, "[]", toolArgs, sessionID, start)
+			g.logAudit(msgID, id, m.OriginalName, audit.StatusRejected, audit.DecisionRateLimited, "[]", toolArgs, sessionID, start)
 			return toolError("rate limit exceeded"), nil
 		}
 
@@ -475,7 +620,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		// a single agent can't open N parallel sockets against the same tool.
 		release, err := g.concurrency.acquire(ctx, policyAgent)
 		if err != nil {
-			g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionConcurrencyExceeded, "[]", toolArgs, sessionID, start)
+			g.logAudit(msgID, id, m.OriginalName, audit.StatusRejected, audit.DecisionConcurrencyExceeded, "[]", toolArgs, sessionID, start)
 			return toolError("concurrency limit exceeded"), nil
 		}
 		defer release()
@@ -483,7 +628,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		// 3. Tool allowlist check
 		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok {
 			if agentCfg.Suspended {
-				g.logAudit(msgID, agent, m.OriginalName, audit.StatusRejected, audit.DecisionAgentSuspended, "[]", toolArgs, sessionID, start)
+				g.logAudit(msgID, id, m.OriginalName, audit.StatusRejected, audit.DecisionAgentSuspended, "[]", toolArgs, sessionID, start)
 				return toolError("agent suspended"), nil
 			}
 			if len(agentCfg.AllowedTools) > 0 {
@@ -495,7 +640,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 					}
 				}
 				if !allowed {
-					g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionToolNotAllowed, "[]", toolArgs, sessionID, start)
+					g.logAudit(msgID, id, m.OriginalName, audit.StatusBlocked, audit.DecisionToolNotAllowed, "[]", toolArgs, sessionID, start)
 					return toolError(fmt.Sprintf("tool %q not allowed for agent %q", m.OriginalName, agent)), nil
 				}
 			}
@@ -511,7 +656,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 					if result.Decision == "quarantine_approval" {
 						status = audit.StatusQuarantined
 					}
-					g.logAudit(msgID, agent, m.OriginalName, status, result.Decision, "[]", toolArgs, sessionID, start)
+					g.logAudit(msgID, id, m.OriginalName, status, result.Decision, "[]", toolArgs, sessionID, start)
 					return toolError(fmt.Sprintf("tool policy: %s", result.Reason)), nil
 				}
 			}
@@ -527,7 +672,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			}
 			result := g.constraintChecker.CheckToolCall(policyAgent, m.OriginalName, params)
 			if !result.Allowed {
-				g.logAudit(msgID, agent, m.OriginalName, audit.StatusBlocked, audit.DecisionConstraintViolated, "[]", toolArgs, sessionID, start)
+				g.logAudit(msgID, id, m.OriginalName, audit.StatusBlocked, audit.DecisionConstraintViolated, "[]", toolArgs, sessionID, start)
 				return toolError(fmt.Sprintf("constraint: %s", result.Reason)), nil
 			}
 		}
@@ -541,7 +686,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		outcome, err := g.scanner.ScanContentWithTool(scanCtx, content, m.OriginalName)
 		if err != nil {
 			g.logger.Error("scan failed", "error", err, "tool", m.OriginalName)
-			g.logAudit(msgID, agent, m.OriginalName, audit.StatusDelivered, audit.DecisionScanError, "[]", toolArgs, sessionID, start)
+			g.logAudit(msgID, id, m.OriginalName, audit.StatusDelivered, audit.DecisionScanError, "[]", toolArgs, sessionID, start)
 			// Forward on scan error — fail open
 		}
 
@@ -578,7 +723,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		status, decision := verdictToGateway(outcome.Verdict)
 
 		// 9. Audit log (with delegation chain if verified)
-		g.logAudit(msgID, agent, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start, delegationChainHash, delegationChainSummary)
+		g.logAudit(msgID, id, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start, delegationChainHash, delegationChainSummary)
 
 		// 9a. Enqueue quarantined items for human review
 		if outcome.Verdict == engine.VerdictQuarantine {
@@ -679,7 +824,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			if violation := checkResponseScope(result, delegationAllowedTools); violation != "" {
 				g.logger.Warn("subagent response outside delegated scope",
 					"agent", agent, "tool", m.OriginalName, "violation", violation)
-				g.logAudit(msgID, agent, m.OriginalName, audit.StatusDelivered,
+				g.logAudit(msgID, id, m.OriginalName, audit.StatusDelivered,
 					audit.DecisionDelegationScopeViolation, "[]", toolArgs, sessionID, start,
 					delegationChainHash, delegationChainSummary)
 			}
@@ -795,7 +940,16 @@ func (g *Gateway) autoRegisterAgent(name string) {
 
 // logAudit writes an audit entry for a gateway tool call.
 // Optional extra strings: first is delegation_chain_hash.
-func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, toolArgs, sessionID string, start time.Time, extra ...string) {
+// logAudit writes one audit entry. The caller passes the resolved
+// requestIdentity so the audit row carries the same Principal that
+// drove the policy decision, plus the AuthMethod / TrustLevel /
+// ReportedActor provenance the resolver established.
+//
+// FromAgent and ToAgent both equal id.PrincipalID — historical: the
+// gateway logs every tool call as a self-edge from the principal. Other
+// surfaces (agent message API) populate ToAgent differently and call
+// audit.Log directly.
+func (g *Gateway) logAudit(msgID string, id requestIdentity, tool, status, decision, findingsJSON, toolArgs, sessionID string, start time.Time, extra ...string) {
 	var delHash, delChain string
 	if len(extra) > 0 {
 		delHash = extra[0]
@@ -806,8 +960,8 @@ func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, t
 	g.audit.Log(audit.Entry{
 		ID:                  msgID,
 		Timestamp:           time.Now().UTC().Format(time.RFC3339),
-		FromAgent:           agent,
-		ToAgent:             agent,
+		FromAgent:           id.PrincipalID,
+		ToAgent:             id.PrincipalID,
 		ToolName:            tool,
 		ContentHash:         "",
 		Status:              status,
@@ -818,6 +972,9 @@ func (g *Gateway) logAudit(msgID, agent, tool, status, decision, findingsJSON, t
 		SessionID:           sessionID,
 		DelegationChainHash: delHash,
 		DelegationChain:     delChain,
+		AuthMethod:          id.AuthMethod,
+		PrincipalTrustLevel: id.TrustLevel,
+		ReportedActor:       id.ReportedActor,
 	})
 }
 

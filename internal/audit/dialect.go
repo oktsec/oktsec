@@ -69,6 +69,12 @@ func (SQLiteDialect) MigrateStatements() []string {
 		"ALTER TABLE audit_log ADD COLUMN tool_name TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN delegation_chain_hash TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN delegation_chain TEXT DEFAULT ''",
+		// Identity provenance — populated when a surface adapter resolves
+		// the request through internal/identity/resolve. Older rows leave
+		// these blank, which read as "unknown" by the dashboard.
+		"ALTER TABLE audit_log ADD COLUMN auth_method TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN principal_trust_level TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN reported_actor TEXT DEFAULT ''",
 		"CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id)",
 	}
 }
@@ -118,6 +124,10 @@ func (PostgresDialect) MigrateStatements() []string {
 		"ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS tool_name TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS delegation_chain_hash TEXT DEFAULT ''",
 		"ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS delegation_chain TEXT DEFAULT ''",
+		// Identity provenance — see SQLiteDialect.MigrateStatements.
+		"ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS auth_method TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS principal_trust_level TEXT DEFAULT ''",
+		"ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS reported_actor TEXT DEFAULT ''",
 		"CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(session_id)",
 	}
 }
@@ -146,7 +156,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
 	entry_hash TEXT DEFAULT '',
 	proxy_signature TEXT DEFAULT '',
 	delegation_chain_hash TEXT DEFAULT '',
-	delegation_chain TEXT DEFAULT ''
+	delegation_chain TEXT DEFAULT '',
+	auth_method TEXT DEFAULT '',
+	principal_trust_level TEXT DEFAULT '',
+	reported_actor TEXT DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_log(status);
