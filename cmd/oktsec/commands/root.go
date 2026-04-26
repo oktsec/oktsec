@@ -81,6 +81,7 @@ func NewRoot() *cobra.Command {
 		newConnectCmd(),
 		newDisconnectCmd(),
 		newScanOpenClawCmd(),
+		newTokensCmd(),
 	)
 
 	// Internal/advanced commands — hidden from help
