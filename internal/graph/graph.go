@@ -84,17 +84,32 @@ type ToolEdge struct {
 	Total int    `json:"total"`
 }
 
+// UnrepresentedRoute is observed traffic that the current agent-graph model
+// (graph v1) cannot render as a node→node edge: forward-proxy domains, raw
+// hostnames, IP:port pairs. We surface them in the dashboard as a list so the
+// user knows the data was seen — silently dropping it would let the dashboard
+// look more covered than it actually is.
+type UnrepresentedRoute struct {
+	From        string `json:"from"`
+	To          string `json:"to"`
+	Total       int    `json:"total"`
+	Blocked     int    `json:"blocked"`
+	Quarantined int    `json:"quarantined"`
+	Reason      string `json:"reason"` // forward_proxy_endpoint, non_agent_endpoint, etc.
+}
+
 // AgentGraph is the complete computed interaction graph.
 type AgentGraph struct {
-	Nodes       []Node       `json:"nodes"`
-	Edges       []Edge       `json:"edges"`
-	ToolNodes   []ToolNode   `json:"tool_nodes,omitempty"`
-	ToolEdges   []ToolEdge   `json:"tool_edges,omitempty"`
-	ACLEdges    []ACLEdge    `json:"acl_edges"`
-	ShadowEdges []ShadowEdge `json:"shadow_edges"`
-	UnusedACL   []ACLEdge    `json:"unused_acl"`
-	TotalNodes  int          `json:"total_nodes"`
-	TotalEdges  int          `json:"total_edges"`
+	Nodes               []Node               `json:"nodes"`
+	Edges               []Edge               `json:"edges"`
+	ToolNodes           []ToolNode           `json:"tool_nodes,omitempty"`
+	ToolEdges           []ToolEdge           `json:"tool_edges,omitempty"`
+	ACLEdges            []ACLEdge            `json:"acl_edges"`
+	ShadowEdges         []ShadowEdge         `json:"shadow_edges"`
+	UnusedACL           []ACLEdge            `json:"unused_acl"`
+	UnrepresentedRoutes []UnrepresentedRoute `json:"unrepresented_routes,omitempty"`
+	TotalNodes          int                  `json:"total_nodes"`
+	TotalEdges          int                  `json:"total_edges"`
 }
 
 // Build constructs the full agent interaction graph from config agents and observed edges.

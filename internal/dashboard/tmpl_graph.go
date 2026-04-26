@@ -3,7 +3,7 @@ package dashboard
 import "html/template"
 
 var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layoutHead + `
-<p class="page-desc">Visual map of how your AI agents communicate and which tools they use. Red nodes indicate high risk. Dashed lines are unmonitored routes.</p>
+<p class="page-desc">Agent communication and tool usage observed across the MCP gateway, hooks, and stdio wrappers.</p>
 
 <div style="display:flex;gap:8px;margin-bottom:16px">
   {{range $v := .Ranges}}<a href="/dashboard/graph?range={{$v}}" class="btn btn-sm{{if eq $v $.Range}} active{{end}}" style="{{if eq $v $.Range}}background:#1F6FEB;color:#fff;border:none{{else}}background:transparent;color:#8B949E;border:1px solid #30363D{{end}}">{{$v}}</a>{{end}}
@@ -112,7 +112,7 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     {{if .Graph.Edges}}
     <table>
       <thead><tr><th>From</th><th>To</th><th data-tooltip="Ratio of delivered messages to total — lower scores indicate more blocked or quarantined traffic">Health</th></tr></thead>
-      <tbody>
+      <tbody id="ch-tbody">
       {{range .Graph.Edges}}
       <tr class="clickable ch-row" data-health="{{printf "%.0f" .HealthScore}}" data-blocked="{{.Blocked}}" data-quarantined="{{.Quarantined}}" hx-get="/dashboard/api/graph/edge?from={{.From}}&amp;to={{.To}}&amp;range={{$.Range}}" hx-target="#panel-content" hx-swap="innerHTML">
         <td>{{.From}}</td>
@@ -129,6 +129,9 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
       {{end}}
       </tbody>
     </table>
+    {{if gt (len .Graph.Edges) 10}}
+    <button id="ch-toggle" onclick="toggleTablePagination('ch')" data-open="0" style="margin-top:8px;background:none;border:1px solid var(--border);color:var(--accent-light);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.78rem">Show all ({{len .Graph.Edges}})</button>
+    {{end}}
     {{else}}<p class="empty">No traffic in this time range</p>{{end}}
   </div>
 </div>
@@ -161,8 +164,25 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
     </tbody>
   </table>
   {{if gt (len .Graph.UnusedACL) 10}}
-  <button id="acl-toggle" onclick="(function(){var rows=document.querySelectorAll('.acl-row');var btn=document.getElementById('acl-toggle');if(btn.dataset.open==='1'){rows.forEach(function(r,i){r.style.display=i>=10?'none':''});btn.textContent='Show all ('+rows.length+')';btn.dataset.open='0'}else{rows.forEach(function(r){r.style.display=''});btn.textContent='Show less';btn.dataset.open='1'}})()" data-open="0" style="margin-top:8px;background:none;border:1px solid var(--border);color:var(--accent-light);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.78rem">Show all ({{len .Graph.UnusedACL}})</button>
-  <script>document.querySelectorAll('.acl-row').forEach(function(r,i){if(i>=10)r.style.display='none'});</script>
+  <button id="acl-toggle" onclick="toggleTablePagination('acl')" data-open="0" style="margin-top:8px;background:none;border:1px solid var(--border);color:var(--accent-light);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.78rem">Show all ({{len .Graph.UnusedACL}})</button>
+  {{end}}
+</div>
+{{end}}
+
+{{if .Graph.UnrepresentedRoutes}}
+<div class="card" id="unrepresented-routes-section">
+  <h2>Routes seen but not represented in graph v1</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Forward-proxy domains, hostnames, and endpoints that the current agent-graph cannot model as node-to-node edges. Listed here so they are not silently dropped from coverage.</p>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>Total</th><th>Blocked</th><th>Quarantined</th><th>Reason</th></tr></thead>
+    <tbody id="ur-tbody">
+    {{range .Graph.UnrepresentedRoutes}}
+    <tr class="ur-row"><td style="font-family:var(--mono);font-size:0.8rem">{{.From}}</td><td style="font-family:var(--mono);font-size:0.8rem">{{.To}}</td><td>{{.Total}}</td><td>{{.Blocked}}</td><td>{{.Quarantined}}</td><td style="color:var(--text3);font-size:0.75rem">{{.Reason}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{if gt (len .Graph.UnrepresentedRoutes) 10}}
+  <button id="ur-toggle" onclick="toggleTablePagination('ur')" data-open="0" style="margin-top:8px;background:none;border:1px solid var(--border);color:var(--accent-light);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.78rem">Show all ({{len .Graph.UnrepresentedRoutes}})</button>
   {{end}}
 </div>
 {{end}}
@@ -170,6 +190,10 @@ var graphTmpl = template.Must(template.New("graph").Funcs(tmplFuncs).Parse(layou
 
 <script>
 var _graphFilter='all';
+// Persist expanded/collapsed state across the 15s poll swaps. The poll
+// replaces #graph-tables.innerHTML, which wipes inline DOM state, so we
+// keep the user's pagination preference here.
+var _tableExpanded={ch:false,ur:false,acl:false};
 function gfApply(f){
   _graphFilter=f;
   document.querySelectorAll('[id^="gf-"]').forEach(function(btn){
@@ -192,7 +216,29 @@ function _applyGraphFilter(){
   });
   var unm=document.getElementById('unmonitored-section');
   if(unm) unm.style.display=(_graphFilter==='blocked'||_graphFilter==='risky')?'none':'';
+  // Pagination only makes sense when no filter is narrowing the rows.
+  if(_graphFilter==='all') _applyTablePagination();
 }
+function _applyTablePagination(){
+  [['ch-tbody','ch-row','ch-toggle','ch'],['ur-tbody','ur-row','ur-toggle','ur'],['acl-tbody','acl-row','acl-toggle','acl']].forEach(function(spec){
+    var rows=document.querySelectorAll('#'+spec[0]+' .'+spec[1]);
+    if(rows.length<=10) return;
+    var btn=document.getElementById(spec[2]);
+    if(_tableExpanded[spec[3]]){
+      rows.forEach(function(r){r.style.display='';});
+      if(btn){btn.dataset.open='1';btn.textContent='Show less';}
+    } else {
+      rows.forEach(function(r,i){r.style.display=i>=10?'none':'';});
+      if(btn){btn.dataset.open='0';btn.textContent='Show all ('+rows.length+')';}
+    }
+  });
+}
+function toggleTablePagination(key){
+  _tableExpanded[key]=!_tableExpanded[key];
+  _applyTablePagination();
+}
+// Initial render: poll has not fired yet, so apply pagination once on load.
+_applyTablePagination();
 </script>
 <script>
 function toggleGraphSidebar() {
@@ -253,8 +299,13 @@ function toggleGraphSidebar() {
     });
 
     // ── Build node + link arrays ──
+    // No client-name hardcode: the orchestrator hex render used to fire only
+    // when n.name === 'claude-code'. That made one specific client look like
+    // "the orchestrator" while every other client rendered as a peer agent.
+    // Until the activity layer ships an explicit role field, every non-tool
+    // node is rendered the same way.
     var nodes = data.nodes.map(function(n) {
-      return {name:n.name, isTool:false, isOrch:n.name==='claude-code', threat:n.threat_score, sent:n.total_sent||0, recv:n.total_recv||0, betweenness:n.betweenness!=null?n.betweenness:-1, x:cx, y:cy, _g:null};
+      return {name:n.name, isTool:false, isOrch:false, threat:n.threat_score, sent:n.total_sent||0, recv:n.total_recv||0, betweenness:n.betweenness!=null?n.betweenness:-1, x:cx, y:cy, _g:null};
     });
     var nodeIdx = {};
     nodes.forEach(function(n,i){ nodeIdx[n.name]=i; });
@@ -284,11 +335,8 @@ function toggleGraphSidebar() {
       agentNodes.push(i);
     });
 
-    // Position orchestrator (column 1)
-    if(nodeIdx['claude-code']!==undefined){
-      nodes[nodeIdx['claude-code']].x=COL1;
-      nodes[nodeIdx['claude-code']].y=H*0.50;
-    }
+    // (Removed: positioning a hardcoded 'claude-code' node into a SOURCE
+    // column. The graph no longer assumes which client is the orchestrator.)
     // Position gateway checkpoint (between col 1 and col 2)
     if(gwIdx>=0){
       nodes[gwIdx].x=COL_GW;
@@ -358,13 +406,17 @@ function toggleGraphSidebar() {
 
     // Column headers
     var headerFont='font-size:9px;fill:#52525b;font-family:ui-monospace,SFMono-Regular,monospace;letter-spacing:0.08em';
-    ['SOURCE','AGENTS','TOOLS'].forEach(function(label,ci){
-      var hx=[COL1,COL2,COL3][ci];
+    // Two column headers (AGENTS, TOOLS). The leftmost zone used to be
+    // labeled SOURCE/CLIENTS for a hardcoded orchestrator node — until the
+    // activity layer ships an explicit client model, leaving it labeled is
+    // dishonest (it would imply Oktsec identifies clients today, which it
+    // does not).
+    [{label:'AGENTS', x:COL2}, {label:'TOOLS', x:COL3}].forEach(function(h){
       var ht=document.createElementNS(NS,'text');
-      ht.setAttribute('x',hx); ht.setAttribute('y',24);
+      ht.setAttribute('x',h.x); ht.setAttribute('y',24);
       ht.setAttribute('text-anchor','middle');
       ht.setAttribute('style',headerFont);
-      ht.textContent=label;
+      ht.textContent=h.label;
       svg.appendChild(ht);
     });
 

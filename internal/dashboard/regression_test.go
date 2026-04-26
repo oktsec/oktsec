@@ -3,11 +3,16 @@ package dashboard
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 )
+
+var osReadFile = os.ReadFile
 
 // TestRegression_AllPagesLoad is a smoke test that hits every dashboard page
 // and confirms it returns 200 and renders the global skip link. If a template
@@ -257,6 +262,200 @@ func TestRegression_SettingsToggleNoStaleSavedOnRedirect(t *testing.T) {
 	if !strings.Contains(body, `opaqueredirect`) {
 		t.Error("stToggleSave should detect opaqueredirect responses and surface session-expired feedback")
 	}
+}
+
+// ── Phase 0: Graph honesty (client-agnostic activity layer spec) ──
+//
+// These tests guard the four lies the dashboard used to tell about coverage:
+//   1. The graph builder special-cased "claude-code" as an orchestrator.
+//   2. The audit edge `claude-code → agent` was rewritten to `gateway → agent`.
+//   3. When all tool calls came from a single source, fake tool→agent edges
+//      were synthesized with invented per-edge counts.
+//   4. Forward-proxy traffic (domains, IP:port pairs) and edges to non-agent
+//      endpoints were silently dropped from the graph.
+//
+// If any of these regressions land again, the dashboard can look more covered
+// than it actually is — exactly what we cannot afford in front of VCs and
+// prospective design partners.
+
+// TestRegression_NoClientNameHardcodeInGraphBuilder fails if the graph code
+// path special-cases a specific client display name. Replace this guard with
+// a richer check (capability lookup) once the activity layer ships.
+func TestRegression_NoClientNameHardcodeInGraphBuilder(t *testing.T) {
+	files := []string{
+		"handlers.go",
+		"tmpl_graph.go",
+	}
+	for _, f := range files {
+		t.Run(f, func(t *testing.T) {
+			// Test runs with CWD = package dir under `go test`, so relative paths
+			// resolve to the package source files. Works in CI without hardcoding.
+			data, err := readFileForTest(f)
+			if err != nil {
+				t.Fatalf("read %s: %v", f, err)
+			}
+			// `claude-code` as a literal in the graph builder/template is the
+			// classic regression: positioning a specific client as the source
+			// of truth for orchestration. Comments are fine; code is not.
+			lines := strings.Split(data, "\n")
+			for i, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "*") {
+					continue
+				}
+				if strings.Contains(line, `"claude-code"`) || strings.Contains(line, `'claude-code'`) {
+					t.Errorf("%s:%d hardcodes 'claude-code' in non-comment code: %s",
+						f, i+1, strings.TrimSpace(line))
+				}
+			}
+		})
+	}
+}
+
+// TestRegression_NoSyntheticToolDistribution exercises buildGraph through the
+// public dashboard route with a fixture where ONE agent calls one tool. The
+// pre-Phase-0 code would invent fan-out edges to other agents. Today we should
+// see exactly one tool edge: from the agent that actually called the tool.
+func TestRegression_NoSyntheticToolDistribution(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents = map[string]config.Agent{
+		"agent-a": {CanMessage: []string{"agent-b"}},
+		"agent-b": {},
+	}
+	// One tool call from agent-a; nothing from agent-b.
+	srv.audit.Log(audit.Entry{
+		ID:        "syn-1",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "agent-a",
+		ToAgent:   "agent-b",
+		Status:    "delivered",
+		ToolName:  "read_file",
+	})
+	srv.audit.Flush()
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	req := httptest.NewRequest("GET", "/dashboard/api/graph?range=24h", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	// agent-b never called read_file; it must not appear as a tool_edge agent
+	// for read_file. The pre-fix code would distribute the single call across
+	// 2-3 agents.
+	if strings.Contains(body, `"agent":"agent-b","tool":"read_file"`) {
+		t.Error("synthetic tool distribution: agent-b shows as caller of read_file but never called it")
+	}
+}
+
+// TestRegression_NoEdgeRewriteFromClientNames feeds the audit a deliberately
+// client-named edge (clientX → agent) and verifies the graph does NOT silently
+// rewrite it as gateway → agent. The pre-Phase-0 code rewrote `claude-code →
+// agent` to `gateway → agent`, hiding the actual originator.
+func TestRegression_NoEdgeRewriteFromClientNames(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents = map[string]config.Agent{
+		"clientX": {CanMessage: []string{"agent-y"}},
+		"agent-y": {},
+		"gateway": {},
+	}
+	srv.audit.Log(audit.Entry{
+		ID:        "rw-1",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "clientX",
+		ToAgent:   "agent-y",
+		Status:    "delivered",
+	})
+	srv.audit.Flush()
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	req := httptest.NewRequest("GET", "/dashboard/api/graph?range=24h", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `"from":"clientX"`) {
+		t.Errorf("clientX → agent-y edge should appear with the real originator; got %s", body)
+	}
+}
+
+// TestRegression_UnrepresentedRoutesSurfaced verifies that traffic the graph
+// model cannot render (forward-proxy endpoints) is captured in
+// UnrepresentedRoutes rather than dropped. Pre-Phase-0 code returned `continue`
+// silently for IP:port and dotted-host endpoints.
+func TestRegression_UnrepresentedRoutesSurfaced(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Agents = map[string]config.Agent{
+		"agent-a": {},
+	}
+	// Forward-proxy style: agent makes a request to an external host.
+	srv.audit.Log(audit.Entry{
+		ID:        "fp-1",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "agent-a",
+		ToAgent:   "api.example.com",
+		Status:    "delivered",
+	})
+	srv.audit.Flush()
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	req := httptest.NewRequest("GET", "/dashboard/api/graph?range=24h", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	body := rr.Body.String()
+	if !strings.Contains(body, "unrepresented_routes") {
+		t.Error("graph JSON missing unrepresented_routes — forward-proxy traffic must not be silently dropped")
+	}
+	if !strings.Contains(body, "api.example.com") {
+		t.Error("forward-proxy endpoint api.example.com must appear in unrepresented_routes")
+	}
+}
+
+// TestRegression_GraphCopyHonesty guards against re-introducing copy that
+// implies full coverage. The graph page must scope its claim to the surfaces
+// Oktsec actually instruments (MCP gateway, hooks, stdio wrappers) and must
+// not claim it sees "all your AI agents".
+func TestRegression_GraphCopyHonesty(t *testing.T) {
+	body := authedGet(t, "/dashboard/graph").Body.String()
+	pageDescStart := strings.Index(body, `class="page-desc"`)
+	if pageDescStart < 0 {
+		t.Fatal("graph page missing page-desc paragraph")
+	}
+	pageDescEnd := strings.Index(body[pageDescStart:], "</p>")
+	if pageDescEnd < 0 {
+		t.Fatal("graph page page-desc not closed")
+	}
+	desc := body[pageDescStart : pageDescStart+pageDescEnd]
+	if !strings.Contains(strings.ToLower(desc), "mcp") &&
+		!strings.Contains(strings.ToLower(desc), "gateway") &&
+		!strings.Contains(strings.ToLower(desc), "hook") {
+		t.Errorf("graph page-desc must scope coverage to instrumented surfaces (MCP / gateway / hooks); got: %s", desc)
+	}
+	for _, banned := range []string{
+		"Visual map of how your AI agents communicate",
+		"all your AI agents",
+		"all agents",
+	} {
+		if strings.Contains(body, banned) {
+			t.Errorf("graph page contains overstated copy %q — must scope to what Oktsec actually instruments", banned)
+		}
+	}
+}
+
+// readFileForTest is a tiny os.ReadFile shim so the assertions above stay
+// readable. Kept local to this file so it does not leak into production paths.
+func readFileForTest(path string) (string, error) {
+	b, err := osReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // TestRegression_NoExternalScriptTags confirms no <script src="https://..."> tags

@@ -442,7 +442,7 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
     {{if .Edges}}
     <table>
       <thead><tr><th>From</th><th>To</th><th>Health</th></tr></thead>
-      <tbody>
+      <tbody id="ch-tbody">
       {{range .Edges}}
       <tr class="ch-row" data-health="{{printf "%.0f" .HealthScore}}" data-blocked="{{.Blocked}}" data-quarantined="{{.Quarantined}}">
         <td>{{.From}}</td>
@@ -452,6 +452,9 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
       {{end}}
       </tbody>
     </table>
+    {{if gt (len .Edges) 10}}
+    <button id="ch-toggle" onclick="toggleTablePagination('ch')" data-open="0" style="margin-top:8px;background:none;border:1px solid var(--border);color:var(--accent-light);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.78rem">Show all ({{len .Edges}})</button>
+    {{end}}
     {{else}}<p class="empty">No traffic in this time range</p>{{end}}
   </div>
 </div>
@@ -463,6 +466,19 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
     <thead><tr><th>From</th><th>To</th><th>Messages</th><th></th></tr></thead>
     <tbody>{{range .ShadowEdges}}<tr><td>{{.From}}</td><td>{{.To}}</td><td>{{.Total}}</td><td style="text-align:right"><a href="/dashboard/agents" style="color:var(--accent-light);font-size:0.75rem;text-decoration:none">Add rule &rarr;</a></td></tr>{{end}}</tbody>
   </table>
+</div>
+{{end}}
+{{if .UnrepresentedRoutes}}
+<div class="card" id="unrepresented-routes-section">
+  <h2>Routes seen but not represented in graph v1</h2>
+  <p style="color:var(--text2);font-size:0.82rem;margin-bottom:12px">Forward-proxy domains, hostnames, and endpoints that the current agent-graph cannot model as node-to-node edges. Listed here so they are not silently dropped from coverage.</p>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>Total</th><th>Blocked</th><th>Quarantined</th><th>Reason</th></tr></thead>
+    <tbody id="ur-tbody">{{range .UnrepresentedRoutes}}<tr class="ur-row"><td style="font-family:var(--mono);font-size:0.8rem">{{.From}}</td><td style="font-family:var(--mono);font-size:0.8rem">{{.To}}</td><td>{{.Total}}</td><td>{{.Blocked}}</td><td>{{.Quarantined}}</td><td style="color:var(--text3);font-size:0.75rem">{{.Reason}}</td></tr>{{end}}</tbody>
+  </table>
+  {{if gt (len .UnrepresentedRoutes) 10}}
+  <button id="ur-toggle" onclick="toggleTablePagination('ur')" data-open="0" style="margin-top:8px;background:none;border:1px solid var(--border);color:var(--accent-light);padding:6px 16px;border-radius:6px;cursor:pointer;font-size:0.78rem">Show all ({{len .UnrepresentedRoutes}})</button>
+  {{end}}
 </div>
 {{end}}`))
 
