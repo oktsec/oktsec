@@ -28,6 +28,13 @@ a.ov-metric:hover{background:var(--surface2)}
 .pipeline-stages{display:flex;gap:var(--sp-3);margin-bottom:var(--sp-4);overflow-x:auto}
 .pipeline-stage{display:flex;align-items:center;gap:5px;font-size:0.72rem;color:var(--text2);white-space:nowrap}
 .pipeline-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+/* At narrower desktop widths the Pipeline Health summary
+   (rules / mode / chain / latency) was sharing the same row as
+   the 11 stage labels and pushed the last stage ("Guard") into
+   an overflow-x clip mid-word. DP-SMOKE-04 fix: under 1600px the
+   summary wraps to its own row beneath the stages so every label
+   stays readable. 1920px keeps the inline single-row layout. */
+@media(max-width:1599px){.pipeline-meta{flex-basis:100%;margin-left:0 !important;padding-top:var(--sp-3);border-top:1px solid var(--border-subtle);text-align:left;white-space:normal !important}}
 .pipeline-dot.active{background:var(--success)}
 .pipeline-dot.inactive{background:var(--text3);opacity:0.4}
 .pipeline-summary{font-size:var(--text-sm);color:var(--text3);padding-top:var(--sp-3);border-top:1px solid var(--border)}
@@ -141,7 +148,7 @@ a.ov-metric:hover{background:var(--surface2)}
       </div>
       {{end}}
     </div>
-    <div style="font-size:var(--text-sm);color:var(--text3);white-space:nowrap;margin-left:auto">
+    <div class="pipeline-meta" style="font-size:var(--text-sm);color:var(--text3);white-space:nowrap;margin-left:auto">
       {{.RuleCount}} rules &middot; {{if .RequireSig}}enforce{{else}}observe{{end}} mode &middot; chain {{if .ChainValid}}verified{{else}}broken{{end}} ({{formatNum .ChainCount}})
       {{if .AvgLatency}}&middot; <span style="color:var(--text2);font-weight:600">{{.AvgLatency}}ms</span> median{{end}}
     </div>

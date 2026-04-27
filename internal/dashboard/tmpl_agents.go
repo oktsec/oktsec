@@ -4,15 +4,21 @@ import "html/template"
 
 var agentsTmpl = template.Must(template.New("agents").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-.ag-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden}
-.ag-card{background:var(--surface);padding:16px 20px;cursor:pointer;transition:background var(--ease-default);text-decoration:none;color:inherit;display:block}
-.ag-card:hover{background:var(--surface-hover)}
+/* Auto-fit grid: a single configured agent fills the row instead of
+   leaving an empty gray panel beside it (the desktop walkthrough's
+   DP-SMOKE-03). With 2+ agents the grid still pours into 2 columns
+   on a typical 1440px+ viewport because each card claims at least
+   minmax(320px, 1fr). The gap+background trick that drew separator
+   lines between cards is replaced with explicit per-card borders so
+   collapsed empty tracks cannot leave a stray seam. */
+.ag-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.ag-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;cursor:pointer;transition:background var(--ease-default),border-color var(--ease-default);text-decoration:none;color:inherit;display:block}
+.ag-card:hover{background:var(--surface-hover);border-color:var(--border-hover)}
 .ag-card-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .ag-card-name{font-weight:600;font-size:0.88rem}
 .ag-card-desc{color:var(--text3);font-size:0.78rem;margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ag-card-stats{display:flex;gap:16px;font-size:0.75rem;color:var(--text3)}
 .ag-card-stats .num{font-family:var(--mono);font-weight:600;color:var(--text2)}
-@media(max-width:768px){.ag-grid{grid-template-columns:1fr}}
 </style>
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">

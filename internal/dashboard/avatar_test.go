@@ -1,42 +1,33 @@
 package dashboard
 
 import (
-	"slices"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// avIDPattern matches the avNN unique-id suffix the avatar SVG
+// emits (any digit count). The previous strip helper iterated
+// av1..av99 sequentially, but `av1` prefix-matches `av11` and
+// leaves the trailing digit — so once the package-level counter
+// crossed 9 (cumulative across all dashboard tests in the same
+// `go test` run) the deterministic check would diff on the suffix.
+// Regex match is order-independent.
+var avIDPattern = regexp.MustCompile(`av\d+`)
 
 func TestAgentAvatar_Deterministic(t *testing.T) {
 	a1 := string(agentAvatar("research-agent", 20))
 	a2 := string(agentAvatar("research-agent", 20))
 
-	// Strip unique IDs (av1, av2) to compare visual content
+	// Strip unique IDs so the comparison sees only the visual
+	// content (colors, pattern) — the gradient/clip ids are
+	// generated from a counter and are expected to differ.
 	strip := func(s string) string {
-		// The SVG content (colors, pattern) should be identical
-		// Only the gradient/clip IDs differ
-		for _, prefix := range []string{"av"} {
-			for i := 1; i < 100; i++ {
-				s = strings.ReplaceAll(s, prefix+itoa(i), prefix+"N")
-			}
-		}
-		return s
+		return avIDPattern.ReplaceAllString(s, "avN")
 	}
 	if strip(a1) != strip(a2) {
 		t.Errorf("same name produced different avatars:\n  %s\n  %s", a1, a2)
 	}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	b := make([]byte, 0, 4)
-	for n > 0 {
-		b = append(b, byte('0'+n%10))
-		n /= 10
-	}
-	slices.Reverse(b)
-	return string(b)
 }
 
 func TestAgentAvatar_Unique(t *testing.T) {
