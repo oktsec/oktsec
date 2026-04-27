@@ -95,6 +95,30 @@ func (s *Store) RecordHook(ctx context.Context, env HookEnvelope, outcome Outcom
 			return err
 		}
 	}
+	// Implicit root actor. When the first event we see for a session
+	// is a child (subagent start, lazy tool call, task created), the
+	// child carries env.ParentActorID = "<session>:root" but the root
+	// row itself does not yet exist — QueryActorEdges would left-join
+	// to nothing and the graph would lose the parent link. Upsert the
+	// root row first so the join always finds a parent.
+	//
+	// We mark the synthetic root as inferred so the dashboard can
+	// distinguish "root row created from a real SessionStart" from
+	// "root row created lazily because a child event arrived first".
+	if env.Actor.ID != "" && env.RootActorID != "" && env.RootActorID != env.Actor.ID {
+		rootEnv := env
+		rootEnv.Actor = ActorRef{
+			ID:     env.RootActorID,
+			Kind:   ActorKindRoot,
+			Label:  formatRoot(env.ClientID),
+			Source: ActorSourceInferred,
+		}
+		rootEnv.ParentActorID = ""
+		rootEnv.RootActorID = ""
+		if err := s.upsertActorTx(ctx, tx, rootEnv, now); err != nil {
+			return err
+		}
+	}
 	if env.Actor.ID != "" {
 		if err := s.upsertActorTx(ctx, tx, env, now); err != nil {
 			return err
@@ -283,12 +307,13 @@ INSERT INTO runtime_hook_events (
     actor_id, parent_actor_id, root_actor_id,
     client_id, connector_id,
     hook_event_name, lifecycle, stage, block_capable,
-    tool_name, tool_use_id, task_id, task_subject,
+    tool_name, tool_use_id, tool_input_hash, tool_output_hash,
+    task_id, task_subject,
     config_source, file_path_tail, file_path_hash,
     status, policy_decision, coverage_mode, confidence,
     audit_entry_id, activity_event_id, latency_ms,
     evidence_json, created_at
-) VALUES (` + s.placeholders(29) + `)
+) VALUES (` + s.placeholders(31) + `)
 `
 	_, err := tx.ExecContext(ctx, q,
 		env.ID,
@@ -306,6 +331,8 @@ INSERT INTO runtime_hook_events (
 		boolToInt(env.BlockCapable),
 		env.Tool.Name,
 		env.Tool.UseID,
+		env.Tool.InputHash,
+		env.Tool.OutputHash,
 		env.Task.ID,
 		truncate(env.Task.Subject, 80),
 		env.Config.Source,
@@ -647,7 +674,8 @@ func (s *Store) QueryEvents(ctx context.Context, q EventQuery) ([]HookEvent, err
         actor_id, parent_actor_id, root_actor_id,
         client_id, connector_id,
         hook_event_name, lifecycle, stage, block_capable,
-        tool_name, tool_use_id, task_id, task_subject,
+        tool_name, tool_use_id, tool_input_hash, tool_output_hash,
+        task_id, task_subject,
         config_source, file_path_tail, file_path_hash,
         status, policy_decision, coverage_mode, confidence,
         audit_entry_id, activity_event_id, latency_ms
@@ -668,7 +696,8 @@ func (s *Store) QueryEvents(ctx context.Context, q EventQuery) ([]HookEvent, err
 			&e.ActorID, &e.ParentActorID, &e.RootActorID,
 			&e.ClientID, &e.ConnectorID,
 			&e.HookEventName, &e.Lifecycle, &e.Stage, &blockCapable,
-			&e.ToolName, &e.ToolUseID, &e.TaskID, &e.TaskSubject,
+			&e.ToolName, &e.ToolUseID, &e.ToolInputHash, &e.ToolOutputHash,
+			&e.TaskID, &e.TaskSubject,
 			&e.ConfigSource, &e.FilePathTail, &e.FilePathHash,
 			&e.Status, &e.PolicyDecision, &e.CoverageMode, &e.Confidence,
 			&e.AuditEntryID, &e.ActivityEventID, &e.LatencyMs,

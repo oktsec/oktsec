@@ -184,13 +184,35 @@ func TestRecordHook_LazyActorFromTool(t *testing.T) {
 	if err := store.RecordHook(ctx, env, OutcomeRefs{Status: "delivered"}); err != nil {
 		t.Fatal(err)
 	}
+	// The lazy child event must produce both the inferred subagent
+	// AND the implicit root that the child points at. Without the
+	// root row, QueryActorEdges (and Phase 3D's graph query) would
+	// left-join to nothing.
 	actors, _ := store.QueryActors(ctx, ActorQuery{SessionID: "sess-lazy-001"})
-	if len(actors) != 1 || actors[0].Source != ActorSourceInferred {
-		t.Errorf("expected one inferred subagent actor; got %+v", actors)
+	if len(actors) != 2 {
+		t.Fatalf("actor count = %d, want 2 (lazy subagent + implicit root); got %+v", len(actors), actors)
+	}
+	byKind := map[string]Actor{}
+	for _, a := range actors {
+		byKind[a.Kind] = a
+	}
+	root, hasRoot := byKind[ActorKindRoot]
+	sub, hasSub := byKind[ActorKindSubagent]
+	if !hasRoot || !hasSub {
+		t.Fatalf("expected both root and subagent kinds; got %+v", byKind)
+	}
+	if root.Source != ActorSourceInferred {
+		t.Errorf("implicit root.source = %q, want inferred (lazy-from-child)", root.Source)
+	}
+	if sub.ParentActorID != root.ID {
+		t.Errorf("subagent.parent = %q, want implicit root id %q", sub.ParentActorID, root.ID)
+	}
+	if sub.Source != ActorSourceInferred {
+		t.Errorf("lazy subagent.source = %q, want inferred", sub.Source)
 	}
 
-	// SubagentStart for the same agent_id arrives AFTER. The
-	// spec's upsert rule preserves the inferred source so the
+	// SubagentStart for the same agent_id arrives AFTER. The spec's
+	// upsert rule preserves the inferred source on both rows so the
 	// dashboard can show "we saw tool calls before declaration".
 	subBody := `{"hook_event_name":"SubagentStart","session_id":"sess-lazy-001","agent_id":"sa-late","agent_type":"investigator"}`
 	subEnv, err := Normalize([]byte(subBody), identity, now.Add(time.Second))
@@ -201,11 +223,15 @@ func TestRecordHook_LazyActorFromTool(t *testing.T) {
 		t.Fatal(err)
 	}
 	actors, _ = store.QueryActors(ctx, ActorQuery{SessionID: "sess-lazy-001"})
-	if len(actors) != 1 {
-		t.Errorf("actor count after late SubagentStart = %d, want 1 (same row upserted)", len(actors))
+	if len(actors) != 2 {
+		t.Errorf("actor count after late SubagentStart = %d, want 2 (root + subagent rows upserted, no duplicates)", len(actors))
 	}
-	if actors[0].ClaudeAgentID != "sa-late" || actors[0].ClaudeAgentType != "investigator" {
-		t.Errorf("actor claude refs = (%q, %q)", actors[0].ClaudeAgentID, actors[0].ClaudeAgentType)
+	for _, a := range actors {
+		if a.Kind == ActorKindSubagent {
+			if a.ClaudeAgentID != "sa-late" || a.ClaudeAgentType != "investigator" {
+				t.Errorf("subagent claude refs = (%q, %q)", a.ClaudeAgentID, a.ClaudeAgentType)
+			}
+		}
 	}
 }
 
@@ -340,6 +366,74 @@ func TestQueryEvents_FiltersAndOrdering(t *testing.T) {
 		if events[i].Timestamp.Before(events[i-1].Timestamp) {
 			t.Errorf("events[%d] earlier than [%d]", i, i-1)
 		}
+	}
+}
+
+// TestRecordHook_PersistsToolHashes asserts that the input/output
+// hashes the normalizer computes are written to runtime_hook_events
+// AND make it back through QueryEvents — closing the P2 gap where
+// the columns existed in the envelope but were dropped on insert.
+// Two events with the same tool_input must produce the same hash on
+// disk so future correlation queries can group them.
+func TestRecordHook_PersistsToolHashes(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	identity := IdentityResolution{
+		PrincipalID: "claude-code",
+		ClientID:    "claude-code",
+		SessionID:   "sess-hashes",
+	}
+
+	// First record a SessionStart so the session exists. Then two
+	// PreToolUse events with identical tool_input — the persisted
+	// rows must carry identical input hashes.
+	for _, body := range []string{
+		`{"hook_event_name":"SessionStart","session_id":"sess-hashes"}`,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-hashes","tool_name":"Bash","tool_input":{"command":"ls /tmp"}}`,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-hashes","tool_name":"Bash","tool_input":{"command":"ls /tmp"}}`,
+		`{"hook_event_name":"PostToolUse","session_id":"sess-hashes","tool_name":"Bash","tool_response":"file1\nfile2"}`,
+	} {
+		env, err := Normalize([]byte(body), identity, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Second)
+		if err := store.RecordHook(ctx, env, OutcomeRefs{Status: "delivered"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	events, err := store.QueryEvents(ctx, EventQuery{SessionID: "sess-hashes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var preEvents []HookEvent
+	var postEvents []HookEvent
+	for _, e := range events {
+		switch e.HookEventName {
+		case "PreToolUse":
+			preEvents = append(preEvents, e)
+		case "PostToolUse":
+			postEvents = append(postEvents, e)
+		}
+	}
+	if len(preEvents) != 2 {
+		t.Fatalf("PreToolUse count = %d, want 2", len(preEvents))
+	}
+	if preEvents[0].ToolInputHash == "" {
+		t.Error("PreToolUse[0].ToolInputHash empty after round-trip")
+	}
+	if preEvents[0].ToolInputHash != preEvents[1].ToolInputHash {
+		t.Errorf("identical tool_input produced different hashes: %q vs %q",
+			preEvents[0].ToolInputHash, preEvents[1].ToolInputHash)
+	}
+	if len(postEvents) != 1 {
+		t.Fatalf("PostToolUse count = %d, want 1", len(postEvents))
+	}
+	if postEvents[0].ToolOutputHash == "" {
+		t.Error("PostToolUse.ToolOutputHash empty after round-trip")
 	}
 }
 

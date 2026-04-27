@@ -332,16 +332,18 @@ func taskLabel(payload rawClaudePayload) string {
 // correlate without exposing the original data.
 func boundEvidence(payload rawClaudePayload, env HookEnvelope) string {
 	evidence := map[string]any{
-		"hook_event_name":     env.HookEventName,
-		"lifecycle":           env.Lifecycle,
-		"stage":               env.Stage,
-		"actor_id":            env.Actor.ID,
-		"actor_kind":          env.Actor.Kind,
-		"actor_source":        env.Actor.Source,
-		"parent_actor_id":     env.ParentActorID,
-		"tool_use_id":         env.Tool.UseID,
-		"task_id":             env.Task.ID,
-		"cwd_hash":            env.CWDHash,
+		"hook_event_name":      env.HookEventName,
+		"lifecycle":            env.Lifecycle,
+		"stage":                env.Stage,
+		"actor_id":             env.Actor.ID,
+		"actor_kind":           env.Actor.Kind,
+		"actor_source":         env.Actor.Source,
+		"parent_actor_id":      env.ParentActorID,
+		"tool_use_id":          env.Tool.UseID,
+		"tool_input_hash":      env.Tool.InputHash,
+		"tool_output_hash":     env.Tool.OutputHash,
+		"task_id":              env.Task.ID,
+		"cwd_hash":             env.CWDHash,
 		"transcript_path_hash": env.TranscriptRef.PathHash,
 	}
 	if payload.Source != "" {

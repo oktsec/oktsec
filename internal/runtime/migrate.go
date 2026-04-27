@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS runtime_hook_events (
     block_capable INTEGER NOT NULL DEFAULT 0,
     tool_name TEXT DEFAULT '',
     tool_use_id TEXT DEFAULT '',
+    tool_input_hash TEXT DEFAULT '',
+    tool_output_hash TEXT DEFAULT '',
     task_id TEXT DEFAULT '',
     task_subject TEXT DEFAULT '',
     config_source TEXT DEFAULT '',
@@ -131,6 +133,8 @@ CREATE INDEX IF NOT EXISTS idx_runtime_hook_events_event_time
     ON runtime_hook_events(hook_event_name, timestamp);
 CREATE INDEX IF NOT EXISTS idx_runtime_hook_events_audit
     ON runtime_hook_events(audit_entry_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_hook_events_tool_input_hash
+    ON runtime_hook_events(tool_input_hash, timestamp);
 `
 
 // schemaPostgres mirrors schemaSQLite. Postgres rejects partial
@@ -219,6 +223,8 @@ CREATE TABLE IF NOT EXISTS runtime_hook_events (
     block_capable INTEGER NOT NULL DEFAULT 0,
     tool_name TEXT DEFAULT '',
     tool_use_id TEXT DEFAULT '',
+    tool_input_hash TEXT DEFAULT '',
+    tool_output_hash TEXT DEFAULT '',
     task_id TEXT DEFAULT '',
     task_subject TEXT DEFAULT '',
     config_source TEXT DEFAULT '',
@@ -245,6 +251,8 @@ CREATE INDEX IF NOT EXISTS idx_runtime_hook_events_event_time
     ON runtime_hook_events(hook_event_name, timestamp);
 CREATE INDEX IF NOT EXISTS idx_runtime_hook_events_audit
     ON runtime_hook_events(audit_entry_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_hook_events_tool_input_hash
+    ON runtime_hook_events(tool_input_hash, timestamp);
 `
 
 // Migrate creates the three runtime tables and their indexes.

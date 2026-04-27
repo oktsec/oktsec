@@ -81,6 +81,8 @@ type HookEvent struct {
 	BlockCapable    bool
 	ToolName        string
 	ToolUseID       string
+	ToolInputHash   string
+	ToolOutputHash  string
 	TaskID          string
 	TaskSubject     string
 	ConfigSource    string
