@@ -20,10 +20,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/identity/resolve"
+	"github.com/oktsec/oktsec/internal/runtime"
 	"github.com/oktsec/oktsec/internal/verdict"
-	"github.com/oktsec/oktsec/internal/config"
 )
 
 // buildHooksIdentity wires the hooks endpoint into the same identity
@@ -228,6 +229,14 @@ type Handler struct {
 	// implementation (e.g., test mocks that do not expose a *sql.DB) or
 	// when activity migration failed at startup.
 	activity activityWriter
+
+	// runtime captures the durable session/actor/event substrate added
+	// in Phase 3A. Same nil-safety contract as activity: a missing
+	// store means the dashboard's runtime APIs (added in 3C) read from
+	// audit alone. A runtime write failure here is logged at warn but
+	// never changes the security decision the audit row already
+	// committed — runtime is evidence projection, not policy.
+	runtime *runtime.Store
 }
 
 // NewHandler creates a hooks handler wired to the security pipeline.
@@ -242,6 +251,7 @@ func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, lo
 		resolverConfig: resolverCfg,
 		requireAuth:    requireAuth,
 		activity:       buildHooksActivity(store, logger),
+		runtime:        buildHooksRuntime(store, logger),
 	}
 	// Periodic cleanup of old session states to prevent memory leaks.
 	go func() {
@@ -260,6 +270,41 @@ func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, lo
 // mid-flight.
 func (h *Handler) SetActivityStore(w activityWriter) {
 	h.activity = w
+}
+
+// SetRuntimeStore lets callers inject a custom runtime.Store (e.g.,
+// a fixture-backed instance in tests). Pass nil to disable runtime
+// writes entirely. Same swap rules as SetActivityStore: call before
+// the handler starts serving.
+func (h *Handler) SetRuntimeStore(s *runtime.Store) {
+	h.runtime = s
+}
+
+// buildHooksRuntime mirrors buildHooksActivity: the runtime store
+// only comes online when the underlying HookStore exposes the
+// *sql.DB it needs. Returns nil for in-memory test mocks; a nil
+// store turns runtime writes into a no-op without breaking the
+// hook hot path.
+func buildHooksRuntime(store HookStore, logger *slog.Logger) *runtime.Store {
+	dbs, ok := store.(dbBackedAuditStore)
+	if !ok {
+		return nil
+	}
+	db := dbs.DB()
+	if db == nil {
+		return nil
+	}
+	dialect := runtime.Dialect(dbs.DialectName())
+	if dialect == "" {
+		logger.Warn("runtime store skipped: audit store reports unknown dialect", "surface", "hooks")
+		return nil
+	}
+	rs, err := runtime.Open(context.Background(), db, dialect)
+	if err != nil {
+		logger.Warn("runtime store skipped: open failed", "surface", "hooks", "error", err)
+		return nil
+	}
+	return rs
 }
 
 // buildHooksActivity returns an activityWriter when the underlying
@@ -311,12 +356,17 @@ func principalIDOrUnknown(id string) string {
 // are logged at warn — they never affect the policy decision or the
 // audit row.
 //
-// The activity event uses a fresh UUID for ID and stores msgID as
-// AuditEntryID for correlation. ResourceLabel carries the tool name so
-// the dashboard drill-down can show which tool the hook reported.
-func (h *Handler) emitHookActivity(msgID string, authResult resolve.Result, reportedActor string, ev *ToolEvent, status, decision string) {
+// The activity event id is pre-computed by the caller and passed in
+// so the runtime hook event can carry it as a cross-reference even
+// before the async insert lands. msgID is the audit row id, kept as
+// AuditEntryID for correlation. ResourceLabel carries the tool name
+// so the dashboard drill-down can show which tool the hook reported.
+//
+// Returns the activity event id so callers (which precomputed it) can
+// use the same identifier on the runtime row without re-derivation.
+func (h *Handler) emitHookActivity(activityID, msgID string, authResult resolve.Result, reportedActor string, ev *ToolEvent, status, decision string) string {
 	if h.activity == nil {
-		return
+		return activityID
 	}
 	authMethod := string(authResult.Principal.AuthMethod)
 	// Hook coverage is stage-aware: post_tool_use evidence cannot
@@ -325,7 +375,7 @@ func (h *Handler) emitHookActivity(msgID string, authResult resolve.Result, repo
 	// activity.CoverageFromHookEvent.
 	coverage, confidence := activity.CoverageFromHookEvent(authMethod, ev.Event)
 	event := activity.Event{
-		ID:                  uuid.New().String(),
+		ID:                  activityID,
 		Timestamp:           time.Now().UTC(),
 		PrincipalID:         principalIDOrUnknown(authResult.Principal.ID),
 		ReportedActor:       reportedActor,
@@ -354,6 +404,7 @@ func (h *Handler) emitHookActivity(msgID string, authResult resolve.Result, repo
 			h.logger.Warn("activity insert failed", "error", err, "msg_id", msgID, "surface", "hooks")
 		}
 	}()
+	return activityID
 }
 
 // getSessionState returns or creates the session state for tracking agent hierarchy.
@@ -615,7 +666,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Async with a 2s timeout — never blocks the response. The
 	// reportedActor passed here is the same value the audit row
 	// carries, so the two stay in lock-step.
-	h.emitHookActivity(msgID, authResult, reportedActor, &ev, status, decision)
+	//
+	// Phase 3B: the activity event id is pre-computed here so the
+	// runtime row below can carry it as a cross-reference even
+	// before the async insert lands.
+	activityEventID := uuid.New().String()
+	h.emitHookActivity(activityEventID, msgID, authResult, reportedActor, &ev, status, decision)
+
+	// Phase 3B: persist the durable runtime row. The security
+	// decision is already committed in the audit row above, so a
+	// runtime write failure here logs at warn but never changes
+	// the response.
+	h.recordRuntime(r.Context(), body, authResult, ev.Client, ev.SessionID, msgID, activityEventID, status, decision, time.Since(start).Milliseconds())
 
 	// Update agent hierarchy table
 	if ev.SessionID != "" {
@@ -701,6 +763,67 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"decision": "allow",
 	})
 }
+
+// recordRuntime normalizes the inbound hook body into the Phase 3
+// runtime envelope and persists it via runtime.Store.RecordHook.
+// Wraps the runtime call in two safety guards:
+//
+//  1. The runtime store may be nil (in-memory test mocks, missing
+//     SQLite migration). In that case the call is a no-op and the
+//     response is unchanged.
+//  2. RecordHook errors are logged at warn but never propagated to
+//     the caller. The audit row already carried the policy
+//     decision; runtime is evidence projection. Failing the hook
+//     here would turn a runtime DB hiccup into a blocked tool call,
+//     which violates the spec's "runtime write failure must never
+//     change a security decision" invariant.
+//
+// Identity comes from the resolver (PrincipalID, AuthMethod,
+// TrustLevel). The payload's agent / agent_type fields stay as
+// actor metadata only. ClientID falls back through the X-Oktsec-
+// Client header so a client that did not set the resolver-friendly
+// header still lands a runtime row tagged with the right client.
+func (h *Handler) recordRuntime(ctx context.Context, rawBody []byte, authResult resolve.Result, clientID, sessionID, auditID, activityID, status, decision string, latencyMs int64) {
+	_ = ctx // kept for future per-request cancellation; the inner call uses a detached deadline
+	if h.runtime == nil {
+		return
+	}
+	identity := runtime.IdentityResolution{
+		PrincipalID:         principalIDOrUnknown(authResult.Principal.ID),
+		PrincipalTrustLevel: string(authResult.Principal.TrustLevel),
+		AuthMethod:          string(authResult.Principal.AuthMethod),
+		ClientID:            clientID,
+		SessionID:           sessionID,
+	}
+	env, err := runtime.Normalize(rawBody, identity, time.Now().UTC())
+	if err != nil {
+		h.logger.Warn("runtime normalize failed", "error", err, "msg_id", auditID, "surface", "hooks")
+		return
+	}
+	outcome := runtime.OutcomeRefs{
+		AuditEntryID:    auditID,
+		ActivityEventID: activityID,
+		Status:          status,
+		PolicyDecision:  decision,
+		LatencyMs:       latencyMs,
+	}
+	// Detached context with a bounded deadline so a stalled DB
+	// cannot pin the request goroutine. RecordHook is sync within
+	// the hook hot path on purpose: runtime is the durable
+	// substrate the dashboard reads back, and the spec wants its
+	// write to be atomic with the request.
+	rtCtx, cancel := context.WithTimeout(context.Background(), runtimeRecordTimeout)
+	defer cancel()
+	if err := h.runtime.RecordHook(rtCtx, env, outcome); err != nil {
+		h.logger.Warn("runtime record failed", "error", err, "msg_id", auditID, "surface", "hooks", "event", env.HookEventName)
+	}
+}
+
+// runtimeRecordTimeout bounds the runtime write so a stalled DB
+// cannot pin the hook hot path. Mirrors activityInsertTimeout for
+// the same reason — the runtime store is on the same DB and so
+// shares its failure modes.
+const runtimeRecordTimeout = 2 * time.Second
 
 func formatBlockReason(outcome *engine.ScanOutcome) string {
 	if outcome == nil || len(outcome.Findings) == 0 {
