@@ -26,29 +26,68 @@ import (
 // state or oktsec config.
 func newDoctorClaudeCodeCmd() *cobra.Command {
 	var (
-		jsonOut    bool
-		projectDir string
+		jsonOut         bool
+		projectDir      string
+		installHooks    bool
+		uninstallHooks  bool
+		emitHeartbeat   bool
+		followSymlink   bool
+		dryRun          bool
 	)
 	cmd := &cobra.Command{
 		Use:   "claude-code",
-		Short: "Inspect Claude Code connector state (read-only)",
+		Short: "Inspect Claude Code connector state (read-only by default)",
 		Long: `Reports what oktsec sees about the local Claude Code install:
 the CLI binary, user/project settings paths, hooks installed in each
 scope, MCP server entries (~/.claude.json, .mcp.json, project
 settings.json), and static .claude/agents files.
 
-This is a read-only diagnostic. It never writes to ~/.claude.json,
-~/.claude/settings.json, or any project Claude state. Hook
-installation comes in a separate phase.`,
+The no-flag invocation is read-only and never writes to Claude state.
+The optional flags --install-hooks, --uninstall-hooks, and
+--emit-heartbeat write to disk or POST to the gateway, and are the
+only paths in this command that mutate state. Each respects
+--follow-symlink and --dry-run; install / uninstall always write a
+backup before any mutation.`,
 		Example: `  oktsec doctor claude-code
   oktsec doctor claude-code --json
-  oktsec doctor claude-code --project /path/to/project`,
+  oktsec doctor claude-code --project /path/to/project
+  oktsec doctor claude-code --install-hooks
+  oktsec doctor claude-code --uninstall-hooks
+  oktsec doctor claude-code --emit-heartbeat`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Mutually-exclusive guard: install / uninstall are
+			// opposites and emit-heartbeat is a separate one-shot.
+			modes := 0
+			if installHooks {
+				modes++
+			}
+			if uninstallHooks {
+				modes++
+			}
+			if emitHeartbeat {
+				modes++
+			}
+			if modes > 1 {
+				return fmt.Errorf("--install-hooks, --uninstall-hooks, and --emit-heartbeat are mutually exclusive")
+			}
+			switch {
+			case installHooks:
+				return runDoctorClaudeCodeInstall(jsonOut, followSymlink, dryRun)
+			case uninstallHooks:
+				return runDoctorClaudeCodeUninstall(jsonOut, followSymlink, dryRun)
+			case emitHeartbeat:
+				return runDoctorClaudeCodeHeartbeat(jsonOut)
+			}
 			return runDoctorClaudeCode(jsonOut, projectDir)
 		},
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "emit machine-readable JSON")
 	cmd.Flags().StringVar(&projectDir, "project", "", "project directory to scope project/local settings to (defaults to cwd when reading project state)")
+	cmd.Flags().BoolVar(&installHooks, "install-hooks", false, "write the Phase 2 hook manifest into ~/.claude/settings.json (creates a timestamped backup first)")
+	cmd.Flags().BoolVar(&uninstallHooks, "uninstall-hooks", false, "remove every oktsec hook entry from ~/.claude/settings.json (creates a timestamped backup first)")
+	cmd.Flags().BoolVar(&emitHeartbeat, "emit-heartbeat", false, "post a synthetic SessionStart event to the local gateway and report round-trip latency")
+	cmd.Flags().BoolVar(&followSymlink, "follow-symlink", false, "write through ~/.claude/settings.json even when it is a symlink (default: refuse)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview install/uninstall actions without touching disk")
 	return cmd
 }
 
@@ -256,4 +295,144 @@ func truncate(s string, n int) string {
 		return s[:n]
 	}
 	return s[:n-3] + "..."
+}
+
+// runDoctorClaudeCodeInstall executes the Phase 2 installer with
+// the same gateway port the running config uses. It is the only
+// flag on this command (along with uninstall) that mutates Claude
+// state on disk; tests cover the refusal paths.
+func runDoctorClaudeCodeInstall(jsonOut, followSymlink, dryRun bool) error {
+	port := resolveGatewayPort()
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return fmt.Errorf("resolving oktsec binary path: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	res, instErr := claudecode.InstallV2(ctx, claudecode.InstallOptions{
+		BinaryPath:    exe,
+		GatewayPort:   port,
+		FollowSymlink: followSymlink,
+		DryRun:        dryRun,
+	})
+	if jsonOut {
+		out := map[string]any{"result": res}
+		if instErr != nil {
+			out["error"] = instErr.Error()
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+		return instErr
+	}
+	emitInstallHuman(res, instErr)
+	return instErr
+}
+
+func runDoctorClaudeCodeUninstall(jsonOut, followSymlink, dryRun bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	res, uninstErr := claudecode.UninstallV2(ctx, claudecode.UninstallOptions{
+		FollowSymlink:   followSymlink,
+		DryRun:          dryRun,
+		IncludeLegacyV1: true,
+	})
+	if jsonOut {
+		out := map[string]any{"result": res}
+		if uninstErr != nil {
+			out["error"] = uninstErr.Error()
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+		return uninstErr
+	}
+	emitUninstallHuman(res, uninstErr)
+	return uninstErr
+}
+
+func runDoctorClaudeCodeHeartbeat(jsonOut bool) error {
+	port := resolveGatewayPort()
+	id, latency, err := EmitHeartbeat(port)
+	if jsonOut {
+		out := map[string]any{
+			"event_id":    id,
+			"latency_ms":  latency.Milliseconds(),
+			"gateway_port": port,
+		}
+		if err != nil {
+			out["error"] = err.Error()
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+		return err
+	}
+	if err != nil {
+		fmt.Printf("  heartbeat failed: %v\n", err)
+		return err
+	}
+	fmt.Printf("  heartbeat ok — event %s, %dms round-trip via gateway port %d\n",
+		id, latency.Milliseconds(), port)
+	return nil
+}
+
+// resolveGatewayPort honors the loaded config when present and
+// falls back to the gateway default. Centralised so install /
+// heartbeat / hook share one resolution rule.
+func resolveGatewayPort() int {
+	if cfg, err := config.Load(cfgFile); err == nil && cfg.Gateway.Port > 0 {
+		return cfg.Gateway.Port
+	}
+	return 9090
+}
+
+func emitInstallHuman(res claudecode.InstallResult, err error) {
+	bold := color.New(color.Bold).SprintFunc()
+	fmt.Println()
+	fmt.Printf("  %s\n", bold("oktsec doctor claude-code --install-hooks"))
+	fmt.Println("  ────────────────────────────────────────")
+	fmt.Printf("  Settings:   %s\n", res.SettingsPath)
+	if res.BackupPath != "" {
+		fmt.Printf("  Backup:     %s\n", res.BackupPath)
+	}
+	if err != nil {
+		fmt.Printf("  %s %v\n", color.RedString("error:"), err)
+		return
+	}
+	if res.Skipped != "" {
+		fmt.Printf("  %s %s\n", color.YellowString("skipped:"), res.Skipped)
+	}
+	if res.Wrote {
+		fmt.Printf("  %s %d planned hook(s) written\n", color.GreenString("ok:"), len(res.Plan))
+		if res.UpgradedV1 > 0 {
+			fmt.Printf("  upgraded %d legacy v1 hook(s) in place\n", res.UpgradedV1)
+		}
+	}
+	fmt.Println()
+}
+
+func emitUninstallHuman(res claudecode.UninstallResult, err error) {
+	bold := color.New(color.Bold).SprintFunc()
+	fmt.Println()
+	fmt.Printf("  %s\n", bold("oktsec doctor claude-code --uninstall-hooks"))
+	fmt.Println("  ────────────────────────────────────────")
+	fmt.Printf("  Settings:   %s\n", res.SettingsPath)
+	if res.BackupPath != "" {
+		fmt.Printf("  Backup:     %s\n", res.BackupPath)
+	}
+	if err != nil {
+		fmt.Printf("  %s %v\n", color.RedString("error:"), err)
+		return
+	}
+	if res.Skipped != "" {
+		fmt.Printf("  %s %s\n", color.YellowString("skipped:"), res.Skipped)
+	}
+	if res.Wrote {
+		fmt.Printf("  %s removed %d v2 + %d v1 hook(s)\n",
+			color.GreenString("ok:"), res.RemovedV2, res.RemovedV1)
+	}
+	fmt.Println()
 }

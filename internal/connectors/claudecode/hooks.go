@@ -2,33 +2,20 @@ package claudecode
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
-// expectedEventFamilies is the Phase 2 hook manifest the spec calls for
-// (section 2). Phase 1 only reports which of these are missing; it
-// never installs them. Kept as a sorted slice so HookRef.Expected
-// renders the same on every run.
-var expectedEventFamilies = []string{
-	"PreToolUse",         // pre-action / blocking
-	"PostToolUse",        // observed / feedback
-	"PostToolUseFailure", // observed / failure surface
-	"PostToolBatch",      // observed / batched failures
-	"SubagentStart",      // observed actor lifecycle
-	"SubagentStop",
-	"SessionStart", // observed session lifecycle
-	"SessionEnd",
-	"InstructionsLoaded", // observed config-change surface
-	"CwdChanged",
-	"FileChanged",
-	"PermissionRequest", // pre-action / blocking
-	"PermissionDenied",
-	"Stop",
-	"StopFailure",
-	"TaskCreated",
-	"TaskCompleted",
-	"ConfigChange",
-}
+// expectedEventFamilies is derived from the canonical Phase 2
+// install plan in install.go (Phase2EventNames). Phase 1 reports
+// the same set as "missing when not installed" so a successful
+// install brings MissingExpectedEvents to empty and the doctor /
+// health view can reach `ready`. The previous standalone slice
+// drifted from buildPlan and made the gap report unreliable.
+//
+// Initialized via init() so the install.go table is the only place
+// new event families are added.
+var expectedEventFamilies = Phase2EventNames()
 
 // blockingEventFamilies is the subset of hooks that can deny an
 // action before Claude executes it. Used to populate
@@ -70,12 +57,69 @@ func readHooks(opts ReadOptions) ([]HookRef, []ConnectorProblem) {
 		if prob != nil {
 			problems = append(problems, *prob)
 		}
-		if settings == nil || settings.Hooks == nil {
+		if settings == nil {
 			continue
 		}
-		hooks = append(hooks, parseHookEntries(s.scope, s.path, settings.Hooks)...)
+		// Surface disable / restrict knobs so the Phase 2 installer
+		// can refuse to write hooks the operator (or a managed
+		// policy) has globally neutered.
+		problems = append(problems, disableKnobProblems(s.scope, s.path, settings)...)
+		if settings.Hooks != nil {
+			hooks = append(hooks, parseHookEntries(s.scope, s.path, settings.Hooks)...)
+		}
 	}
 	return hooks, problems
+}
+
+// disableKnobProblems converts the three Claude Code "silently
+// neuter every hook" flags into ConnectorProblem rows. The installer
+// reads the codes, not the raw bools, so a future config-shape
+// change only needs to update the parser in settings.go.
+func disableKnobProblems(scope, path string, s *rawSettings) []ConnectorProblem {
+	var ps []ConnectorProblem
+	if s.DisableAllHooks != nil && *s.DisableAllHooks {
+		ps = append(ps, ConnectorProblem{
+			Code:     "CC-HOOKS-GLOBALLY-DISABLED",
+			Severity: "risk",
+			Title:    fmt.Sprintf("Claude Code hooks are globally disabled in %s settings", scope),
+			Detail:   fmt.Sprintf("disableAllHooks: true at %s. Until this is removed, no oktsec hook will fire.", path),
+			FixKind:  "manual",
+		})
+	}
+	if s.AllowManagedHooksOnly != nil && *s.AllowManagedHooksOnly {
+		ps = append(ps, ConnectorProblem{
+			Code:     "CC-HOOKS-MANAGED-ONLY",
+			Severity: "risk",
+			Title:    fmt.Sprintf("Claude Code restricts hooks to managed scope in %s settings", scope),
+			Detail:   fmt.Sprintf("allowManagedHooksOnly: true at %s. User and project hooks are blocked, including any oktsec install at non-managed scope.", path),
+			FixKind:  "manual",
+		})
+	}
+	if s.AllowedHTTPHookURLs != nil && len(*s.AllowedHTTPHookURLs) == 0 {
+		ps = append(ps, ConnectorProblem{
+			Code:     "CC-HOOKS-HTTP-URLS-RESTRICTED",
+			Severity: "warning",
+			Title:    fmt.Sprintf("HTTP hooks are blocked by an empty allowlist in %s settings", scope),
+			Detail:   fmt.Sprintf("allowedHttpHookUrls is set to [] at %s. Command hooks (oktsec's default) still work, but any future HTTP variant would be silently dropped.", path),
+			FixKind:  "manual",
+		})
+	}
+	return ps
+}
+
+// HookInstallBlockedReasons returns the inventory problems that must
+// be cleared before the Phase 2 installer can safely write a new
+// manifest. Empty slice means "safe to install". Centralised so the
+// doctor and the installer agree on the refusal contract.
+func HookInstallBlockedReasons(inv Inventory) []ConnectorProblem {
+	var blockers []ConnectorProblem
+	for _, p := range inv.Problems {
+		switch p.Code {
+		case "CC-HOOKS-GLOBALLY-DISABLED", "CC-HOOKS-MANAGED-ONLY":
+			blockers = append(blockers, p)
+		}
+	}
+	return blockers
 }
 
 // parseHookEntries flattens the {event: [{matcher, hooks: [handler]}]}
@@ -138,6 +182,34 @@ func isOktsecHookHandler(h rawHookHandler) bool {
 		return true
 	}
 	return false
+}
+
+// ManifestV2Marker is the literal flag the Phase 2 installer adds to
+// every command it writes. Inventory and uninstall both look for it
+// to know which entries are theirs to manage. The flag is parsed
+// (and ignored beyond its tagging role) by oktsec hook so Claude
+// Code never sees a foreign key in the JSON.
+const ManifestV2Marker = "--manifest v2"
+
+// isManifestV2Handler returns true when the handler is an oktsec
+// hook entry written by the Phase 2 installer. Used by the merge
+// algorithm to decide which entries it owns and may safely
+// rewrite/remove.
+func isManifestV2Handler(h rawHookHandler) bool {
+	if h.Type != "command" {
+		return false
+	}
+	if !isOktsecHookHandler(h) {
+		return false
+	}
+	return strings.Contains(h.Command, ManifestV2Marker)
+}
+
+// isLegacyOktsecHandler returns true for a v1 oktsec hook that
+// predates the manifest marker. The installer upgrades these
+// in-place without leaving duplicates.
+func isLegacyOktsecHandler(h rawHookHandler) bool {
+	return isOktsecHookHandler(h) && !isManifestV2Handler(h)
 }
 
 // isExpectedEvent reports whether the named event family is part of
