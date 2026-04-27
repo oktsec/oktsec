@@ -319,11 +319,26 @@ func (s *Server) stopGateway() {
 	s.logger.Info("gateway process stopped")
 }
 
-// GatewayRunning returns true if the gateway child process is alive.
+// GatewayRunning returns true when the dashboard has authoritative
+// evidence that a gateway is currently listening on cfg.Gateway.Port.
+// Two paths:
+//
+//   - The legacy child-process path: the dashboard spawned `oktsec
+//     gateway` as a subprocess and is tracking its os.Process.
+//   - The in-process path: the gateway built by `oktsec run` invoked
+//     SetGatewayManaged via its readiness callback after
+//     netutil.ListenAutoPort succeeded.
+//
+// The Gateway page reads this flag to decide whether to render the
+// "online" status pill and the green "Routing tool calls" banner.
+// Both must agree — claiming online while showing the disabled
+// banner (or vice versa) is the contradictory state DP-SMOKE-01
+// flagged. Keep the two surfaces wired through this single source.
 func (s *Server) GatewayRunning() bool {
 	s.gwMu.Lock()
-	defer s.gwMu.Unlock()
-	return s.gwCmd != nil && s.gwCmd.Process != nil
+	childAlive := s.gwCmd != nil && s.gwCmd.Process != nil
+	s.gwMu.Unlock()
+	return childAlive || s.gwManaged.Load()
 }
 
 // cachedRunChecks returns cached auditcheck.RunChecks results, refreshing if older than 30s.

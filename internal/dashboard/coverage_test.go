@@ -836,8 +836,11 @@ func TestServer_GatewayDisabledBanner(t *testing.T) {
 	if !strings.Contains(body, "Configured Port") {
 		t.Error("gateway disabled should show 'Configured Port'")
 	}
-	if !strings.Contains(body, "configured but not routing") {
-		t.Error("gateway disabled should explain it's not routing traffic")
+	if !strings.Contains(body, "Gateway is disabled") {
+		t.Error("gateway disabled banner should say 'Gateway is disabled'")
+	}
+	if !strings.Contains(body, "start routing tool calls") {
+		t.Error("gateway disabled banner should describe what enabling does")
 	}
 }
 
