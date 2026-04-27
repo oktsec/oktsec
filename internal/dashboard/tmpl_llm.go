@@ -74,20 +74,20 @@ var llmTmpl = template.Must(template.New("llm").Funcs(tmplFuncs).Parse(layoutHea
 @media(max-width:768px){.llm-hero{grid-template-columns:repeat(2,1fr)}.llm-grid{grid-template-columns:1fr}}
 </style>
 
-<p class="page-desc">AI-powered threat analysis catches what rules alone can't see. Runs async, never blocks message delivery.</p>
+<p class="page-desc">Optional async analysis can review patterns deterministic rules may miss. Runs after the security decision; never blocks message delivery.</p>
 
 {{if not .Enabled}}
 <!-- Setup state -->
 <div class="card">
   <h2 style="font-size:1rem;margin-bottom:12px">Enable AI-Powered Detection</h2>
   <p style="color:var(--text2);font-size:0.82rem;line-height:1.6;margin-bottom:8px">
-    oktsec's {{.RuleCount}} rules catch known threats instantly. Add an AI layer to detect what patterns miss:
+    oktsec's {{.RuleCount}} deterministic rules run on every routed tool call. Add an optional AI layer to review patterns those rules may not match:
   </p>
   <ul style="color:var(--text2);font-size:0.82rem;line-height:1.8;margin:0 0 20px 18px;padding:0">
     <li>Semantic data exfiltration disguised as normal messages</li>
     <li>Social engineering between agents</li>
     <li>Intent drift (agent doing something it shouldn't)</li>
-    <li>Auto-generates new detection rules from findings</li>
+    <li>Surfaces rule suggestions from findings for operator review</li>
   </ul>
 
   <form method="POST" action="/dashboard/settings/llm">

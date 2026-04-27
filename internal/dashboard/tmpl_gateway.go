@@ -11,7 +11,7 @@ var gatewayTmpl = template.Must(template.New("gateway").Funcs(tmplFuncs).Parse(l
 .gw-panel{display:none}
 .gw-panel.active{display:block}
 </style>
-<p class="page-desc">The Gateway is the secure checkpoint for all AI agent tool calls. Every tool your agents use passes through here for security scanning and access control.</p>
+<p class="page-desc">The Gateway is the security checkpoint for tool calls routed through Oktsec. Configured tool calls pass through Oktsec scanning and access control.</p>
 
 <div class="gw-tabs" role="tablist">
   <button class="gw-tab {{if ne .Tab "discovery"}}active{{end}}" onclick="gwTab('config')">Configuration</button>

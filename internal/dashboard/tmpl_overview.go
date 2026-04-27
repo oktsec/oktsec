@@ -60,7 +60,7 @@ a.ov-metric:hover{background:var(--surface2)}
 @media(max-width:768px){.hero-stats{grid-template-columns:repeat(2,1fr)}.ov-grid{grid-template-columns:1fr}}
 </style>
 
-<p class="page-desc">Real-time security overview across all agents and tools. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
+<p class="page-desc">Real-time security overview for agents and tools routed through Oktsec. <span class="sse-indicator" id="sse-status"><span class="sse-dot" id="sse-dot"></span> <span id="sse-label">connecting</span></span></p>
 <noscript><div style="padding:8px 12px;background:rgba(210,153,34,0.08);border:1px solid rgba(210,153,34,0.2);border-radius:var(--radius-md);font-size:var(--text-sm);color:var(--warn);margin-bottom:var(--sp-4)">Live updates require JavaScript.</div></noscript>
 
 {{if and (eq .Stats.TotalMessages 0) (eq .AgentCount 0)}}
