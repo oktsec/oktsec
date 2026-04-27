@@ -126,26 +126,38 @@ func runHook(port int, eventOverride string) error {
 
 	resp, doErr := client.Do(req)
 	if doErr != nil {
-		// Gateway unreachable. Record one diagnostic line so the
-		// dashboard can say "hooks installed but gateway unreachable"
-		// instead of silence; then honor the configured posture
-		// (fail-open by default).
-		writeHookDiag(event, fmt.Sprintf("gateway unreachable: %v", doErr))
-		if failClosed() {
-			emitFailClosed(event, "oktsec gateway unreachable")
-			os.Exit(2)
-		}
+		handleGatewayFailure(event, fmt.Sprintf("gateway unreachable: %v", doErr))
 		return nil
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	// Treat any non-2xx, unreadable, or undecodable response as a
+	// gateway failure. Earlier the unmarshal error was swallowed,
+	// which let a 500 / empty body / HTML error page slip through
+	// as "no decision" → emit allow envelope, even when
+	// fail-closed was requested.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		handleGatewayFailure(event, fmt.Sprintf("gateway returned HTTP %d", resp.StatusCode))
+		return nil
+	}
+	respBody, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		handleGatewayFailure(event, fmt.Sprintf("reading gateway body: %v", readErr))
+		return nil
+	}
+	if len(bytes.TrimSpace(respBody)) == 0 {
+		handleGatewayFailure(event, "gateway returned empty body")
+		return nil
+	}
 	var result struct {
 		Decision          string `json:"decision"`
 		Reason            string `json:"reason"`
 		AdditionalContext string `json:"additional_context"`
 	}
-	_ = json.Unmarshal(respBody, &result)
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		handleGatewayFailure(event, fmt.Sprintf("decoding gateway response: %v", err))
+		return nil
+	}
 
 	if result.Decision != "block" {
 		// Allow path: explicit allow shape so tests can pin the
@@ -271,10 +283,36 @@ func emitBlock(event, reason, additionalContext string) {
 }
 
 // emitFailClosed is the fail-closed escape hatch when the gateway
-// is unreachable AND OKTSEC_HOOK_FAIL_CLOSED=1. Mirrors the block
-// shape so Claude Code refuses the action.
+// fails AND OKTSEC_HOOK_FAIL_CLOSED=1. Mirrors the block shape so
+// Claude Code refuses the action — but only on events Claude can
+// actually deny; observe-only events still fall through to the
+// allow envelope so a misconfigured fail-closed posture cannot
+// surface a deny that Claude would not honor anyway.
 func emitFailClosed(event, reason string) {
 	emitBlock(event, reason, "")
+}
+
+// handleGatewayFailure is the single chokepoint for every kind of
+// gateway-side problem: connection refused, non-2xx status,
+// unreadable body, undecodable JSON, empty body. It records one
+// diagnostic line so the dashboard can surface the failure, then
+// honors the configured posture:
+//
+//   - default: fail-open (allow envelope, exit 0)
+//   - OKTSEC_HOOK_FAIL_CLOSED=1: fail-closed for block-capable
+//     events (deny envelope, exit 2); observe-only events stay on
+//     the allow path because Claude does not honor a deny on them.
+//
+// Earlier this logic only fired on transport errors, so a 500 /
+// empty body / HTML error page silently produced an allow even
+// when fail-closed was set.
+func handleGatewayFailure(event, reason string) {
+	writeHookDiag(event, reason)
+	if failClosed() && isBlockCapableEvent(event) {
+		emitFailClosed(event, "oktsec gateway failure: "+reason)
+		os.Exit(2)
+	}
+	fmt.Fprint(os.Stdout, "{}")
 }
 
 func writeJSON(payload map[string]any) {

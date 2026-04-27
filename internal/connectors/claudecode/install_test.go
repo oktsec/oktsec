@@ -340,6 +340,72 @@ func TestUninstallV2_RemovesOnlyOurEntries(t *testing.T) {
 	}
 }
 
+// TestInstallV2_OnDiskHandlerCarriesPlannedFields locks in the
+// promise that --install-hooks --dry-run --json advertises the
+// same manifest the installer actually writes. Previously the
+// dry-run plan listed timeout + statusMessage, but encodeOwnHandler
+// dropped them on the way to disk; an operator inspecting the
+// installed file saw a sparser entry than the dry-run claimed.
+//
+// The test installs against a fixture home, then reads
+// settings.json off disk and walks every oktsec entry asserting
+// the planned fields are present.
+func TestInstallV2_OnDiskHandlerCarriesPlannedFields(t *testing.T) {
+	home := installFixtureHome(t, "")
+	if _, err := InstallV2(context.Background(), InstallOptions{
+		HomeDir:     home,
+		BinaryPath:  "/usr/local/bin/oktsec",
+		GatewayPort: 9090,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	planned := buildPlan("/usr/local/bin/oktsec", 9090)
+	plannedByEvent := map[string]PlannedHookEntry{}
+	for _, p := range planned {
+		plannedByEvent[p.Event] = p
+	}
+
+	settings := readSettingsFile(t, home)
+	hooks, ok := settings["hooks"].(map[string]any)
+	if !ok {
+		t.Fatalf("hooks key missing or wrong type: %#v", settings["hooks"])
+	}
+	for event, want := range plannedByEvent {
+		entries, ok := hooks[event].([]any)
+		if !ok {
+			t.Errorf("event %s missing from installed hooks", event)
+			continue
+		}
+		// Walk every entry and find the oktsec one. Operator
+		// entries are ignored — this test pins our own handler.
+		var ownHandler map[string]any
+		for _, raw := range entries {
+			entry, _ := raw.(map[string]any)
+			handlers, _ := entry["hooks"].([]any)
+			for _, h := range handlers {
+				cmd, _ := h.(map[string]any)["command"].(string)
+				if strings.Contains(cmd, ManifestV2Marker) {
+					ownHandler = h.(map[string]any)
+					break
+				}
+			}
+			if ownHandler != nil {
+				break
+			}
+		}
+		if ownHandler == nil {
+			t.Errorf("no oktsec handler installed for event %s", event)
+			continue
+		}
+		if got, _ := ownHandler["timeout"].(float64); int(got) != want.TimeoutSecs {
+			t.Errorf("event %s: installed timeout = %v, want %d", event, ownHandler["timeout"], want.TimeoutSecs)
+		}
+		if got, _ := ownHandler["statusMessage"].(string); got != want.Status {
+			t.Errorf("event %s: installed statusMessage = %q, want %q", event, got, want.Status)
+		}
+	}
+}
+
 // TestPhase2EventNames_MatchesInstalledPlan locks in the P1
 // invariant: the inventory's "missing events" report and the
 // installer's plan derive from the same source. A drift here

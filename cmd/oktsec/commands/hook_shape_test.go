@@ -187,6 +187,126 @@ func TestHook_AllowEmitsEnvelope(t *testing.T) {
 	}
 }
 
+// TestHook_FailClosedHonorsGatewayResponseFailures locks in the
+// P2.2 contract: OKTSEC_HOOK_FAIL_CLOSED=1 must cover every kind
+// of gateway-side failure, not just connection refused. A 500
+// status, empty body, or invalid JSON would previously slip
+// through as "no decision" → allow envelope, even with
+// fail-closed requested. Each scenario should now exit 2 with the
+// PreToolUse deny shape under fail-closed and exit 0 with the
+// allow envelope under the default fail-open posture.
+func TestHook_FailClosedHonorsGatewayResponseFailures(t *testing.T) {
+	scenarios := []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{
+			name: "http_500",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				http.Error(w, "internal error", http.StatusInternalServerError)
+			},
+		},
+		{
+			name: "invalid_json",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte("{not json"))
+			},
+		},
+		{
+			name: "empty_body",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.Copy(io.Discard, r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+			},
+		},
+	}
+	for _, sc := range scenarios {
+		t.Run(sc.name+"/fail_open", func(t *testing.T) {
+			stdout, _, exit := runHookBinaryWithEnv(t,
+				`{"hook_event_name":"PreToolUse"}`, "PreToolUse",
+				sc.handler, nil,
+			)
+			if exit != 0 {
+				t.Errorf("fail-open exit = %d, want 0", exit)
+			}
+			if strings.TrimSpace(stdout) != "{}" {
+				t.Errorf("fail-open stdout = %q, want {}", stdout)
+			}
+		})
+		t.Run(sc.name+"/fail_closed", func(t *testing.T) {
+			stdout, _, exit := runHookBinaryWithEnv(t,
+				`{"hook_event_name":"PreToolUse"}`, "PreToolUse",
+				sc.handler, []string{"OKTSEC_HOOK_FAIL_CLOSED=1"},
+			)
+			if exit != 2 {
+				t.Errorf("fail-closed exit = %d, want 2", exit)
+			}
+			if !strings.Contains(stdout, `"deny"`) {
+				t.Errorf("fail-closed stdout missing deny shape: %s", stdout)
+			}
+			if !strings.Contains(stdout, `"PreToolUse"`) {
+				t.Errorf("fail-closed stdout missing PreToolUse hookEventName: %s", stdout)
+			}
+		})
+	}
+}
+
+// TestHook_FailClosedSkipsObserveOnly verifies that even with
+// fail-closed enabled, observe-only events stay on the allow path
+// when the gateway fails. Emitting a deny on these would surface
+// as a Claude error without preventing anything (Claude does not
+// honor deny on observe-only events).
+func TestHook_FailClosedSkipsObserveOnly(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
+	stdout, _, exit := runHookBinaryWithEnv(t,
+		`{"hook_event_name":"SessionEnd"}`, "SessionEnd",
+		handler, []string{"OKTSEC_HOOK_FAIL_CLOSED=1"},
+	)
+	if exit != 0 {
+		t.Errorf("observe-only fail-closed exit = %d, want 0", exit)
+	}
+	if strings.TrimSpace(stdout) != "{}" {
+		t.Errorf("observe-only fail-closed stdout = %q, want {}", stdout)
+	}
+}
+
+// runHookBinaryWithEnv is the configurable cousin of runHookBinary
+// used by the gateway-failure tests: caller supplies the gateway
+// handler and any extra env vars (e.g. OKTSEC_HOOK_FAIL_CLOSED=1).
+func runHookBinaryWithEnv(t *testing.T, payload, event string, gatewayHandler http.HandlerFunc, extraEnv []string) (string, string, int) {
+	t.Helper()
+	srv := httptest.NewServer(gatewayHandler)
+	t.Cleanup(srv.Close)
+	port := srv.Listener.Addr().(*net.TCPAddr).Port
+
+	bin := buildHookBinaryOnce(t)
+	cmd := exec.Command(bin, "hook", "--port", iToStr(port), "--event", event, "--manifest", "v2")
+	cmd.Stdin = strings.NewReader(payload)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	cmd.Env = append(os.Environ(), "HOME="+t.TempDir())
+	cmd.Env = append(cmd.Env, extraEnv...)
+
+	exitCode := 0
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		} else {
+			t.Fatalf("running hook binary: %v\nstderr=%s", err, stderr.String())
+		}
+	}
+	return stdout.String(), stderr.String(), exitCode
+}
+
 // TestHook_ObserveOnlyEventsNeverBlock locks in the P3 contract:
 // even when the gateway returns decision:block for an
 // observe-only event family (SessionEnd, InstructionsLoaded,

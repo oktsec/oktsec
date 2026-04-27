@@ -451,13 +451,24 @@ func decodePreservedEntries(raw json.RawMessage) ([]preservedHookEntry, error) {
 }
 
 // encodeOwnHandler produces the raw JSON shape for one oktsec hook
-// handler. Centralised so the manifest's wire format is one
-// function the test suite can pin.
+// handler. The output must match every field PlannedHookEntry
+// advertises (timeout, statusMessage) so that --install-hooks
+// --dry-run --json describes the same manifest the installer
+// actually writes to disk. Earlier the timeout / status fields
+// were dropped here while buildPlan kept them, leaving the dry-run
+// preview lying about the on-disk state.
 func encodeOwnHandler(p PlannedHookEntry) (json.RawMessage, error) {
-	body, err := json.Marshal(map[string]any{
+	handler := map[string]any{
 		"type":    p.Type,
 		"command": p.Command,
-	})
+	}
+	if p.TimeoutSecs > 0 {
+		handler["timeout"] = p.TimeoutSecs
+	}
+	if p.Status != "" {
+		handler["statusMessage"] = p.Status
+	}
+	body, err := json.Marshal(handler)
 	if err != nil {
 		return nil, fmt.Errorf("encoding own handler for %s: %w", p.Event, err)
 	}
