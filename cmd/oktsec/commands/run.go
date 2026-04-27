@@ -529,15 +529,6 @@ func startServer(configPath string, opts runOpts) error {
 		return err
 	}
 
-	// Mark the dashboard as managing its own in-process gateway BEFORE
-	// srv.Start() begins serving requests. The Gateway page reads this
-	// flag to label cfg.Gateway.Port as the live listener; setting it
-	// here closes the race window that would otherwise let an early
-	// /dashboard/gateway request render "Configured Port" instead.
-	if cfg.Gateway.Enabled {
-		srv.Dashboard().SetGatewayManaged()
-	}
-
 	// Don't auto-open browser when TUI is active; the dashboard URL
 	// is shown in the TUI and clickable in most terminals.
 	if !opts.noBrowser && !term.IsTerminal(int(os.Stdout.Fd())) {
@@ -566,9 +557,13 @@ func startServer(configPath string, opts runOpts) error {
 	// Start embedded gateway if enabled (needed for hooks even without backends).
 	// Share the proxy's audit store so all events (proxy + gateway + hooks) feed
 	// into a single Hub. This fixes the dual-store issue where TUI and dashboard
-	// would show different events. SetGatewayManaged was called earlier (right
-	// after proxy.NewServer) so the dashboard already knows the gateway is
-	// in-process by the time we reach this block.
+	// would show different events.
+	//
+	// SetGatewayManaged is wired through gw.SetReadyCallback so the
+	// "Listening on" label flips on only after the listener actually
+	// binds. NewGateway failure or a bind failure leaves the dashboard
+	// reading "Configured Port", which is the truthful label until a
+	// live listener exists.
 	var gw *gateway.Gateway
 	auditStore := srv.AuditStore()
 	if cfg.Gateway.Enabled {
@@ -578,6 +573,7 @@ func startServer(configPath string, opts runOpts) error {
 			logger.Warn("gateway failed to initialize", "error", gwErr)
 		} else {
 			gw.SetCfgPath(configPath)
+			gw.SetReadyCallback(srv.Dashboard().SetGatewayManaged)
 			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
 			gw.SetHooksHandler(hh)
 			// Wire tool classification to dashboard
