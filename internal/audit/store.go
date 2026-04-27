@@ -175,6 +175,14 @@ type Store struct {
 	// logic silently regenerating hashes for tampered rows — that defeats
 	// the whole point of hash-chain verification.
 	readOnly bool
+
+	// closeOnce + closeErr make Close idempotent. In `oktsec run` the
+	// proxy and the in-process gateway both hold a reference to the
+	// same Store and both call Close on shutdown; without the Once
+	// guard the second close(s.writes) would panic with "close of
+	// closed channel" and turn a clean Ctrl+C into a stack trace.
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // DB returns the underlying *sql.DB for direct access (benchmarking/migrations).
@@ -833,13 +841,21 @@ func (s *Store) Flush() {
 // Close flushes pending writes and closes the database. Read-only stores
 // never started writeLoop, so there is nothing to drain and waiting on
 // s.done would deadlock.
+//
+// Idempotent: callers from different shutdown paths (proxy server,
+// in-process gateway, deferred test cleanup) can all invoke Close
+// safely. The first call drains writes and closes the DB; later
+// calls return the same error without double-closing the channel.
 func (s *Store) Close() error {
-	s.cancel()
-	if !s.readOnly {
-		close(s.writes)
-		<-s.done
-	}
-	return s.db.Close()
+	s.closeOnce.Do(func() {
+		s.cancel()
+		if !s.readOnly {
+			close(s.writes)
+			<-s.done
+		}
+		s.closeErr = s.db.Close()
+	})
+	return s.closeErr
 }
 
 // Subscribe returns a channel that receives every new audit entry in real time.

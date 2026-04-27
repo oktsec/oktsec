@@ -43,7 +43,7 @@ function gwTab(name){
       <div style="font-size:1.2rem;font-weight:700">{{len .Servers}}</div>
     </div>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:16px;text-align:center">
-      <div style="color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">{{if .GatewayEnabled}}Listening on{{else}}Configured Port{{end}}</div>
+      <div style="color:var(--text3);font-size:0.68rem;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">{{if and .GatewayEnabled .GatewayPortIsLive}}Listening on{{else}}Configured Port{{end}}</div>
       <div style="font-size:1.2rem;font-weight:700;{{if not .GatewayEnabled}}color:var(--text3){{end}}">Port {{if .Gateway.Port}}{{.Gateway.Port}}{{else}}9090{{end}}</div>
     </div>
   </div>

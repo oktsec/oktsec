@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -43,7 +44,13 @@ type Server struct {
 
 	gwMu      sync.Mutex
 	gwCmd     *exec.Cmd
-	gwManaged bool // true when an in-process gateway is managed by the caller
+	// gwManaged is true when an in-process gateway owns cfg.Gateway.Port
+	// (the gateway updates the cfg pointer to its actual listener port
+	// after binding). The dashboard reads this flag to decide whether
+	// the Gateway page can label the port "Listening on" or must fall
+	// back to "Configured Port". Atomic so callers can flip it before
+	// the dashboard starts serving without racing the first request.
+	gwManaged atomic.Bool
 	llmQueue  *llm.Queue
 	ruleGen  *llm.RuleGenerator
 
@@ -97,14 +104,15 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 		go scanner.ListRules()
 	}
 
-	// Auto-start gateway only when no in-process gateway is managed by the
-	// caller (e.g. run command). Without this guard, both the dashboard child
-	// process and the embedded gateway would compete for the same port.
-	if cfg.Gateway.Enabled && len(cfg.MCPServers) > 0 && !s.gwManaged {
-		s.gwMu.Lock()
-		s.startGateway()
-		s.gwMu.Unlock()
-	}
+	// NewServer is side-effect-free with respect to the gateway. The
+	// dashboard never spawns a child gateway on its own — `oktsec run`
+	// builds an in-process gateway and registers
+	// dashboard.SetGatewayManaged as the gateway's ready callback, so
+	// the live-listener flag flips on only after the bind succeeds.
+	// Do not move the SetGatewayManaged call back into construction
+	// or into the caller's pre-Start path: calling it before the
+	// listener exists would let the Gateway page label cfg.Gateway.Port
+	// as "Listening on" while no socket is actually bound.
 
 	// Periodic cleanup of expired sessions and stale rate-limit entries
 	go func() {
@@ -118,10 +126,23 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 	return s
 }
 
-// SetGatewayManaged marks that an in-process gateway is already running.
-// When set, the dashboard will not spawn a child gateway process.
+// SetGatewayManaged marks that an in-process gateway owns
+// cfg.Gateway.Port. The Gateway page reads this flag to decide
+// whether the port label can read "Listening on" (live, in-process)
+// or must fall back to "Configured Port" (no authoritative source).
+//
+// Call this only after the gateway has actually bound. The intended
+// wiring lives in `oktsec run`: it registers this method as the
+// gateway's SetReadyCallback, so the flag flips on after
+// netutil.ListenAutoPort returns and cfg.Gateway.Port has been
+// mutated to the actual port. Calling it earlier (during
+// construction, or before the gateway listener is bound) would let
+// the dashboard claim a live listener that does not exist yet.
+//
+// atomic.Bool keeps the read in handleGateway race-free with the
+// callback invocation from the gateway goroutine.
 func (s *Server) SetGatewayManaged() {
-	s.gwManaged = true
+	s.gwManaged.Store(true)
 }
 
 // coverageActivityBreakerThreshold is the number of consecutive

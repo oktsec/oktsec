@@ -558,9 +558,14 @@ func startServer(configPath string, opts runOpts) error {
 	// Share the proxy's audit store so all events (proxy + gateway + hooks) feed
 	// into a single Hub. This fixes the dual-store issue where TUI and dashboard
 	// would show different events.
+	//
+	// SetGatewayManaged is wired through gw.SetReadyCallback so the
+	// "Listening on" label flips on only after the listener actually
+	// binds. NewGateway failure or a bind failure leaves the dashboard
+	// reading "Configured Port", which is the truthful label until a
+	// live listener exists.
 	var gw *gateway.Gateway
 	auditStore := srv.AuditStore()
-	srv.Dashboard().SetGatewayManaged()
 	if cfg.Gateway.Enabled {
 		var gwErr error
 		gw, gwErr = gateway.NewGateway(cfg, logger, auditStore)
@@ -568,6 +573,7 @@ func startServer(configPath string, opts runOpts) error {
 			logger.Warn("gateway failed to initialize", "error", gwErr)
 		} else {
 			gw.SetCfgPath(configPath)
+			gw.SetReadyCallback(srv.Dashboard().SetGatewayManaged)
 			hh := hooks.NewHandler(gw.Scanner(), gw.AuditStore(), cfg, logger)
 			gw.SetHooksHandler(hh)
 			// Wire tool classification to dashboard

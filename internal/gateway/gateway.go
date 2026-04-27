@@ -127,6 +127,14 @@ type Gateway struct {
 	registeredMu      sync.Mutex
 	cfgPath           string
 
+	// onReady is invoked exactly once after the listener has been
+	// successfully bound (and cfg.Gateway.Port has been mutated to the
+	// actual port). The dashboard uses this hook to flip
+	// "Configured Port" to "Listening on" only after the gateway is
+	// truly listening, instead of optimistically marking the port
+	// live before bind succeeds. nil is the default no-op.
+	onReady func()
+
 	// resolver and resolverConfig together decide which Principal a
 	// request belongs to. The resolver is always non-nil — even when no
 	// principals are configured the store is empty rather than nil so the
@@ -461,6 +469,13 @@ func (g *Gateway) Start(ctx context.Context) error {
 	}
 	g.ln = ln
 	g.cfg.Gateway.Port = actualPort
+	// Listener is bound and cfg.Gateway.Port now holds the actual
+	// port. Notify the readiness callback (if set) so callers like
+	// the dashboard can flip a "live listener" flag — but only now,
+	// not when NewGateway returns and not before the bind succeeds.
+	if g.onReady != nil {
+		g.onReady()
+	}
 
 	// Route the endpoint path to the streamable HTTP handler
 	mux := http.NewServeMux()
@@ -1132,6 +1147,17 @@ func (g *Gateway) SetEscalationTracker(t *llm.EscalationTracker) {
 // SetHooksHandler sets the handler for /hooks/event (tool-call telemetry).
 func (g *Gateway) SetHooksHandler(h http.Handler) {
 	g.hooksHandler = h
+}
+
+// SetReadyCallback registers a function the gateway calls exactly
+// once after its listener is bound (and cfg.Gateway.Port has been
+// mutated to the actual port). Set it before Start; later calls
+// silently overwrite the callback but the contract is "set once
+// before Start, fires once during Start". Use this to gate any
+// dashboard/UI label that should only claim "live listener" when
+// the bind actually succeeded.
+func (g *Gateway) SetReadyCallback(fn func()) {
+	g.onReady = fn
 }
 
 // submitToLLM submits tool call content for async LLM analysis if configured.

@@ -1809,6 +1809,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		"ThreatSessions": threatSessions,
 		"AvgDuration":    avgDuration,
 		"TotalEvents":    totalEvents,
+		"RequireSig":     s.cfg.Identity.RequireSignature,
 	}
 	s.renderTemplate(w, sessionsPageTmpl, data)
 }
@@ -3251,6 +3252,7 @@ func (s *Server) handleLLM(w http.ResponseWriter, r *http.Request) {
 		"BudgetStatus": budgetStatus,
 		"Triage":       triageCounts,
 		"RuleCount":    ruleCount,
+		"RequireSig":   s.cfg.Identity.RequireSignature,
 	}
 
 	s.renderTemplate(w, llmTmpl, data)
@@ -3301,6 +3303,7 @@ func (s *Server) handleLLMCase(w http.ResponseWriter, r *http.Request) {
 		"AgentSuspended": agentSuspended,
 		"AgentHistory":   agentHistory,
 		"ToolArgs":       toolArgs,
+		"RequireSig":     s.cfg.Identity.RequireSignature,
 	}
 	s.renderTemplate(w, llmCaseTmpl, data)
 }
@@ -4571,14 +4574,16 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 
 	gw := s.cfg.Gateway
 	data := map[string]any{
-		"Active":          "gateway",
-		"Gateway":         gw,
-		"GatewayEnabled":  gw.Enabled,
-		"Servers":         servers,
-		"Discovered":      discovered,
-		"Tab":             r.URL.Query().Get("tab"),
-		"DepCheckEnabled": s.cfg.Gateway.DepCheck,
-		"Tools":           tools,
+		"Active":            "gateway",
+		"Gateway":           gw,
+		"GatewayEnabled":    gw.Enabled,
+		"GatewayPortIsLive": s.gwManaged.Load(), // see template note on Listening on vs Configured port
+		"Servers":           servers,
+		"Discovered":        discovered,
+		"Tab":               r.URL.Query().Get("tab"),
+		"DepCheckEnabled":   s.cfg.Gateway.DepCheck,
+		"Tools":             tools,
+		"RequireSig":        s.cfg.Identity.RequireSignature,
 	}
 	s.renderTemplate(w, gatewayTmpl, data)
 }
@@ -4691,6 +4696,7 @@ func (s *Server) handleMCPServerDetail(w http.ResponseWriter, r *http.Request) {
 		"Name":          name,
 		"Server":        srv,
 		"RelatedAgents": related,
+		"RequireSig":    s.cfg.Identity.RequireSignature,
 	}
 	s.renderTemplate(w, mcpServerDetailTmpl, data)
 }
