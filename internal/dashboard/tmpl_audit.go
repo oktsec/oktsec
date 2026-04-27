@@ -12,15 +12,15 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .ps-hero-score{display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0}
 .ps-ring{width:110px;height:110px;border-radius:50%;background:conic-gradient(var(--clr,var(--success)) calc(var(--pct,0) * 1%),var(--surface2) 0);display:flex;align-items:center;justify-content:center;position:relative;box-shadow:0 0 24px rgba(0,0,0,0.2)}
 .ps-ring::before{content:'';position:absolute;inset:8px;border-radius:50%;background:var(--surface)}
-.ps-num{position:relative;font-size:2rem;font-weight:800;font-family:var(--sans);letter-spacing:-0.04em;color:var(--text)}
+.ps-num{position:relative;font-size:2rem;font-weight:800;font-family:var(--sans);letter-spacing:0;color:var(--text)}
 .ps-grade-label{font-size:0.6875rem;color:var(--text3);font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase}
 .ps-hero-body{flex:1}
-.ps-hero-title{font-size:1.125rem;font-weight:700;color:var(--text);margin-bottom:4px;letter-spacing:-0.02em}
+.ps-hero-title{font-size:1.125rem;font-weight:700;color:var(--text);margin-bottom:4px;letter-spacing:0}
 .ps-hero-sub{font-size:0.8125rem;color:var(--text3);margin-bottom:6px}
 .ps-hero-detail{display:flex;gap:16px;margin-bottom:16px;font-size:0.72rem;color:var(--text3)}
 .ps-hero-detail span{display:flex;align-items:center;gap:4px}
 .ps-hero-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.ps-fix-all{padding:11px 28px;background:linear-gradient(135deg,#238636,#2ea043);border:none;border-radius:8px;color:#fff;font-size:0.8125rem;font-weight:600;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;font-family:var(--sans);letter-spacing:-0.01em;box-shadow:0 2px 8px rgba(35,134,54,0.3)}
+.ps-fix-all{padding:11px 28px;background:linear-gradient(135deg,#238636,#2ea043);border:none;border-radius:8px;color:#fff;font-size:0.8125rem;font-weight:600;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;font-family:var(--sans);letter-spacing:0;box-shadow:0 2px 8px rgba(35,134,54,0.3)}
 .ps-fix-all:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(35,134,54,0.4)}
 .ps-fix-all:disabled{opacity:0.6;cursor:wait;transform:none}
 .ps-resolved{font-size:0.75rem;color:var(--success);display:flex;align-items:center;gap:6px;margin-top:8px}
@@ -71,7 +71,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 /* Celebration */
 .ps-celebrate{text-align:center;padding:40px;background:linear-gradient(135deg,rgba(35,134,54,0.06),rgba(63,185,80,0.03));border:1px solid rgba(63,185,80,0.2);border-radius:14px;margin-bottom:24px}
-.ps-celebrate-score{font-size:3rem;font-weight:800;color:var(--success);font-family:var(--sans);letter-spacing:-0.04em}
+.ps-celebrate-score{font-size:3rem;font-weight:800;color:var(--success);font-family:var(--sans);letter-spacing:0}
 .ps-celebrate-grade{font-size:0.875rem;color:var(--text3);font-family:var(--mono);margin-top:4px}
 .ps-celebrate-msg{font-size:0.8125rem;color:var(--text2);margin-top:16px}
 .ps-celebrate-msg a{color:var(--accent-light);text-decoration:none}

@@ -423,7 +423,7 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
 :root{
   color-scheme:dark;
   --bg:#0d1117;--surface:#161b22;--surface2:#21262d;--border:#30363d;
-  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#a3acb6;
   --accent:#58a6ff;--accent-dim:#1f6feb;--accent-border:rgba(56,139,253,0.30);
   --danger:#f85149;--danger-muted:rgba(248,81,73,0.10);--danger-border:rgba(248,81,73,0.30);
   --radius-sm:6px;--radius-md:8px;--radius-lg:12px;
@@ -481,7 +481,7 @@ var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#0d1117;--surface:#161b22;--border:#30363d;
-  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#a3acb6;
   --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
@@ -491,7 +491,7 @@ var SplashTmpl = template.Must(template.New("splash").Parse(`<!DOCTYPE html>
 body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .backdrop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:800px;height:800px;background:radial-gradient(circle,transparent 0%,transparent 65%);pointer-events:none;animation:pulse 6s ease-in-out infinite}
 .container{position:relative;z-index:1;text-align:center;animation:fadeIn 0.6s ease-out}
-.logo{font-family:var(--mono);font-size:4.5rem;font-weight:700;letter-spacing:-2px;margin-bottom:12px;background:linear-gradient(135deg,var(--text) 0%,var(--accent-light) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.logo{font-family:var(--mono);font-size:4.5rem;font-weight:700;letter-spacing:0;margin-bottom:12px;background:linear-gradient(135deg,var(--text) 0%,var(--accent-light) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .tagline{color:var(--text3);font-size:1rem;letter-spacing:0.5px;margin-bottom:40px}
 .links{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
 .links a{display:inline-flex;align-items:center;gap:8px;padding:10px 22px;border-radius:8px;font-size:0.88rem;font-weight:500;text-decoration:none;transition:background 0.2s,transform 0.1s,box-shadow 0.2s}
@@ -534,7 +534,7 @@ var notFoundTmpl = template.Must(template.New("notfound").Parse(`<!DOCTYPE html>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--border:#30363d;
-  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#a3acb6;
   --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;
   --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace;
   --sans:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif;
@@ -545,7 +545,7 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .card{position:relative;z-index:1;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:48px 40px;max-width:420px;width:100%;text-align:center;box-shadow:0 1px 2px rgba(0,0,0,0.3),0 4px 16px rgba(0,0,0,0.2);animation:fadeIn 0.4s ease-out}
 .icon{margin-bottom:20px}
 .icon svg{width:48px;height:48px;color:var(--accent);opacity:0.8}
-.code{font-family:var(--mono);font-size:4rem;font-weight:700;letter-spacing:-2px;color:var(--accent);line-height:1;margin-bottom:8px}
+.code{font-family:var(--mono);font-size:4rem;font-weight:700;letter-spacing:0;color:var(--accent);line-height:1;margin-bottom:8px}
 .title{font-size:1.25rem;font-weight:600;margin-bottom:12px}
 .desc{color:var(--text3);font-size:0.85rem;line-height:1.6;margin-bottom:32px}
 .back{display:inline-block;padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:0.9rem;font-weight:600;text-decoration:none;cursor:pointer;transition:background 0.2s,transform 0.1s,box-shadow 0.2s}

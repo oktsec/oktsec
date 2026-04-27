@@ -169,7 +169,7 @@ const ciCSS = `
 .ci-back:hover{color:var(--accent-light)}
 .ci-hdr{display:flex;align-items:flex-start;gap:var(--sp-5);margin-bottom:var(--sp-5)}
 .ci-score{display:flex;flex-direction:column;align-items:center;justify-content:center;width:72px;height:72px;border-radius:var(--radius-xl);flex-shrink:0}
-.ci-score .n{font-size:var(--text-2xl);font-weight:700;font-family:var(--sans);line-height:1;letter-spacing:-0.02em}
+.ci-score .n{font-size:var(--text-2xl);font-weight:700;font-family:var(--sans);line-height:1;letter-spacing:0}
 .ci-score .l{font-size:0.52rem;letter-spacing:0.6px;margin-top:var(--sp-1);opacity:0.7;font-weight:500}
 .ci-hdr-body{flex:1;min-width:0}
 .ci-title{font-size:var(--text-lg);font-weight:600;margin:0 0 var(--sp-2);line-height:1.4;color:var(--text);text-wrap:pretty}

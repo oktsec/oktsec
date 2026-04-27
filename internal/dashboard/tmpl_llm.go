@@ -653,7 +653,7 @@ var llmCaseTmpl = template.Must(template.New("llm-case").Funcs(tmplFuncs).Parse(
 /* Verdict banner */
 .cs-banner{display:flex;align-items:stretch;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);overflow:hidden;margin-bottom:var(--sp-6)}
 .cs-banner-score{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:90px;padding:20px 16px;flex-shrink:0}
-.cs-banner-score .n{font-size:2rem;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:-0.03em}
+.cs-banner-score .n{font-size:2rem;font-weight:700;font-family:var(--mono);line-height:1;letter-spacing:0}
 .cs-banner-score .l{font-size:0.56rem;letter-spacing:0.8px;margin-top:5px;font-weight:600;text-transform:uppercase}
 .cs-banner-body{flex:1;padding:18px 22px;display:flex;flex-direction:column;justify-content:center;border-left:1px solid var(--border);min-width:0}
 .cs-banner-title{font-size:1rem;font-weight:600;margin:0 0 8px;line-height:1.45;color:var(--text);text-wrap:pretty}
