@@ -88,7 +88,7 @@ Local-first. No message content leaves your machine. Anonymous install telemetry
 
 ## Why Oktsec
 
-AI agents don't just chat. They run shells, write to disks, transfer funds, hit internal APIs and spawn sub-agents. Every tool call is a production action with no default oversight: no rate limit on how fast Claude can `rm -rf`, no signature on who issued the command, no audit trail that survives a tampered log, no backpressure when prompt injection slips through.
+AI agents don't just chat. They run shells, write to disks, transfer funds, hit internal APIs and spawn sub-agents. Every tool call can become a production action when agents can read files, write code, call APIs, or run commands — and most stacks have no default oversight: no rate limit on how fast Claude can `rm -rf`, no signature on who issued the command, no audit trail that survives a tampered log, no backpressure when prompt injection slips through.
 
 Traditional security tools sit at the network edge (WAFs) or the model boundary (prompt classifiers). Neither sees the agent-to-tool decision point where actual actions happen. Oktsec runs in that path.
 
@@ -192,21 +192,21 @@ Additionally detects and audits [NanoClaw](#nanoclaw-support) mount allowlist co
 
 ## Hooks
 
-Oktsec intercepts tool calls from any MCP client that supports HTTP hooks. Every `Read`, `Write`, `Bash`, `WebSearch`, and any other tool call passes through the 268-rule security pipeline before execution.
+For clients with configured HTTP hooks, Oktsec can receive pre-action events for supported tools such as `Read`, `Write`, `Bash`, `WebSearch`, and `Edit`. Pre-action hook events are scanned through the full security pipeline (current release: 268 detection rules) before execution. Post-action events provide observed audit evidence after the action.
 
 ```
-Claude Code (any tool call)
+Claude Code (configured tool call)
     |
-    +-- PreToolUse -> POST /hooks/event -> 268 rules -> allow/block
+    +-- PreToolUse  -> POST /hooks/event -> security pipeline -> allow/block
     |
     +-- Tool executes (if allowed)
     |
-    +-- PostToolUse -> POST /hooks/event -> audit log
+    +-- PostToolUse -> POST /hooks/event -> audit log (observed)
 ```
 
-`oktsec run` configures hooks automatically for Claude Code. For other clients, point HTTP hooks at `POST http://127.0.0.1:9090/hooks/event`.
+`oktsec run` configures supported Claude Code hooks automatically. Other clients must expose compatible hooks and be pointed at `POST http://127.0.0.1:9090/hooks/event`.
 
-MCP stdio wrapping intercepts only MCP tool calls. Hooks intercept **everything** - file reads, shell commands, web searches, code edits - any tool the client exposes.
+MCP stdio wrapping intercepts only MCP tool calls. Hooks can cover client-exposed file, shell, web, edit, and agent tools when the client emits compatible hook events; coverage depends on which hooks the client actually fires and how the operator configures them.
 
 ## MCP gateway
 
@@ -276,7 +276,7 @@ Real-time web UI for monitoring agent activity. Protected by a GitHub-style loca
   <img src="documentation/assets/screenshots/dashboard-events.png" alt="Events - live feed of agent messages and tool calls" width="820">
 </p>
 
-**12 pages:** Overview (hero stats, pipeline health, live feed), Events (audit log with search and quarantine tab), Notifications (webhook CRUD, alert history), Agents (card grid with risk scores, agent detail with tool policies), Rules (268 rules across 19 categories, per-rule overrides, custom rules, LLM-suggested rules), Rule Detail (patterns, examples, test sandbox), Security Posture (deployment audit, health score, SARIF export), Graph (agent topology with threat scoring), AI Analysis (LLM threat cases, triage config, budget tracking), Gateway (backend CRUD, tool discovery, health checks), Settings (security mode, protection config, rate limiting), Sessions (session inventory, trace timeline, AI analysis).
+**11 primary pages:** Overview (hero stats, pipeline health, coverage matrix, live feed), Events (audit log with search and quarantine tab), Sessions (session inventory and trace timeline), Notifications (webhook CRUD, alert history), Agents (card grid with risk scores, agent detail with tool policies), Rules (268 rules across categories, per-rule overrides, custom rules, LLM-suggested rules), Security Posture (deployment audit, health score, SARIF export), AI Analysis (async LLM cases, triage config, budget tracking), Graph (agent topology with threat scoring), Gateway (backend CRUD, tool discovery, health checks), Settings (security mode, protection config, rate limiting). Drill-down routes include rule detail, session detail, custom rules, category detail, and coverage activity drawers.
 
 ### What you see after five minutes
 
@@ -293,10 +293,10 @@ Messages triggering high-severity rules are held for human review. Quarantined m
 ## Detection rules
 
 <p align="center">
-  <img src="documentation/assets/screenshots/dashboard-rules.png" alt="Rules catalog - 268 detection rules across 19 categories" width="820">
+  <img src="documentation/assets/screenshots/dashboard-rules.png" alt="Rules catalog - detection rules across categories" width="820">
 </p>
 
-**268 detection rules** across 19 categories:
+Current release: **268 detection rules** across categories:
 
 | Source | Count | Categories |
 |--------|-------|------------|
