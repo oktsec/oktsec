@@ -25,6 +25,7 @@ import (
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/auditcheck"
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/connectors/claudecode"
 	"github.com/oktsec/oktsec/internal/coverage"
 	"github.com/oktsec/oktsec/internal/discover"
 	"github.com/oktsec/oktsec/internal/graph"
@@ -4264,6 +4265,45 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 	since := parseSinceRange(rangeStr)
 	g := s.cachedBuildGraph(since)
 	s.renderJSON(w, g)
+}
+
+// handleClaudeCodeHealth wraps the Phase 1 Claude Code connector
+// inventory + health derivation into a JSON endpoint the dashboard
+// (and external tooling) can poll. Read-only: it never writes to
+// Claude Code state, never installs hooks, never modifies config.
+//
+// The endpoint returns both the raw inventory and the derived health
+// view so a single fetch is enough to render the Connection Health
+// card without a follow-up round-trip.
+func (s *Server) handleClaudeCodeHealth(w http.ResponseWriter, r *http.Request) {
+	projectDir := r.URL.Query().Get("project")
+	if projectDir == "" {
+		// Default to the directory the config file lives in. That is
+		// the most useful "current project" for `oktsec run` users
+		// because the proxy is launched from there.
+		if s.cfgPath != "" {
+			projectDir = filepath.Dir(s.cfgPath)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	inv := claudecode.Read(ctx, claudecode.ReadOptions{
+		ProjectDir: projectDir,
+		// Skip the version probe in the dashboard path so a hung CLI
+		// can never stall the dashboard request.
+		SkipVersionProbe: true,
+	})
+
+	health := claudecode.DeriveHealth(inv, claudecode.HealthOptions{
+		LastEvent: claudecode.LookupLastEvent(s.audit),
+	})
+
+	s.renderJSON(w, map[string]any{
+		"inventory": inv,
+		"health":    health,
+	})
 }
 
 // handleEvidenceStatus returns a snapshot of the audit store's row

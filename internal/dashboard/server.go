@@ -410,6 +410,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /dashboard/api/graph/edge", s.handleEdgeDetail)
 	s.mux.HandleFunc("POST /dashboard/api/audit/clear", s.handleAuditClear)
 	s.mux.HandleFunc("GET /dashboard/api/evidence/status", s.handleEvidenceStatus)
+	s.mux.HandleFunc("GET /dashboard/api/connectors/claude-code/health", s.handleClaudeCodeHealth)
 	s.mux.HandleFunc("POST /dashboard/api/audit/fix/{checkID}", s.handleAuditFix)
 	s.mux.HandleFunc("POST /dashboard/api/audit/fix-all", s.handleAuditFixAll)
 	s.mux.HandleFunc("POST /dashboard/api/audit/enrich", s.handleAuditEnrich)

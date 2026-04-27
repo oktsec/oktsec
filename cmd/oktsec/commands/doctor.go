@@ -31,12 +31,15 @@ func newDoctorCmd() *cobra.Command {
 		Use:   "doctor",
 		Short: "Run diagnostic checks on your oktsec setup",
 		Example: `  oktsec doctor
-  oktsec doctor --repair`,
+  oktsec doctor --repair
+  oktsec doctor claude-code
+  oktsec doctor claude-code --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDoctor(repair)
 		},
 	}
 	cmd.Flags().BoolVar(&repair, "repair", false, "attempt to fix issues automatically")
+	cmd.AddCommand(newDoctorClaudeCodeCmd())
 	return cmd
 }
 
