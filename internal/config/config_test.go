@@ -61,6 +61,78 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
+// TestQuarantineRetentionDefaultKeepsForever locks in the evidence-freeze
+// contract: a config that does not set quarantine.retention_days must
+// not cause the audit store to auto-purge anything. Earlier builds
+// silently promoted 0 to 90 days, which destroyed the evidence needed to
+// validate fresh installs.
+func TestQuarantineRetentionDefaultKeepsForever(t *testing.T) {
+	if got := Defaults().Quarantine.RetentionDays; got != 0 {
+		t.Errorf("Defaults().Quarantine.RetentionDays = %d, want 0 (keep forever)", got)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	// Minimal config that omits quarantine entirely. The previous default
+	// would have stamped retention_days=90 here.
+	content := `
+version: "1"
+server:
+  port: 8080
+  log_level: info
+identity:
+  keys_dir: ./keys
+  require_signature: false
+agents: {}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Quarantine.RetentionDays != 0 {
+		t.Errorf("Load(omitted quarantine).RetentionDays = %d, want 0 (keep forever)",
+			cfg.Quarantine.RetentionDays)
+	}
+}
+
+// TestQuarantineRetentionRespectsExplicitValue confirms the post-unmarshal
+// default does not clobber an explicit retention setting.
+func TestQuarantineRetentionRespectsExplicitValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	content := `
+version: "1"
+server:
+  port: 8080
+  log_level: info
+identity:
+  keys_dir: ./keys
+  require_signature: false
+agents: {}
+quarantine:
+  enabled: true
+  expiry_hours: 24
+  retention_days: 30
+  archive_dir: /tmp/oktsec-archives
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Quarantine.RetentionDays != 30 {
+		t.Errorf("RetentionDays = %d, want 30", cfg.Quarantine.RetentionDays)
+	}
+	if cfg.Quarantine.ArchiveDir != "/tmp/oktsec-archives" {
+		t.Errorf("ArchiveDir = %q, want /tmp/oktsec-archives", cfg.Quarantine.ArchiveDir)
+	}
+}
+
 func TestValidate_ValidConfig(t *testing.T) {
 	cfg := Defaults()
 	if err := cfg.Validate(); err != nil {

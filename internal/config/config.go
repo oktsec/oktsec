@@ -329,10 +329,17 @@ type EgressPolicy struct {
 }
 
 // QuarantineConfig configures the quarantine queue behavior.
+//
+// RetentionDays controls auto-purge of audit_log rows. The default is 0
+// (keep forever). When set to a positive value, the audit store will not
+// purge unless an archive directory is configured via ArchiveDir; this is
+// the evidence-freeze contract: never delete evidence without writing an
+// archive first.
 type QuarantineConfig struct {
-	Enabled       bool `yaml:"enabled"`
-	ExpiryHours   int  `yaml:"expiry_hours"`
-	RetentionDays int  `yaml:"retention_days"` // auto-purge audit entries older than N days (0 = keep forever)
+	Enabled       bool   `yaml:"enabled"`
+	ExpiryHours   int    `yaml:"expiry_hours"`
+	RetentionDays int    `yaml:"retention_days"` // auto-purge audit entries older than N days (0 = keep forever)
+	ArchiveDir    string `yaml:"archive_dir,omitempty"` // directory where archive-before-delete writes .jsonl.gz files
 }
 
 // RuleAction maps a rule ID to an enforcement action.
@@ -553,9 +560,12 @@ func Load(path string) (*Config, error) {
 			RequireSignature: true,
 		},
 		Quarantine: QuarantineConfig{
-			Enabled:       true,
-			ExpiryHours:   24,
-			RetentionDays: 90,
+			Enabled:     true,
+			ExpiryHours: 24,
+			// RetentionDays defaults to 0 (keep audit evidence forever).
+			// Operators must opt in to deletion explicitly, and they must
+			// also set ArchiveDir for the audit store to honor purges.
+			RetentionDays: 0,
 		},
 		RateLimit: RateLimitConfig{
 			PerAgent: 100,
@@ -580,9 +590,10 @@ func Load(path string) (*Config, error) {
 	if cfg.RateLimit.WindowS == 0 {
 		cfg.RateLimit.WindowS = 60
 	}
-	if cfg.Quarantine.RetentionDays == 0 {
-		cfg.Quarantine.RetentionDays = 90
-	}
+	// Quarantine.RetentionDays intentionally not coerced from 0:
+	// 0 means "keep audit evidence forever". Earlier builds silently
+	// promoted 0 to 90, which destroyed the evidence we need to validate
+	// installs. See documentation/engineering/specs/2026-04-27-claude-code-detection-posture-evidence-spec.md.
 	if cfg.Anomaly.CheckIntervalS == 0 {
 		cfg.Anomaly.CheckIntervalS = 60
 	}
@@ -631,7 +642,7 @@ func Defaults() *Config {
 		Quarantine: QuarantineConfig{
 			Enabled:       true,
 			ExpiryHours:   24,
-			RetentionDays: 90,
+			RetentionDays: 0,
 		},
 		RateLimit: RateLimitConfig{
 			PerAgent: 100,

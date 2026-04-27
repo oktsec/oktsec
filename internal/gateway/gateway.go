@@ -309,6 +309,8 @@ func NewGateway(cfg *config.Config, logger *slog.Logger, sharedStore *audit.Stor
 		if err != nil {
 			return nil, fmt.Errorf("opening audit store: %w", err)
 		}
+		// Wire archive_dir so the auto-purge loop honors retention safely.
+		auditStore.SetArchiveDir(cfg.Quarantine.ArchiveDir)
 	}
 
 	webhooks := proxy.NewWebhookNotifier(cfg.Webhooks, logger)

@@ -83,6 +83,10 @@ func NewServer(cfg *config.Config, cfgPath string, logger *slog.Logger) (*Server
 	if err != nil {
 		return nil, fmt.Errorf("opening audit store: %w — if another oktsec instance is running, stop it first", err)
 	}
+	// Wire archive_dir so the auto-purge loop can honor retention safely.
+	// Empty archive_dir + positive retention causes the loop to refuse to
+	// delete and warn once instead.
+	auditStore.SetArchiveDir(cfg.Quarantine.ArchiveDir)
 
 	// Proxy signing key for audit chain integrity
 	if cfg.Identity.KeysDir != "" {

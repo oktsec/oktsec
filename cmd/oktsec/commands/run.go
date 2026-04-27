@@ -219,9 +219,13 @@ func autoSetup(configPath string, opts runOpts) error {
 		},
 		"mcp_servers": mcpServers,
 		"quarantine": map[string]any{
-			"enabled":        true,
-			"expiry_hours":   24,
-			"retention_days": 90,
+			"enabled":      true,
+			"expiry_hours": 24,
+			// retention_days: 0 keeps audit evidence forever. Set a positive
+			// value AND quarantine.archive_dir to enable archive-before-delete
+			// auto-purge; without an archive directory, oktsec refuses to
+			// purge so installs can be debugged after the fact.
+			"retention_days": 0,
 		},
 		"rate_limit": map[string]any{
 			"per_agent": 100,
@@ -423,9 +427,12 @@ func writeMinimalConfig(configPath string) error {
 		"agents": map[string]any{},
 		"rules":  []map[string]any{},
 		"quarantine": map[string]any{
-			"enabled":        true,
-			"expiry_hours":   24,
-			"retention_days": 90,
+			"enabled":      true,
+			"expiry_hours": 24,
+			// retention_days: 0 keeps audit evidence forever. Set a positive
+			// value AND quarantine.archive_dir to enable archive-before-delete
+			// auto-purge.
+			"retention_days": 0,
 		},
 		"rate_limit": map[string]any{
 			"per_agent": 100,
