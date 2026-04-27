@@ -13,8 +13,16 @@ import (
 // to extract hooks. Anything not modeled here is left as raw JSON in
 // the parent map and ignored, so unknown keys never cause Read to
 // fail. The shape mirrors the public docs at code.claude.com/docs/en/hooks.
+//
+// Disable / restrict knobs are surfaced because the Phase 2 installer
+// must refuse to write hooks the operator (or a managed policy) has
+// globally disabled. The inventory reports them as ConnectorProblem
+// rows so the doctor can explain the situation before any write.
 type rawSettings struct {
-	Hooks map[string]json.RawMessage `json:"hooks,omitempty"`
+	Hooks                 map[string]json.RawMessage `json:"hooks,omitempty"`
+	DisableAllHooks       *bool                      `json:"disableAllHooks,omitempty"`
+	AllowManagedHooksOnly *bool                      `json:"allowManagedHooksOnly,omitempty"`
+	AllowedHTTPHookURLs   *[]string                  `json:"allowedHttpHookUrls,omitempty"`
 }
 
 // rawHookEntry covers both shapes Claude Code accepts under one event:
