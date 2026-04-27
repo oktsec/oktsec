@@ -17,9 +17,12 @@ type UninstallOptions struct {
 	FollowSymlink bool
 	DryRun        bool
 	// IncludeLegacyV1 controls whether older oktsec hooks (no
-	// --manifest v2 marker) are also removed. Default true:
-	// uninstall is meant to clear all of oktsec's footprints,
-	// not just the V2 ones.
+	// --manifest v2 marker) are also removed. Zero value is false
+	// because the Go zero-value contract wins; the doctor command
+	// passes true so a `oktsec doctor claude-code --uninstall-hooks`
+	// invocation clears every oktsec footprint, not just the V2
+	// entries. Library callers that want narrower scope can leave
+	// the field at its default.
 	IncludeLegacyV1 bool
 }
 
