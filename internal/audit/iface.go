@@ -123,9 +123,20 @@ type ChainVerifier interface {
 }
 
 // AuditAdmin handles maintenance operations.
+//
+// PurgeOldEntries and ClearAll are deprecated low-level primitives kept
+// for tests and tooling that opt out of archiving. Product surfaces
+// must call ArchiveAndPurgeOldEntries / ArchiveAndClearAll so deleted
+// rows are preserved on disk first. EvidenceStatus exposes retention
+// policy and row counts so the dashboard can prove evidence is intact.
 type AuditAdmin interface {
 	PurgeOldEntries(retentionDays int) (int, error)
 	ClearAll() error
+	ArchiveAndPurgeOldEntries(retentionDays int, archiveDir string) (int, string, error)
+	ArchiveAndClearAll(archiveDir string) (int, string, error)
+	SetArchiveDir(dir string)
+	ArchiveDir() string
+	EvidenceStatus() (EvidenceStatus, error)
 }
 
 // EventHub provides real-time audit event pub/sub.

@@ -164,6 +164,8 @@ type Store struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	retentionDays int
+	archiveDir    string             // directory where archive-before-delete writes; empty disables auto-purge
+	purgeWarnedNoArchive bool        // single-shot warning latch when retention>0 but archiveDir==""
 	proxyKey      ed25519.PrivateKey // proxy signing key for audit chain (nil = no signing)
 	lastHash      string             // last entry hash for chain continuity
 	lastHashMu    sync.Mutex
@@ -1826,6 +1828,12 @@ func (s *Store) QueryAvgLatency() (int, error) {
 
 // PurgeOldEntries deletes audit log entries older than the given number of days.
 // Returns the number of deleted rows.
+//
+// Deprecated: this is a low-level primitive that bypasses the
+// archive-before-delete contract. Production surfaces (the auto-purge
+// loop, the dashboard, the CLI) must use ArchiveAndPurgeOldEntries
+// instead. PurgeOldEntries is retained for tests and tooling that
+// genuinely want to skip archiving (e.g. throwaway in-memory stores).
 func (s *Store) PurgeOldEntries(retentionDays int) (int, error) {
 	if retentionDays <= 0 {
 		return 0, nil
@@ -1839,7 +1847,14 @@ func (s *Store) PurgeOldEntries(retentionDays int) (int, error) {
 	return int(n), nil
 }
 
-// ClearAll deletes all audit log entries. Used for demo/dev resets.
+// ClearAll deletes all audit log entries.
+//
+// Deprecated: this is a low-level primitive that destroys evidence
+// without writing an archive. Product surfaces (dashboard handlers,
+// HTTP/MCP API) must call ArchiveAndClearAll instead so the deleted
+// rows are preserved on disk first. ClearAll is kept for tests and
+// genuinely throwaway flows; it must never be wired to a UI button or
+// public API.
 func (s *Store) ClearAll() error {
 	_, err := s.db.Exec(`DELETE FROM audit_log`)
 	return err
@@ -1960,10 +1975,20 @@ func (s *Store) expiryLoop() {
 				s.logger.Info("quarantine items expired", "count", n)
 			}
 			if s.retentionDays > 0 {
-				if n, err := s.PurgeOldEntries(s.retentionDays); err != nil {
-					s.logger.Error("audit log purge failed", "error", err)
+				if s.archiveDir == "" {
+					if !s.purgeWarnedNoArchive {
+						s.logger.Warn("audit log auto-purge disabled: retention configured but quarantine.archive_dir is empty; refusing to delete without an archive",
+							"retention_days", s.retentionDays)
+						s.purgeWarnedNoArchive = true
+					}
+					continue
+				}
+				n, archive, err := s.ArchiveAndPurgeOldEntries(s.retentionDays, s.archiveDir)
+				if err != nil {
+					s.logger.Error("audit log archive-and-purge failed", "error", err)
 				} else if n > 0 {
-					s.logger.Info("audit log entries purged", "count", n)
+					s.logger.Info("audit log entries archived and purged",
+						"count", n, "archive", archive)
 				}
 			}
 		}

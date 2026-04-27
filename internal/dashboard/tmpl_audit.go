@@ -155,6 +155,34 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
   {{end}}
 </div>
 
+{{with .Evidence}}
+<!-- Evidence store status -->
+<div class="ps-section-title">Evidence store</div>
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;font-size:0.8125rem">
+  <div>
+    <div style="color:var(--text3);font-size:0.65rem;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px">Rows</div>
+    <div style="color:var(--text);font-weight:600">{{formatNum .TotalRows}}</div>
+  </div>
+  <div>
+    <div style="color:var(--text3);font-size:0.65rem;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px">Oldest</div>
+    <div style="color:var(--text2);font-family:var(--mono);font-size:0.75rem">{{if .OldestTimestamp}}{{.OldestTimestamp}}{{else}}—{{end}}</div>
+  </div>
+  <div>
+    <div style="color:var(--text3);font-size:0.65rem;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px">Newest</div>
+    <div style="color:var(--text2);font-family:var(--mono);font-size:0.75rem">{{if .NewestTimestamp}}{{.NewestTimestamp}}{{else}}—{{end}}</div>
+  </div>
+  <div>
+    <div style="color:var(--text3);font-size:0.65rem;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px">Retention</div>
+    <div style="color:var(--text2);font-family:var(--mono);font-size:0.75rem">{{.RetentionPolicy}}</div>
+  </div>
+  <div style="grid-column:1 / -1">
+    <div style="color:var(--text3);font-size:0.65rem;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:4px">Database</div>
+    <div style="color:var(--text2);font-family:var(--mono);font-size:0.75rem;word-break:break-all">{{if .DBBackend}}{{.DBBackend}}: {{end}}{{.DBPath}}</div>
+    {{if .ArchiveDirectory}}<div style="color:var(--text3);font-size:0.7rem;margin-top:4px">Archives written to <span style="font-family:var(--mono)">{{.ArchiveDirectory}}</span> before any auto-purge.</div>{{end}}
+  </div>
+</div>
+{{end}}
+
 <!-- Findings -->
 <div class="ps-section-title">Findings</div>
 {{if gt .TotalChecks 0}}

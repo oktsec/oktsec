@@ -461,6 +461,23 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		}(),
 	}
 
+	// Evidence store visibility. The block proves the audit log survives
+	// across restarts and reports the retention policy verbatim, so an
+	// operator can tell at a glance whether a future auto-purge could
+	// delete anything.
+	if st, err := s.audit.EvidenceStatus(); err == nil {
+		data["Evidence"] = map[string]any{
+			"DBPath":           s.cfg.DBPath,
+			"DBBackend":        s.cfg.DBBackend,
+			"TotalRows":        st.TotalRows,
+			"OldestTimestamp":  st.OldestTimestamp,
+			"NewestTimestamp":  st.NewestTimestamp,
+			"RetentionDays":    st.RetentionDays,
+			"RetentionPolicy":  st.RetentionPolicy,
+			"ArchiveDirectory": st.ArchiveDirectory,
+		}
+	}
+
 	s.renderTemplate(w, auditTmpl, data)
 }
 
@@ -4249,16 +4266,77 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 	s.renderJSON(w, g)
 }
 
-func (s *Server) handleAuditClear(w http.ResponseWriter, r *http.Request) {
-	if err := s.audit.ClearAll(); err != nil {
-		s.logger.Error("audit clear failed", "error", err)
+// handleEvidenceStatus returns a snapshot of the audit store's row
+// counts, time range, and retention policy. The dashboard renders this
+// in the Audit page so an operator can prove evidence is intact and see
+// at a glance whether a future auto-purge could delete anything.
+func (s *Server) handleEvidenceStatus(w http.ResponseWriter, r *http.Request) {
+	st, err := s.audit.EvidenceStatus()
+	if err != nil {
+		s.logger.Error("evidence status failed", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	// Remove all agents so the graph starts truly empty.
-	// They auto-register again when the gateway receives traffic.
+	out := map[string]any{
+		"db_path":           s.cfg.DBPath,
+		"db_backend":        s.cfg.DBBackend,
+		"total_rows":        st.TotalRows,
+		"oldest_timestamp":  st.OldestTimestamp,
+		"newest_timestamp":  st.NewestTimestamp,
+		"retention_days":    st.RetentionDays,
+		"retention_policy":  st.RetentionPolicy,
+		"archive_directory": st.ArchiveDirectory,
+	}
+	s.renderJSON(w, out)
+}
+
+// handleAuditClear is the dashboard endpoint that clears the audit log.
+// It refuses to delete unless the caller passes confirm=archive-and-clear
+// and the store has an archive directory configured. The archive is
+// written first; only then are rows deleted. If anything fails the audit
+// log is left untouched.
+//
+// The earlier behavior (call ClearAll() with no archive, no confirmation)
+// destroyed evidence the user needed to validate that oktsec was working.
+// See documentation/engineering/specs/2026-04-27-claude-code-detection-posture-evidence-spec.md
+// section 8 (Evidence Durability).
+func (s *Server) handleAuditClear(w http.ResponseWriter, r *http.Request) {
+	confirm := r.URL.Query().Get("confirm")
+	if confirm != "archive-and-clear" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "refused",
+			"reason": "missing confirm=archive-and-clear; the audit log can only be cleared after writing an archive",
+		})
+		return
+	}
+	archiveDir := s.audit.ArchiveDir()
+	if archiveDir == "" {
+		// Fall back to a sibling of the config file so a fresh install can
+		// still safely clear without manual configuration.
+		base := filepath.Dir(s.cfgPath)
+		if base == "" || base == "." {
+			base = "."
+		}
+		archiveDir = filepath.Join(base, "archives")
+	}
+	count, archive, err := s.audit.ArchiveAndClearAll(archiveDir)
+	if err != nil {
+		s.logger.Error("audit archive-and-clear failed", "error", err, "archive_dir", archiveDir)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Remove all agents so the graph starts truly empty. They auto-register
+	// again when the gateway receives traffic.
 	s.cfg.Agents = make(map[string]config.Agent)
-	s.renderJSON(w, map[string]string{"status": "cleared"})
+	s.renderJSON(w, map[string]any{
+		"status":         "cleared",
+		"archived_rows":  count,
+		"archive":        archive,
+		"archive_dir":    archiveDir,
+	})
 }
 
 // handleAuditFix applies an auto-fix for a single finding and returns an HTML
