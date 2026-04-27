@@ -141,12 +141,36 @@ func TestGatewayPage_PortLabelHonorsLiveOrConfigured(t *testing.T) {
 	}
 
 	// Flip to in-process: dashboard now shares the cfg pointer the
-	// gateway mutates with the actual port, so Listening on is
-	// truthful.
+	// gateway mutates with the actual port, so the label reflects
+	// a live listener.
 	srv.SetGatewayManaged()
 	body = get()
 	if !strings.Contains(body, "Listening on") {
 		t.Errorf("expected Listening on label when gwManaged=true; body lacks it")
+	}
+}
+
+// 3b. NewServer must NOT auto-spawn a child gateway during
+// construction. The previous behavior fired before any caller
+// could call SetGatewayManaged, so `oktsec run` ended up with two
+// gateways racing for the same port (the dashboard's child plus
+// the in-process gateway run.go starts moments later). Regression
+// guard: with Gateway.Enabled and at least one MCPServer
+// configured, gwCmd must remain nil after NewServer returns.
+func TestNewServer_DoesNotAutoSpawnChildGateway(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Gateway.Enabled = true
+	srv.cfg.MCPServers = map[string]config.MCPServerConfig{
+		"echo": {Transport: "stdio", Command: "true"},
+	}
+	// Re-construct now that the conditions are set, to exercise the
+	// construction path callers actually hit.
+	srv2 := NewServer(srv.cfg, "", srv.audit, srv.keys, srv.scanner, srv.logger)
+	srv2.gwMu.Lock()
+	cmd := srv2.gwCmd
+	srv2.gwMu.Unlock()
+	if cmd != nil {
+		t.Errorf("NewServer auto-spawned a child gateway (gwCmd=%+v); construction must be side-effect-free", cmd)
 	}
 }
 

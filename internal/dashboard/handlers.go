@@ -4577,7 +4577,7 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 		"Active":            "gateway",
 		"Gateway":           gw,
 		"GatewayEnabled":    gw.Enabled,
-		"GatewayPortIsLive": s.gwManaged, // see template note on Listening on vs Configured port
+		"GatewayPortIsLive": s.gwManaged.Load(), // see template note on Listening on vs Configured port
 		"Servers":           servers,
 		"Discovered":        discovered,
 		"Tab":               r.URL.Query().Get("tab"),
