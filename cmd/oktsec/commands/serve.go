@@ -52,7 +52,7 @@ func printBanner(cfg *config.Config, dashCode string) {
 
 	fmt.Println()
 	fmt.Printf("  %s %s\n", bold("oktsec"), dim(version))
-	fmt.Printf("  %s\n", dim("See everything your AI agents execute"))
+	fmt.Printf("  %s\n", dim("Visibility into the tool calls your AI agents route through Oktsec"))
 	fmt.Println()
 	fmt.Printf("  %s  %s\n", dim("Dashboard"), cyan(fmt.Sprintf("http://%s:%d/dashboard", bindAddr, cfg.Server.Port)))
 	fmt.Printf("  %s       %s\n", dim("Code"), color.New(color.FgYellow, color.Bold).Sprint(dashCode))
