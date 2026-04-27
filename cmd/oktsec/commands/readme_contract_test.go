@@ -41,6 +41,12 @@ func TestREADMEContract_Wording(t *testing.T) {
 		"chain of thought",
 		"see exactly what the agent was thinking",
 		"what the agent was thinking",
+		// Observe mode and the security pipeline must stay scoped
+		// to routed/processed surfaces. Unqualified "everything"
+		// and "every message and tool call passes" reintroduce the
+		// universal claim through a side door.
+		"logs everything",
+		"every message and tool call passes",
 		// "auto-generates new detection rules" was the LLM page
 		// overclaim. Generated rules carry pending_review by
 		// default — README must describe them as suggestions.

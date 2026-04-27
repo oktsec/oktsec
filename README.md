@@ -67,7 +67,7 @@ Open `http://127.0.0.1:8080/dashboard` with the access code printed in your term
 - Discovers local AI/MCP clients (Claude Desktop, Cursor, VS Code, Claude Code, etc.)
 - Writes config under `~/.oktsec/`
 - Creates Ed25519 keypairs for each discovered server
-- Starts in **observe mode** by default (logs everything, blocks nothing)
+- Starts in **observe mode** by default (logs routed activity, blocks nothing)
 - Shows a local dashboard with an access code
 - Does not send message content, keys, or audit logs to Oktsec
 - Can be reverted with `oktsec unwrap <client>`
@@ -145,7 +145,7 @@ Oktsec stores data locally in SQLite under `~/.oktsec/`. No message content, key
 
 ## How it works
 
-Every message and tool call passes through a deterministic 10-stage security pipeline:
+Every message and tool call routed through Oktsec passes through a deterministic 10-stage security pipeline:
 
 1. **Rate limiting** - Per-agent sliding-window throttling prevents flooding.
 2. **Identity** - Ed25519 signatures verify every message sender.
