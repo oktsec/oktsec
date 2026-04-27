@@ -319,10 +319,19 @@ a.ov-metric:hover{background:var(--surface2)}
 </div>
 
 {{if .Chart}}
-<!-- Activity sparkline -->
-<div class="sparkline-wrap">
-  <div class="sparkline-chart">
-    {{range .Chart}}<div class="sparkline-bar" style="height:{{.Percent}}%" title="{{.Label}}: {{.Count}} msgs"></div>{{end}}
+<!-- Activity sparkline. Wrapped in an ov-card with a heading so
+     the bar strip carries visible context. The chart itself is
+     suppressed by handlers.go when no hour bucket has traffic, so
+     reaching this template path means there is data to show. -->
+<div class="ov-card" style="margin-bottom:var(--sp-4)">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3)">
+    <h3 style="margin:0">Hourly activity (last 24h)</h3>
+    <span style="font-size:var(--text-xs);color:var(--text3)">Routed tool calls per hour</span>
+  </div>
+  <div class="sparkline-wrap">
+    <div class="sparkline-chart">
+      {{range .Chart}}<div class="sparkline-bar" style="height:{{.Percent}}%" title="{{.Label}}: {{.Count}} msgs"></div>{{end}}
+    </div>
   </div>
 </div>
 {{end}}

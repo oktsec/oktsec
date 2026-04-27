@@ -534,6 +534,15 @@ func (s *Server) getHourlyChart() []hourlyBar {
 			maxCount = c
 		}
 	}
+	// Suppress the sparkline entirely when no hour bucket has any
+	// traffic. A 24-bar zero-height chart renders as an unlabelled
+	// blue strip on the Overview, which reads as a broken
+	// placeholder in a desktop walkthrough. Returning nil lets the
+	// template's `{{if .Chart}}` skip the section cleanly until
+	// real data exists.
+	if maxCount == 0 {
+		return nil
+	}
 
 	bars := make([]hourlyBar, 24)
 	for i := range 24 {
@@ -4573,11 +4582,13 @@ func (s *Server) handleGateway(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gw := s.cfg.Gateway
+	gwLive := s.GatewayRunning()
 	data := map[string]any{
 		"Active":            "gateway",
 		"Gateway":           gw,
 		"GatewayEnabled":    gw.Enabled,
-		"GatewayPortIsLive": s.gwManaged.Load(), // see template note on Listening on vs Configured port
+		"GatewayLive":       gwLive,
+		"GatewayPortIsLive": gwLive, // template uses this for the port label too
 		"Servers":           servers,
 		"Discovered":        discovered,
 		"Tab":               r.URL.Query().Get("tab"),
