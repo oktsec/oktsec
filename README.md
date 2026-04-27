@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  Oktsec runs locally between AI agents and the tools they execute. It sees MCP calls, shell/file/browser actions, agent-to-agent messages and outbound requests, then applies policy before those actions become production changes.
+  Oktsec runs locally between AI agents and the tools they execute. For surfaces routed through it — MCP calls, shell/file/browser actions, agent-to-agent messages, and outbound requests — Oktsec applies policy before those actions become production changes.
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@
 
 ---
 
-- **See** every tool call in a real-time dashboard.
+- **See** every tool call routed through Oktsec in a real-time dashboard.
 - **Control** which agents can call which tools and services.
 - **Block or quarantine** risky actions before execution.
 - **Prove what happened** with tamper-evident, hash-chained audit logs.
@@ -108,7 +108,7 @@ Traditional security tools sit at the network edge (WAFs) or the model boundary 
 
 ### Common use cases
 
-- Observe every tool call from Claude Code, Cursor or Claude Desktop.
+- Observe every tool call routed through Oktsec from Claude Code, Cursor or Claude Desktop.
 - Block shell, file and network actions that match risky patterns.
 - Audit which agent accessed which tool and why.
 - Add policy before exposing internal MCP servers to agents.

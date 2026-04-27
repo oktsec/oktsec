@@ -41,6 +41,15 @@ var bannedOverviewPhrases = []string{
 	// tool calls") are allowed and intentionally not in the list.
 	"every tool call your ai agents make",
 	"every tool call scanned",
+	"every tool your agents use passes",
+	"all ai agent tool calls",
+	"across all agents and tools",
+	// AI Analysis must not promise it catches what rules cannot.
+	// Optional async analysis can REVIEW patterns, not catch them
+	// for the operator. "catches what rules" / "auto-generates"
+	// reintroduce the overclaim PR2 of the desktop polish removed.
+	"catches what rules alone",
+	"auto-generates new detection rules",
 	// Unsupported auth/edition feature terms.
 	"sso",
 	"saml",
@@ -174,6 +183,36 @@ func TestPublicArtifactSweep_LLMPageStaysAccurate(t *testing.T) {
 	for _, stale := range []string{"230 detection rules", "230 rules", "oktsec's 230"} {
 		if strings.Contains(body, stale) {
 			t.Errorf("LLM page shows stale literal rule count %q; should be {{.RuleCount}}", stale)
+		}
+	}
+}
+
+// 5. The Gateway page is the most visible surface for the desktop
+// demo recording. It must follow the same banned-phrase contract as
+// Overview and the LLM page, AND the page-desc must qualify tool
+// calls as routed through Oktsec rather than implying every tool an
+// agent uses passes through (which would contradict the Blind cells
+// in the coverage matrix). Regression for DP-06.
+func TestPublicArtifactSweep_GatewayPageStaysAccurate(t *testing.T) {
+	srv := newTestServer(t)
+	srv.cfg.Gateway.Enabled = true
+
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest(http.MethodGet, "/dashboard/gateway", nil)
+	req.AddCookie(cookie)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	lower := strings.ToLower(body)
+	for _, banned := range bannedOverviewPhrases {
+		if strings.Contains(lower, banned) {
+			t.Errorf("Gateway page body contains banned phrase %q", banned)
 		}
 	}
 }

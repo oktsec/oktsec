@@ -381,7 +381,7 @@ func (m Model) View() string {
 
 	header := lipgloss.JoinVertical(lipgloss.Left,
 		hx[0]+" "+hx[1]+"  "+headerStyle.Render("oktsec")+" "+dimStyle.Render(m.cfg.Version),
-		hx[2]+" "+hx[3]+"  "+taglineStyle.Render("See everything your AI agents execute"),
+		hx[2]+" "+hx[3]+"  "+taglineStyle.Render("Visibility into the tool calls your AI agents route through Oktsec"),
 	)
 
 	currentMode := m.cfg.Mode
