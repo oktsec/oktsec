@@ -119,8 +119,11 @@ func UninstallV2(ctx context.Context, opts UninstallOptions) (UninstallResult, e
 
 // stripManifest mirrors the install-side filter loop but removes
 // every oktsec-owned handler instead of substituting a fresh one.
-// Empty event arrays are dropped so uninstall is fully reversible
-// — a follow-up install regenerates the keys cleanly.
+// Operator handlers retain their raw JSON payload so unknown
+// fields (timeout, statusMessage, env, headers, future Claude
+// additions) survive uninstall verbatim. Empty event arrays are
+// dropped so uninstall is fully reversible — a follow-up install
+// regenerates the keys cleanly.
 func stripManifest(settings map[string]json.RawMessage, includeLegacyV1 bool) (int, int, map[string]json.RawMessage, error) {
 	rawHooks, ok := settings["hooks"]
 	if !ok || len(rawHooks) == 0 {
@@ -132,34 +135,28 @@ func stripManifest(settings map[string]json.RawMessage, includeLegacyV1 bool) (i
 	}
 
 	removedV2, removedV1 := 0, 0
-	out := map[string][]rawHookEntry{}
+	out := map[string][]preservedHookEntry{}
 	for event, raw := range perEvent {
-		var entries []rawHookEntry
-		if err := json.Unmarshal(raw, &entries); err != nil {
-			var single rawHookEntry
-			if err2 := json.Unmarshal(raw, &single); err2 == nil {
-				entries = []rawHookEntry{single}
-			} else {
-				return 0, 0, nil, fmt.Errorf("parsing hooks[%s]: %w", event, err)
-			}
+		entries, perr := decodePreservedEntries(raw)
+		if perr != nil {
+			return 0, 0, nil, fmt.Errorf("parsing hooks[%s]: %w", event, perr)
 		}
-		var keptEntries []rawHookEntry
+		var keptEntries []preservedHookEntry
 		for _, entry := range entries {
-			var keptHandlers []rawHookHandler
+			var keptHandlers []json.RawMessage
 			for _, h := range entry.Hooks {
+				isV2, isLegacy := handlerOwnership(h)
 				switch {
-				case isManifestV2Handler(h):
+				case isV2:
 					removedV2++
-					continue
-				case includeLegacyV1 && isLegacyOktsecHandler(h):
+				case includeLegacyV1 && isLegacy:
 					removedV1++
-					continue
 				default:
 					keptHandlers = append(keptHandlers, h)
 				}
 			}
 			if len(keptHandlers) > 0 {
-				keptEntries = append(keptEntries, rawHookEntry{
+				keptEntries = append(keptEntries, preservedHookEntry{
 					Matcher: entry.Matcher,
 					Hooks:   keptHandlers,
 				})

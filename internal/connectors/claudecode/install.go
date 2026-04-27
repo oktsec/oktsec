@@ -240,9 +240,72 @@ func readRawSettings(path string) (map[string]json.RawMessage, os.FileMode, erro
 	return raw, mode, nil
 }
 
+// phase2EventSpec is one (event, matcher) pair the installer
+// writes. Centralised so the install plan, the inventory's
+// "missing events" report, and the runtime block-capability map
+// all derive from one table. Adding an event family is a
+// one-line change here.
+type phase2EventSpec struct {
+	event   string
+	matcher string
+}
+
+// phase2EventSpecs is the canonical Phase 2 hook manifest. The
+// inventory derives expectedEventFamilies from this list so the
+// "missing events" report always matches what the installer
+// writes; previously the two lists drifted (FileChanged was
+// expected but never installed, Notification was installed but
+// not expected) and the doctor never reached `ready` after a
+// successful install.
+//
+// FileChanged is intentionally absent: the docs require literal
+// filename matchers and the spec defers it to Phase 3. Adding it
+// here without a watch-list would create silent matcher drift.
+var phase2EventSpecs = []phase2EventSpec{
+	// Pre-action / blocking
+	{"PreToolUse", "*"},
+	{"PermissionRequest", "*"},
+
+	// Post-action / observed
+	{"PostToolUse", "*"},
+	{"PostToolUseFailure", "*"},
+	{"PostToolBatch", ""},
+	{"Stop", ""},
+	{"StopFailure", ""},
+	{"PermissionDenied", ""},
+
+	// Subagent + task lifecycle
+	{"SubagentStart", "*"},
+	{"SubagentStop", "*"},
+	{"TaskCreated", ""},
+	{"TaskCompleted", ""},
+
+	// Session + config
+	{"SessionStart", ""},
+	{"SessionEnd", ""},
+	{"InstructionsLoaded", ""},
+	{"CwdChanged", ""},
+	{"ConfigChange", ""},
+	{"Notification", ""},
+}
+
+// Phase2EventNames returns the event-family names the installer
+// writes, in stable order. Used by the inventory to compute the
+// "missing events" gap report so the inventory and installer never
+// drift again. Exported so external tooling (the dashboard's
+// future Setup Health card) can render the same list.
+func Phase2EventNames() []string {
+	names := make([]string, len(phase2EventSpecs))
+	for i, s := range phase2EventSpecs {
+		names[i] = s.event
+	}
+	return names
+}
+
 // buildPlan composes the per-event entries the installer will
-// write. Centralised so tests can read the canonical plan without
-// touching disk and so future event additions are one-table swap.
+// write. Pure projection of phase2EventSpecs through the binary
+// path + port, so a contract change to the command line is one
+// edit.
 func buildPlan(binary string, port int) []PlannedHookEntry {
 	cmdFor := func(event string) string {
 		return fmt.Sprintf("%q hook --port %d --event %s --manifest %s",
@@ -251,40 +314,8 @@ func buildPlan(binary string, port int) []PlannedHookEntry {
 	statusFor := func(event string) string {
 		return fmt.Sprintf("oktsec checking %s", event)
 	}
-
-	type spec struct {
-		event   string
-		matcher string
-	}
-	specs := []spec{
-		// Pre-action / blocking
-		{"PreToolUse", "*"},
-		{"PermissionRequest", "*"},
-
-		// Post-action / observed
-		{"PostToolUse", "*"},
-		{"PostToolUseFailure", "*"},
-		{"PostToolBatch", ""},
-		{"Stop", ""},
-		{"StopFailure", ""},
-		{"PermissionDenied", ""},
-
-		// Subagent + task lifecycle
-		{"SubagentStart", "*"},
-		{"SubagentStop", "*"},
-		{"TaskCreated", ""},
-		{"TaskCompleted", ""},
-
-		// Session + config
-		{"SessionStart", ""},
-		{"SessionEnd", ""},
-		{"InstructionsLoaded", ""},
-		{"CwdChanged", ""},
-		{"ConfigChange", ""},
-		{"Notification", ""},
-	}
-	plan := make([]PlannedHookEntry, 0, len(specs))
-	for _, s := range specs {
+	plan := make([]PlannedHookEntry, 0, len(phase2EventSpecs))
+	for _, s := range phase2EventSpecs {
 		plan = append(plan, PlannedHookEntry{
 			Event:       s.event,
 			Matcher:     s.matcher,
@@ -299,45 +330,42 @@ func buildPlan(binary string, port int) []PlannedHookEntry {
 
 // applyManifest rewrites the "hooks" subtree of the parsed settings
 // map: filters out our own entries (v2 + legacy v1) per event,
-// preserves operator entries, and appends one fresh v2 entry per
+// preserves operator entries verbatim (handler payloads stay as
+// raw JSON so unknown fields like timeout / statusMessage / env
+// survive the round-trip), and appends one fresh v2 entry per
 // planned event. Returns the count of v1 entries upgraded, the
 // mutated settings map, and any encode/decode error.
 func applyManifest(settings map[string]json.RawMessage, plan []PlannedHookEntry) (int, map[string]json.RawMessage, error) {
-	// Decode the current hooks subtree into a typed map so we can
-	// filter cleanly. Unknown event keys round-trip via raw JSON
-	// untouched.
-	current := map[string][]rawHookEntry{}
+	// Decode the current hooks subtree using the preservation
+	// shape so handlers round-trip as raw JSON. The lossy rawHookEntry
+	// type would silently drop any handler field we do not model
+	// (timeout, statusMessage, env, headers, allowedEnvVars, future
+	// Claude additions) on rewrite.
+	current := map[string][]preservedHookEntry{}
 	if rawHooks, ok := settings["hooks"]; ok && len(rawHooks) > 0 {
 		var perEvent map[string]json.RawMessage
 		if err := json.Unmarshal(rawHooks, &perEvent); err != nil {
 			return 0, nil, fmt.Errorf("parsing hooks subtree: %w", err)
 		}
 		for event, raw := range perEvent {
-			var entries []rawHookEntry
-			if err := json.Unmarshal(raw, &entries); err != nil {
-				// Tolerate single-object form that some older
-				// configs use. Fall through to a single-element slice.
-				var single rawHookEntry
-				if err2 := json.Unmarshal(raw, &single); err2 == nil {
-					entries = []rawHookEntry{single}
-				} else {
-					return 0, nil, fmt.Errorf("parsing hooks[%s]: %w", event, err)
-				}
+			entries, perr := decodePreservedEntries(raw)
+			if perr != nil {
+				return 0, nil, fmt.Errorf("parsing hooks[%s]: %w", event, perr)
 			}
 			current[event] = entries
 		}
 	}
 
-	// Build planned-event lookup for fast membership tests.
 	plannedByEvent := map[string]PlannedHookEntry{}
 	for _, p := range plan {
 		plannedByEvent[p.Event] = p
 	}
 
 	upgradedV1 := 0
-	out := map[string][]rawHookEntry{}
+	out := map[string][]preservedHookEntry{}
 
-	// 1) Pass through events not in our plan untouched.
+	// 1) Pass through events not in our plan untouched. The raw
+	// JSON handler payloads stay verbatim.
 	for event, entries := range current {
 		if _, planned := plannedByEvent[event]; planned {
 			continue
@@ -345,47 +373,46 @@ func applyManifest(settings map[string]json.RawMessage, plan []PlannedHookEntry)
 		out[event] = entries
 	}
 
-	// 2) For each planned event, filter operator entries through
-	// our ownership predicate, count v1 upgrades, then append the
-	// fresh v2 entry.
+	// 2) For each planned event, filter operator handlers through
+	// the ownership predicate, count v1 upgrades, then append the
+	// fresh v2 entry. Operator handlers retain their raw JSON
+	// payload so unknown fields are preserved.
 	for _, p := range plan {
-		var preserved []rawHookEntry
+		var preserved []preservedHookEntry
 		for _, entry := range current[p.Event] {
-			kept := []rawHookHandler{}
-			for _, h := range entry.Hooks {
+			kept := []json.RawMessage{}
+			for _, raw := range entry.Hooks {
+				isV2, isLegacy := handlerOwnership(raw)
 				switch {
-				case isManifestV2Handler(h):
-					// Drop our own previous v2 entry — we are about to write a fresh one.
-					continue
-				case isLegacyOktsecHandler(h):
+				case isV2:
+					// Drop our previous v2 entry — about to write fresh.
+				case isLegacy:
 					upgradedV1++
-					continue
 				default:
-					kept = append(kept, h)
+					kept = append(kept, raw)
 				}
 			}
 			if len(kept) > 0 {
-				preserved = append(preserved, rawHookEntry{
+				preserved = append(preserved, preservedHookEntry{
 					Matcher: entry.Matcher,
 					Hooks:   kept,
 				})
 			}
 		}
-		preserved = append(preserved, rawHookEntry{
+		ownHandler, err := encodeOwnHandler(p)
+		if err != nil {
+			return 0, nil, err
+		}
+		preserved = append(preserved, preservedHookEntry{
 			Matcher: p.Matcher,
-			Hooks: []rawHookHandler{{
-				Type:    p.Type,
-				Command: p.Command,
-			}},
+			Hooks:   []json.RawMessage{ownHandler},
 		})
 		out[p.Event] = preserved
 	}
 
-	// Re-encode hooks subtree with stable key order.
 	encoded := map[string]json.RawMessage{}
 	for _, event := range sortedKeys(out) {
 		entries := out[event]
-		// Drop empty event keys to avoid leaving "PreToolUse": [].
 		if len(entries) == 0 {
 			continue
 		}
@@ -405,6 +432,36 @@ func applyManifest(settings map[string]json.RawMessage, plan []PlannedHookEntry)
 		delete(settings, "hooks")
 	}
 	return upgradedV1, settings, nil
+}
+
+// decodePreservedEntries parses one event's raw JSON value into the
+// preservation shape. Tolerates the older single-object form some
+// configs use; either way the returned entries carry handler
+// payloads as raw JSON for verbatim round-trip.
+func decodePreservedEntries(raw json.RawMessage) ([]preservedHookEntry, error) {
+	var entries []preservedHookEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		var single preservedHookEntry
+		if err2 := json.Unmarshal(raw, &single); err2 != nil {
+			return nil, err
+		}
+		entries = []preservedHookEntry{single}
+	}
+	return entries, nil
+}
+
+// encodeOwnHandler produces the raw JSON shape for one oktsec hook
+// handler. Centralised so the manifest's wire format is one
+// function the test suite can pin.
+func encodeOwnHandler(p PlannedHookEntry) (json.RawMessage, error) {
+	body, err := json.Marshal(map[string]any{
+		"type":    p.Type,
+		"command": p.Command,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encoding own handler for %s: %w", p.Event, err)
+	}
+	return body, nil
 }
 
 // encodeSettings serialises the raw settings map into the canonical

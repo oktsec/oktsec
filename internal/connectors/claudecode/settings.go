@@ -25,20 +25,53 @@ type rawSettings struct {
 	AllowedHTTPHookURLs   *[]string                  `json:"allowedHttpHookUrls,omitempty"`
 }
 
-// rawHookEntry covers both shapes Claude Code accepts under one event:
-//   { "matcher": "*", "hooks": [ { "type": "command", "command": "..." } ] }
-//
-// The "hooks" inner array can also be a single object in some older
-// configs; we accept both via json.RawMessage and decode lazily.
+// rawHookEntry is the lossy projection used by the inventory's
+// HookRef rendering path (read-only). It only models the fields the
+// dashboard / doctor surface display, so unknown handler fields
+// (timeout, statusMessage, env, headers, allowedEnvVars, etc.) are
+// dropped. NEVER use rawHookEntry for the write round-trip — see
+// preservedHookEntry instead.
 type rawHookEntry struct {
-	Matcher string            `json:"matcher,omitempty"`
-	Hooks   []rawHookHandler  `json:"hooks,omitempty"`
+	Matcher string           `json:"matcher,omitempty"`
+	Hooks   []rawHookHandler `json:"hooks,omitempty"`
 }
 
 type rawHookHandler struct {
 	Type    string `json:"type,omitempty"`    // command | http | mcp_tool | prompt | agent
 	Command string `json:"command,omitempty"`
 	URL     string `json:"url,omitempty"`
+}
+
+// preservedHookEntry is the install/uninstall round-trip shape:
+// the matcher is decoded so we can split entries by matcher, but
+// each handler is kept as raw JSON so unknown fields the operator
+// added (timeout, statusMessage, env, headers, allowedEnvVars,
+// future Claude additions) round-trip verbatim. Inventory HookRef
+// rendering does NOT need this preservation; it stays on
+// rawHookEntry.
+type preservedHookEntry struct {
+	Matcher string            `json:"matcher,omitempty"`
+	Hooks   []json.RawMessage `json:"hooks,omitempty"`
+}
+
+// handlerOwnership decodes just enough of a raw handler payload to
+// classify it as oktsec-owned (v2), legacy oktsec (v1), or operator
+// content. Used by applyManifest / stripManifest so the round-trip
+// path never has to fully decode a handler whose unknown fields
+// must be preserved.
+func handlerOwnership(raw json.RawMessage) (isV2, isLegacy bool) {
+	var probe rawHookHandler
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false, false
+	}
+	switch {
+	case isManifestV2Handler(probe):
+		return true, false
+	case isLegacyOktsecHandler(probe):
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 // readSettings loads a single Claude settings file and unmarshals it

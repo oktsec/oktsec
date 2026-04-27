@@ -156,9 +156,58 @@ func runHook(port int, eventOverride string) error {
 		return nil
 	}
 
+	// Observe-only events MUST NOT block even when the gateway
+	// returns decision:block — Claude Code does not honor a deny
+	// from these events anyway, and exiting 2 here would surface
+	// as a Claude error without preventing the action. The Phase 2
+	// installer wires us to events like SessionEnd, Notification,
+	// CwdChanged, etc. purely for audit; if the gateway accidentally
+	// returns block (e.g. a misconfigured rule), we record the
+	// gateway's intent in the diagnostic file and return the normal
+	// observe envelope so Claude proceeds.
+	if !isBlockCapableEvent(event) {
+		writeHookDiag(event, fmt.Sprintf("gateway returned block for observe-only event; honoring observe contract. reason=%s", result.Reason))
+		fmt.Fprint(os.Stdout, "{}")
+		return nil
+	}
+
 	emitBlock(event, result.Reason, result.AdditionalContext)
 	os.Exit(2)
 	return nil
+}
+
+// blockCapableEvents lists every event family where Claude Code
+// honors a block decision. Sourced from the official hook event
+// table in code.claude.com/docs/en/hooks; each entry is paired
+// with the response shape emitBlock uses.
+//
+// Observe-only events (SessionStart/SessionEnd/InstructionsLoaded/
+// SubagentStart/PermissionDenied/Notification/CwdChanged/
+// FileChanged/StopFailure) are deliberately absent — see the
+// gating in runHook above.
+var blockCapableEvents = map[string]bool{
+	"PreToolUse":         true,
+	"PermissionRequest":  true,
+	"PostToolUse":        true,
+	"PostToolUseFailure": true,
+	"PostToolBatch":      true,
+	"Stop":               true,
+	"SubagentStop":       true,
+	"ConfigChange":       true,
+	"TaskCreated":        true,
+	"TaskCompleted":      true,
+}
+
+// isBlockCapableEvent reports whether Claude Code will honor a
+// block from this event family. Empty event (gateway response did
+// not echo it back, no --event flag set) is treated as
+// non-blocking so we fail safe rather than send a deny shape that
+// Claude cannot apply.
+func isBlockCapableEvent(event string) bool {
+	if event == "" {
+		return false
+	}
+	return blockCapableEvents[event]
 }
 
 // emitBlock prints the per-event Claude Code response shape on
@@ -212,11 +261,12 @@ func emitBlock(event, reason, additionalContext string) {
 		// JSON shape required.
 		fmt.Fprintf(os.Stderr, "oktsec: %s blocked — %s\n", event, reason)
 	default:
-		// Unknown / observe-only events should not normally reach
-		// this branch (the gateway should not return decision:block
-		// for them), but if they do we surface the reason on stderr
-		// and exit 2 so policy intent is honored.
-		fmt.Fprintf(os.Stderr, "oktsec: blocked — %s\n", reason)
+		// Unreachable in normal operation: runHook gates emitBlock
+		// behind isBlockCapableEvent so observe-only events never
+		// reach this switch. Defensive fallback prints to stderr in
+		// case a future event addition forgets to update both
+		// blockCapableEvents and this switch.
+		fmt.Fprintf(os.Stderr, "oktsec: %s blocked — %s\n", event, reason)
 	}
 }
 

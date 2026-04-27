@@ -6,30 +6,16 @@ import (
 	"strings"
 )
 
-// expectedEventFamilies is the Phase 2 hook manifest the spec calls for
-// (section 2). Phase 1 only reports which of these are missing; it
-// never installs them. Kept as a sorted slice so HookRef.Expected
-// renders the same on every run.
-var expectedEventFamilies = []string{
-	"PreToolUse",         // pre-action / blocking
-	"PostToolUse",        // observed / feedback
-	"PostToolUseFailure", // observed / failure surface
-	"PostToolBatch",      // observed / batched failures
-	"SubagentStart",      // observed actor lifecycle
-	"SubagentStop",
-	"SessionStart", // observed session lifecycle
-	"SessionEnd",
-	"InstructionsLoaded", // observed config-change surface
-	"CwdChanged",
-	"FileChanged",
-	"PermissionRequest", // pre-action / blocking
-	"PermissionDenied",
-	"Stop",
-	"StopFailure",
-	"TaskCreated",
-	"TaskCompleted",
-	"ConfigChange",
-}
+// expectedEventFamilies is derived from the canonical Phase 2
+// install plan in install.go (Phase2EventNames). Phase 1 reports
+// the same set as "missing when not installed" so a successful
+// install brings MissingExpectedEvents to empty and the doctor /
+// health view can reach `ready`. The previous standalone slice
+// drifted from buildPlan and made the gap report unreliable.
+//
+// Initialized via init() so the install.go table is the only place
+// new event families are added.
+var expectedEventFamilies = Phase2EventNames()
 
 // blockingEventFamilies is the subset of hooks that can deny an
 // action before Claude executes it. Used to populate

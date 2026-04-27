@@ -340,6 +340,163 @@ func TestUninstallV2_RemovesOnlyOurEntries(t *testing.T) {
 	}
 }
 
+// TestPhase2EventNames_MatchesInstalledPlan locks in the P1
+// invariant: the inventory's "missing events" report and the
+// installer's plan derive from the same source. A drift here
+// would mean the doctor never reaches `ready` after a clean
+// install (or, in the other direction, would mark events
+// "missing" that we silently never install).
+func TestPhase2EventNames_MatchesInstalledPlan(t *testing.T) {
+	plan := buildPlan("/usr/local/bin/oktsec", 9090)
+	planEvents := map[string]bool{}
+	for _, p := range plan {
+		planEvents[p.Event] = true
+	}
+	for _, name := range Phase2EventNames() {
+		if !planEvents[name] {
+			t.Errorf("Phase2EventNames lists %q but buildPlan does not install it", name)
+		}
+	}
+	for event := range planEvents {
+		var found bool
+		for _, name := range Phase2EventNames() {
+			if name == event {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("buildPlan installs %q but Phase2EventNames does not list it (missing-events report would be wrong)", event)
+		}
+	}
+}
+
+// TestMissingExpectedEvents_EmptyAfterInstall is the operator-
+// visible guarantee that the doctor's "missing manifest events"
+// list is empty once the installer has run.
+func TestMissingExpectedEvents_EmptyAfterInstall(t *testing.T) {
+	home := installFixtureHome(t, "")
+	if _, err := InstallV2(context.Background(), InstallOptions{
+		HomeDir:     home,
+		BinaryPath:  "/usr/local/bin/oktsec",
+		GatewayPort: 9090,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inv := Read(context.Background(), ReadOptions{
+		HomeDir:          home,
+		SkipVersionProbe: true,
+	})
+	if missing := MissingExpectedEvents(inv.Hooks); len(missing) > 0 {
+		t.Errorf("MissingExpectedEvents non-empty after fresh install: %v", missing)
+	}
+}
+
+// TestInstallV2_PreservesUnknownHandlerFields locks in the P2
+// merge contract: an operator hook with `timeout` and
+// `statusMessage` fields (or any other Claude-supported field
+// the inventory does not model) must round-trip verbatim across
+// install. The previous typed-struct decode silently dropped them.
+func TestInstallV2_PreservesUnknownHandlerFields(t *testing.T) {
+	existing := `{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash(git *)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/operator/audit.sh",
+            "timeout": 600,
+            "statusMessage": "operator audit running",
+            "if": "Bash(git push *)",
+            "allowedEnvVars": ["GIT_AUTHOR"],
+            "shell": "bash"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	home := installFixtureHome(t, existing)
+	if _, err := InstallV2(context.Background(), InstallOptions{
+		HomeDir:     home,
+		BinaryPath:  "/usr/local/bin/oktsec",
+		GatewayPort: 9090,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	for _, expected := range []string{
+		`"timeout"`,
+		`"statusMessage"`,
+		`"if"`,
+		`"allowedEnvVars"`,
+		`"shell"`,
+		`"operator audit running"`,
+		`"GIT_AUTHOR"`,
+		`"Bash(git push *)"`,
+		`"/opt/operator/audit.sh"`,
+	} {
+		if !strings.Contains(string(body), expected) {
+			t.Errorf("operator field %s lost on install round-trip; body=%s", expected, body)
+		}
+	}
+	// And the oktsec entry must still be present.
+	if !strings.Contains(string(body), ManifestV2Marker) {
+		t.Errorf("oktsec entry missing after preserve-fields install; body=%s", body)
+	}
+}
+
+// TestUninstallV2_PreservesUnknownHandlerFields confirms the
+// symmetric guarantee on the uninstall path.
+func TestUninstallV2_PreservesUnknownHandlerFields(t *testing.T) {
+	existing := `{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash(git *)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/operator/audit.sh",
+            "timeout": 600,
+            "statusMessage": "operator audit running"
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+	home := installFixtureHome(t, existing)
+	if _, err := InstallV2(context.Background(), InstallOptions{
+		HomeDir:     home,
+		BinaryPath:  "/usr/local/bin/oktsec",
+		GatewayPort: 9090,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UninstallV2(context.Background(), UninstallOptions{
+		HomeDir:         home,
+		IncludeLegacyV1: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	for _, expected := range []string{
+		`"timeout"`,
+		`"statusMessage"`,
+		`"operator audit running"`,
+		`"/opt/operator/audit.sh"`,
+	} {
+		if !strings.Contains(string(body), expected) {
+			t.Errorf("operator field %s lost on uninstall round-trip; body=%s", expected, body)
+		}
+	}
+}
+
 // TestInstallV2_DryRunMakesNoMutation locks in the dry-run contract.
 func TestInstallV2_DryRunMakesNoMutation(t *testing.T) {
 	home := installFixtureHome(t, "")

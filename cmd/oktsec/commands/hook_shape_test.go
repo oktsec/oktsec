@@ -187,6 +187,38 @@ func TestHook_AllowEmitsEnvelope(t *testing.T) {
 	}
 }
 
+// TestHook_ObserveOnlyEventsNeverBlock locks in the P3 contract:
+// even when the gateway returns decision:block for an
+// observe-only event family (SessionEnd, InstructionsLoaded,
+// CwdChanged, Notification, etc.), the hook must exit 0 with the
+// allow envelope so Claude Code does not surface a deny it cannot
+// honor anyway. The gateway's intent is recorded in the
+// diagnostic file for the dashboard / doctor to surface.
+func TestHook_ObserveOnlyEventsNeverBlock(t *testing.T) {
+	for _, event := range []string{
+		"SessionEnd", "InstructionsLoaded", "CwdChanged",
+		"Notification", "PermissionDenied", "StopFailure",
+		"SubagentStart", "SessionStart",
+	} {
+		t.Run(event, func(t *testing.T) {
+			stdout, stderr, exit := runHookBinary(t,
+				`{"hook_event_name":"`+event+`"}`,
+				event,
+				map[string]any{"decision": "block", "reason": "rule misfire X-999"},
+			)
+			if exit != 0 {
+				t.Errorf("exit = %d, want 0 for observe-only event %s; stderr=%s", exit, event, stderr)
+			}
+			if strings.TrimSpace(stdout) != "{}" {
+				t.Errorf("stdout = %q, want {} for observe-only event %s", stdout, event)
+			}
+			if strings.Contains(stdout, `"deny"`) {
+				t.Errorf("observe-only event %s emitted deny shape; stdout=%s", event, stdout)
+			}
+		})
+	}
+}
+
 // TestHook_FailOpenWhenGatewayDown confirms the default
 // failure-open posture: gateway unreachable, no block emitted,
 // exit 0.
