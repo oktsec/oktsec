@@ -9,7 +9,7 @@ var overviewTmpl = template.Must(template.New("overview").Funcs(tmplFuncs).Parse
 .hero-stat::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent-dim),var(--accent-light));opacity:0;transition:opacity var(--ease-smooth)}
 .hero-stat:hover{background:var(--surface2)}
 .hero-stat:hover::before{opacity:1}
-.hero-stat .num{font-size:var(--text-3xl);font-weight:800;letter-spacing:-0.04em;font-family:var(--sans);line-height:1}
+.hero-stat .num{font-size:var(--text-3xl);font-weight:800;letter-spacing:0;font-family:var(--sans);line-height:1}
 .hero-stat .lbl{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-top:var(--sp-2);font-weight:500}
 .ov-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4);margin-bottom:var(--sp-4)}
 .ov-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:var(--sp-5);transition:border-color var(--ease-smooth),box-shadow var(--ease-smooth)}
@@ -53,7 +53,7 @@ a.ov-metric:hover{background:var(--surface2)}
 .score-ring-fill.success{stroke:var(--success)}
 .score-ring-fill.warn{stroke:var(--warn)}
 .score-ring-fill.danger{stroke:var(--danger)}
-.score-ring-val{position:absolute;font-size:var(--text-md);font-weight:700;font-family:var(--sans);letter-spacing:-0.02em}
+.score-ring-val{position:absolute;font-size:var(--text-md);font-weight:700;font-family:var(--sans);letter-spacing:0}
 .score-ring-val.success{color:var(--success)}
 .score-ring-val.warn{color:var(--warn)}
 .score-ring-val.danger{color:var(--danger)}

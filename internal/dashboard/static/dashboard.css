@@ -19,7 +19,7 @@
   /* Colors — GitHub-inspired dark with oktsec violet accent */
   --bg:#0d1117;--surface:#161b22;--surface2:#1c2128;--surface-hover:#21262d;
   --border:#30363d;--border-hover:#484f58;--border-subtle:#21262d;
-  --text:#e6edf3;--text2:#9ca3af;--text3:#848d97;
+  --text:#e6edf3;--text2:#9ca3af;--text3:#a3acb6;
   --accent:#58a6ff;--accent-light:#58a6ff;--accent-dim:#1f6feb;
   --accent-glow:rgba(56,139,253,0.08);--accent-glow-md:rgba(56,139,253,0.15);--accent-border:rgba(56,139,253,0.25);
   --danger:#f85149;--success:#3fb950;--warn:#d29922;
@@ -46,8 +46,13 @@
   /* Spacing (4px grid) */
   --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:20px;--sp-6:24px;--sp-8:32px;--sp-10:40px;--sp-12:48px;--sp-16:64px;
 
-  /* Letter spacing */
-  --ls-tight:-0.02em;--ls-normal:0;--ls-wide:0.04em;--ls-caps:0.08em;
+  /* Letter spacing — body/sidebar/headings stay at 0; only uppercase
+     micro-labels use positive tracking (ls-wide / ls-caps). The
+     --ls-tight token used to be negative; the desktop polish slice
+     reset it to 0 because negative tracking compresses poorly under
+     screen-recording compression and reads as a marketing-hero cue
+     rather than an operational one. Keep it 0. */
+  --ls-tight:0;--ls-normal:0;--ls-wide:0.04em;--ls-caps:0.08em;
 
   /* Radii */
   --radius-sm:4px;--radius-md:6px;--radius-lg:8px;--radius-xl:12px;
@@ -112,7 +117,7 @@ a{color:inherit;text-decoration:none}
    Sidebar
    ========================================================================== */
 .sidebar{position:fixed;top:0;left:0;width:240px;height:100vh;background:var(--bg);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:100;overflow-y:auto}
-.sidebar .brand{padding:var(--sp-5) var(--sp-5) var(--sp-6);font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:-0.3px;text-decoration:none;display:block;background:linear-gradient(135deg,#ededed 0%,var(--accent-light) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.sidebar .brand{padding:var(--sp-5) var(--sp-5) var(--sp-6);font-family:var(--mono);font-size:1.35rem;font-weight:700;letter-spacing:0;text-decoration:none;display:block;background:linear-gradient(135deg,#ededed 0%,var(--accent-light) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .sidebar-section{padding:0 var(--sp-3);margin-bottom:var(--sp-4)}
 .sidebar-section+.sidebar-section{border-top:1px solid var(--border);padding-top:var(--sp-2)}
 .sidebar-section-label{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);font-weight:500;padding:var(--sp-2) var(--sp-3) 6px;user-select:none}

@@ -6,7 +6,7 @@ var alertsTmpl = template.Must(template.New("alerts").Funcs(tmplFuncs).Parse(lay
 <style>
 .alert-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:24px}
 .alert-stat{background:var(--surface);padding:var(--sp-5) var(--sp-5);text-align:center}
-.alert-stat .num{font-size:var(--text-3xl);font-weight:800;letter-spacing:-0.04em;font-family:var(--sans);line-height:1;color:var(--text)}
+.alert-stat .num{font-size:var(--text-3xl);font-weight:800;letter-spacing:0;font-family:var(--sans);line-height:1;color:var(--text)}
 .alert-stat .lbl{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-top:var(--sp-2);font-weight:500}
 .alert-config{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:24px}
 .alert-config h3{font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:var(--text3);margin-bottom:14px;font-weight:500}
