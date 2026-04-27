@@ -104,14 +104,15 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 		go scanner.ListRules()
 	}
 
-	// NewServer no longer auto-spawns a child gateway. The previous
-	// behavior fired during construction, before any caller could
-	// call SetGatewayManaged, so `oktsec run` ended up with two
-	// gateways racing for the same port (the dashboard's child plus
-	// the in-process gateway run.go starts moments later). Callers
-	// that want a child gateway must invoke StartChildGateway()
-	// explicitly; oktsec run does not, because it manages its own
-	// in-process gateway and calls SetGatewayManaged() up front.
+	// NewServer is side-effect-free with respect to the gateway. The
+	// dashboard never spawns a child gateway on its own — `oktsec run`
+	// builds an in-process gateway and registers
+	// dashboard.SetGatewayManaged as the gateway's ready callback, so
+	// the live-listener flag flips on only after the bind succeeds.
+	// Do not move the SetGatewayManaged call back into construction
+	// or into the caller's pre-Start path: calling it before the
+	// listener exists would let the Gateway page label cfg.Gateway.Port
+	// as "Listening on" while no socket is actually bound.
 
 	// Periodic cleanup of expired sessions and stale rate-limit entries
 	go func() {
@@ -129,9 +130,17 @@ func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, 
 // cfg.Gateway.Port. The Gateway page reads this flag to decide
 // whether the port label can read "Listening on" (live, in-process)
 // or must fall back to "Configured Port" (no authoritative source).
-// Safe to call before the dashboard starts serving — callers should
-// flip this as early as possible so the first request renders the
-// correct label.
+//
+// Call this only after the gateway has actually bound. The intended
+// wiring lives in `oktsec run`: it registers this method as the
+// gateway's SetReadyCallback, so the flag flips on after
+// netutil.ListenAutoPort returns and cfg.Gateway.Port has been
+// mutated to the actual port. Calling it earlier (during
+// construction, or before the gateway listener is bound) would let
+// the dashboard claim a live listener that does not exist yet.
+//
+// atomic.Bool keeps the read in handleGateway race-free with the
+// callback invocation from the gateway goroutine.
 func (s *Server) SetGatewayManaged() {
 	s.gwManaged.Store(true)
 }
