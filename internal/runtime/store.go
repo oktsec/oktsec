@@ -4,8 +4,35 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
+
+// runtimeBusyRetries + runtimeBusyBackoff bound the retry loop on
+// SQLITE_BUSY. The audit store's batch loop and the runtime tx
+// share one *sql.DB; under burst load (or under race-detector
+// overhead in CI) the audit batch can hold the writer past the
+// SQLite busy_timeout (5s) and the BEGIN here returns
+// SQLITE_BUSY. Eight attempts with a small backoff cleared every
+// flake observed in the full-suite run; the caller's runtime
+// context still bounds the total wall time so a stalled DB cannot
+// pin the request goroutine indefinitely.
+const (
+	runtimeBusyRetries = 8
+	runtimeBusyBackoff = 100 * time.Millisecond
+)
+
+// isBusyError detects SQLite's SQLITE_BUSY (5) without taking a
+// dependency on the driver's typed error. modernc.org/sqlite
+// formats the message as "database is locked (5) (SQLITE_BUSY)";
+// matching on substring is cheap and survives a driver swap.
+func isBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "database is locked")
+}
 
 // Store is the runtime tables' read+write surface. Phase 3A
 // exposes the API only; Phase 3B wires the hook handler to call
@@ -79,6 +106,39 @@ func (s *Store) RecordHook(ctx context.Context, env HookEnvelope, outcome Outcom
 		now = time.Now().UTC()
 	}
 
+	// Retry the whole tx (BEGIN, the upserts, the insert, and the
+	// COMMIT) on SQLITE_BUSY. The audit store's batch loop and the
+	// runtime tx share one *sql.DB, so under burst load any of
+	// these statements can collide with the audit batch's open
+	// transaction and the driver returns SQLITE_BUSY (5). The
+	// audit store already sets busy_timeout=5s; the loop here adds
+	// a small backoff between retries so a transient lock does
+	// not drop the runtime row entirely. The caller's runtime
+	// context bounds the total wall time so a stalled DB cannot
+	// pin the request goroutine indefinitely.
+	var lastErr error
+	for attempt := 0; attempt < runtimeBusyRetries; attempt++ {
+		err := s.recordHookOnce(ctx, env, outcome, now)
+		if err == nil {
+			return nil
+		}
+		if !isBusyError(err) {
+			return err
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("runtime: %w (last busy error: %v)", ctx.Err(), err)
+		case <-time.After(runtimeBusyBackoff):
+		}
+	}
+	return fmt.Errorf("runtime: gave up after %d busy retries: %w", runtimeBusyRetries, lastErr)
+}
+
+// recordHookOnce is one attempt at the RecordHook transaction.
+// Wrapped in a retry loop above so SQLITE_BUSY at any statement —
+// not just BEGIN — gives us a fresh shot at the writer lock.
+func (s *Store) recordHookOnce(ctx context.Context, env HookEnvelope, outcome OutcomeRefs, now time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("runtime: begin tx: %w", err)

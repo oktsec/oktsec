@@ -14,17 +14,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/runtime"
+
+	_ "modernc.org/sqlite"
 )
 
 // newRuntimeWiredHandler builds a Handler against a real audit
 // store so the auto-built runtime store has a *sql.DB to attach
 // to. Returns the handler, the runtime store handle (for
 // queryback), the *sql.DB so tests can inspect runtime tables
-// directly, and a cleanup func.
+// directly, and a no-op flush callback (the real audit close
+// runs via t.Cleanup so callers do not have to remember it).
 func newRuntimeWiredHandler(t *testing.T) (*Handler, *runtime.Store, *sql.DB, func()) {
 	t.Helper()
 	dir := t.TempDir()
@@ -38,14 +42,25 @@ func newRuntimeWiredHandler(t *testing.T) (*Handler, *runtime.Store, *sql.DB, fu
 	if h.runtime == nil {
 		t.Fatal("expected NewHandler to auto-build runtime store from audit *sql.DB")
 	}
-	cleanup := func() {
+	// Stash the audit store on the handler via a closure so post()
+	// can drain its batch loop before the test queries any
+	// downstream table. Without this the audit writeLoop, the
+	// runtime tx, and the activity insert can race for the same
+	// SQLite writer and burst posts lose rows under contention.
+	t.Cleanup(func() {
 		scanner.Close()
 		_ = auditStore.Close()
+	})
+	return h, h.runtime, auditStore.DB(), func() {
+		auditStore.Flush()
 	}
-	return h, h.runtime, auditStore.DB(), cleanup
 }
 
-// post helper sends a hook event and returns the response body.
+// post helper sends a hook event, drains the audit batch, and
+// returns the response body. Drains are necessary because the
+// runtime store + audit batch + activity insert all write to one
+// SQLite file; without serialising on Flush() between posts a
+// burst can lose runtime/audit rows to SQLITE_BUSY contention.
 func post(t *testing.T, h *Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/hooks/event", bytes.NewReader([]byte(body)))
@@ -54,6 +69,9 @@ func post(t *testing.T, h *Handler, body string) *httptest.ResponseRecorder {
 	req.Header.Set("X-Oktsec-Agent", "claude-code")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
+	if dbs, ok := h.store.(interface{ Flush() }); ok {
+		dbs.Flush()
+	}
 	return w
 }
 
@@ -195,22 +213,33 @@ func TestServeHTTP_HeartbeatLandsAsRuntimeRow(t *testing.T) {
 
 // TestServeHTTP_RuntimeFailureDoesNotChangeResponse pins the spec
 // invariant: a runtime write failure must never turn an allow
-// into a deny. We swap in a recording stub that always errors and
-// confirm the HTTP response stays "allow".
+// into a deny.
+//
+// We isolate the failure to the runtime store by swapping in a
+// store whose own DB handle is closed. Previously the test closed
+// the SHARED audit DB, which left the audit batch goroutine
+// reading from a closed handle and polluted later tests in the
+// same package. The current setup uses a separate, dedicated DB
+// for the failing runtime store so the audit + activity writes
+// continue normally and only the runtime path errors out.
 func TestServeHTTP_RuntimeFailureDoesNotChangeResponse(t *testing.T) {
-	h, _, db, cleanup := newRuntimeWiredHandler(t)
+	h, _, _, cleanup := newRuntimeWiredHandler(t)
 	defer cleanup()
 
-	// Replace the working runtime store with a closed-DB-backed one
-	// so every RecordHook call fails. We can't use SetRuntimeStore
-	// with nil (that disables runtime entirely); instead we close the
-	// underlying DB so all writes return an error.
-	failingStore, err := runtime.Open(context.Background(), db, runtime.DialectSQLite)
+	// Build a runtime store on a separate DB, then close that DB
+	// so every RecordHook call returns an error. The audit + activity
+	// path keep using the shared DB the helper opened.
+	failDir := t.TempDir()
+	failDB, err := sql.Open("sqlite", filepath.Join(failDir, "fail.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	failingStore, err := runtime.Open(context.Background(), failDB, runtime.DialectSQLite)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.SetRuntimeStore(failingStore)
-	if err := db.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
+	if err := failDB.Close(); err != nil && !errors.Is(err, sql.ErrConnDone) {
 		t.Fatal(err)
 	}
 
@@ -271,9 +300,11 @@ func TestServeHTTP_ActivityIDMatchesRuntimeRow(t *testing.T) {
 	// Wait for the async activity insert to land. The activity
 	// insert is bounded by activityInsertTimeout (2s) but the race
 	// detector under a full-suite run can push the goroutine past
-	// that window; 5s is the slack we give the test before
-	// declaring the cross-reference broken.
-	deadline := time.Now().Add(5 * time.Second)
+	// that window; SQLite write lock contention with the runtime
+	// tx and the audit batch loop can stretch the wait to ~5-8s
+	// under load. 10s gives generous slack before declaring the
+	// cross-reference broken.
+	deadline := time.Now().Add(10 * time.Second)
 	var activityRowID string
 	for time.Now().Before(deadline) {
 		row := db.QueryRow(`SELECT id FROM activity_events WHERE session_id = ?`, "sess-3b-xref")
@@ -287,6 +318,74 @@ func TestServeHTTP_ActivityIDMatchesRuntimeRow(t *testing.T) {
 	}
 	if activityRowID != runtimeActivityID {
 		t.Errorf("activity_events.id = %q, runtime row's activity_event_id = %q (must match)", activityRowID, runtimeActivityID)
+	}
+}
+
+// TestServeHTTP_RuntimeRowCarriesCoverage locks in the P1
+// invariant: the durable runtime row carries coverage_mode +
+// confidence so Phase 3C can render Protected/Observed without
+// joining back to the async activity row.
+//
+// The contract is "runtime row gets the same coverage state the
+// activity row got". For a PreToolUse from an unauthenticated
+// loopback request that means CoverageMode = "Observed" and
+// Confidence = 0 today (the spec deliberately marks anonymous
+// telemetry as diagnostic-quality). The test pins
+// non-empty CoverageMode and an exact match against
+// activity.CoverageFromHookEvent so a future spec tweak there
+// flows through without silently breaking the runtime read path.
+func TestServeHTTP_RuntimeRowCarriesCoverage(t *testing.T) {
+	h, store, _, cleanup := newRuntimeWiredHandler(t)
+	defer cleanup()
+
+	w := post(t, h, `{"hook_event_name":"PreToolUse","session_id":"sess-cov","tool_name":"Read","tool_input":{"path":"/etc/hosts"}}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	events, err := store.QueryEvents(context.Background(), runtime.EventQuery{SessionID: "sess-cov"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("event count = %d, want 1", len(events))
+	}
+	if events[0].CoverageMode == "" {
+		t.Errorf("runtime row CoverageMode empty — Phase 3C cannot render Protected/Observed without it")
+	}
+	// Cross-check: the runtime row must agree with the activity
+	// helper. Without this assertion, a future drift between the
+	// two would silently surface as inconsistent dashboard cells.
+	wantCoverage, wantConfidence := activity.CoverageFromHookEvent("", "pre_tool_use")
+	if events[0].CoverageMode != string(wantCoverage) {
+		t.Errorf("runtime row CoverageMode = %q, want %q (must match activity helper)", events[0].CoverageMode, wantCoverage)
+	}
+	if events[0].Confidence != wantConfidence {
+		t.Errorf("runtime row Confidence = %d, want %d (must match activity helper)", events[0].Confidence, wantConfidence)
+	}
+}
+
+// TestServeHTTP_GenericEventFormatLandsRuntimeRow covers the P2
+// contract: a payload using the client-agnostic `event:
+// "pre_tool_use"` field (and no hook_event_name) must still
+// produce a runtime row. Without the normalizer fallback,
+// generic clients would silently skip every runtime write.
+func TestServeHTTP_GenericEventFormatLandsRuntimeRow(t *testing.T) {
+	h, store, _, cleanup := newRuntimeWiredHandler(t)
+	defer cleanup()
+
+	w := post(t, h, `{"event":"pre_tool_use","session_id":"sess-generic","tool_name":"Read"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	events, err := store.QueryEvents(context.Background(), runtime.EventQuery{SessionID: "sess-generic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("event count = %d, want 1 (generic event must still produce a runtime row)", len(events))
+	}
+	if events[0].HookEventName != "PreToolUse" {
+		t.Errorf("HookEventName = %q, want PreToolUse (canonicalized from pre_tool_use)", events[0].HookEventName)
 	}
 }
 

@@ -350,36 +350,45 @@ func principalIDOrUnknown(id string) string {
 	return id
 }
 
+// hookCoverage returns the stage-aware coverage mode + confidence
+// for one hook event. Centralised so the activity row, the runtime
+// row, and any future projection share one canonical value instead
+// of recomputing it from scratch and risking drift.
+//
+// Hook coverage is stage-aware: post_tool_use evidence cannot
+// block (the action already ran) so even token-authenticated
+// post-action hooks are Observed/60, not Protected/100. See
+// activity.CoverageFromHookEvent.
+func hookCoverage(authResult resolve.Result, eventName string) (activity.CoverageMode, int) {
+	return activity.CoverageFromHookEvent(string(authResult.Principal.AuthMethod), eventName)
+}
+
 // emitHookActivity writes one activity event correlated to the audit
 // row just logged. Runs in a fresh background context with a bounded
 // timeout so a slow DB cannot delay the request handler. Insert errors
 // are logged at warn — they never affect the policy decision or the
 // audit row.
 //
-// The activity event id is pre-computed by the caller and passed in
-// so the runtime hook event can carry it as a cross-reference even
-// before the async insert lands. msgID is the audit row id, kept as
-// AuditEntryID for correlation. ResourceLabel carries the tool name
-// so the dashboard drill-down can show which tool the hook reported.
+// The activity event id, coverage mode, and confidence are all
+// computed in ServeHTTP and passed in so the runtime hook event
+// carries the same values as cross-references. msgID is the audit
+// row id, kept as AuditEntryID for correlation. ResourceLabel
+// carries the tool name so the dashboard drill-down can show which
+// tool the hook reported.
 //
-// Returns the activity event id so callers (which precomputed it) can
-// use the same identifier on the runtime row without re-derivation.
-func (h *Handler) emitHookActivity(activityID, msgID string, authResult resolve.Result, reportedActor string, ev *ToolEvent, status, decision string) string {
+// Returns the activity event id so callers (which precomputed it)
+// can use the same identifier on the runtime row without
+// re-derivation.
+func (h *Handler) emitHookActivity(activityID, msgID string, authResult resolve.Result, reportedActor string, ev *ToolEvent, status, decision string, coverage activity.CoverageMode, confidence int) string {
 	if h.activity == nil {
 		return activityID
 	}
-	authMethod := string(authResult.Principal.AuthMethod)
-	// Hook coverage is stage-aware: post_tool_use evidence cannot
-	// block (the action already ran) so even token-authenticated
-	// post-action hooks are Observed/60, not Protected/100. See
-	// activity.CoverageFromHookEvent.
-	coverage, confidence := activity.CoverageFromHookEvent(authMethod, ev.Event)
 	event := activity.Event{
 		ID:                  activityID,
 		Timestamp:           time.Now().UTC(),
 		PrincipalID:         principalIDOrUnknown(authResult.Principal.ID),
 		ReportedActor:       reportedActor,
-		AuthMethod:          authMethod,
+		AuthMethod:          string(authResult.Principal.AuthMethod),
 		PrincipalTrustLevel: string(authResult.Principal.TrustLevel),
 		Surface:             activity.SurfaceHooks,
 		EventType:           activity.EventHookEvent,
@@ -667,17 +676,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// reportedActor passed here is the same value the audit row
 	// carries, so the two stay in lock-step.
 	//
-	// Phase 3B: the activity event id is pre-computed here so the
-	// runtime row below can carry it as a cross-reference even
-	// before the async insert lands.
+	// Phase 3B: the activity event id, coverage mode, and
+	// confidence are all computed once here so the runtime row
+	// below can carry the same cross-reference and coverage state
+	// even before the async activity insert lands. Without this,
+	// 3C would have to re-derive coverage from the runtime row by
+	// joining back to the activity table.
 	activityEventID := uuid.New().String()
-	h.emitHookActivity(activityEventID, msgID, authResult, reportedActor, &ev, status, decision)
+	coverage, confidence := hookCoverage(authResult, ev.Event)
+	h.emitHookActivity(activityEventID, msgID, authResult, reportedActor, &ev, status, decision, coverage, confidence)
 
 	// Phase 3B: persist the durable runtime row. The security
 	// decision is already committed in the audit row above, so a
 	// runtime write failure here logs at warn but never changes
 	// the response.
-	h.recordRuntime(r.Context(), body, authResult, ev.Client, ev.SessionID, msgID, activityEventID, status, decision, time.Since(start).Milliseconds())
+	h.recordRuntime(r.Context(), body, authResult, ev.Client, ev.SessionID, msgID, activityEventID, status, decision, string(coverage), confidence, time.Since(start).Milliseconds())
 
 	// Update agent hierarchy table
 	if ev.SessionID != "" {
@@ -783,7 +796,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // actor metadata only. ClientID falls back through the X-Oktsec-
 // Client header so a client that did not set the resolver-friendly
 // header still lands a runtime row tagged with the right client.
-func (h *Handler) recordRuntime(ctx context.Context, rawBody []byte, authResult resolve.Result, clientID, sessionID, auditID, activityID, status, decision string, latencyMs int64) {
+func (h *Handler) recordRuntime(ctx context.Context, rawBody []byte, authResult resolve.Result, clientID, sessionID, auditID, activityID, status, decision, coverage string, confidence int, latencyMs int64) {
 	_ = ctx // kept for future per-request cancellation; the inner call uses a detached deadline
 	if h.runtime == nil {
 		return
@@ -805,6 +818,8 @@ func (h *Handler) recordRuntime(ctx context.Context, rawBody []byte, authResult 
 		ActivityEventID: activityID,
 		Status:          status,
 		PolicyDecision:  decision,
+		CoverageMode:    coverage,
+		Confidence:      confidence,
 		LatencyMs:       latencyMs,
 	}
 	// Detached context with a bounded deadline so a stalled DB
@@ -820,10 +835,15 @@ func (h *Handler) recordRuntime(ctx context.Context, rawBody []byte, authResult 
 }
 
 // runtimeRecordTimeout bounds the runtime write so a stalled DB
-// cannot pin the hook hot path. Mirrors activityInsertTimeout for
-// the same reason — the runtime store is on the same DB and so
-// shares its failure modes.
-const runtimeRecordTimeout = 2 * time.Second
+// cannot pin the hook hot path. The deadline is set to 15s so the
+// runtime store's busy retry loop has room to complete: each
+// retry can wait up to the SQLite busy_timeout (5s) the audit
+// dialect configures, and a shorter context would cancel
+// mid-retry and silently drop the runtime row.
+// activityInsertTimeout stays at 2s because the activity insert
+// is async and a missed row is recovered on the next event; the
+// runtime row is the durable substrate and must not be dropped.
+const runtimeRecordTimeout = 15 * time.Second
 
 func formatBlockReason(outcome *engine.ScanOutcome) string {
 	if outcome == nil || len(outcome.Findings) == 0 {
