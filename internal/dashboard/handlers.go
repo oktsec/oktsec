@@ -1172,9 +1172,11 @@ func (s *Server) handleAPIRecent(w http.ResponseWriter, r *http.Request) {
 // range query param mirrors handleGraph so a 1h canvas reads 1h
 // stats.
 //
-// blocks is intentionally summed only over Edges + UnrepresentedRoutes:
-// ToolEdge has no block counter today, so reporting tool blocks
-// would require inventing data the runtime does not carry.
+// messages and blocks come from g.ActivityEvents / g.ActivityBlocks,
+// the projection-level unique counters. Summing g.Edges + g.ToolEdges
+// would double-count any source row that drives both an actor->actor
+// edge and an actor->tool edge in the same projection (e.g. a
+// PreToolUse from a subagent: one event, two edge layers).
 func (s *Server) handleAPIGraphStats(w http.ResponseWriter, r *http.Request) {
 	rangeStr := r.URL.Query().Get("range")
 	if rangeStr == "" {
@@ -1187,17 +1189,8 @@ func (s *Server) handleAPIGraphStats(w http.ResponseWriter, r *http.Request) {
 	if g != nil {
 		agents = len(g.Nodes)
 		tools = len(g.ToolNodes)
-		for _, e := range g.Edges {
-			messages += e.Total
-			blocks += e.Blocked
-		}
-		for _, te := range g.ToolEdges {
-			messages += te.Total
-		}
-		for _, u := range g.UnrepresentedRoutes {
-			messages += u.Total
-			blocks += u.Blocked
-		}
+		messages = g.ActivityEvents
+		blocks = g.ActivityBlocks
 	}
 	s.renderJSON(w, map[string]int{
 		"agents":   agents,
@@ -4248,6 +4241,21 @@ func (s *Server) buildLegacyGraph(since string) *graph.AgentGraph {
 		if topTools[k.tool] {
 			g.ToolEdges = append(g.ToolEdges, graph.ToolEdge{Agent: k.agent, Tool: k.tool, Total: total})
 		}
+	}
+
+	// Activity counters for the legacy path. Each audit row already
+	// lands in exactly one of {Edge, UnrepresentedRoute}; tool stats
+	// are a separate aggregation over the same rows, so summing tool
+	// edges here would double-count. Self-message rows the legacy
+	// builder drops (from == to) are intentionally not counted —
+	// they would not appear in the canvas either.
+	for _, e := range g.Edges {
+		g.ActivityEvents += e.Total
+		g.ActivityBlocks += e.Blocked
+	}
+	for _, u := range g.UnrepresentedRoutes {
+		g.ActivityEvents += u.Total
+		g.ActivityBlocks += u.Blocked
 	}
 
 	return g

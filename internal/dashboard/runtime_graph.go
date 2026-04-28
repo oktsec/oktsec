@@ -94,7 +94,43 @@ func projectRuntimeGraph(events []runtime.HookEvent, actors []runtime.Actor) *gr
 	g := graph.BuildObserved(agents, edgeStats)
 	g.ToolNodes = toolNodes
 	g.ToolEdges = toolEdges
+	countRuntimeActivity(events, g)
 	return g
+}
+
+// countRuntimeActivity tallies the unique source rows the
+// projection consumed. One event in, one count out — even if that
+// event drove both an actor->actor edge (parent edge) and an
+// actor->tool edge. Heartbeat sessions are filtered upstream of
+// projectRuntimeGraph, so every row reaching this loop is real
+// activity. Events that never registered an actor are ignored:
+// they are out of scope for the graph and should not inflate
+// "scanned-rows" totals the dashboard surfaces.
+func countRuntimeActivity(events []runtime.HookEvent, g *graph.AgentGraph) {
+	for _, ev := range events {
+		if ev.ActorID == "" {
+			continue
+		}
+		g.ActivityEvents++
+		if isEventBlocked(ev) {
+			g.ActivityBlocks++
+		}
+	}
+}
+
+// isEventBlocked applies the same outcome rules accumulateOutcome
+// uses, but at the event level: status=blocked or policy_decision
+// in {block, deny} → blocked. Pulled out so the activity counter
+// and the per-edge bucket agree on what "blocked" means.
+func isEventBlocked(ev runtime.HookEvent) bool {
+	if strings.EqualFold(ev.Status, "blocked") {
+		return true
+	}
+	switch strings.ToLower(ev.PolicyDecision) {
+	case "block", "deny":
+		return true
+	}
+	return false
 }
 
 // indexActors gives O(1) lookup by runtime actor id so the

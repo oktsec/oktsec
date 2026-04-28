@@ -541,6 +541,92 @@ func TestRuntimeGraph_PostOnlyToolWithoutUseIDRendersOneEdge(t *testing.T) {
 	}
 }
 
+// TestRuntimeGraphStats_DoesNotDoubleCountAcrossEdgeAndToolLayers —
+// a single PreToolUse from a subagent contributes to both an
+// actor->actor edge (parent->child) and an actor->tool edge. Pre-fix,
+// the stats endpoint summed sum(Edge.Total) + sum(ToolEdge.Total),
+// so one row got counted twice (once per layer). The fix exposes
+// AgentGraph.ActivityEvents — a unique-row counter the projection
+// fills directly — so the messages card matches the rows actually
+// scanned, not the rendered-edge total.
+func TestRuntimeGraphStats_DoesNotDoubleCountAcrossEdgeAndToolLayers(t *testing.T) {
+	srv, rs, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	// SubagentStart drives only the actor edge. PreToolUse drives
+	// both the actor edge AND the tool edge — that is the layer
+	// overlap the stats endpoint must collapse.
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"SubagentStart","session_id":"sess-double","agent_id":"sa-d","agent_type":"research"}`,
+		"sess-double", "local-codex", now.Add(-4*time.Minute), runtime.OutcomeRefs{})
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-double","agent_id":"sa-d","agent_type":"research","tool_name":"Read","tool_use_id":"d1"}`,
+		"sess-double", "local-codex", now.Add(-3*time.Minute), runtime.OutcomeRefs{Status: "delivered"})
+	auditStore.Flush()
+	srv.invalidateGraphCache()
+
+	g := graphResponse(t, srv, cookie, handler, "1h")
+
+	sumEdges := 0
+	if edges, ok := g["edges"].([]any); ok {
+		for _, e := range edges {
+			if m, ok := e.(map[string]any); ok {
+				if v, ok := m["total"].(float64); ok {
+					sumEdges += int(v)
+				}
+			}
+		}
+	}
+	sumToolEdges := 0
+	if edges, ok := g["tool_edges"].([]any); ok {
+		for _, e := range edges {
+			if m, ok := e.(map[string]any); ok {
+				if v, ok := m["total"].(float64); ok {
+					sumToolEdges += int(v)
+				}
+			}
+		}
+	}
+	if sumEdges == 0 || sumToolEdges == 0 {
+		t.Fatalf("test setup expected both an actor edge and a tool edge; sumEdges=%d sumToolEdges=%d (edges=%v tool_edges=%v)",
+			sumEdges, sumToolEdges, edgeKeys(g), toolEdgeKeys(g))
+	}
+
+	stats := statsResponse(t, srv, cookie, handler, "1h")
+	if stats["messages"] == 0 {
+		t.Fatalf("messages = 0 with active runtime evidence; stats=%v", stats)
+	}
+	// The pre-fix bug would surface as messages == sumEdges + sumToolEdges.
+	if stats["messages"] == sumEdges+sumToolEdges {
+		t.Errorf("stats double-counted across actor and tool edges: messages=%d == sumEdges(%d)+sumToolEdges(%d); stats=%v",
+			stats["messages"], sumEdges, sumToolEdges, stats)
+	}
+	// And the unique counter the projection exposes must match what
+	// the endpoint reports — the canvas and the cards reading the
+	// same number is the whole point of the fix.
+	if v, ok := g["activity_events"].(float64); ok {
+		if stats["messages"] != int(v) {
+			t.Errorf("messages = %d, want activity_events = %d (stats and canvas projection diverged)",
+				stats["messages"], int(v))
+		}
+	} else {
+		t.Errorf("graph JSON missing activity_events; got keys: %v", graphKeys(g))
+	}
+}
+
+// graphKeys returns the top-level keys of the decoded graph JSON.
+// Used in the double-count regression to surface a clear error if
+// the activity_events field is missing from the response.
+func graphKeys(g map[string]any) []string {
+	keys := make([]string, 0, len(g))
+	for k := range g {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // TestRuntimeGraph_PreAndPostWithoutUseIDCountOne — when both Pre
 // and Post events lack a tool_use_id, the rollup must still collapse
 // them to one edge per (session, actor, tool). The bucket dedupe
