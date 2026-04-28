@@ -123,6 +123,54 @@ func TestOverview_HeartbeatFlipsTileToConnectedAndKeepsPosture(t *testing.T) {
 	}
 }
 
+// TestOverview_HeartbeatOnlyDoesNotCountAsRealEvent locks in
+// the P2 contract: a heartbeat row writes a SessionStart event
+// to runtime_hook_events, but the Overview must keep its
+// "Real events: none yet" badge until a non-heartbeat event
+// lands. Otherwise `oktsec doctor claude-code --emit-heartbeat`
+// would silently inflate the connection-truth view to "real
+// activity observed" and mark SessionStart as an observed family.
+func TestOverview_HeartbeatOnlyDoesNotCountAsRealEvent(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	now := time.Now().UTC()
+	hbEnv, _ := runtime.Normalize([]byte(`{"hook_event_name":"SessionStart","session_id":"heartbeat-only-2026"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "heartbeat-only-2026",
+		}, now)
+	if err := rs.RecordHook(context.Background(), hbEnv, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed heartbeat: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	// Heartbeat tile cell must show "received".
+	if !strings.Contains(body, ">received<") {
+		t.Errorf("Heartbeat cell missing 'received' value; excerpt: %s", excerpt(body, "Heartbeat"))
+	}
+	// Real events tile cell must still show "none yet".
+	idx := strings.Index(body, "Real events")
+	if idx < 0 {
+		t.Fatal("Real events cell not rendered")
+	}
+	tail := body[idx:]
+	if !strings.Contains(tail[:200], ">none yet<") {
+		t.Errorf("Real events cell should show 'none yet' for heartbeat-only state; excerpt: %s", tail[:200])
+	}
+}
+
 // TestOverview_HooksInstalledNoEventsShowsWaiting locks in the
 // "installed, waiting for first observed event" empty state.
 // The tile must read as setup pending, not as a security alert.

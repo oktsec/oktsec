@@ -240,12 +240,20 @@ func DeriveHealth(inv Inventory, opts HealthOptions) ConnectorHealth {
 	}
 	h.Runtime = projectRuntimeEvidence(opts.Runtime)
 
-	// Pick the most recent timestamp the caller can offer. Runtime
-	// signals win because they are the durable per-event row Phase
-	// 3B writes; LastEvent is the audit-store fallback for callers
-	// without a runtime store wired in.
-	bestEvent := h.Runtime.LastEventAt
-	if bestEvent == "" {
+	// Pick the most recent timestamp the caller can offer. The
+	// presence of opts.Runtime — not its content — switches the
+	// signal source: when the dashboard wires a runtime store it
+	// is the authoritative source, and an empty runtime means
+	// "installed but not yet observed". Falling back to the
+	// audit-store LastEvent in that case would let a legacy
+	// audit row from before runtime was wired flip the tile to
+	// ready, masking the real setup state. opts.LastEvent is
+	// only honored when the caller (the doctor command) has no
+	// runtime store at all.
+	bestEvent := ""
+	if opts.Runtime != nil {
+		bestEvent = h.Runtime.LastEventAt
+	} else {
 		bestEvent = opts.LastEvent
 	}
 

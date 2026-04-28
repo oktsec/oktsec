@@ -4409,7 +4409,15 @@ func (s *Server) claudeCodeRuntimeEvidence(parent context.Context, inv claudecod
 		in.LastHeartbeatAt = hb.ReceivedAt.UTC().Format(time.RFC3339Nano)
 	}
 
-	// Latest non-heartbeat event (and the family) for the principal.
+	// Latest real (non-heartbeat) event and family for the
+	// principal. Heartbeat sessions write SessionStart rows to
+	// runtime_hook_events too, but they are diagnostic — counting
+	// them here would let `oktsec doctor claude-code
+	// --emit-heartbeat` flip the Overview tile to "Real events:
+	// observed" + "SessionStart family seen" without any actual
+	// Claude Code activity having happened. Heartbeat evidence
+	// belongs only to LastHeartbeatAt.
+	//
 	// Capped to a small window so the query stays cheap; older
 	// activity surfaces via QuerySessions/QueryEvents in 3C.
 	events, err := store.QueryEvents(ctx, runtime.EventQuery{
@@ -4417,10 +4425,17 @@ func (s *Server) claudeCodeRuntimeEvidence(parent context.Context, inv claudecod
 		Limit:       100,
 	})
 	if err == nil {
+		realEvents := events[:0]
+		for _, ev := range events {
+			if runtime.IsHeartbeatSession(ev.SessionID) {
+				continue
+			}
+			realEvents = append(realEvents, ev)
+		}
 		latestPerFamily := map[string]bool{}
 		var latestEvent *runtime.HookEvent
-		for i := range events {
-			ev := events[i]
+		for i := range realEvents {
+			ev := realEvents[i]
 			latestPerFamily[ev.HookEventName] = true
 			if latestEvent == nil || ev.Timestamp.After(latestEvent.Timestamp) {
 				latestEvent = &ev
@@ -4429,7 +4444,7 @@ func (s *Server) claudeCodeRuntimeEvidence(parent context.Context, inv claudecod
 		if latestEvent != nil {
 			in.LastEventAt = latestEvent.Timestamp.UTC().Format(time.RFC3339Nano)
 			in.LastEventFamily = latestEvent.HookEventName
-			in.CoverageStage = strongestCoverage(events)
+			in.CoverageStage = strongestCoverage(realEvents)
 		}
 		in.ObservedFamilies = sortedStringSet(latestPerFamily)
 	}

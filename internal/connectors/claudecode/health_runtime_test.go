@@ -122,6 +122,35 @@ func TestDeriveHealth_RuntimeEvidenceTrumpsAuditLastEvent(t *testing.T) {
 	}
 }
 
+// TestDeriveHealth_EmptyRuntimeIgnoresAuditLastEvent locks in
+// the contract that a non-nil but empty Runtime block means
+// "installed, not yet observed" — not "installed, partially
+// observed via audit". A legacy audit row from before runtime
+// was wired must NOT flip the dashboard tile to ready, because
+// that would mask the true setup state and re-enable the
+// posture grade prematurely.
+func TestDeriveHealth_EmptyRuntimeIgnoresAuditLastEvent(t *testing.T) {
+	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	inv := Inventory{
+		Detected: true,
+		Hooks:    []HookRef{{IsOktsec: true, Event: "PreToolUse"}},
+	}
+	// Audit reports a fresh event; runtime store is wired but
+	// empty. Phase 3C-0 expects partial.
+	h := DeriveHealth(inv, HealthOptions{
+		LastEvent: now.Add(-3 * time.Minute).Format(time.RFC3339),
+		Runtime:   &RuntimeEvidenceInput{},
+		Now:       clock,
+	})
+	if h.Status != "partial" {
+		t.Errorf("status = %q, want partial (empty runtime must override audit fallback)", h.Status)
+	}
+	if h.Runtime.HasEvidence {
+		t.Error("Runtime.HasEvidence = true on empty input")
+	}
+}
+
 // TestDeriveHealth_AuditLastEventStillWorksForLegacyCallers
 // verifies the doctor command path: when no Runtime block is
 // passed (the doctor opens audit read-only and has no runtime
