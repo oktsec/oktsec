@@ -253,6 +253,89 @@ func TestNormalize_UnknownEventDefaultsToObserved(t *testing.T) {
 	}
 }
 
+// TestNormalize_GenericEventFieldFallsBackToCanonicalName covers
+// the P2 contract: a payload that uses the client-agnostic
+// `event: "pre_tool_use"` field (and omits hook_event_name) must
+// still produce a runtime envelope keyed off the canonical
+// PascalCase name. Without this, generic clients would silently
+// skip every runtime row even though their audit + activity rows
+// land normally.
+func TestNormalize_GenericEventFieldFallsBackToCanonicalName(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		want    string
+		wantLC  string // expected lifecycle to confirm the mapping table hit
+		wantStg string // expected stage
+	}{
+		{
+			name:    "pre_tool_use_lower",
+			body:    `{"event":"pre_tool_use","session_id":"sess-test","tool_name":"Read"}`,
+			want:    "PreToolUse",
+			wantLC:  LifecycleTool,
+			wantStg: StagePreAction,
+		},
+		{
+			name:    "post_tool_use_lower",
+			body:    `{"event":"post_tool_use","session_id":"sess-test","tool_name":"Read"}`,
+			want:    "PostToolUse",
+			wantLC:  LifecycleTool,
+			wantStg: StagePostAction,
+		},
+		{
+			name:    "subagent_start_lower",
+			body:    `{"event":"subagent_start","session_id":"sess-test","agent_id":"sa-1"}`,
+			want:    "SubagentStart",
+			wantLC:  LifecycleSubagent,
+			wantStg: StageObserved,
+		},
+		{
+			name:    "claude_form_wins_when_both_set",
+			body:    `{"hook_event_name":"PreToolUse","event":"post_tool_use","session_id":"sess-test"}`,
+			want:    "PreToolUse",
+			wantLC:  LifecycleTool,
+			wantStg: StagePreAction,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := Normalize([]byte(tc.body), baseIdentity, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if env.HookEventName != tc.want {
+				t.Errorf("HookEventName = %q, want %q", env.HookEventName, tc.want)
+			}
+			if env.Lifecycle != tc.wantLC {
+				t.Errorf("Lifecycle = %q, want %q (mapping must hit canonical row)", env.Lifecycle, tc.wantLC)
+			}
+			if env.Stage != tc.wantStg {
+				t.Errorf("Stage = %q, want %q", env.Stage, tc.wantStg)
+			}
+		})
+	}
+}
+
+// TestCanonicalEventName_PureTransform pins the snake -> Pascal
+// helper so a future addition to the mapping table can rely on it.
+func TestCanonicalEventName_PureTransform(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"pre_tool_use", "PreToolUse"},
+		{"post_tool_use", "PostToolUse"},
+		{"session_start", "SessionStart"},
+		{"PreToolUse", "PreToolUse"}, // already canonical
+		{"a", "A"},
+		{"single", "Single"},
+	} {
+		if got := CanonicalEventName(tc.in); got != tc.want {
+			t.Errorf("CanonicalEventName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestNormalize_MalformedJSONErrors makes sure the normalizer
 // surfaces a parse error so the hook handler can choose how to
 // handle it, instead of silently returning an empty envelope.

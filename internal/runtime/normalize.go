@@ -16,19 +16,60 @@ import (
 // locally so the runtime package does not import
 // internal/identity/resolve directly — the hook handler does the
 // resolver call and feeds us a flat struct.
+//
+// HookEventName and ToolOutput are handler-supplied hints that
+// fill in for fields the raw body cannot expose. The handler's
+// ToolEvent normalization defaults Event to "pre_tool_use" when
+// the body omits it, but that defaulting only mutates the
+// in-memory ToolEvent; the body the runtime parses still has no
+// event field. ToolOutput is the same story: generic clients put
+// the post-tool string under "tool_output", which the Claude-
+// shaped runtime payload does not model.
+//
+// Both fields are fallbacks: payload values win when present so
+// runtime.Normalize stays a self-contained body-to-envelope
+// converter for callers that have no handler to feed it.
 type IdentityResolution struct {
 	PrincipalID         string
 	PrincipalTrustLevel string
 	AuthMethod          string
 	ClientID            string // X-Oktsec-Client
 	SessionID           string // X-Oktsec-Session header (may differ from payload)
+
+	// HookEventName is the canonical PascalCase event name the
+	// handler resolved (Claude-style hook_event_name, or the
+	// generic event field after canonicalization). Used as the
+	// final fallback when neither hook_event_name nor event
+	// appear in the payload body — the case where the handler
+	// defaulted ev.Event to "pre_tool_use" in memory.
+	HookEventName string
+
+	// ToolOutput is the generic-client post-tool string the
+	// handler extracted (ToolEvent.ToolOutput). Used to compute
+	// tool_output_hash when the body's "tool_response" field is
+	// empty. Without this hint a generic post_tool_use event
+	// would land a runtime row with an empty output hash.
+	ToolOutput string
 }
 
 // rawClaudePayload is the slice of the inbound JSON the
 // normalizer needs. Anything not modeled is left untouched in the
 // raw evidence blob (which is then redacted before persistence).
+//
+// `Event` is the client-agnostic lower_snake form (e.g.
+// "pre_tool_use") that non-Claude clients send. It is the fallback
+// the normalizer uses when `hook_event_name` is missing — without
+// this, generic clients would land an audit + activity row but
+// silently skip the runtime row because RecordHook requires a
+// canonical event name.
+//
+// `ToolOutput` is the generic-client post-tool string (ToolEvent
+// uses "tool_output"; Claude uses "tool_response"). Modeled here
+// as a JSON string so a generic post_tool_use lands a non-empty
+// tool_output_hash on the runtime row.
 type rawClaudePayload struct {
 	HookEventName  string          `json:"hook_event_name"`
+	Event          string          `json:"event"`
 	SessionID      string          `json:"session_id"`
 	TranscriptPath string          `json:"transcript_path"`
 	AgentTranscriptPath string     `json:"agent_transcript_path"`
@@ -41,6 +82,7 @@ type rawClaudePayload struct {
 	ToolUseID      string          `json:"tool_use_id"`
 	ToolInput      json.RawMessage `json:"tool_input"`
 	ToolResponse   json.RawMessage `json:"tool_response"`
+	ToolOutput     string          `json:"tool_output"`
 	TaskID         string          `json:"task_id"`
 	TaskSubject    string          `json:"task_subject"`
 	TaskDescription string         `json:"task_description"`
@@ -72,6 +114,21 @@ func Normalize(rawBody []byte, identity IdentityResolution, receivedAt time.Time
 		}
 	}
 
+	// Resolve the canonical hook event name. Claude clients send
+	// hook_event_name; generic clients send the lower_snake event
+	// field. When neither appears in the body, the handler's
+	// in-memory ToolEvent normalization may have defaulted Event
+	// to "pre_tool_use" — that defaulting can only reach us via
+	// identity.HookEventName (the body the runtime parses still
+	// has no event field).
+	canonicalEvent := payload.HookEventName
+	if canonicalEvent == "" {
+		canonicalEvent = CanonicalEventName(payload.Event)
+	}
+	if canonicalEvent == "" {
+		canonicalEvent = identity.HookEventName
+	}
+
 	env := HookEnvelope{
 		ID:                  newEventID(),
 		ReceivedAt:          receivedAt.UTC(),
@@ -81,7 +138,7 @@ func Normalize(rawBody []byte, identity IdentityResolution, receivedAt time.Time
 		PrincipalID:         identity.PrincipalID,
 		PrincipalTrustLevel: identity.PrincipalTrustLevel,
 		AuthMethod:          identity.AuthMethod,
-		HookEventName:       payload.HookEventName,
+		HookEventName:       canonicalEvent,
 		CWD:                 PathTail(payload.CWD),
 		CWDHash:             HashPath(payload.CWD),
 	}
@@ -106,18 +163,33 @@ func Normalize(rawBody []byte, identity IdentityResolution, receivedAt time.Time
 	}
 
 	// Lifecycle, stage, and block-capability come from one table
-	// so a future Claude addition is one entry to update.
-	mapping := lookupEventMapping(payload.HookEventName)
+	// so a future Claude addition is one entry to update. We pass
+	// the canonical (already PascalCase) name so the lookup hits
+	// the same row whether the payload arrived in Claude shape or
+	// generic shape.
+	mapping := lookupEventMapping(canonicalEvent)
 	env.Lifecycle = mapping.lifecycle
 	env.Stage = mapping.stage
 	env.BlockCapable = mapping.blockCapable
 
-	// Resource refs.
+	// Resource refs. Output hash falls back to the handler's
+	// hint (generic clients put the post-tool string under
+	// "tool_output", which the Claude-shaped payload does not
+	// model) and finally to the body's tool_output field for
+	// callers with no handler in front.
+	outputHash := hashJSON(payload.ToolResponse)
+	if outputHash == "" {
+		if payload.ToolOutput != "" {
+			outputHash = shortHash(payload.ToolOutput)
+		} else if identity.ToolOutput != "" {
+			outputHash = shortHash(identity.ToolOutput)
+		}
+	}
 	env.Tool = ToolRef{
 		Name:       payload.ToolName,
 		UseID:      payload.ToolUseID,
 		InputHash:  hashJSON(payload.ToolInput),
-		OutputHash: hashJSON(payload.ToolResponse),
+		OutputHash: outputHash,
 	}
 	env.Task = TaskRef{
 		ID:          payload.TaskID,
@@ -368,6 +440,43 @@ func hashJSON(raw json.RawMessage) string {
 		return ""
 	}
 	return shortHash(trimmed)
+}
+
+// CanonicalEventName converts the client-agnostic lower_snake
+// event field (e.g. "pre_tool_use") into the Claude-style
+// PascalCase name the rest of the package keys off (e.g.
+// "PreToolUse"). Used as a fallback when the payload omits
+// hook_event_name; without it, generic clients would silently
+// skip the runtime row because RecordHook requires a non-empty
+// canonical event name.
+//
+// Exported so the hook handler can canonicalize the value it
+// already normalized (ToolEvent.Event) before passing it to
+// runtime.IdentityResolution.HookEventName as a fallback for
+// payloads that omit both event fields entirely.
+//
+// Pure string transform: every "_" splits a part, the first rune
+// of each part uppercases, parts join with no separator. Already-
+// PascalCase input ("PreToolUse") is preserved verbatim.
+func CanonicalEventName(generic string) string {
+	if generic == "" {
+		return ""
+	}
+	parts := strings.Split(generic, "_")
+	for i, p := range parts {
+		if p == "" {
+			continue
+		}
+		// ASCII uppercase the first rune. Hook event names are all
+		// ASCII per Claude docs so a Unicode-aware path would be
+		// over-engineering.
+		first := p[0]
+		if first >= 'a' && first <= 'z' {
+			first -= 'a' - 'A'
+		}
+		parts[i] = string(first) + p[1:]
+	}
+	return strings.Join(parts, "")
 }
 
 // newEventID generates a 16-byte random id for a runtime hook
