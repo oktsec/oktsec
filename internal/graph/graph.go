@@ -8,12 +8,20 @@ import (
 )
 
 // AgentMeta describes an agent from config (decoupled from config.Agent).
+//
+// Kind is a generic node-shape hint: "root", "subagent", "task", or
+// empty for the legacy agent-from-config case. The graph package
+// stays client-agnostic — Kind values are descriptive labels the
+// dashboard maps to display styles, not policy categories. Adding
+// a new Kind here must NOT introduce knowledge of any specific
+// client (e.g. "claude-code").
 type AgentMeta struct {
 	Name        string
 	Description string
 	Location    string
 	Tags        []string
 	CanMessage  []string
+	Kind        string
 }
 
 // EdgeInput describes observed traffic on a single from→to edge.
@@ -29,11 +37,16 @@ type EdgeInput struct {
 }
 
 // Node is a computed graph node with metrics.
+//
+// Kind mirrors AgentMeta.Kind so the dashboard can pick a render
+// style ("subagent" gets a different shape from "root") without
+// re-deriving the kind from name patterns.
 type Node struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
 	Location    string   `json:"location,omitempty"`
 	Tags        []string `json:"tags,omitempty"`
+	Kind        string   `json:"kind,omitempty"`
 	InDegree    int      `json:"in_degree"`
 	OutDegree   int      `json:"out_degree"`
 	Betweenness float64  `json:"betweenness"`
@@ -111,33 +124,65 @@ type AgentGraph struct {
 	TotalEdges          int                  `json:"total_edges"`
 }
 
-// Build constructs the full agent interaction graph from config agents and observed edges.
+// BuildOptions controls how Build assembles the graph. CompareACL
+// gates the ACL/shadow/unused projection: callers that hand in
+// observed runtime evidence (actor hierarchy, tool calls) must
+// turn it off because actor parent-child relationships are not
+// authorization edges and treating them as such produces phantom
+// shadow edges and "unused ACL" rows in the dashboard.
+type BuildOptions struct {
+	CompareACL bool
+}
+
+// Build constructs the full agent interaction graph from config
+// agents and observed edges. Equivalent to BuildWithOptions with
+// CompareACL=true; kept as the legacy convenience entrypoint for
+// the audit-driven path.
 func Build(agents []AgentMeta, edges []EdgeInput) *AgentGraph {
+	return BuildWithOptions(agents, edges, BuildOptions{CompareACL: true})
+}
+
+// BuildObserved is the runtime-evidence entrypoint: it assembles
+// the same node/edge metrics but skips the ACL comparison so
+// observed actor hierarchy never lands in ShadowEdges or
+// UnusedACL. Use it whenever the input edges describe runtime
+// behavior (actor parent links, tool calls) rather than a policy
+// graph.
+func BuildObserved(agents []AgentMeta, edges []EdgeInput) *AgentGraph {
+	return BuildWithOptions(agents, edges, BuildOptions{CompareACL: false})
+}
+
+// BuildWithOptions is the explicit constructor. The two named
+// variants above route to it so the option-bearing path is the
+// single place to evolve the build pipeline.
+func BuildWithOptions(agents []AgentMeta, edges []EdgeInput, opts BuildOptions) *AgentGraph {
 	nodeMap := buildNodeSet(agents, edges)
 	computed := buildEdges(edges)
 	computeDegrees(nodeMap, computed)
 	computeBetweenness(nodeMap, computed)
 	computeThreatScores(nodeMap, edges)
-	aclEdges, shadowEdges, unusedACL := compareACL(agents, edges)
+
+	g := &AgentGraph{
+		Edges:      computed,
+		TotalEdges: len(computed),
+	}
+	if opts.CompareACL {
+		g.ACLEdges, g.ShadowEdges, g.UnusedACL = compareACL(agents, edges)
+	}
 
 	nodes := make([]Node, 0, len(nodeMap))
 	for _, n := range nodeMap {
 		nodes = append(nodes, *n)
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Name < nodes[j].Name })
-
-	return &AgentGraph{
-		Nodes:       nodes,
-		Edges:       computed,
-		ACLEdges:    aclEdges,
-		ShadowEdges: shadowEdges,
-		UnusedACL:   unusedACL,
-		TotalNodes:  len(nodes),
-		TotalEdges:  len(computed),
-	}
+	g.Nodes = nodes
+	g.TotalNodes = len(nodes)
+	return g
 }
 
 // buildNodeSet merges config agents with agents seen in edges.
+// Nodes from edges that did not appear in agents inherit no
+// Kind; the dashboard renders them as the default agent style.
 func buildNodeSet(agents []AgentMeta, edges []EdgeInput) map[string]*Node {
 	nodeMap := make(map[string]*Node)
 	for _, a := range agents {
@@ -146,6 +191,7 @@ func buildNodeSet(agents []AgentMeta, edges []EdgeInput) map[string]*Node {
 			Description: a.Description,
 			Location:    a.Location,
 			Tags:        a.Tags,
+			Kind:        a.Kind,
 			Betweenness: -1,
 		}
 	}

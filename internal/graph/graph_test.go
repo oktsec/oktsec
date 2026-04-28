@@ -2,6 +2,63 @@ package graph
 
 import "testing"
 
+// TestBuildObserved_SkipsACLProjection locks in the runtime
+// path's contract: BuildObserved must not produce ACLEdges,
+// ShadowEdges, or UnusedACL. Actor hierarchy is not authorization
+// — passing parent->child runtime edges through compareACL would
+// fabricate phantom shadow rows and "unused ACL" entries that
+// confuse the dashboard's Unmonitored Routes view.
+func TestBuildObserved_SkipsACLProjection(t *testing.T) {
+	agents := []AgentMeta{
+		{Name: "root", Kind: "root"},
+		{Name: "subagent/research", Kind: "subagent"},
+	}
+	edges := []EdgeInput{
+		{From: "root", To: "subagent/research", Delivered: 3, Total: 3},
+	}
+	g := BuildObserved(agents, edges)
+	if len(g.ACLEdges) != 0 {
+		t.Errorf("ACLEdges = %d, want 0 for BuildObserved", len(g.ACLEdges))
+	}
+	if len(g.ShadowEdges) != 0 {
+		t.Errorf("ShadowEdges = %d, want 0 for BuildObserved (root->subagent must not phantom-shadow)", len(g.ShadowEdges))
+	}
+	if len(g.UnusedACL) != 0 {
+		t.Errorf("UnusedACL = %d, want 0 for BuildObserved", len(g.UnusedACL))
+	}
+	// Sanity: nodes + edges + Kind passthrough still work.
+	if g.TotalNodes != 2 || g.TotalEdges != 1 {
+		t.Errorf("nodes=%d edges=%d, want 2 + 1", g.TotalNodes, g.TotalEdges)
+	}
+	for _, n := range g.Nodes {
+		if n.Name == "subagent/research" && n.Kind != "subagent" {
+			t.Errorf("subagent node Kind = %q, want subagent", n.Kind)
+		}
+	}
+}
+
+// TestBuild_LegacyStillRunsACLProjection guards the audit-side
+// path: the original Build entrypoint must keep running compareACL
+// so existing dashboard rendering of UnusedACL and ShadowEdges
+// stays intact.
+func TestBuild_LegacyStillRunsACLProjection(t *testing.T) {
+	agents := []AgentMeta{
+		{Name: "alice", CanMessage: []string{"bob"}},
+		{Name: "bob"},
+		{Name: "eve"},
+	}
+	edges := []EdgeInput{
+		{From: "alice", To: "eve", Delivered: 2, Total: 2}, // not in ACL
+	}
+	g := Build(agents, edges)
+	if len(g.ACLEdges) == 0 {
+		t.Error("ACLEdges empty under legacy Build")
+	}
+	if len(g.ShadowEdges) == 0 {
+		t.Error("ShadowEdges empty under legacy Build (alice->eve must shadow)")
+	}
+}
+
 func TestBuild_BasicGraph(t *testing.T) {
 	agents := []AgentMeta{
 		{Name: "a", Description: "Agent A", CanMessage: []string{"b", "c"}},

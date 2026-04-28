@@ -275,12 +275,27 @@ func TestRegression_SettingsToggleNoStaleSavedOnRedirect(t *testing.T) {
 // explicit role/client model that supersedes them.
 
 // TestRegression_GraphCodeIsClientAgnostic fails if a specific client display
-// name appears as a literal in the graph builder or template. Replace with a
-// capability lookup once the activity layer ships.
+// name OR a Claude-shaped event family literal appears in the graph builder,
+// the runtime-graph adapter, or the graph template. Replace with a capability
+// lookup once the activity layer ships.
+//
+// Phase 3D adds runtime_graph.go to the watched set and broadens the banned
+// substrings beyond "claude-code" to the per-event names ("PreToolUse",
+// "SubagentStart", etc.) — those belong in the runtime normalizer, not in
+// any code path that builds or renders the graph.
 func TestRegression_GraphCodeIsClientAgnostic(t *testing.T) {
 	files := []string{
 		"handlers.go",
 		"tmpl_graph.go",
+		"runtime_graph.go",
+	}
+	bannedLiterals := []string{
+		`"claude-code"`,
+		`'claude-code'`,
+		`"Claude Code"`,
+		`"SubagentStart"`,
+		`"PreToolUse"`,
+		`"PostToolUse"`,
 	}
 	for _, f := range files {
 		t.Run(f, func(t *testing.T) {
@@ -290,18 +305,17 @@ func TestRegression_GraphCodeIsClientAgnostic(t *testing.T) {
 			if err != nil {
 				t.Fatalf("read %s: %v", f, err)
 			}
-			// Graph code paths must remain client-agnostic: client identification
-			// belongs in the activity layer (Phase 1+), not in literal node names.
-			// Comments are exempt; only non-comment code lines are checked.
 			lines := strings.Split(data, "\n")
 			for i, line := range lines {
 				trimmed := strings.TrimSpace(line)
 				if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "*") {
 					continue
 				}
-				if strings.Contains(line, `"claude-code"`) || strings.Contains(line, `'claude-code'`) {
-					t.Errorf("%s:%d references a specific client name in non-comment code: %s",
-						f, i+1, strings.TrimSpace(line))
+				for _, lit := range bannedLiterals {
+					if strings.Contains(line, lit) {
+						t.Errorf("%s:%d references %s in non-comment code: %s",
+							f, i+1, lit, strings.TrimSpace(line))
+					}
 				}
 			}
 		})
