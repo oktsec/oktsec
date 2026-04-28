@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
@@ -39,10 +40,14 @@ func TestOverviewSparkline_LabelledCardWhenDataExists(t *testing.T) {
 	srv := newTestServer(t)
 	srv.cfg.Agents["smoke-agent"] = config.Agent{}
 
-	// Log one real audit entry so QueryHourlyStats has data.
+	// Log one real audit entry so QueryHourlyStats has data. The
+	// timestamp must fall inside the Overview's 24h sparkline
+	// window; using a hardcoded calendar date drifts out of range
+	// the moment the wall clock crosses midnight, so anchor on
+	// time.Now() instead.
 	srv.audit.Log(audit.Entry{
 		ID:             "smoke-1",
-		Timestamp:      "2026-04-27T10:00:00Z",
+		Timestamp:      time.Now().UTC().Add(-time.Hour).Format(time.RFC3339),
 		FromAgent:      "smoke-agent",
 		ToAgent:        "echo",
 		ContentHash:    "h",
