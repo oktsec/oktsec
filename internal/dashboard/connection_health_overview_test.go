@@ -123,6 +123,63 @@ func TestOverview_HeartbeatFlipsTileToConnectedAndKeepsPosture(t *testing.T) {
 	}
 }
 
+// TestOverview_VeryOldProtectedEventHidesCoverageCell pins the
+// per-cell coverage rule: an event past StaleAfter must NOT
+// keep the green Coverage badge visible even when its
+// CoverageMode was Protected. Past the connection-truth window
+// the status field drops to partial; the coverage cell must
+// follow so the tile cannot say "Coverage: Protected" while
+// the headline says "Installed, waiting for first observed
+// event".
+func TestOverview_VeryOldProtectedEventHidesCoverageCell(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	old := time.Now().UTC().Add(-25 * time.Hour)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"PreToolUse","session_id":"sess-old-cov","tool_name":"Read"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "sess-old-cov",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{
+		CoverageMode: "Protected",
+		Confidence:   100,
+	}); err != nil {
+		t.Fatalf("seed old protected event: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	// The Coverage badge text in the tile is rendered by a
+	// `{{if .Runtime.CoverageStage}}` block, so a hidden cell
+	// has no "Coverage" header at all near the connection
+	// tile. Search the tile region only to avoid false positives
+	// from the coverage matrix elsewhere on the page.
+	tileStart := strings.Index(body, "Claude Code connection")
+	if tileStart < 0 {
+		t.Fatal("Claude Code connection tile not rendered")
+	}
+	tile := body[tileStart : tileStart+1500]
+	if strings.Contains(tile, "Protected") {
+		t.Errorf("Coverage badge says 'Protected' for 25h event; tile excerpt: %s", tile)
+	}
+	// Sanity: the headline should be in the partial state.
+	if !strings.Contains(tile, "Installed, waiting for first observed event") {
+		t.Errorf("expected partial headline; tile excerpt: %s", tile)
+	}
+}
+
 // TestOverview_VeryOldEventCellDoesNotSayObserved pins the
 // per-cell freshness contract: a 25-hour-old runtime event
 // drops the connection to partial AND the Real events cell

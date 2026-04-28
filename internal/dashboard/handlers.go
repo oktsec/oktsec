@@ -4448,10 +4448,26 @@ func (s *Server) claudeCodeRuntimeEvidence(parent context.Context, inv claudecod
 				latestEvent = &ev
 			}
 		}
+		// Coverage badge represents "usable evidence right now",
+		// not "ever observed". Past the StaleAfter window the
+		// status field already drops to partial and disowns the
+		// row; CoverageStage must follow the same rule or the
+		// tile contradicts itself (status=partial but
+		// Coverage=Protected). ObservedFamilies stays unfiltered
+		// because it answers the orthogonal "did this family
+		// ever fire" question for the missing-installed gap
+		// report.
+		coverageCutoff := time.Now().UTC().Add(-claudecode.DefaultStaleAfter)
+		usableForCoverage := make([]runtime.HookEvent, 0, len(realEvents))
+		for _, ev := range realEvents {
+			if !ev.Timestamp.Before(coverageCutoff) {
+				usableForCoverage = append(usableForCoverage, ev)
+			}
+		}
 		if latestEvent != nil {
 			in.LastEventAt = latestEvent.Timestamp.UTC().Format(time.RFC3339Nano)
 			in.LastEventFamily = latestEvent.HookEventName
-			in.CoverageStage = strongestCoverage(realEvents)
+			in.CoverageStage = strongestCoverage(usableForCoverage)
 		}
 		in.ObservedFamilies = sortedStringSet(latestPerFamily)
 	}

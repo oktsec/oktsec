@@ -20,6 +20,25 @@ const (
 	SurfaceMCPHTTP = "mcp_http"
 )
 
+// Default freshness windows. Exported so callers (the
+// dashboard's runtime-evidence projection, the doctor command)
+// can apply the same cutoffs DeriveHealth uses internally
+// without re-deriving the numbers and silently drifting from
+// the canonical contract.
+//
+// DefaultStaleAfter is the boundary between "stale" (we have
+// real evidence within this window) and "partial" (the row is
+// so old it might predate the current install). Any cell that
+// represents "usable evidence right now" — coverage,
+// observed-recently, last-event freshness — should drop to
+// empty past this cutoff so the UI never paints a badge the
+// status field already disowned.
+const (
+	DefaultStaleAfter     = 24 * time.Hour
+	DefaultFreshHeartbeat = 10 * time.Minute
+	DefaultFreshEvent     = 30 * time.Minute
+)
+
 // LastSeenLookup is the narrow projection of audit.Store the
 // connector needs to derive freshness. Defined locally so the
 // dashboard handler does not have to thread the whole AuditStore
@@ -231,13 +250,13 @@ func DeriveHealth(inv Inventory, opts HealthOptions) ConnectorHealth {
 		opts.Now = time.Now
 	}
 	if opts.StaleAfter <= 0 {
-		opts.StaleAfter = 24 * time.Hour
+		opts.StaleAfter = DefaultStaleAfter
 	}
 	if opts.FreshHeartbeat <= 0 {
-		opts.FreshHeartbeat = 10 * time.Minute
+		opts.FreshHeartbeat = DefaultFreshHeartbeat
 	}
 	if opts.FreshEvent <= 0 {
-		opts.FreshEvent = 30 * time.Minute
+		opts.FreshEvent = DefaultFreshEvent
 	}
 
 	h := ConnectorHealth{
