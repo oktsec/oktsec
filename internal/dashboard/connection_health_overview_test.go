@@ -1,0 +1,529 @@
+package dashboard
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/connectors/claudecode"
+	"github.com/oktsec/oktsec/internal/identity"
+	"github.com/oktsec/oktsec/internal/runtime"
+)
+
+// newOverviewTestServer wires a Server backed by a real audit
+// store + DB so the runtime auto-build path actually fires. The
+// overview handler reads from these stores directly so an
+// in-memory mock would not exercise the new tile code.
+func newOverviewTestServer(t *testing.T) (*Server, *audit.Store) {
+	t.Helper()
+	dir := t.TempDir()
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	store, err := audit.NewStore(filepath.Join(dir, "test.db"), logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	cfg := &config.Config{
+		Version: "1",
+		Server:  config.ServerConfig{Port: 0},
+		DBPath:  filepath.Join(dir, "test.db"),
+		Agents:  map[string]config.Agent{"agent-a": {CanMessage: []string{"agent-b"}}},
+	}
+	srv := NewServer(cfg, filepath.Join(dir, "oktsec.yaml"), store, identity.NewKeyStore(), sharedScanner, logger)
+	return srv, store
+}
+
+func renderOverview(t *testing.T, srv *Server, cookie *http.Cookie, handler http.Handler) string {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/dashboard", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	return w.Body.String()
+}
+
+// TestOverview_NotInstalledShowsSetupPending pins the
+// Phase 3C-0 acceptance: with no Claude install at all the tile
+// shows "Claude Code not detected" and the posture grade is
+// suppressed (no hard score during install). Empty $HOME is
+// configured so the connector inspector reports not_installed.
+func TestOverview_NotInstalledShowsSetupPending(t *testing.T) {
+	emptyHome := t.TempDir()
+	t.Setenv("HOME", emptyHome)
+	t.Setenv("PATH", "")
+
+	srv, _ := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	body := renderOverview(t, srv, cookie, handler)
+
+	if !strings.Contains(body, "Claude Code not detected") {
+		t.Errorf("Overview tile missing not_installed copy; body excerpt: %s", excerpt(body, "Claude Code"))
+	}
+	if !strings.Contains(body, "Posture grade not yet computed") {
+		t.Error("Posture suppression banner not rendered for not_installed")
+	}
+	if !strings.Contains(body, "Posture (setup pending)") {
+		t.Error("Hero score should fall back to 'setup pending' label, not show a number")
+	}
+}
+
+// TestOverview_HeartbeatFlipsTileToConnectedAndKeepsPosture
+// covers the heartbeat-promotes-to-ready path AND the
+// suppression rule that "ready" is the threshold for showing
+// the hard grade again.
+func TestOverview_HeartbeatFlipsTileToConnectedAndKeepsPosture(t *testing.T) {
+	// Build an inventory that looks installed so DeriveHealth
+	// proceeds past the not_installed / disconnected branches.
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	// Seed a runtime heartbeat row directly via the runtime store
+	// so the test does not depend on the hook handler being wired.
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store to auto-build off audit DB")
+	}
+	now := time.Now().UTC()
+	hbEnv, _ := runtime.Normalize([]byte(`{"hook_event_name":"SessionStart","session_id":"heartbeat-2026"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "heartbeat-2026",
+		}, now)
+	if err := rs.RecordHook(context.Background(), hbEnv, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed heartbeat: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	if !strings.Contains(body, "Connected and observed") {
+		t.Errorf("Overview tile missing 'Connected and observed' copy; excerpt: %s", excerpt(body, "Claude Code connection"))
+	}
+	if strings.Contains(body, "Posture grade not yet computed") {
+		t.Error("Posture grade should not be suppressed once status=ready (heartbeat received)")
+	}
+}
+
+// TestOverview_VeryOldProtectedEventHidesCoverageCell pins the
+// per-cell coverage rule: an event past StaleAfter must NOT
+// keep the green Coverage badge visible even when its
+// CoverageMode was Protected. Past the connection-truth window
+// the status field drops to partial; the coverage cell must
+// follow so the tile cannot say "Coverage: Protected" while
+// the headline says "Installed, waiting for first observed
+// event".
+func TestOverview_VeryOldProtectedEventHidesCoverageCell(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	old := time.Now().UTC().Add(-25 * time.Hour)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"PreToolUse","session_id":"sess-old-cov","tool_name":"Read"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "sess-old-cov",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{
+		CoverageMode: "Protected",
+		Confidence:   100,
+	}); err != nil {
+		t.Fatalf("seed old protected event: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	// The Coverage badge text in the tile is rendered by a
+	// `{{if .Runtime.CoverageStage}}` block, so a hidden cell
+	// has no "Coverage" header at all near the connection
+	// tile. Search the tile region only to avoid false positives
+	// from the coverage matrix elsewhere on the page.
+	tileStart := strings.Index(body, "Claude Code connection")
+	if tileStart < 0 {
+		t.Fatal("Claude Code connection tile not rendered")
+	}
+	tile := body[tileStart : tileStart+1500]
+	if strings.Contains(tile, "Protected") {
+		t.Errorf("Coverage badge says 'Protected' for 25h event; tile excerpt: %s", tile)
+	}
+	// Sanity: the headline should be in the partial state.
+	if !strings.Contains(tile, "Installed, waiting for first observed event") {
+		t.Errorf("expected partial headline; tile excerpt: %s", tile)
+	}
+}
+
+// TestOverview_VeryOldEventCellDoesNotSayObserved pins the
+// per-cell freshness contract: a 25-hour-old runtime event
+// drops the connection to partial AND the Real events cell
+// must NOT render its green "observed" badge. Otherwise the
+// tile contradicts itself — title/reason say "Installed,
+// waiting for first observed event" while the cell flashes
+// green because LastEventAt is non-empty.
+func TestOverview_VeryOldEventCellDoesNotSayObserved(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	old := time.Now().UTC().Add(-25 * time.Hour)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"PreToolUse","session_id":"sess-old-cell","tool_name":"Read"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "sess-old-cell",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed old event: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+
+	// Locate the Real events cell. It must NOT say "observed"
+	// (the green badge) because no event landed inside the
+	// freshness window. "none recent" is the expected value
+	// because LastEventAt is non-empty.
+	idx := strings.Index(body, "Real events")
+	if idx < 0 {
+		t.Fatal("Real events cell not rendered")
+	}
+	cell := body[idx:idx+200]
+	if strings.Contains(cell, ">observed<") {
+		t.Errorf("Real events cell says 'observed' for 25h-old event; expected 'none recent'. excerpt: %s", cell)
+	}
+	if !strings.Contains(cell, ">none recent<") {
+		t.Errorf("Real events cell missing 'none recent' badge; excerpt: %s", cell)
+	}
+}
+
+// TestOverview_StaleHeartbeatCellDoesNotSayReceived covers the
+// symmetric heartbeat case: a 30-minute-old heartbeat past
+// FreshHeartbeat must NOT keep the cell on the green "received"
+// badge. The badge belongs only to fresh heartbeats; stale ones
+// render "none recent".
+func TestOverview_StaleHeartbeatCellDoesNotSayReceived(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	old := time.Now().UTC().Add(-30 * time.Minute)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"SessionStart","session_id":"heartbeat-stale-cell"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "heartbeat-stale-cell",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed stale heartbeat: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	idx := strings.Index(body, "Heartbeat")
+	if idx < 0 {
+		t.Fatal("Heartbeat cell not rendered")
+	}
+	cell := body[idx:idx+200]
+	if strings.Contains(cell, ">received<") {
+		t.Errorf("Heartbeat cell says 'received' for 30m-old heartbeat; expected 'none recent'. excerpt: %s", cell)
+	}
+	if !strings.Contains(cell, ">none recent<") {
+		t.Errorf("Heartbeat cell missing 'none recent' badge; excerpt: %s", cell)
+	}
+}
+
+// TestOverview_VeryOldEventSuppressesPostureGrade pins the
+// updated suppression rule: an event past StaleAfter (default
+// 24h) drops the connection to partial, and partial must
+// suppress the posture grade even though Runtime.HasEvidence is
+// still true (the row landed at some point). Otherwise the
+// Overview would say "installed, waiting for first observed
+// event" while still showing a hard grade — exactly the
+// historical-evidence-inflates-current-state smell Phase 3C-0
+// is meant to close.
+func TestOverview_VeryOldEventSuppressesPostureGrade(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	// 25 hours back-dates the runtime row past the default
+	// StaleAfter (24h) so DeriveHealth drops to partial. The
+	// runtime tables still carry a row, so HasEvidence is true —
+	// without the suppression tightening, the Overview would
+	// keep the grade visible.
+	old := time.Now().UTC().Add(-25 * time.Hour)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"PreToolUse","session_id":"sess-old","tool_name":"Read"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "sess-old",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed old event: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	if !strings.Contains(body, "Posture grade not yet computed") {
+		t.Errorf("posture suppression banner missing for partial state with stale historical evidence; excerpt: %s",
+			excerpt(body, "Posture"))
+	}
+	if !strings.Contains(body, "Installed, waiting for first observed event") {
+		t.Errorf("expected 'Installed, waiting for first observed event' (partial state); excerpt: %s",
+			excerpt(body, "Claude Code connection"))
+	}
+}
+
+// TestOverview_StaleHeartbeatOnlySuppressesPostureGrade locks
+// in the symmetrical rule for diagnostic-only evidence: a
+// heartbeat past the FreshHeartbeat window (10m default) with
+// no real event leaves DeriveHealth in partial. The Overview
+// must suppress the posture grade in that state too —
+// HasEvidence is true (the heartbeat row exists) but it does
+// not back a hardening grade.
+func TestOverview_StaleHeartbeatOnlySuppressesPostureGrade(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	// 30 minutes back-dates the heartbeat past FreshHeartbeat
+	// (10m default). No real event ever lands.
+	old := time.Now().UTC().Add(-30 * time.Minute)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"SessionStart","session_id":"heartbeat-stale-2026"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "heartbeat-stale-2026",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed stale heartbeat: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	if !strings.Contains(body, "Posture grade not yet computed") {
+		t.Errorf("posture suppression banner missing for partial state with stale heartbeat; excerpt: %s",
+			excerpt(body, "Posture"))
+	}
+}
+
+// TestOverview_HeartbeatOnlyDoesNotCountAsRealEvent locks in
+// the P2 contract: a heartbeat row writes a SessionStart event
+// to runtime_hook_events, but the Overview must keep its
+// "Real events: none yet" badge until a non-heartbeat event
+// lands. Otherwise `oktsec doctor claude-code --emit-heartbeat`
+// would silently inflate the connection-truth view to "real
+// activity observed" and mark SessionStart as an observed family.
+func TestOverview_HeartbeatOnlyDoesNotCountAsRealEvent(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	now := time.Now().UTC()
+	hbEnv, _ := runtime.Normalize([]byte(`{"hook_event_name":"SessionStart","session_id":"heartbeat-only-2026"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "heartbeat-only-2026",
+		}, now)
+	if err := rs.RecordHook(context.Background(), hbEnv, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed heartbeat: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	// Heartbeat tile cell must show "received".
+	if !strings.Contains(body, ">received<") {
+		t.Errorf("Heartbeat cell missing 'received' value; excerpt: %s", excerpt(body, "Heartbeat"))
+	}
+	// Real events tile cell must still show "none yet".
+	idx := strings.Index(body, "Real events")
+	if idx < 0 {
+		t.Fatal("Real events cell not rendered")
+	}
+	tail := body[idx:]
+	if !strings.Contains(tail[:200], ">none yet<") {
+		t.Errorf("Real events cell should show 'none yet' for heartbeat-only state; excerpt: %s", tail[:200])
+	}
+}
+
+// TestOverview_HooksInstalledNoEventsShowsWaiting locks in the
+// "installed, waiting for first observed event" empty state.
+// The tile must read as setup pending, not as a security alert.
+func TestOverview_HooksInstalledNoEventsShowsWaiting(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, _ := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	body := renderOverview(t, srv, cookie, handler)
+	if !strings.Contains(body, "Installed, waiting for first observed event") {
+		t.Errorf("Overview tile missing 'Installed, waiting for first observed event'; excerpt: %s",
+			excerpt(body, "Claude Code connection"))
+	}
+	if strings.Contains(body, "Critical security gaps detected") {
+		t.Error("alarmist 'Critical security gaps detected' copy should NOT appear during install")
+	}
+	if strings.Contains(body, "Deployment needs attention") {
+		t.Error("alarmist 'Deployment needs attention' copy should NOT appear during install")
+	}
+}
+
+// TestOverview_RealEventLiftsToProtectedCoverage exercises the
+// final acceptance: a PreToolUse with Protected coverage in the
+// runtime row is reflected in the tile's coverage badge.
+func TestOverview_RealEventLiftsToProtectedCoverage(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	now := time.Now().UTC()
+	env, _ := runtime.Normalize([]byte(`{"hook_event_name":"PreToolUse","session_id":"sess-real","tool_name":"Read"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "sess-real",
+		}, now)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{
+		CoverageMode: "Protected",
+		Confidence:   100,
+	}); err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	if !strings.Contains(body, "Connected and observed") {
+		t.Errorf("Overview tile should show Connected and observed; excerpt: %s",
+			excerpt(body, "Claude Code connection"))
+	}
+	if !strings.Contains(body, "Protected") {
+		t.Error("Coverage stage 'Protected' should be rendered when runtime row carries it")
+	}
+}
+
+// stageClaudeFixture writes the minimum settings file to make
+// the connector inspector report Detected=true and (when
+// withOktsecHook) HookInstalled=true. Returns the temp home dir
+// the test should set $HOME to.
+func stageClaudeFixture(t *testing.T, withOktsecHook bool) string {
+	t.Helper()
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := `{}`
+	if withOktsecHook {
+		body = `{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher":"*","hooks":[{"type":"command","command":"/usr/local/bin/oktsec hook --port 9090 --event PreToolUse --manifest v2"}]}
+    ]
+  }
+}`
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// excerpt returns a short window around the first occurrence of
+// needle so failure messages stay readable. Empty when not found.
+func excerpt(haystack, needle string) string {
+	idx := strings.Index(haystack, needle)
+	if idx < 0 {
+		return "(needle not found)"
+	}
+	start := idx - 80
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(needle) + 200
+	if end > len(haystack) {
+		end = len(haystack)
+	}
+	return haystack[start:end]
+}

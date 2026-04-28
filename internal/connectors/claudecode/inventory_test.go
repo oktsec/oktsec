@@ -291,12 +291,17 @@ func TestDeriveHealth_StatusTransitions(t *testing.T) {
 			want:      "ready",
 		},
 		{
-			name: "stale when last event is older than threshold",
+			// Past FreshEvent (30m default) but within
+			// StaleAfter (24h default) — Phase 3C-0 keeps the
+			// stale label here. Beyond 24h the row drops to
+			// partial; that boundary is exercised by
+			// TestDeriveHealth_VeryOldRuntimeEventIsPartial.
+			name: "stale when last event is past fresh window",
 			inv: Inventory{
 				Detected: true,
 				Hooks:    []HookRef{{IsOktsec: true, Event: "PreToolUse"}},
 			},
-			lastEvent: now.Add(-48 * time.Hour).Format(time.RFC3339),
+			lastEvent: now.Add(-2 * time.Hour).Format(time.RFC3339),
 			want:      "stale",
 		},
 		{

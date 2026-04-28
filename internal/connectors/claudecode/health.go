@@ -20,6 +20,25 @@ const (
 	SurfaceMCPHTTP = "mcp_http"
 )
 
+// Default freshness windows. Exported so callers (the
+// dashboard's runtime-evidence projection, the doctor command)
+// can apply the same cutoffs DeriveHealth uses internally
+// without re-deriving the numbers and silently drifting from
+// the canonical contract.
+//
+// DefaultStaleAfter is the boundary between "stale" (we have
+// real evidence within this window) and "partial" (the row is
+// so old it might predate the current install). Any cell that
+// represents "usable evidence right now" — coverage,
+// observed-recently, last-event freshness — should drop to
+// empty past this cutoff so the UI never paints a badge the
+// status field already disowned.
+const (
+	DefaultStaleAfter     = 24 * time.Hour
+	DefaultFreshHeartbeat = 10 * time.Minute
+	DefaultFreshEvent     = 30 * time.Minute
+)
+
 // LastSeenLookup is the narrow projection of audit.Store the
 // connector needs to derive freshness. Defined locally so the
 // dashboard handler does not have to thread the whole AuditStore
@@ -89,34 +108,155 @@ type ConnectorHealth struct {
 	// next to the status pill. Composed from inventory + last-seen so
 	// the UI never has to guess at "why partial?".
 	Reason string `json:"reason"`
+
+	// Runtime is the Phase 3C-0 evidence projection that turns
+	// "hooks installed" into "hooks observed". When the runtime
+	// store has no rows yet the block is empty; when there are
+	// rows the dashboard reads RuntimeReady to decide whether the
+	// Overview tile says "observed" vs "installed, not yet observed".
+	Runtime RuntimeEvidence `json:"runtime"`
+}
+
+// RuntimeEvidence is the durable runtime signal the Connection
+// Health tile and the doctor consume to tell "we have evidence
+// the hooks are firing" apart from "we believe they are
+// installed". Empty timestamps mean "never observed"; the UI
+// renders the explicit empty state instead of inventing a value.
+//
+// Computed once in DeriveHealth from a HealthOptions.Runtime
+// snapshot the caller fills from runtime.Store. Pure
+// projection — no I/O here.
+type RuntimeEvidence struct {
+	LastHeartbeatAt          string   `json:"last_heartbeat_at,omitempty"`
+	LastEventAt              string   `json:"last_event_at,omitempty"`
+	LastEventFamily          string   `json:"last_event_family,omitempty"`
+	ObservedFamilies         []string `json:"observed_families,omitempty"`
+	MissingInstalledFamilies []string `json:"missing_installed_families,omitempty"`
+	SubagentsObserved        int      `json:"subagents_observed"`
+	SessionsObserved         int      `json:"sessions_observed"`
+
+	// HasEvidence is true when runtime tables have at least one
+	// row attributable to Claude Code (heartbeat or real event).
+	// Answers "did anything ever land", not "is the cell badge
+	// true right now". The Overview tile uses HasFreshHeartbeat /
+	// HasFreshRealEvent below for cell badges; HasEvidence is for
+	// "first time vs not first time" prompts only.
+	HasEvidence bool `json:"has_evidence"`
+
+	// HasFreshHeartbeat / HasFreshRealEvent split the evidence
+	// timestamps into fresh (within FreshHeartbeat / FreshEvent)
+	// and stale buckets so the tile never paints a green
+	// "received" / "observed" badge while the same tile's title
+	// reads "Installed, waiting for first observed event". The
+	// status field already encodes this rule for the headline;
+	// these booleans surface the same rule per-cell so the
+	// template does not have to re-derive freshness from raw
+	// timestamps.
+	HasFreshHeartbeat bool `json:"has_fresh_heartbeat"`
+	HasFreshRealEvent bool `json:"has_fresh_real_event"`
+
+	// CoverageStage is the strongest stage the runtime has
+	// observed in the rollup window. One of "protected",
+	// "observed", "blind", or "" (no evidence). Lets the tile
+	// render Protected/Observed without joining back to the
+	// activity row for every render.
+	CoverageStage string `json:"coverage_stage,omitempty"`
 }
 
 // HealthOptions controls staleness thresholds and lets callers inject
 // the last-seen signal without depending on the audit store directly.
-// Phase 1 keeps both fields optional so the doctor can compute a
-// useful health snapshot even when no audit store is reachable.
+// Phase 1 keeps the audit-derived fields optional so the doctor can
+// compute a useful health snapshot even when no store is reachable;
+// Phase 3C-0 adds Runtime so the dashboard can lift the status to
+// "ready" only when there is real runtime evidence.
 type HealthOptions struct {
-	// LastEvent is the most recent timestamp (RFC3339) attributable
-	// to claude-code, or "" when none. Callers typically derive this
-	// from audit.Store.LastSeenByPrincipalSurface(principalID, surface).
+	// LastEvent is the most recent audit-store timestamp
+	// (RFC3339) attributable to claude-code, or "" when none.
+	// Kept for backwards compatibility with the doctor command;
+	// the new Runtime block carries the same signal but with
+	// finer detail when available.
 	LastEvent string
+
+	// Runtime is the optional projection from the Phase 3
+	// runtime store. When provided it takes precedence over
+	// LastEvent for the freshness check because the runtime row
+	// is the durable evidence Phase 3B writes per hook event.
+	Runtime *RuntimeEvidenceInput
 
 	// StaleAfter is the cutoff between "ready" and "stale". Defaults
 	// to 24h when zero, matching the spec's section 5 thresholds.
 	StaleAfter time.Duration
 
+	// FreshHeartbeat is the cutoff for "heartbeat is recent enough
+	// to count toward ready". Defaults to 10 minutes per spec
+	// section "Health rules" — a heartbeat older than this stops
+	// promoting the status by itself.
+	FreshHeartbeat time.Duration
+
+	// FreshEvent is the cutoff for "real event is recent enough
+	// to count toward ready". Defaults to 30 minutes per spec
+	// section "Health rules".
+	FreshEvent time.Duration
+
 	// Now is the clock seam for tests. Defaults to time.Now().
 	Now func() time.Time
 }
 
-// DeriveHealth maps an Inventory + observed signal to a ConnectorHealth.
-// Pure function: no I/O, no side effects, deterministic given inputs.
+// RuntimeEvidenceInput is the dashboard-supplied snapshot of the
+// runtime store. Defined as a separate input type from
+// RuntimeEvidence (the JSON projection) so the package boundary
+// stays one-way: callers feed in raw signals, DeriveHealth
+// computes the derived view.
+//
+// Empty fields mean "no evidence on this dimension". The
+// derivation tolerates partial inputs — e.g. a heartbeat without
+// real events still moves the status off "partial" because it
+// proves the hook command can reach the gateway.
+type RuntimeEvidenceInput struct {
+	LastHeartbeatAt          string
+	LastEventAt              string
+	LastEventFamily          string
+	ObservedFamilies         []string
+	MissingInstalledFamilies []string
+	SubagentsObserved        int
+	SessionsObserved         int
+
+	// CoverageStage is the strongest stage observed in the
+	// recent window: "protected" (PreToolUse with token auth),
+	// "observed" (any non-blocking auth or post-action), "blind"
+	// (no evidence). Empty means no evidence yet.
+	CoverageStage string
+}
+
+// DeriveHealth maps an Inventory + observed signals to a
+// ConnectorHealth. Pure function: no I/O, no side effects,
+// deterministic given inputs.
+//
+// Phase 3C-0 rules (per spec section "Health rules"):
+//
+//   - inventory says not installed → not_installed
+//   - installed but no oktsec hook AND no gateway → disconnected
+//   - hook installed + heartbeat in last FreshHeartbeat → ready (heartbeat)
+//   - hook installed + real event in last FreshEvent → ready (event)
+//   - hook installed + last event older than StaleAfter → stale
+//   - hook installed + nothing observed → partial ("installed,
+//     not yet observed")
+//
+// The runtime block on HealthOptions takes precedence over the
+// legacy LastEvent string; LastEvent is still honored when the
+// caller has no runtime store (the doctor command).
 func DeriveHealth(inv Inventory, opts HealthOptions) ConnectorHealth {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
 	if opts.StaleAfter <= 0 {
-		opts.StaleAfter = 24 * time.Hour
+		opts.StaleAfter = DefaultStaleAfter
+	}
+	if opts.FreshHeartbeat <= 0 {
+		opts.FreshHeartbeat = DefaultFreshHeartbeat
+	}
+	if opts.FreshEvent <= 0 {
+		opts.FreshEvent = DefaultFreshEvent
 	}
 
 	h := ConnectorHealth{
@@ -129,6 +269,36 @@ func DeriveHealth(inv Inventory, opts HealthOptions) ConnectorHealth {
 		LastEvent:             opts.LastEvent,
 		MissingExpectedEvents: MissingExpectedEvents(inv.Hooks),
 	}
+	h.Runtime = projectRuntimeEvidence(opts.Runtime)
+	// Per-cell freshness flags. Computed here so the template
+	// reads them directly instead of re-checking timestamps and
+	// drifting from the headline status. A non-empty timestamp
+	// past the fresh window means "we observed it but it does
+	// not back the current connection state" — the cell renders
+	// "none recent" rather than the green badge.
+	if _, ok := freshTimestamp(h.Runtime.LastHeartbeatAt, opts.Now(), opts.FreshHeartbeat); ok {
+		h.Runtime.HasFreshHeartbeat = true
+	}
+	if _, ok := freshTimestamp(h.Runtime.LastEventAt, opts.Now(), opts.FreshEvent); ok {
+		h.Runtime.HasFreshRealEvent = true
+	}
+
+	// Pick the most recent timestamp the caller can offer. The
+	// presence of opts.Runtime — not its content — switches the
+	// signal source: when the dashboard wires a runtime store it
+	// is the authoritative source, and an empty runtime means
+	// "installed but not yet observed". Falling back to the
+	// audit-store LastEvent in that case would let a legacy
+	// audit row from before runtime was wired flip the tile to
+	// ready, masking the real setup state. opts.LastEvent is
+	// only honored when the caller (the doctor command) has no
+	// runtime store at all.
+	bestEvent := ""
+	if opts.Runtime != nil {
+		bestEvent = h.Runtime.LastEventAt
+	} else {
+		bestEvent = opts.LastEvent
+	}
 
 	switch {
 	case !inv.Detected:
@@ -137,29 +307,103 @@ func DeriveHealth(inv Inventory, opts HealthOptions) ConnectorHealth {
 	case !h.HookInstalled && !h.GatewayConfigured:
 		h.Status = "disconnected"
 		h.Reason = "Claude Code is installed, but no oktsec hook or gateway MCP entry was found in user/project settings."
-	case opts.LastEvent == "":
-		h.Status = "partial"
-		h.Reason = reasonPartial(h)
 	default:
-		ts, err := time.Parse(time.RFC3339, opts.LastEvent)
-		if err != nil {
-			// Unparseable timestamp is a data bug, not the operator's
-			// fault — surface it as partial so the dashboard does not
-			// claim "ready" on garbled input.
-			h.Status = "partial"
-			h.Reason = "An event was reported but its timestamp could not be parsed; treating as partial."
+		// Heartbeat-driven promotion. A heartbeat alone is not
+		// "real activity" but it does prove the hook command can
+		// reach the gateway, which is the connection-truth signal.
+		if hb, ok := freshTimestamp(h.Runtime.LastHeartbeatAt, opts.Now(), opts.FreshHeartbeat); ok {
+			h.Status = "ready"
+			h.Reason = "Claude Code connected. Heartbeat received " + humanizeAge(opts.Now().Sub(hb)) + " ago."
 			break
 		}
-		age := opts.Now().Sub(ts)
-		if age > opts.StaleAfter {
-			h.Status = "stale"
-			h.Reason = "Last Claude Code event observed " + humanizeAge(age) + " ago; coverage may be out of date."
-		} else {
+		// Real-event promotion. Wins when the event is fresh
+		// enough by FreshEvent. Anything older drops to stale
+		// below — the connection-truth contract requires
+		// evidence fresh enough to trust, so a 2-hour-old event
+		// must NOT keep the tile reading "Connected and
+		// observed" or the posture grade visible.
+		if ev, ok := freshTimestamp(bestEvent, opts.Now(), opts.FreshEvent); ok {
 			h.Status = "ready"
-			h.Reason = "Claude Code connected. Last event observed " + humanizeAge(age) + " ago."
+			h.Reason = "Claude Code connected. Last event observed " + humanizeAge(opts.Now().Sub(ev)) + " ago."
+			break
 		}
+		// Past FreshEvent but parseable: stale. Stale never
+		// promotes back to ready in this branch — the only path
+		// to ready is the FreshEvent gate above. StaleAfter
+		// still distinguishes "we have recent-ish history" from
+		// "evidence so old it might as well not exist": past
+		// StaleAfter we drop to partial so the dashboard does not
+		// claim coverage from a row that may predate the current
+		// installation.
+		if ev, ok := parseTimestamp(bestEvent); ok {
+			age := opts.Now().Sub(ev)
+			if age <= opts.StaleAfter {
+				h.Status = "stale"
+				h.Reason = "Last Claude Code event observed " + humanizeAge(age) + " ago; connection is no longer fresh."
+				break
+			}
+		}
+		// No usable timestamp, or so old we discard it —
+		// installed but not yet observed.
+		h.Status = "partial"
+		h.Reason = reasonPartial(h)
 	}
 	return h
+}
+
+// projectRuntimeEvidence converts the dashboard-supplied input
+// into the JSON projection. Centralised so the input shape and
+// the wire shape can evolve independently without callers having
+// to know which fields drive the UI.
+func projectRuntimeEvidence(in *RuntimeEvidenceInput) RuntimeEvidence {
+	if in == nil {
+		return RuntimeEvidence{}
+	}
+	out := RuntimeEvidence{
+		LastHeartbeatAt:          in.LastHeartbeatAt,
+		LastEventAt:              in.LastEventAt,
+		LastEventFamily:          in.LastEventFamily,
+		ObservedFamilies:         append([]string(nil), in.ObservedFamilies...),
+		MissingInstalledFamilies: append([]string(nil), in.MissingInstalledFamilies...),
+		SubagentsObserved:        in.SubagentsObserved,
+		SessionsObserved:         in.SessionsObserved,
+		CoverageStage:            in.CoverageStage,
+	}
+	out.HasEvidence = in.LastHeartbeatAt != "" || in.LastEventAt != "" ||
+		in.SessionsObserved > 0 || in.SubagentsObserved > 0 ||
+		len(in.ObservedFamilies) > 0
+	return out
+}
+
+// freshTimestamp parses ts and returns (time, true) when it is
+// at most fresh ago. Empty / unparseable timestamps return
+// (zero, false) so callers fall through to the next rule.
+func freshTimestamp(ts string, now time.Time, fresh time.Duration) (time.Time, bool) {
+	t, ok := parseTimestamp(ts)
+	if !ok {
+		return time.Time{}, false
+	}
+	if now.Sub(t) > fresh {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// parseTimestamp tolerates both RFC3339 and the nanosecond-
+// resolution form runtime tables use. Returns (zero, false) on
+// any parse failure so the caller can downgrade to partial /
+// stale instead of claiming a false "ready".
+func parseTimestamp(ts string) (time.Time, bool) {
+	if ts == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse(time.RFC3339, ts); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
 }
 
 func reasonPartial(h ConnectorHealth) string {
