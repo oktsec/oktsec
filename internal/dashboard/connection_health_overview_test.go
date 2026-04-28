@@ -123,6 +123,99 @@ func TestOverview_HeartbeatFlipsTileToConnectedAndKeepsPosture(t *testing.T) {
 	}
 }
 
+// TestOverview_VeryOldEventSuppressesPostureGrade pins the
+// updated suppression rule: an event past StaleAfter (default
+// 24h) drops the connection to partial, and partial must
+// suppress the posture grade even though Runtime.HasEvidence is
+// still true (the row landed at some point). Otherwise the
+// Overview would say "installed, waiting for first observed
+// event" while still showing a hard grade — exactly the
+// historical-evidence-inflates-current-state smell Phase 3C-0
+// is meant to close.
+func TestOverview_VeryOldEventSuppressesPostureGrade(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	// 25 hours back-dates the runtime row past the default
+	// StaleAfter (24h) so DeriveHealth drops to partial. The
+	// runtime tables still carry a row, so HasEvidence is true —
+	// without the suppression tightening, the Overview would
+	// keep the grade visible.
+	old := time.Now().UTC().Add(-25 * time.Hour)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"PreToolUse","session_id":"sess-old","tool_name":"Read"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "sess-old",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed old event: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	if !strings.Contains(body, "Posture grade not yet computed") {
+		t.Errorf("posture suppression banner missing for partial state with stale historical evidence; excerpt: %s",
+			excerpt(body, "Posture"))
+	}
+	if !strings.Contains(body, "Installed, waiting for first observed event") {
+		t.Errorf("expected 'Installed, waiting for first observed event' (partial state); excerpt: %s",
+			excerpt(body, "Claude Code connection"))
+	}
+}
+
+// TestOverview_StaleHeartbeatOnlySuppressesPostureGrade locks
+// in the symmetrical rule for diagnostic-only evidence: a
+// heartbeat past the FreshHeartbeat window (10m default) with
+// no real event leaves DeriveHealth in partial. The Overview
+// must suppress the posture grade in that state too —
+// HasEvidence is true (the heartbeat row exists) but it does
+// not back a hardening grade.
+func TestOverview_StaleHeartbeatOnlySuppressesPostureGrade(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	// 30 minutes back-dates the heartbeat past FreshHeartbeat
+	// (10m default). No real event ever lands.
+	old := time.Now().UTC().Add(-30 * time.Minute)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"SessionStart","session_id":"heartbeat-stale-2026"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "heartbeat-stale-2026",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed stale heartbeat: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	if !strings.Contains(body, "Posture grade not yet computed") {
+		t.Errorf("posture suppression banner missing for partial state with stale heartbeat; excerpt: %s",
+			excerpt(body, "Posture"))
+	}
+}
+
 // TestOverview_HeartbeatOnlyDoesNotCountAsRealEvent locks in
 // the P2 contract: a heartbeat row writes a SessionStart event
 // to runtime_hook_events, but the Overview must keep its

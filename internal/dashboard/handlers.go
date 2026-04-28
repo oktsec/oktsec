@@ -4347,27 +4347,33 @@ func (s *Server) computeClaudeCodeConnectionHealth(parent context.Context) claud
 
 // suppressPostureGrade returns true when the Phase 4 redesign's
 // "no hard score during install" rule applies: until the
-// connection is verified, the audit-driven posture grade
-// describes a system the operator has not yet wired up. Showing
-// "grade C" here looks like a security alert when in fact it is
-// just an unconfigured surface.
+// connection has fresh enough evidence to back a grade, the
+// audit-driven posture score describes a system the operator
+// has not yet wired up. Showing "grade C" here looks like a
+// security alert when in fact it is just an unconfigured surface.
 //
 // Rules (per spec section "Target Product Model" + the
 // Phase 3C-0 acceptance):
 //
 //   - not_installed → suppress
 //   - disconnected → suppress
-//   - partial without runtime evidence → suppress (installed but
-//     never observed)
-//   - partial with runtime evidence (heartbeat-only) → keep
-//   - stale → keep (we have history; the score still applies)
-//   - ready → keep
+//   - partial → suppress, regardless of historical evidence.
+//     ConnectorHealth.Runtime.HasEvidence answers "did anything
+//     ever land", not "is there fresh evidence to grade
+//     against". A partial state means DeriveHealth could not
+//     find usable fresh evidence (no fresh heartbeat, no fresh
+//     event, anything older was demoted by the freshness rules)
+//     — grading hardening on top of that would tell the
+//     operator their posture is bad when really we just lost the
+//     connection signal.
+//   - stale → keep. We have parseable evidence within the
+//     StaleAfter window; the score still applies even though
+//     the connection went quiet.
+//   - ready → keep.
 func suppressPostureGrade(h claudecode.ConnectorHealth) bool {
 	switch h.Status {
-	case "not_installed", "disconnected":
+	case "not_installed", "disconnected", "partial":
 		return true
-	case "partial":
-		return !h.Runtime.HasEvidence
 	}
 	return false
 }
@@ -4384,9 +4390,10 @@ func postureSuppressionReason(h claudecode.ConnectorHealth) string {
 		return "Setup pending — Claude Code is not installed yet."
 	case "disconnected":
 		return "Setup pending — install oktsec hooks before grading hardening."
-	default:
+	case "partial":
 		return "Setup pending — installed, waiting for the first observed event."
 	}
+	return ""
 }
 
 // claudeCodeRuntimeEvidence builds the RuntimeEvidenceInput
