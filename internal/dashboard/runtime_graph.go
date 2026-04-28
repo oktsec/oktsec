@@ -111,22 +111,37 @@ func indexActors(actors []runtime.Actor) map[string]runtime.Actor {
 //
 //   - agent metadata for every actor that sourced or received an event;
 //   - actor->actor edges (parent->child) keyed by event activity;
-//   - tool nodes + actor->tool edges deduped by (session, actor, use_id);
+//   - tool nodes + actor->tool edges deduped per call.
 //
-// The dedupe key handles Pre/Post pairs that share a tool_use_id;
-// when no use_id exists the helper falls back to counting only
-// pre-action events (or the first event in the bucket if no
-// pre-action exists) so the same call never doubles in the count.
+// Tool dedupe rule:
+//
+//   - With ToolUseID: scope by (session, actor, tool_use_id). Pre+Post
+//     pairs collapse to one count; the first event observed wins.
+//   - Without ToolUseID: scope by (session, actor, tool_name). Some
+//     hook payloads emit only PostToolUse and never carry a use_id,
+//     so we cannot rely on stage filtering — counting only
+//     pre-action would silently drop those calls. Instead we bucket
+//     by (session, actor, tool) and count once: prefer a pre-action
+//     row when present so the count lines up with "calls initiated",
+//     but if the bucket is post-only we still record exactly one
+//     edge so post-only evidence does not vanish from the graph.
+//
+// The bucket pass is a two-pass walk to keep the result stable
+// regardless of event order (QueryEvents returns DESC, but the
+// rule must hold for any input order).
 func rollupRuntime(events []runtime.HookEvent, actorByID map[string]runtime.Actor) ([]graph.AgentMeta, []graph.EdgeInput, []graph.ToolNode, []graph.ToolEdge) {
 	type edgeKey struct{ from, to string }
 	type toolEdgeKey struct{ agent, tool string }
-	type dedupeKey struct{ session, actor, useID string }
+	type useIDKey struct{ session, actor, useID string }
+	type noUseKey struct{ session, actor, tool string }
 
 	agentMeta := make(map[string]graph.AgentMeta)
 	edgeAgg := make(map[edgeKey]*graph.EdgeInput)
 	toolEdgeAgg := make(map[toolEdgeKey]int)
 	toolTotals := make(map[string]int)
-	dedupe := make(map[dedupeKey]bool)
+	useIDSeen := make(map[useIDKey]bool)
+	noUseHasPre := make(map[noUseKey]bool)
+	noUseAny := make(map[noUseKey]runtime.HookEvent)
 
 	displayLabel := func(actorID string) string {
 		a, ok := actorByID[actorID]
@@ -146,6 +161,12 @@ func rollupRuntime(events []runtime.HookEvent, actorByID map[string]runtime.Acto
 			Kind:       kind,
 			CanMessage: []string{"*"}, // observed actors carry no ACL; wildcard avoids phantom shadow
 		}
+	}
+	recordToolEdge := func(actorID, toolName string) {
+		actorName := displayLabel(actorID)
+		clean := stripGatewayNamespace(toolName)
+		toolEdgeAgg[toolEdgeKey{agent: actorName, tool: clean}]++
+		toolTotals[clean]++
 	}
 
 	for _, ev := range events {
@@ -172,30 +193,46 @@ func rollupRuntime(events []runtime.HookEvent, actorByID map[string]runtime.Acto
 			}
 		}
 
-		// Tool node + tool edge. Dedupe so a Pre/Post pair never
-		// counts the same call twice. The dedupe scope is the
-		// (session, actor, use_id) tuple; without a use_id we fall
-		// back to counting only pre-action events so post-action
-		// alone or both stages never inflate.
 		if ev.ToolName == "" {
 			continue
 		}
-		stage := ev.Stage
+
 		if ev.ToolUseID != "" {
-			k := dedupeKey{session: ev.SessionID, actor: ev.ActorID, useID: ev.ToolUseID}
-			if dedupe[k] {
+			k := useIDKey{session: ev.SessionID, actor: ev.ActorID, useID: ev.ToolUseID}
+			if useIDSeen[k] {
 				continue
 			}
-			dedupe[k] = true
-		} else if stage != runtime.StagePreAction {
-			// No use_id and post-action: skip so the matching
-			// pre-action (if any) is the row we count.
+			useIDSeen[k] = true
+			recordToolEdge(ev.ActorID, ev.ToolName)
 			continue
 		}
 
-		toolName := stripGatewayNamespace(ev.ToolName)
-		toolEdgeAgg[toolEdgeKey{agent: actorName, tool: toolName}]++
-		toolTotals[toolName]++
+		// No use_id: defer to second pass so the count is
+		// independent of event order (QueryEvents is DESC).
+		bucket := noUseKey{session: ev.SessionID, actor: ev.ActorID, tool: ev.ToolName}
+		if ev.Stage == runtime.StagePreAction {
+			if !noUseHasPre[bucket] {
+				noUseHasPre[bucket] = true
+				recordToolEdge(ev.ActorID, ev.ToolName)
+			}
+			continue
+		}
+		// Post-action / observed-only / unknown stage. Stash the
+		// first one we see; a pre-action row in the same bucket
+		// will take precedence when materialised.
+		if _, ok := noUseAny[bucket]; !ok {
+			noUseAny[bucket] = ev
+		}
+	}
+
+	// Second pass: emit one tool edge per no-use_id bucket that
+	// never saw a pre-action. Pre-action buckets already counted
+	// above; visiting them again would double the edge.
+	for bucket, ev := range noUseAny {
+		if noUseHasPre[bucket] {
+			continue
+		}
+		recordToolEdge(ev.ActorID, ev.ToolName)
 	}
 
 	// Materialise agents in deterministic order.

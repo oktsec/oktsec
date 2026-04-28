@@ -746,7 +746,7 @@ function toggleGraphSidebar() {
   var _prevEv='',_prevTb='';
   function _nc(){return '_t='+Date.now();}
   function pollGraph(){
-    fetch('/dashboard/api/graph/stats?'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
+    fetch('/dashboard/api/graph/stats?range={{.Range}}&'+_nc(),{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
       var g=function(id){return document.getElementById(id)};
       if(g('gs-agents'))g('gs-agents').textContent=d.agents;
       if(g('gs-tools'))g('gs-tools').textContent=d.tools;

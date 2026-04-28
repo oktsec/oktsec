@@ -1164,24 +1164,62 @@ func (s *Server) handleAPIRecent(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, recentPartialTmpl, recent)
 }
 
+// handleAPIGraphStats derives the four hero counters from the same
+// graph the canvas renders. Reading from cfg.Agents / cfg.MCPServers
+// or audit.QueryStats() would let the cards diverge from the canvas
+// (e.g. runtime is heartbeat-only but cards still show legacy audit
+// totals, or agents=0/tools=0 while the canvas paints nodes). The
+// range query param mirrors handleGraph so a 1h canvas reads 1h
+// stats.
+//
+// blocks is intentionally summed only over Edges + UnrepresentedRoutes:
+// ToolEdge has no block counter today, so reporting tool blocks
+// would require inventing data the runtime does not carry.
 func (s *Server) handleAPIGraphStats(w http.ResponseWriter, r *http.Request) {
-	sc, _ := s.audit.QueryStats()
-	agentCount := len(s.cfg.Agents)
-	toolCount := 0
-	for range s.cfg.MCPServers {
-		toolCount++
+	rangeStr := r.URL.Query().Get("range")
+	if rangeStr == "" {
+		rangeStr = "24h"
 	}
-	total, blocked := 0, 0
-	if sc != nil {
-		total = sc.Total
-		blocked = sc.Blocked
+	since := parseSinceRange(rangeStr)
+	g := s.cachedBuildGraph(since)
+
+	agents, tools, messages, blocks := 0, 0, 0, 0
+	if g != nil {
+		agents = len(g.Nodes)
+		tools = len(g.ToolNodes)
+		for _, e := range g.Edges {
+			messages += e.Total
+			blocks += e.Blocked
+		}
+		for _, te := range g.ToolEdges {
+			messages += te.Total
+		}
+		for _, u := range g.UnrepresentedRoutes {
+			messages += u.Total
+			blocks += u.Blocked
+		}
 	}
 	s.renderJSON(w, map[string]int{
-		"agents":   agentCount,
-		"tools":    toolCount,
-		"messages": total,
-		"blocks":   blocked,
+		"agents":   agents,
+		"tools":    tools,
+		"messages": messages,
+		"blocks":   blocks,
 	})
+}
+
+// graphHasTraffic returns true when the graph carries any observed
+// activity in the current window. TotalEdges only measures
+// actor-to-actor edges, so a root-only tool call (no actor edge,
+// just a ToolEdge) registers TotalEdges == 0 even though the
+// dashboard has real traffic to render. UnrepresentedRoutes covers
+// forward-proxy / non-agent endpoints the legacy graph captures.
+func graphHasTraffic(g *graph.AgentGraph) bool {
+	if g == nil {
+		return false
+	}
+	return len(g.Edges) > 0 ||
+		len(g.ToolEdges) > 0 ||
+		len(g.UnrepresentedRoutes) > 0
 }
 
 func (s *Server) handleAPIGraphTables(w http.ResponseWriter, r *http.Request) {
@@ -4280,13 +4318,16 @@ func (s *Server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	since := parseSinceRange(rangeStr)
 	g := s.cachedBuildGraph(since)
 	// When the user did not pin a window, auto-widen so a quiet day does not
-	// render as an empty graph — walk up to 7d, then 30d if needed.
-	if !explicit && g != nil && g.TotalEdges == 0 {
+	// render as an empty graph — walk up to 7d, then 30d if needed. Use
+	// graphHasTraffic instead of TotalEdges so a window with only tool calls
+	// (e.g. a root issuing a single Read with no actor->actor edge) is treated
+	// as populated, not empty.
+	if !explicit && !graphHasTraffic(g) {
 		for _, fallback := range []string{"7d", "30d"} {
 			since = parseSinceRange(fallback)
 			g = s.cachedBuildGraph(since)
 			rangeStr = fallback
-			if g != nil && g.TotalEdges > 0 {
+			if graphHasTraffic(g) {
 				break
 			}
 		}
