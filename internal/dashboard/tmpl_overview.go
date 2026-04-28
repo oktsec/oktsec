@@ -111,6 +111,10 @@ a.ov-metric:hover{background:var(--surface2)}
     <div class="lbl">Agents Observed</div>
   </a>
   <a href="/dashboard/audit" class="hero-stat">
+    {{if .PostureSuppressed}}
+    <div class="num" style="color:var(--text3);font-weight:500;font-size:1.4rem">—</div>
+    <div class="lbl">Posture (setup pending)</div>
+    {{else}}
     <div class="score-ring" id="score-ring">
       <svg viewBox="0 0 48 48" width="48" height="48">
         <circle cx="24" cy="24" r="20" fill="none" stroke="var(--border)" stroke-width="3"/>
@@ -125,6 +129,7 @@ a.ov-metric:hover{background:var(--surface2)}
     (function(){var arc=document.getElementById('score-ring-arc');if(!arc)return;var score={{.Score}};var offset=125.66*(1-score/100);setTimeout(function(){arc.style.strokeDashoffset=offset},50)})();
     </script>
     <div class="lbl">Posture Score</div>
+    {{end}}
   </a>
 </div>
 
@@ -133,6 +138,68 @@ a.ov-metric:hover{background:var(--surface2)}
   <strong>{{.PendingReview}} message{{if gt .PendingReview 1}}s{{end}} pending review</strong>
   <span style="color:var(--text2);font-size:var(--text-sm)">Quarantined content awaiting human decision</span>
   <a href="/dashboard/events?tab=quarantine" class="btn btn-sm" style="background:var(--warn);color:#000">Review Now</a>
+</div>
+{{end}}
+
+{{with .ConnHealth}}
+<!--
+  Connection Health tile (Phase 3C-0). Answers the four questions
+  the operator asks during install:
+    - is Claude Code installed?
+    - are oktsec hooks installed?
+    - have we received a heartbeat / real event?
+    - what coverage stage do we have evidence for?
+  Empty states are deliberately non-alarmist: "installed, waiting
+  for first observed event" reads as setup pending, not as a
+  security gap.
+-->
+<div class="ov-card" style="margin-bottom:var(--sp-4);border-left:3px solid {{if eq .Status "ready"}}var(--success){{else if or (eq .Status "partial") (eq .Status "stale")}}var(--warn){{else}}var(--text3){{end}}">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap">
+    <div>
+      <div style="font-size:var(--text-xs);color:var(--text3);text-transform:uppercase;letter-spacing:var(--ls-caps);font-weight:500">Claude Code connection</div>
+      <div style="font-size:var(--text-lg);font-weight:600;margin-top:4px">
+        {{if eq .Status "ready"}}Connected and observed{{end}}
+        {{if eq .Status "partial"}}Installed, waiting for first observed event{{end}}
+        {{if eq .Status "stale"}}Last event is stale{{end}}
+        {{if eq .Status "disconnected"}}Installed, hooks not connected{{end}}
+        {{if eq .Status "not_installed"}}Claude Code not detected{{end}}
+      </div>
+      <div style="font-size:var(--text-sm);color:var(--text2);margin-top:4px;max-width:60ch">{{.Reason}}</div>
+    </div>
+    <div style="display:flex;gap:var(--sp-3);font-size:var(--text-xs);color:var(--text3);flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <div style="text-transform:uppercase;letter-spacing:var(--ls-caps);font-weight:500">Hooks</div>
+        <div style="color:{{if .HookInstalled}}var(--success){{else}}var(--text3){{end}};font-weight:600;margin-top:2px">{{if .HookInstalled}}installed{{else}}not installed{{end}}</div>
+      </div>
+      <div>
+        <div style="text-transform:uppercase;letter-spacing:var(--ls-caps);font-weight:500">Heartbeat</div>
+        <div style="color:{{if .Runtime.LastHeartbeatAt}}var(--success){{else}}var(--text3){{end}};font-weight:600;margin-top:2px">{{if .Runtime.LastHeartbeatAt}}received{{else}}none yet{{end}}</div>
+      </div>
+      <div>
+        <div style="text-transform:uppercase;letter-spacing:var(--ls-caps);font-weight:500">Real events</div>
+        <div style="color:{{if .Runtime.LastEventAt}}var(--success){{else}}var(--text3){{end}};font-weight:600;margin-top:2px">{{if .Runtime.LastEventAt}}observed{{else}}none yet{{end}}</div>
+      </div>
+      {{if .Runtime.CoverageStage}}
+      <div>
+        <div style="text-transform:uppercase;letter-spacing:var(--ls-caps);font-weight:500">Coverage</div>
+        <div style="font-weight:600;margin-top:2px;text-transform:capitalize">{{.Runtime.CoverageStage}}</div>
+      </div>
+      {{end}}
+    </div>
+  </div>
+</div>
+{{end}}
+
+{{if .PostureSuppressed}}
+<!--
+  Posture grade is suppressed during install (Phase 3C-0). The
+  hero score above shows 0/empty in this state; the inline note
+  explains why the grade is N/A so the operator does not read it
+  as a security alert.
+-->
+<div class="ov-card" style="margin-bottom:var(--sp-4);background:var(--surface2);font-size:var(--text-sm);color:var(--text2)">
+  <strong style="color:var(--text)">Posture grade not yet computed.</strong>
+  <span>{{.PostureSuppressedReason}}</span>
 </div>
 {{end}}
 

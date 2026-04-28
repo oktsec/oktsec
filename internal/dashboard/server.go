@@ -23,6 +23,7 @@ import (
 	"github.com/oktsec/oktsec/internal/graph"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
+	"github.com/oktsec/oktsec/internal/runtime"
 )
 
 // Version is set by the CLI command at startup for use in exports (e.g., SARIF).
@@ -83,6 +84,17 @@ type Server struct {
 	// stall cannot permanently disable activity attribution.
 	coverageActivityOnce sync.Once
 	coverageActivityVal  activity.Store
+
+	// runtimeStoreOnce + runtimeStoreVal lazily build the Phase 3
+	// runtime store off the audit DB. Same idempotency contract as
+	// coverageActivityStore: Open is safe to call repeatedly under
+	// both SQLite and Postgres, but Migrate has a non-zero cost so
+	// we cache the result. nil when the audit store does not
+	// expose a *sql.DB (test mocks) or when the migration failed
+	// at startup; in either case the connection-health endpoint
+	// falls back to audit-only signals.
+	runtimeStoreOnce sync.Once
+	runtimeStoreVal  *runtime.Store
 }
 
 // NewServer creates a dashboard server with access-code authentication.
@@ -190,6 +202,44 @@ func (s *Server) coverageActivityStore() activity.Store {
 		s.coverageActivityVal = s.buildActivityStoreForCoverage()
 	})
 	return s.coverageActivityVal
+}
+
+// runtimeStore returns the cached Phase 3 runtime.Store handle,
+// building it lazily off the audit DB on first call. nil when the
+// audit store does not expose a *sql.DB (test mocks) or when the
+// migration failed at startup. Callers treat nil as "no runtime
+// evidence available" and fall back to audit-only signals.
+func (s *Server) runtimeStore() *runtime.Store {
+	s.runtimeStoreOnce.Do(func() {
+		s.runtimeStoreVal = s.buildRuntimeStore()
+	})
+	return s.runtimeStoreVal
+}
+
+func (s *Server) buildRuntimeStore() *runtime.Store {
+	type dbBackedAuditStore interface {
+		DB() *sql.DB
+		DialectName() string
+	}
+	dbs, ok := s.audit.(dbBackedAuditStore)
+	if !ok {
+		return nil
+	}
+	db := dbs.DB()
+	if db == nil {
+		return nil
+	}
+	dialect := runtime.Dialect(dbs.DialectName())
+	if dialect == "" {
+		s.logger.Warn("connection health: audit store reports unknown dialect; runtime evidence disabled")
+		return nil
+	}
+	rs, err := runtime.Open(context.Background(), db, dialect)
+	if err != nil {
+		s.logger.Warn("connection health: runtime store open failed; falling back to audit-only signals", "error", err)
+		return nil
+	}
+	return rs
 }
 
 func (s *Server) buildActivityStoreForCoverage() activity.Store {

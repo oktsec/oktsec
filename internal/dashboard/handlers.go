@@ -29,6 +29,7 @@ import (
 	"github.com/oktsec/oktsec/internal/coverage"
 	"github.com/oktsec/oktsec/internal/discover"
 	"github.com/oktsec/oktsec/internal/graph"
+	"github.com/oktsec/oktsec/internal/runtime"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
 	"gopkg.in/yaml.v3"
@@ -230,6 +231,17 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	// surface column shows the corresponding cell's badge + limitation.
 	coverageRows := buildCoverageRows(coverage.Compute(s.cfg, s.coverageReader()))
 
+	// Phase 3C-0 connection truth. Cheap to compute (the underlying
+	// inventory + runtime queries cap at 100 rows each), and the
+	// posture grade/grade-suppression decision below depends on it.
+	connHealth := s.computeClaudeCodeConnectionHealth(r.Context())
+	postureSuppressed := suppressPostureGrade(connHealth)
+	postureSuppressedReason := postureSuppressionReason(connHealth)
+	if postureSuppressed {
+		score = 0
+		grade = ""
+	}
+
 	data := map[string]any{
 		"Active":        "overview",
 		"Stats":         stats,
@@ -256,6 +268,9 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"GuardEnabled":    s.cfg.Guard.Enabled,
 		"GuardAlerts":     guardEventCount,
 		"CoverageRows":    coverageRows,
+		"ConnHealth":      connHealth,
+		"PostureSuppressed":       postureSuppressed,
+		"PostureSuppressedReason": postureSuppressedReason,
 	}
 
 	s.populateLLMStats(data)
@@ -4298,12 +4313,216 @@ func (s *Server) handleClaudeCodeHealth(w http.ResponseWriter, r *http.Request) 
 
 	health := claudecode.DeriveHealth(inv, claudecode.HealthOptions{
 		LastEvent: claudecode.LookupLastEvent(s.audit),
+		Runtime:   s.claudeCodeRuntimeEvidence(ctx, inv),
 	})
 
 	s.renderJSON(w, map[string]any{
 		"inventory": inv,
 		"health":    health,
 	})
+}
+
+// computeClaudeCodeConnectionHealth is the Overview's projection
+// of the connector health endpoint. Same inputs (inventory +
+// runtime evidence + audit fallback), same DeriveHealth call —
+// rendered inline so the Overview does not require a second
+// fetch from the browser. Bounded to a 3s deadline so a stalled
+// inventory read cannot stall the page.
+func (s *Server) computeClaudeCodeConnectionHealth(parent context.Context) claudecode.ConnectorHealth {
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+	defer cancel()
+	projectDir := ""
+	if s.cfgPath != "" {
+		projectDir = filepath.Dir(s.cfgPath)
+	}
+	inv := claudecode.Read(ctx, claudecode.ReadOptions{
+		ProjectDir:       projectDir,
+		SkipVersionProbe: true,
+	})
+	return claudecode.DeriveHealth(inv, claudecode.HealthOptions{
+		LastEvent: claudecode.LookupLastEvent(s.audit),
+		Runtime:   s.claudeCodeRuntimeEvidence(ctx, inv),
+	})
+}
+
+// suppressPostureGrade returns true when the Phase 4 redesign's
+// "no hard score during install" rule applies: until the
+// connection is verified, the audit-driven posture grade
+// describes a system the operator has not yet wired up. Showing
+// "grade C" here looks like a security alert when in fact it is
+// just an unconfigured surface.
+//
+// Rules (per spec section "Target Product Model" + the
+// Phase 3C-0 acceptance):
+//
+//   - not_installed → suppress
+//   - disconnected → suppress
+//   - partial without runtime evidence → suppress (installed but
+//     never observed)
+//   - partial with runtime evidence (heartbeat-only) → keep
+//   - stale → keep (we have history; the score still applies)
+//   - ready → keep
+func suppressPostureGrade(h claudecode.ConnectorHealth) bool {
+	switch h.Status {
+	case "not_installed", "disconnected":
+		return true
+	case "partial":
+		return !h.Runtime.HasEvidence
+	}
+	return false
+}
+
+// postureSuppressionReason returns the operator-facing copy the
+// Overview tile shows in place of a hard grade. Empty string
+// when the grade is not suppressed.
+func postureSuppressionReason(h claudecode.ConnectorHealth) string {
+	if !suppressPostureGrade(h) {
+		return ""
+	}
+	switch h.Status {
+	case "not_installed":
+		return "Setup pending — Claude Code is not installed yet."
+	case "disconnected":
+		return "Setup pending — install oktsec hooks before grading hardening."
+	default:
+		return "Setup pending — installed, waiting for the first observed event."
+	}
+}
+
+// claudeCodeRuntimeEvidence builds the RuntimeEvidenceInput
+// snapshot DeriveHealth needs from the Phase 3 runtime store.
+// Returns nil when the runtime store is not available so callers
+// can fall back to the legacy LastEvent path without changing
+// rules. Bounded to a 2s context so a stalled DB cannot stretch
+// the dashboard render.
+func (s *Server) claudeCodeRuntimeEvidence(parent context.Context, inv claudecode.Inventory) *claudecode.RuntimeEvidenceInput {
+	store := s.runtimeStore()
+	if store == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+	defer cancel()
+
+	in := &claudecode.RuntimeEvidenceInput{}
+
+	if hb, err := store.LastHeartbeat(ctx, claudecode.PrincipalID, claudecode.PrincipalID); err == nil && hb != nil {
+		in.LastHeartbeatAt = hb.ReceivedAt.UTC().Format(time.RFC3339Nano)
+	}
+
+	// Latest non-heartbeat event (and the family) for the principal.
+	// Capped to a small window so the query stays cheap; older
+	// activity surfaces via QuerySessions/QueryEvents in 3C.
+	events, err := store.QueryEvents(ctx, runtime.EventQuery{
+		PrincipalID: claudecode.PrincipalID,
+		Limit:       100,
+	})
+	if err == nil {
+		latestPerFamily := map[string]bool{}
+		var latestEvent *runtime.HookEvent
+		for i := range events {
+			ev := events[i]
+			latestPerFamily[ev.HookEventName] = true
+			if latestEvent == nil || ev.Timestamp.After(latestEvent.Timestamp) {
+				latestEvent = &ev
+			}
+		}
+		if latestEvent != nil {
+			in.LastEventAt = latestEvent.Timestamp.UTC().Format(time.RFC3339Nano)
+			in.LastEventFamily = latestEvent.HookEventName
+			in.CoverageStage = strongestCoverage(events)
+		}
+		in.ObservedFamilies = sortedStringSet(latestPerFamily)
+	}
+
+	// Sessions + subagents counts. Sessions list is already capped
+	// in the store; subagents come from the runtime_actors view.
+	if sessions, err := store.QuerySessions(ctx, runtime.SessionQuery{
+		PrincipalID: claudecode.PrincipalID,
+		Limit:       100,
+	}); err == nil {
+		in.SessionsObserved = len(sessions)
+	}
+	if actors, err := store.QueryActors(ctx, runtime.ActorQuery{
+		PrincipalID: claudecode.PrincipalID,
+		Kind:        runtime.ActorKindSubagent,
+		Limit:       100,
+	}); err == nil {
+		in.SubagentsObserved = len(actors)
+	}
+
+	// Cross-check: which Phase 2 manifest events the inventory
+	// expects but the runtime has never seen. The dashboard tile
+	// surfaces this so the operator knows whether a missing event
+	// family is expected (not yet installed) or a regression
+	// (installed but never fired).
+	in.MissingInstalledFamilies = installedButUnobservedFamilies(inv.Hooks, in.ObservedFamilies)
+	return in
+}
+
+// strongestCoverage rolls up the per-event coverage_mode column
+// to a single label the tile can render. "protected" wins over
+// "observed" wins over "blind" wins over empty. Operating on the
+// already-fetched events slice avoids a second round-trip.
+func strongestCoverage(events []runtime.HookEvent) string {
+	rank := func(mode string) int {
+		switch strings.ToLower(mode) {
+		case "protected":
+			return 3
+		case "observed":
+			return 2
+		case "blind":
+			return 1
+		default:
+			return 0
+		}
+	}
+	best := ""
+	bestRank := 0
+	for _, ev := range events {
+		if r := rank(ev.CoverageMode); r > bestRank {
+			best = strings.ToLower(ev.CoverageMode)
+			bestRank = r
+		}
+	}
+	return best
+}
+
+// installedButUnobservedFamilies returns the Phase 2 manifest
+// event families the inventory says are installed (oktsec hook
+// present) but the runtime has not seen yet. Used by the
+// connection-health tile to nudge the operator toward triggering
+// the missing event family — heartbeat covers SessionStart, but
+// the rest only fire on real activity.
+func installedButUnobservedFamilies(hooks []claudecode.HookRef, observed []string) []string {
+	observedSet := map[string]bool{}
+	for _, e := range observed {
+		observedSet[e] = true
+	}
+	installed := map[string]bool{}
+	for _, h := range hooks {
+		if h.IsOktsec {
+			installed[h.Event] = true
+		}
+	}
+	var out []string
+	for _, name := range claudecode.Phase2EventNames() {
+		if installed[name] && !observedSet[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// sortedStringSet collapses a presence-only map to a sorted
+// slice. The handler renders the list verbatim, so deterministic
+// order keeps JSON diffs stable across renders.
+func sortedStringSet(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // handleEvidenceStatus returns a snapshot of the audit store's row
