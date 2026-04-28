@@ -3979,7 +3979,34 @@ func (s *Server) buildAgentRemap() map[string]string {
 	return remap
 }
 
+// buildGraph is the public entrypoint the dashboard handlers
+// call. Phase 3D adds a runtime-driven path on top of the
+// long-standing audit-driven legacy path; the decision tree is:
+//
+//   - runtime store wired AND has at least one row in the window:
+//     use the runtime graph, even if it projects to empty edges
+//     after the heartbeat filter. The dashboard explicitly
+//     prefers an empty runtime graph over an old audit row —
+//     a heartbeat-only state legitimately shows no traffic, and
+//     falling back to legacy would let phantom audit rows from
+//     before runtime existed resurrect a local-codex node.
+//   - runtime store unavailable, query failed, or no rows at
+//     all in the window: fall back to the legacy audit-driven
+//     graph so freshly upgraded installs and the existing test
+//     suite keep rendering.
 func (s *Server) buildGraph(since string) *graph.AgentGraph {
+	if g, ok := s.buildRuntimeGraph(since); ok {
+		return g
+	}
+	return s.buildLegacyGraph(since)
+}
+
+// buildLegacyGraph is the audit-driven graph that has been here
+// since v1. Renamed from the old buildGraph so the runtime path
+// can sit above it without changing its body. Preserves the
+// forward-proxy UnrepresentedRoutes projection and the gateway/
+// tool-name collapsing rules.
+func (s *Server) buildLegacyGraph(since string) *graph.AgentGraph {
 	edgeStats, _ := s.audit.QueryEdgeStats(since)
 
 	// Build a remap table: slugified agent names → config agent names.
@@ -4201,6 +4228,19 @@ func (s *Server) cachedBuildGraph(since string) *graph.AgentGraph {
 	s.graphCacheRange = since
 	s.graphCacheTime = time.Now()
 	return g
+}
+
+// invalidateGraphCache drops the cached graph so the next call
+// rebuilds. Tests reuse a single Server across multiple writes
+// + reads inside one second; without invalidating they would see
+// the same stale snapshot. Production callers do not need this
+// — the 10s window is short enough for live use.
+func (s *Server) invalidateGraphCache() {
+	s.graphMu.Lock()
+	defer s.graphMu.Unlock()
+	s.graphCache = nil
+	s.graphCacheRange = ""
+	s.graphCacheTime = time.Time{}
 }
 
 // dateOnly extracts the YYYY-MM-DD portion from an RFC3339 timestamp
