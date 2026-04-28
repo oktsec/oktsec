@@ -123,6 +123,103 @@ func TestOverview_HeartbeatFlipsTileToConnectedAndKeepsPosture(t *testing.T) {
 	}
 }
 
+// TestOverview_VeryOldEventCellDoesNotSayObserved pins the
+// per-cell freshness contract: a 25-hour-old runtime event
+// drops the connection to partial AND the Real events cell
+// must NOT render its green "observed" badge. Otherwise the
+// tile contradicts itself — title/reason say "Installed,
+// waiting for first observed event" while the cell flashes
+// green because LastEventAt is non-empty.
+func TestOverview_VeryOldEventCellDoesNotSayObserved(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	old := time.Now().UTC().Add(-25 * time.Hour)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"PreToolUse","session_id":"sess-old-cell","tool_name":"Read"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "sess-old-cell",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed old event: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+
+	// Locate the Real events cell. It must NOT say "observed"
+	// (the green badge) because no event landed inside the
+	// freshness window. "none recent" is the expected value
+	// because LastEventAt is non-empty.
+	idx := strings.Index(body, "Real events")
+	if idx < 0 {
+		t.Fatal("Real events cell not rendered")
+	}
+	cell := body[idx:idx+200]
+	if strings.Contains(cell, ">observed<") {
+		t.Errorf("Real events cell says 'observed' for 25h-old event; expected 'none recent'. excerpt: %s", cell)
+	}
+	if !strings.Contains(cell, ">none recent<") {
+		t.Errorf("Real events cell missing 'none recent' badge; excerpt: %s", cell)
+	}
+}
+
+// TestOverview_StaleHeartbeatCellDoesNotSayReceived covers the
+// symmetric heartbeat case: a 30-minute-old heartbeat past
+// FreshHeartbeat must NOT keep the cell on the green "received"
+// badge. The badge belongs only to fresh heartbeats; stale ones
+// render "none recent".
+func TestOverview_StaleHeartbeatCellDoesNotSayReceived(t *testing.T) {
+	stagedHome := stageClaudeFixture(t, true)
+	t.Setenv("HOME", stagedHome)
+	t.Setenv("PATH", "")
+
+	srv, auditStore := newOverviewTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	rs := srv.runtimeStore()
+	if rs == nil {
+		t.Fatal("expected runtime store")
+	}
+	old := time.Now().UTC().Add(-30 * time.Minute)
+	env, _ := runtime.Normalize(
+		[]byte(`{"hook_event_name":"SessionStart","session_id":"heartbeat-stale-cell"}`),
+		runtime.IdentityResolution{
+			PrincipalID: claudecode.PrincipalID,
+			ClientID:    claudecode.PrincipalID,
+			SessionID:   "heartbeat-stale-cell",
+		}, old)
+	if err := rs.RecordHook(context.Background(), env, runtime.OutcomeRefs{}); err != nil {
+		t.Fatalf("seed stale heartbeat: %v", err)
+	}
+	auditStore.Flush()
+
+	body := renderOverview(t, srv, cookie, handler)
+	idx := strings.Index(body, "Heartbeat")
+	if idx < 0 {
+		t.Fatal("Heartbeat cell not rendered")
+	}
+	cell := body[idx:idx+200]
+	if strings.Contains(cell, ">received<") {
+		t.Errorf("Heartbeat cell says 'received' for 30m-old heartbeat; expected 'none recent'. excerpt: %s", cell)
+	}
+	if !strings.Contains(cell, ">none recent<") {
+		t.Errorf("Heartbeat cell missing 'none recent' badge; excerpt: %s", cell)
+	}
+}
+
 // TestOverview_VeryOldEventSuppressesPostureGrade pins the
 // updated suppression rule: an event past StaleAfter (default
 // 24h) drops the connection to partial, and partial must

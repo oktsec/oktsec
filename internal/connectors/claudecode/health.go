@@ -118,11 +118,23 @@ type RuntimeEvidence struct {
 
 	// HasEvidence is true when runtime tables have at least one
 	// row attributable to Claude Code (heartbeat or real event).
-	// The Overview tile uses it to switch between "no evidence
-	// yet" copy and the observed view, and the dashboard's
-	// posture handler uses it to decide whether to suppress the
-	// hard grade.
+	// Answers "did anything ever land", not "is the cell badge
+	// true right now". The Overview tile uses HasFreshHeartbeat /
+	// HasFreshRealEvent below for cell badges; HasEvidence is for
+	// "first time vs not first time" prompts only.
 	HasEvidence bool `json:"has_evidence"`
+
+	// HasFreshHeartbeat / HasFreshRealEvent split the evidence
+	// timestamps into fresh (within FreshHeartbeat / FreshEvent)
+	// and stale buckets so the tile never paints a green
+	// "received" / "observed" badge while the same tile's title
+	// reads "Installed, waiting for first observed event". The
+	// status field already encodes this rule for the headline;
+	// these booleans surface the same rule per-cell so the
+	// template does not have to re-derive freshness from raw
+	// timestamps.
+	HasFreshHeartbeat bool `json:"has_fresh_heartbeat"`
+	HasFreshRealEvent bool `json:"has_fresh_real_event"`
 
 	// CoverageStage is the strongest stage the runtime has
 	// observed in the rollup window. One of "protected",
@@ -239,6 +251,18 @@ func DeriveHealth(inv Inventory, opts HealthOptions) ConnectorHealth {
 		MissingExpectedEvents: MissingExpectedEvents(inv.Hooks),
 	}
 	h.Runtime = projectRuntimeEvidence(opts.Runtime)
+	// Per-cell freshness flags. Computed here so the template
+	// reads them directly instead of re-checking timestamps and
+	// drifting from the headline status. A non-empty timestamp
+	// past the fresh window means "we observed it but it does
+	// not back the current connection state" — the cell renders
+	// "none recent" rather than the green badge.
+	if _, ok := freshTimestamp(h.Runtime.LastHeartbeatAt, opts.Now(), opts.FreshHeartbeat); ok {
+		h.Runtime.HasFreshHeartbeat = true
+	}
+	if _, ok := freshTimestamp(h.Runtime.LastEventAt, opts.Now(), opts.FreshEvent); ok {
+		h.Runtime.HasFreshRealEvent = true
+	}
 
 	// Pick the most recent timestamp the caller can offer. The
 	// presence of opts.Runtime — not its content — switches the

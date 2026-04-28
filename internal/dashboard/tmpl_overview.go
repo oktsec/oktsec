@@ -173,11 +173,11 @@ a.ov-metric:hover{background:var(--surface2)}
       </div>
       <div>
         <div style="text-transform:uppercase;letter-spacing:var(--ls-caps);font-weight:500">Heartbeat</div>
-        <div style="color:{{if .Runtime.LastHeartbeatAt}}var(--success){{else}}var(--text3){{end}};font-weight:600;margin-top:2px">{{if .Runtime.LastHeartbeatAt}}received{{else}}none yet{{end}}</div>
+        <div style="color:{{if .Runtime.HasFreshHeartbeat}}var(--success){{else}}var(--text3){{end}};font-weight:600;margin-top:2px">{{if .Runtime.HasFreshHeartbeat}}received{{else if .Runtime.LastHeartbeatAt}}none recent{{else}}none yet{{end}}</div>
       </div>
       <div>
         <div style="text-transform:uppercase;letter-spacing:var(--ls-caps);font-weight:500">Real events</div>
-        <div style="color:{{if .Runtime.LastEventAt}}var(--success){{else}}var(--text3){{end}};font-weight:600;margin-top:2px">{{if .Runtime.LastEventAt}}observed{{else}}none yet{{end}}</div>
+        <div style="color:{{if .Runtime.HasFreshRealEvent}}var(--success){{else}}var(--text3){{end}};font-weight:600;margin-top:2px">{{if .Runtime.HasFreshRealEvent}}observed{{else if .Runtime.LastEventAt}}none recent{{else}}none yet{{end}}</div>
       </div>
       {{if .Runtime.CoverageStage}}
       <div>
