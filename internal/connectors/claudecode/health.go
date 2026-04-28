@@ -274,27 +274,34 @@ func DeriveHealth(inv Inventory, opts HealthOptions) ConnectorHealth {
 			break
 		}
 		// Real-event promotion. Wins when the event is fresh
-		// enough by FreshEvent.
+		// enough by FreshEvent. Anything older drops to stale
+		// below — the connection-truth contract requires
+		// evidence fresh enough to trust, so a 2-hour-old event
+		// must NOT keep the tile reading "Connected and
+		// observed" or the posture grade visible.
 		if ev, ok := freshTimestamp(bestEvent, opts.Now(), opts.FreshEvent); ok {
 			h.Status = "ready"
 			h.Reason = "Claude Code connected. Last event observed " + humanizeAge(opts.Now().Sub(ev)) + " ago."
 			break
 		}
-		// Older event still counts as some evidence — surface as
-		// stale instead of falling back to partial.
+		// Past FreshEvent but parseable: stale. Stale never
+		// promotes back to ready in this branch — the only path
+		// to ready is the FreshEvent gate above. StaleAfter
+		// still distinguishes "we have recent-ish history" from
+		// "evidence so old it might as well not exist": past
+		// StaleAfter we drop to partial so the dashboard does not
+		// claim coverage from a row that may predate the current
+		// installation.
 		if ev, ok := parseTimestamp(bestEvent); ok {
 			age := opts.Now().Sub(ev)
-			if age > opts.StaleAfter {
+			if age <= opts.StaleAfter {
 				h.Status = "stale"
-				h.Reason = "Last Claude Code event observed " + humanizeAge(age) + " ago; coverage may be out of date."
-			} else {
-				h.Status = "ready"
-				h.Reason = "Claude Code connected. Last event observed " + humanizeAge(age) + " ago."
+				h.Reason = "Last Claude Code event observed " + humanizeAge(age) + " ago; connection is no longer fresh."
+				break
 			}
-			break
 		}
-		// No usable timestamp at all — installed but not yet
-		// observed.
+		// No usable timestamp, or so old we discard it —
+		// installed but not yet observed.
 		h.Status = "partial"
 		h.Reason = reasonPartial(h)
 	}

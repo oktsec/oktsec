@@ -122,6 +122,57 @@ func TestDeriveHealth_RuntimeEvidenceTrumpsAuditLastEvent(t *testing.T) {
 	}
 }
 
+// TestDeriveHealth_NonFreshRuntimeEventIsStaleNotReady pins the
+// connection-truth contract that "ready" requires evidence
+// fresh enough to trust (FreshEvent, default 30m). A real
+// event from 31 minutes ago must drop to stale, not stay at
+// ready under the old StaleAfter (24h) window.
+func TestDeriveHealth_NonFreshRuntimeEventIsStaleNotReady(t *testing.T) {
+	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	inv := Inventory{
+		Detected: true,
+		Hooks:    []HookRef{{IsOktsec: true, Event: "PreToolUse"}},
+	}
+	h := DeriveHealth(inv, HealthOptions{
+		Runtime: &RuntimeEvidenceInput{
+			LastEventAt:     now.Add(-31 * time.Minute).Format(time.RFC3339Nano),
+			LastEventFamily: "PreToolUse",
+		},
+		Now: clock,
+	})
+	if h.Status == "ready" {
+		t.Errorf("status = ready, want stale (event 31m ago is past FreshEvent default 30m)")
+	}
+	if h.Status != "stale" {
+		t.Errorf("status = %q, want stale", h.Status)
+	}
+}
+
+// TestDeriveHealth_VeryOldRuntimeEventIsPartial covers the far
+// edge: an event past StaleAfter (default 24h) is so old we
+// treat the connection as having no usable evidence and drop
+// back to partial. Without this the dashboard would keep
+// "stale" visible forever for installations that fired one hook
+// long ago and never again.
+func TestDeriveHealth_VeryOldRuntimeEventIsPartial(t *testing.T) {
+	now := time.Date(2026, 4, 28, 12, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+	inv := Inventory{
+		Detected: true,
+		Hooks:    []HookRef{{IsOktsec: true, Event: "PreToolUse"}},
+	}
+	h := DeriveHealth(inv, HealthOptions{
+		Runtime: &RuntimeEvidenceInput{
+			LastEventAt: now.Add(-25 * time.Hour).Format(time.RFC3339Nano),
+		},
+		Now: clock,
+	})
+	if h.Status != "partial" {
+		t.Errorf("status = %q, want partial (event 25h ago is past StaleAfter)", h.Status)
+	}
+}
+
 // TestDeriveHealth_EmptyRuntimeIgnoresAuditLastEvent locks in
 // the contract that a non-nil but empty Runtime block means
 // "installed, not yet observed" — not "installed, partially
