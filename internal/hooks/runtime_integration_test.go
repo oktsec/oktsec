@@ -364,6 +364,62 @@ func TestServeHTTP_RuntimeRowCarriesCoverage(t *testing.T) {
 	}
 }
 
+// TestServeHTTP_BodyWithoutAnyEventFieldStillLandsRuntimeRow
+// covers the corner case of generic clients: a payload that
+// omits BOTH hook_event_name AND event. The handler's
+// ToolEvent.normalize defaults the in-memory event to
+// "pre_tool_use" so audit + activity write under that name; the
+// runtime path used to lose this entirely because the raw body
+// it parsed had nothing to canonicalize. The handler now passes
+// its normalized value as a hint via IdentityResolution.HookEventName
+// so the runtime row lands too.
+func TestServeHTTP_BodyWithoutAnyEventFieldStillLandsRuntimeRow(t *testing.T) {
+	h, store, _, cleanup := newRuntimeWiredHandler(t)
+	defer cleanup()
+
+	w := post(t, h, `{"tool_name":"Read","session_id":"sess-noevent"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	events, err := store.QueryEvents(context.Background(), runtime.EventQuery{SessionID: "sess-noevent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("event count = %d, want 1 (handler default must reach runtime)", len(events))
+	}
+	if events[0].HookEventName != "PreToolUse" {
+		t.Errorf("HookEventName = %q, want PreToolUse (handler default)", events[0].HookEventName)
+	}
+}
+
+// TestServeHTTP_GenericPostToolUseCarriesOutputHash covers the
+// other half of the generic-client contract: a post_tool_use
+// payload that uses the generic `tool_output` field (a string,
+// the shape ToolEvent models) must produce a non-empty
+// tool_output_hash on the runtime row. Without the handler hint,
+// runtime.Normalize was looking for Claude's `tool_response`
+// json.RawMessage and saw nothing.
+func TestServeHTTP_GenericPostToolUseCarriesOutputHash(t *testing.T) {
+	h, store, _, cleanup := newRuntimeWiredHandler(t)
+	defer cleanup()
+
+	w := post(t, h, `{"event":"post_tool_use","session_id":"sess-out","tool_name":"Read","tool_output":"contents of /etc/hosts"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	events, err := store.QueryEvents(context.Background(), runtime.EventQuery{SessionID: "sess-out"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("event count = %d, want 1", len(events))
+	}
+	if events[0].ToolOutputHash == "" {
+		t.Errorf("ToolOutputHash empty for generic post_tool_use; handler hint did not reach runtime")
+	}
+}
+
 // TestServeHTTP_GenericEventFormatLandsRuntimeRow covers the P2
 // contract: a payload using the client-agnostic `event:
 // "pre_tool_use"` field (and no hook_event_name) must still

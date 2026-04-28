@@ -690,7 +690,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// decision is already committed in the audit row above, so a
 	// runtime write failure here logs at warn but never changes
 	// the response.
-	h.recordRuntime(r.Context(), body, authResult, ev.Client, ev.SessionID, msgID, activityEventID, status, decision, string(coverage), confidence, time.Since(start).Milliseconds())
+	h.recordRuntime(r.Context(), body, authResult, ev.Client, ev.SessionID, &ev, msgID, activityEventID, status, decision, string(coverage), confidence, time.Since(start).Milliseconds())
 
 	// Update agent hierarchy table
 	if ev.SessionID != "" {
@@ -796,10 +796,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // actor metadata only. ClientID falls back through the X-Oktsec-
 // Client header so a client that did not set the resolver-friendly
 // header still lands a runtime row tagged with the right client.
-func (h *Handler) recordRuntime(ctx context.Context, rawBody []byte, authResult resolve.Result, clientID, sessionID, auditID, activityID, status, decision, coverage string, confidence int, latencyMs int64) {
+func (h *Handler) recordRuntime(ctx context.Context, rawBody []byte, authResult resolve.Result, clientID, sessionID string, ev *ToolEvent, auditID, activityID, status, decision, coverage string, confidence int, latencyMs int64) {
 	_ = ctx // kept for future per-request cancellation; the inner call uses a detached deadline
 	if h.runtime == nil {
 		return
+	}
+	// Hints the runtime normalizer cannot derive from the raw body
+	// alone: ToolEvent.normalize defaults Event to "pre_tool_use"
+	// when both fields are missing, and generic clients put the
+	// post-tool string under "tool_output" while the runtime
+	// payload models Claude's "tool_response". Pass the
+	// already-normalized values so the runtime row is never empty
+	// for these fields.
+	hintEvent := ev.HookEventName
+	if hintEvent == "" {
+		hintEvent = runtime.CanonicalEventName(ev.Event)
 	}
 	identity := runtime.IdentityResolution{
 		PrincipalID:         principalIDOrUnknown(authResult.Principal.ID),
@@ -807,6 +818,8 @@ func (h *Handler) recordRuntime(ctx context.Context, rawBody []byte, authResult 
 		AuthMethod:          string(authResult.Principal.AuthMethod),
 		ClientID:            clientID,
 		SessionID:           sessionID,
+		HookEventName:       hintEvent,
+		ToolOutput:          ev.ToolOutput,
 	}
 	env, err := runtime.Normalize(rawBody, identity, time.Now().UTC())
 	if err != nil {

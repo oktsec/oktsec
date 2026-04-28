@@ -330,8 +330,8 @@ func TestCanonicalEventName_PureTransform(t *testing.T) {
 		{"a", "A"},
 		{"single", "Single"},
 	} {
-		if got := canonicalEventName(tc.in); got != tc.want {
-			t.Errorf("canonicalEventName(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := CanonicalEventName(tc.in); got != tc.want {
+			t.Errorf("CanonicalEventName(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
