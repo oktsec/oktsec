@@ -122,6 +122,23 @@ type AgentGraph struct {
 	UnrepresentedRoutes []UnrepresentedRoute `json:"unrepresented_routes,omitempty"`
 	TotalNodes          int                  `json:"total_nodes"`
 	TotalEdges          int                  `json:"total_edges"`
+	// ActivityEvents is the unique number of source rows the
+	// projection consumed. Distinct from
+	// sum(Edge.Total) + sum(ToolEdge.Total) because a single
+	// source row can drive both an actor->actor edge (a child
+	// actor pointing at its parent) and an actor->tool edge (the
+	// tool that row invoked); collapsing the layer overlap here
+	// lets the dashboard report a unique scanned-row total
+	// without mixing two representations of the same row.
+	// Callers that build a graph fill this directly — Build /
+	// BuildObserved leave it at zero so the field stays generic
+	// to graph backends.
+	ActivityEvents int `json:"activity_events"`
+	// ActivityBlocks is the matching block counter: source rows
+	// the projection treated as blocked (status=blocked or
+	// policy_decision in {block, deny}). Same caller-fills-it
+	// contract as ActivityEvents.
+	ActivityBlocks int `json:"activity_blocks"`
 }
 
 // BuildOptions controls how Build assembles the graph. CompareACL

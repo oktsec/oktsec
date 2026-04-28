@@ -371,3 +371,289 @@ func TestRuntimeGraph_NoRawPayloadInJSON(t *testing.T) {
 		t.Errorf("graph JSON leaks raw tool input: %s", body)
 	}
 }
+
+// statsResponse fetches /dashboard/api/graph/stats and decodes the
+// integer counters. Tests that exercise the runtime path use this
+// to assert the stats endpoint reads from the same graph the canvas
+// renders.
+func statsResponse(t *testing.T, srv *Server, cookie *http.Cookie, handler http.Handler, rng string) map[string]int {
+	t.Helper()
+	url := "/dashboard/api/graph/stats"
+	if rng != "" {
+		url += "?range=" + rng
+	}
+	req := httptest.NewRequest("GET", url, nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	// Decode through json.Number so non-int payload shows up loudly.
+	var raw map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode: %v; body=%s", err, w.Body.String())
+	}
+	out := make(map[string]int, len(raw))
+	for k, v := range raw {
+		switch n := v.(type) {
+		case float64:
+			out[k] = int(n)
+		default:
+			t.Fatalf("stats key %q has non-numeric value %T", k, v)
+		}
+	}
+	return out
+}
+
+// TestRuntimeGraphStats_UsesRuntimeGraphCounts — the stats endpoint
+// must derive from the same runtime-projected graph the canvas reads.
+// cfg.Agents and cfg.MCPServers are empty here, so a stats endpoint
+// that fell back to config (the pre-fix shape) would return
+// agents=0/tools=0 even though the canvas paints the local-codex
+// node + Read tool.
+func TestRuntimeGraphStats_UsesRuntimeGraphCounts(t *testing.T) {
+	srv, rs, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"SessionStart","session_id":"sess-stats"}`,
+		"sess-stats", "local-codex", now.Add(-5*time.Minute), runtime.OutcomeRefs{})
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"SubagentStart","session_id":"sess-stats","agent_id":"sa-stats","agent_type":"research"}`,
+		"sess-stats", "local-codex", now.Add(-4*time.Minute), runtime.OutcomeRefs{})
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-stats","agent_id":"sa-stats","agent_type":"research","tool_name":"Read","tool_use_id":"stats-1"}`,
+		"sess-stats", "local-codex", now.Add(-3*time.Minute), runtime.OutcomeRefs{Status: "delivered"})
+	auditStore.Flush()
+	srv.invalidateGraphCache()
+
+	stats := statsResponse(t, srv, cookie, handler, "1h")
+	if stats["agents"] < 2 {
+		t.Errorf("agents = %d, want >= 2 (root + subagent); stats=%v", stats["agents"], stats)
+	}
+	if stats["tools"] != 1 {
+		t.Errorf("tools = %d, want 1 (Read); stats=%v", stats["tools"], stats)
+	}
+	if stats["messages"] < 1 {
+		t.Errorf("messages = %d, want >= 1; stats=%v", stats["messages"], stats)
+	}
+}
+
+// TestRuntimeGraphStats_HeartbeatOnlyDoesNotFallbackToAuditStats —
+// when runtime is heartbeat-only the canvas renders empty, and the
+// stats cards must agree. Pre-fix, the stats endpoint summed
+// audit.QueryStats(), so a stale legacy row would resurrect a
+// phantom message count. The runtime-graph projection drops the
+// heartbeat session, leaving the graph empty; stats must mirror.
+func TestRuntimeGraphStats_HeartbeatOnlyDoesNotFallbackToAuditStats(t *testing.T) {
+	srv, rs, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"SessionStart","session_id":"heartbeat-2026-stats"}`,
+		"heartbeat-2026-stats", "local-codex", now.Add(-3*time.Minute), runtime.OutcomeRefs{})
+	auditStore.Log(audit.Entry{
+		ID:             "legacy-stats",
+		Timestamp:      now.Add(-5 * time.Minute).Format(time.RFC3339),
+		FromAgent:      "local-codex",
+		ToAgent:        "list_agents",
+		Status:         "delivered",
+		PolicyDecision: "allow",
+	})
+	auditStore.Flush()
+	srv.invalidateGraphCache()
+
+	stats := statsResponse(t, srv, cookie, handler, "1h")
+	if stats["agents"] != 0 || stats["tools"] != 0 || stats["messages"] != 0 || stats["blocks"] != 0 {
+		t.Errorf("heartbeat-only stats leaked legacy audit totals: %v", stats)
+	}
+}
+
+// TestGraphDefaultRange_DoesNotWidenWhenOnlyToolTrafficExists — a
+// root-only tool call inside the default 24h window has no
+// actor-to-actor edge (TotalEdges == 0) but real ToolEdge traffic.
+// The auto-widen must treat the window as populated, otherwise the
+// page silently snaps to 7d/30d and surfaces an older event the
+// user did not ask for.
+func TestGraphDefaultRange_DoesNotWidenWhenOnlyToolTrafficExists(t *testing.T) {
+	srv, rs, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	// Root-only tool call inside the 24h window.
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-recent","tool_name":"Read","tool_use_id":"recent-1"}`,
+		"sess-recent", "local-codex", now.Add(-30*time.Minute), runtime.OutcomeRefs{Status: "delivered"})
+	// Older event well outside 24h to make widening tempting.
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-old","tool_name":"Bash","tool_use_id":"old-1"}`,
+		"sess-old", "local-codex", now.Add(-5*24*time.Hour), runtime.OutcomeRefs{Status: "delivered"})
+	auditStore.Flush()
+	srv.invalidateGraphCache()
+
+	// No range query param: handleGraph should pick the default
+	// 24h window and stay there.
+	req := httptest.NewRequest("GET", "/dashboard/graph", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	// The active range button has the active class. A 7d or 30d
+	// active button means auto-widen kicked in.
+	if strings.Contains(body, `range=7d" class="btn btn-sm active`) ||
+		strings.Contains(body, `range=30d" class="btn btn-sm active`) {
+		t.Errorf("auto-widen widened past 24h despite tool traffic in window")
+	}
+	if !strings.Contains(body, `range=24h" class="btn btn-sm active`) {
+		t.Errorf("expected 24h to remain active range; body suggests otherwise")
+	}
+}
+
+// TestRuntimeGraph_PostOnlyToolWithoutUseIDRendersOneEdge — a
+// PostToolUse without tool_use_id must still surface as a tool
+// edge. Pre-fix, the rollup skipped non-pre-action events lacking
+// a use_id, so post-only evidence vanished from the graph.
+func TestRuntimeGraph_PostOnlyToolWithoutUseIDRendersOneEdge(t *testing.T) {
+	srv, rs, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PostToolUse","session_id":"sess-postonly","tool_name":"Read","tool_response":"ok"}`,
+		"sess-postonly", "local-codex", now.Add(-2*time.Minute), runtime.OutcomeRefs{Status: "delivered"})
+	auditStore.Flush()
+	srv.invalidateGraphCache()
+
+	g := graphResponse(t, srv, cookie, handler, "1h")
+	tools := strings.Join(toolEdgeKeys(g), ",")
+	if !strings.Contains(tools, "local-codex->Read:1") {
+		t.Errorf("expected tool edge local-codex->Read:1 from post-only event; got %s", tools)
+	}
+}
+
+// TestRuntimeGraphStats_DoesNotDoubleCountAcrossEdgeAndToolLayers —
+// a single PreToolUse from a subagent contributes to both an
+// actor->actor edge (parent->child) and an actor->tool edge. Pre-fix,
+// the stats endpoint summed sum(Edge.Total) + sum(ToolEdge.Total),
+// so one row got counted twice (once per layer). The fix exposes
+// AgentGraph.ActivityEvents — a unique-row counter the projection
+// fills directly — so the messages card matches the rows actually
+// scanned, not the rendered-edge total.
+func TestRuntimeGraphStats_DoesNotDoubleCountAcrossEdgeAndToolLayers(t *testing.T) {
+	srv, rs, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	// SubagentStart drives only the actor edge. PreToolUse drives
+	// both the actor edge AND the tool edge — that is the layer
+	// overlap the stats endpoint must collapse.
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"SubagentStart","session_id":"sess-double","agent_id":"sa-d","agent_type":"research"}`,
+		"sess-double", "local-codex", now.Add(-4*time.Minute), runtime.OutcomeRefs{})
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-double","agent_id":"sa-d","agent_type":"research","tool_name":"Read","tool_use_id":"d1"}`,
+		"sess-double", "local-codex", now.Add(-3*time.Minute), runtime.OutcomeRefs{Status: "delivered"})
+	auditStore.Flush()
+	srv.invalidateGraphCache()
+
+	g := graphResponse(t, srv, cookie, handler, "1h")
+
+	sumEdges := 0
+	if edges, ok := g["edges"].([]any); ok {
+		for _, e := range edges {
+			if m, ok := e.(map[string]any); ok {
+				if v, ok := m["total"].(float64); ok {
+					sumEdges += int(v)
+				}
+			}
+		}
+	}
+	sumToolEdges := 0
+	if edges, ok := g["tool_edges"].([]any); ok {
+		for _, e := range edges {
+			if m, ok := e.(map[string]any); ok {
+				if v, ok := m["total"].(float64); ok {
+					sumToolEdges += int(v)
+				}
+			}
+		}
+	}
+	if sumEdges == 0 || sumToolEdges == 0 {
+		t.Fatalf("test setup expected both an actor edge and a tool edge; sumEdges=%d sumToolEdges=%d (edges=%v tool_edges=%v)",
+			sumEdges, sumToolEdges, edgeKeys(g), toolEdgeKeys(g))
+	}
+
+	stats := statsResponse(t, srv, cookie, handler, "1h")
+	if stats["messages"] == 0 {
+		t.Fatalf("messages = 0 with active runtime evidence; stats=%v", stats)
+	}
+	// The pre-fix bug would surface as messages == sumEdges + sumToolEdges.
+	if stats["messages"] == sumEdges+sumToolEdges {
+		t.Errorf("stats double-counted across actor and tool edges: messages=%d == sumEdges(%d)+sumToolEdges(%d); stats=%v",
+			stats["messages"], sumEdges, sumToolEdges, stats)
+	}
+	// And the unique counter the projection exposes must match what
+	// the endpoint reports — the canvas and the cards reading the
+	// same number is the whole point of the fix.
+	if v, ok := g["activity_events"].(float64); ok {
+		if stats["messages"] != int(v) {
+			t.Errorf("messages = %d, want activity_events = %d (stats and canvas projection diverged)",
+				stats["messages"], int(v))
+		}
+	} else {
+		t.Errorf("graph JSON missing activity_events; got keys: %v", graphKeys(g))
+	}
+}
+
+// graphKeys returns the top-level keys of the decoded graph JSON.
+// Used in the double-count regression to surface a clear error if
+// the activity_events field is missing from the response.
+func graphKeys(g map[string]any) []string {
+	keys := make([]string, 0, len(g))
+	for k := range g {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// TestRuntimeGraph_PreAndPostWithoutUseIDCountOne — when both Pre
+// and Post events lack a tool_use_id, the rollup must still collapse
+// them to one edge per (session, actor, tool). The bucket dedupe
+// runs in two passes so input order does not matter.
+func TestRuntimeGraph_PreAndPostWithoutUseIDCountOne(t *testing.T) {
+	srv, rs, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-noid","tool_name":"Read"}`,
+		"sess-noid", "local-codex", now.Add(-4*time.Minute), runtime.OutcomeRefs{Status: "delivered"})
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PostToolUse","session_id":"sess-noid","tool_name":"Read","tool_response":"ok"}`,
+		"sess-noid", "local-codex", now.Add(-3*time.Minute), runtime.OutcomeRefs{Status: "delivered"})
+	auditStore.Flush()
+	srv.invalidateGraphCache()
+
+	g := graphResponse(t, srv, cookie, handler, "1h")
+	tools := toolEdgeKeys(g)
+	for _, key := range tools {
+		if strings.HasPrefix(key, "local-codex->Read:") && key != "local-codex->Read:1" {
+			t.Errorf("Pre+Post without use_id counted more than once: %s", key)
+		}
+	}
+	if !strings.Contains(strings.Join(tools, ","), "local-codex->Read:1") {
+		t.Errorf("expected local-codex->Read:1; got %v", tools)
+	}
+}
