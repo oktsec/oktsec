@@ -106,7 +106,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		Path:     "/dashboard",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   false, // localhost only
+		Secure:   isHTTPS(r),
 	})
 	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
@@ -117,13 +117,16 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		s.auth.InvalidateSession(cookie.Value)
 	}
 
-	// Clear the cookie
+	// Clear the cookie. The Secure flag must mirror the login
+	// path so a browser running over HTTPS does not refuse the
+	// expiry write because of attribute mismatch.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/dashboard",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
+		Secure:   isHTTPS(r),
 		MaxAge:   -1, // delete cookie
 	})
 

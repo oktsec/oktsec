@@ -344,6 +344,23 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// isHTTPS reports whether the inbound request reached the
+// dashboard over a TLS-protected channel, either directly or
+// through a reverse proxy that set X-Forwarded-Proto. The session
+// cookie's Secure flag is derived from this so the browser only
+// withholds the cookie over plaintext when the operator has
+// genuinely fronted oktsec with TLS — a hardcoded Secure=true
+// would break the default localhost dev flow.
+func isHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
 // generateAccessCode returns a random 8-digit numeric code.
 func generateAccessCode() string {
 	n, _ := rand.Int(rand.Reader, big.NewInt(100_000_000))
