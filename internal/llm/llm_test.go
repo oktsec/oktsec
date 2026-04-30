@@ -307,6 +307,34 @@ func TestQueueBackpressure(t *testing.T) {
 	}
 }
 
+// TestNewQueue_ClampsBufferSizeToMaxQueueBufferSize asserts the
+// channel buffer is bounded regardless of how large BufferSize is
+// in the config. Closes the go/uncontrolled-allocation-size alert
+// path: even if the dashboard form gate is bypassed, NewQueue
+// will not trigger an attacker-influenced allocation.
+func TestNewQueue_ClampsBufferSizeToMaxQueueBufferSize(t *testing.T) {
+	mock := &mockAnalyzer{result: &AnalysisResult{ProviderName: "mock", Model: "test"}}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	q := NewQueue(mock, QueueConfig{Workers: 1, BufferSize: MaxQueueBufferSize * 100}, logger)
+	if got := cap(q.ch); got != MaxQueueBufferSize {
+		t.Errorf("channel cap = %d, want %d (clamp to MaxQueueBufferSize)", got, MaxQueueBufferSize)
+	}
+}
+
+// TestNewQueue_DefaultBufferSizeWhenNonPositive pins the existing
+// default behaviour: a zero or negative BufferSize falls back to
+// 100, not to MaxQueueBufferSize.
+func TestNewQueue_DefaultBufferSizeWhenNonPositive(t *testing.T) {
+	mock := &mockAnalyzer{result: &AnalysisResult{ProviderName: "mock", Model: "test"}}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	for _, in := range []int{0, -1, -100} {
+		q := NewQueue(mock, QueueConfig{Workers: 1, BufferSize: in}, logger)
+		if got := cap(q.ch); got != 100 {
+			t.Errorf("BufferSize=%d: channel cap = %d, want 100", in, got)
+		}
+	}
+}
+
 func TestQueueDailyLimit(t *testing.T) {
 	mock := &mockAnalyzer{
 		result: &AnalysisResult{ProviderName: "mock", Model: "test"},

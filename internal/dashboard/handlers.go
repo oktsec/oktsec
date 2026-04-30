@@ -3558,7 +3558,13 @@ func (s *Server) handleSaveLLM(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if v := r.FormValue("queue_size"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		// Bound the value before it reaches the config: a request
+		// supplying queue_size=2147483647 would otherwise drive a
+		// >2GiB channel buffer allocation in NewQueue. NewQueue
+		// also clamps defensively, but keeping the form gate
+		// explicit closes the path-from-input flow CodeQL traces
+		// for go/uncontrolled-allocation-size.
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= llm.MaxQueueBufferSize {
 			s.cfg.LLM.QueueSize = n
 		}
 	}

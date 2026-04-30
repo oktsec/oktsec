@@ -45,18 +45,34 @@ type Queue struct {
 // QueueConfig configures the analysis queue.
 type QueueConfig struct {
 	Workers      int   // concurrent analysis workers (default: 3)
-	BufferSize   int   // channel buffer (default: 100)
+	BufferSize   int   // channel buffer (default: 100, hard cap MaxQueueBufferSize)
 	MaxDailyReqs int64 // 0 = unlimited
 	TwoStage     bool  // enable two-stage classification (fast check + full analysis)
 }
 
-// NewQueue creates an analysis queue.
+// MaxQueueBufferSize is the upper bound NewQueue will honour for
+// the channel buffer. The value is generous (100x the default) so
+// operators with legitimate high-throughput workloads stay
+// supported, but bounded enough that a stray or attacker-supplied
+// QueueSize cannot trigger an unbounded `make(chan, n)` and
+// exhaust process memory. Anything larger is silently clamped to
+// this cap; the dashboard form handler also rejects values above
+// it before they reach the config.
+const MaxQueueBufferSize = 10000
+
+// NewQueue creates an analysis queue. BufferSize is clamped to
+// MaxQueueBufferSize before allocation, so callers cannot trigger
+// an unbounded channel allocation regardless of how the config
+// was populated.
 func NewQueue(analyzer Analyzer, cfg QueueConfig, logger *slog.Logger) *Queue {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 3
 	}
 	if cfg.BufferSize <= 0 {
 		cfg.BufferSize = 100
+	}
+	if cfg.BufferSize > MaxQueueBufferSize {
+		cfg.BufferSize = MaxQueueBufferSize
 	}
 
 	return &Queue{
