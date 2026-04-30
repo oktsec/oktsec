@@ -336,11 +336,15 @@ type runtimeHookDrawerRow struct {
 //     returned zero rows; the caller then runs the legacy
 //     activity-store branch.
 //
-// The query runs Descending=true so the database LIMIT picks from
-// the newest window. An ASC query at the same limit would let an
-// older burst of events shadow a fresh tool call when the
-// principal's history is larger than the limit, and the operator
-// would never see the recent activity in the drawer.
+// The "real" query pushes the heartbeat-session filter into SQL
+// (ExcludeHeartbeats=true) so a burst of fresh heartbeats cannot
+// fill an application-side LIMIT and hide an older real event
+// behind it. Combined with Descending=true the database returns
+// the newest `limit` real events directly. Heartbeat-only state
+// is detected by a second probe query that looks for any single
+// recent event for the principal — if that probe returns at
+// least one row but the real query was empty, we know the
+// principal's recent evidence is exclusively heartbeat.
 func (s *Server) runtimeHookDrawerEvents(ctx context.Context, principalID string, limit int) ([]runtimeHookDrawerRow, string, bool) {
 	store := s.runtimeStore()
 	if store == nil {
@@ -348,49 +352,49 @@ func (s *Server) runtimeHookDrawerEvents(ctx context.Context, principalID string
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, activityQueryTimeout)
 	defer cancel()
-	events, err := store.QueryEvents(queryCtx, runtime.EventQuery{
-		PrincipalID: principalID,
-		// Headroom: dropping heartbeat sessions in this loop still
-		// has to leave room for `limit` real rows. Descending sort
-		// guarantees the headroom is taken from the freshest end.
-		Limit:      limit * 4,
-		Descending: true,
+
+	realEvents, err := store.QueryEvents(queryCtx, runtime.EventQuery{
+		PrincipalID:       principalID,
+		Limit:             limit,
+		Descending:        true,
+		ExcludeHeartbeats: true,
 	})
 	if err != nil {
-		s.logger.Warn("coverage hook drawer: runtime QueryEvents failed", "error", err, "principal_id", principalID)
+		s.logger.Warn("coverage hook drawer: runtime QueryEvents (real) failed", "error", err, "principal_id", principalID)
 		return nil, "", false
 	}
-	if len(events) == 0 {
-		return nil, "", false
+	if len(realEvents) > 0 {
+		rows := make([]runtimeHookDrawerRow, 0, len(realEvents))
+		for _, ev := range realEvents {
+			rows = append(rows, runtimeHookDrawerRow{
+				Timestamp:      formatRuntimeTimestamp(ev.Timestamp),
+				HookEventName:  ev.HookEventName,
+				ToolName:       ev.ToolName,
+				ActorLabel:     hookDrawerActorLabel(ev),
+				Status:         ev.Status,
+				PolicyDecision: ev.PolicyDecision,
+				CoverageMode:   ev.CoverageMode,
+				Confidence:     ev.Confidence,
+				SessionID:      ev.SessionID,
+				IsHeartbeat:    false,
+			})
+		}
+		return rows, "real", true
 	}
 
-	real := make([]runtimeHookDrawerRow, 0, len(events))
-	sawHeartbeat := false
-	for _, ev := range events {
-		if runtime.IsHeartbeatSession(ev.SessionID) {
-			sawHeartbeat = true
-			continue
-		}
-		real = append(real, runtimeHookDrawerRow{
-			Timestamp:      formatRuntimeTimestamp(ev.Timestamp),
-			HookEventName:  ev.HookEventName,
-			ToolName:       ev.ToolName,
-			ActorLabel:     hookDrawerActorLabel(ev),
-			Status:         ev.Status,
-			PolicyDecision: ev.PolicyDecision,
-			CoverageMode:   ev.CoverageMode,
-			Confidence:     ev.Confidence,
-			SessionID:      ev.SessionID,
-			IsHeartbeat:    false,
-		})
-		if len(real) >= limit {
-			break
-		}
+	// No real events. Probe whether the principal has ANY recent
+	// runtime evidence — if so it must be heartbeat-only. The
+	// single-row LIMIT keeps the probe cheap.
+	probe, err := store.QueryEvents(queryCtx, runtime.EventQuery{
+		PrincipalID: principalID,
+		Limit:       1,
+		Descending:  true,
+	})
+	if err != nil {
+		s.logger.Warn("coverage hook drawer: runtime QueryEvents (probe) failed", "error", err, "principal_id", principalID)
+		return nil, "", false
 	}
-	if len(real) > 0 {
-		return real, "real", true
-	}
-	if sawHeartbeat {
+	if len(probe) > 0 {
 		return nil, "heartbeat_only", true
 	}
 	return nil, "", false

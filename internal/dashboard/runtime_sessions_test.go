@@ -534,6 +534,49 @@ func TestCoverageHooksDrawer_PicksNewestEventOverOldBacklog(t *testing.T) {
 	}
 }
 
+// TestCoverageHooksDrawer_RealEventThen100NewerHeartbeats is the
+// adversarial regression for the SQL-side ExcludeHeartbeats
+// filter. The previous fix relied on application-side filtering
+// of a Descending limit*4 window, which still fails when 100+
+// heartbeats arrive AFTER a real event: every row in the window
+// is a heartbeat, the loop drops them all, and the drawer
+// incorrectly collapses to heartbeat_only despite the real event
+// being live in the table. Pushing the filter into SQL closes
+// this gap because the database returns the next N
+// non-heartbeat rows directly.
+func TestCoverageHooksDrawer_RealEventThen100NewerHeartbeats(t *testing.T) {
+	srv, rs, _ := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	// Real event first (oldest).
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-real-before-spam","tool_name":"OLDER_REAL_TOOL","tool_use_id":"u-real-old"}`,
+		"sess-real-before-spam", "local-codex", now.Add(-10*time.Minute),
+		runtime.OutcomeRefs{Status: "delivered"})
+
+	// 100 heartbeats AFTER the real event so a Descending window
+	// of any reasonable size is dominated by heartbeats.
+	for i := 0; i < 100; i++ {
+		seedRuntimeEvent(t, rs,
+			`{"hook_event_name":"SessionStart","session_id":"heartbeat-2026-04-30-after-`+strItoa(i)+`"}`,
+			"heartbeat-2026-04-30-after-"+strItoa(i), "local-codex",
+			now.Add(-5*time.Minute).Add(time.Duration(i)*time.Second), runtime.OutcomeRefs{})
+	}
+
+	status, body := fetchCoverageDrawer(t, cookie, handler, "local-codex", "hooks")
+	if status != http.StatusOK {
+		t.Fatalf("drawer status = %d", status)
+	}
+	if strings.Contains(body, "Heartbeat reached the gateway") {
+		t.Errorf("drawer collapsed to heartbeat-only despite a real event hidden behind 100 newer heartbeats; body=%.500s", body)
+	}
+	if !strings.Contains(body, "OLDER_REAL_TOOL") {
+		t.Errorf("drawer missed the real event when heartbeat spam arrived after it; body=%.500s", body)
+	}
+}
+
 // TestCoverageHooksDrawer_HeartbeatSpamDoesNotBuryRecentEvent
 // covers the more adversarial variant of the same bug: when
 // heartbeat keepalives flood the recent window, the drawer must

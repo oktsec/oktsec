@@ -153,16 +153,24 @@ type ActorQuery struct {
 // N hook events" listing — must set Descending=true so the LIMIT
 // selects the freshest evidence rather than truncating an
 // oldest-first window.
+//
+// ExcludeHeartbeats pushes the heartbeat-session filter into
+// SQL (WHERE session_id NOT LIKE 'heartbeat-%'). Application-side
+// filtering paired with a small LIMIT is unsafe because a flood
+// of fresh heartbeat keepalives can fill the LIMIT window and
+// hide real hook activity behind it; the SQL filter lets the
+// caller request the next N real events directly.
 type EventQuery struct {
-	SessionID    string
-	ActorID      string
-	PrincipalID  string
-	HookEventName string
-	AuditEntryID string
-	Since        time.Time
-	Until        time.Time
-	Limit        int
-	Descending   bool
+	SessionID         string
+	ActorID           string
+	PrincipalID       string
+	HookEventName     string
+	AuditEntryID      string
+	Since             time.Time
+	Until             time.Time
+	Limit             int
+	Descending        bool
+	ExcludeHeartbeats bool
 }
 
 // EdgeQuery filters runtime_actors-derived edges. Empty PrincipalID
