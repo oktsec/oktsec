@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -150,6 +151,108 @@ func TestServer_LoginFlow(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "Overview") {
 		t.Error("dashboard should contain 'Overview'")
+	}
+}
+
+// loginAndExtractCookie posts a successful login and returns the
+// session cookie. It accepts a request mutator so individual tests
+// can flip r.TLS or set X-Forwarded-Proto without each rebuilding
+// the form / handler boilerplate.
+func loginAndExtractCookie(t *testing.T, srv *Server, handler http.Handler, mutate func(*http.Request)) *http.Cookie {
+	t.Helper()
+	form := url.Values{"code": {srv.AccessCode()}}
+	req := httptest.NewRequest("POST", "/dashboard/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if mutate != nil {
+		mutate(req)
+	}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusFound {
+		t.Fatalf("login status = %d, body=%s", w.Code, w.Body.String())
+	}
+	for _, c := range w.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			return c
+		}
+	}
+	t.Fatal("no session cookie after login")
+	return nil
+}
+
+// TestServer_LoginCookie_SecureOnPlainHTTP — a localhost dev
+// session over plain HTTP must NOT set Secure=true. Hardcoding
+// Secure=true would block the browser from sending the cookie
+// back over HTTP and break the default `oktsec serve` flow.
+func TestServer_LoginCookie_SecureOnPlainHTTP(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginAndExtractCookie(t, srv, handler, nil)
+	if cookie.Secure {
+		t.Errorf("Secure=true on plaintext request; want false")
+	}
+}
+
+// TestServer_LoginCookie_SecureWhenTLSTerminated — when oktsec
+// serves TLS directly, r.TLS is non-nil and the cookie must be
+// flagged Secure so the browser refuses to leak it over HTTP.
+func TestServer_LoginCookie_SecureWhenTLSTerminated(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginAndExtractCookie(t, srv, handler, func(r *http.Request) {
+		r.TLS = &tls.ConnectionState{HandshakeComplete: true}
+	})
+	if !cookie.Secure {
+		t.Errorf("Secure=false on TLS-terminated request; want true")
+	}
+}
+
+// TestServer_LoginCookie_SecureWhenForwardedProtoHTTPS — when a
+// reverse proxy fronts oktsec with HTTPS and forwards
+// X-Forwarded-Proto=https, the cookie must still flag Secure so
+// the user-agent honours the TLS guarantee.
+func TestServer_LoginCookie_SecureWhenForwardedProtoHTTPS(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginAndExtractCookie(t, srv, handler, func(r *http.Request) {
+		r.Header.Set("X-Forwarded-Proto", "https")
+	})
+	if !cookie.Secure {
+		t.Errorf("Secure=false with X-Forwarded-Proto: https; want true")
+	}
+}
+
+// TestServer_LogoutCookie_MirrorsLoginSecure — the logout path
+// writes an expiring cookie with the same attribute set as the
+// login cookie, so a Secure=true session is replaced by a
+// Secure=true expiry write. Without this, browsers serving over
+// HTTPS would refuse the expiry because the attribute mismatch
+// would not be considered the same cookie.
+func TestServer_LogoutCookie_MirrorsLoginSecure(t *testing.T) {
+	srv := newTestServer(t)
+	handler := srv.Handler()
+	cookie := loginAndExtractCookie(t, srv, handler, func(r *http.Request) {
+		r.TLS = &tls.ConnectionState{HandshakeComplete: true}
+	})
+
+	req := httptest.NewRequest("POST", "/dashboard/logout", nil)
+	req.TLS = &tls.ConnectionState{HandshakeComplete: true}
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	var expiry *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			expiry = c
+			break
+		}
+	}
+	if expiry == nil {
+		t.Fatal("logout did not set a clearing cookie")
+	}
+	if !expiry.Secure {
+		t.Errorf("logout cookie Secure=false on TLS request; want true")
 	}
 }
 
