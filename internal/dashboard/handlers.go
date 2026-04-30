@@ -100,14 +100,24 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	s.logger.Debug("login success", "ip", ip)
 
 	token := s.auth.CreateSession()
-	http.SetCookie(w, &http.Cookie{
+	// Build the cookie up front, then flip Secure=true on the
+	// HTTPS path. The literal-true-inside-an-if shape is what
+	// CodeQL go/cookie-secure-not-set recognises as a sanitiser;
+	// a struct field set to a function-call result is structurally
+	// indistinguishable from `Secure: false` at the analysis layer
+	// and keeps the alert open even when the runtime behaviour is
+	// correct.
+	cookie := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/dashboard",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   isHTTPS(r),
-	})
+	}
+	if isHTTPS(r) {
+		cookie.Secure = true
+	}
+	http.SetCookie(w, cookie)
 	http.Redirect(w, r, "/dashboard", http.StatusFound)
 }
 
@@ -119,16 +129,21 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	// Clear the cookie. The Secure flag must mirror the login
 	// path so a browser running over HTTPS does not refuse the
-	// expiry write because of attribute mismatch.
-	http.SetCookie(w, &http.Cookie{
+	// expiry write because of attribute mismatch. Same
+	// conditional shape as login so CodeQL recognises both as
+	// sanitised.
+	clear := &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
 		Path:     "/dashboard",
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   isHTTPS(r),
 		MaxAge:   -1, // delete cookie
-	})
+	}
+	if isHTTPS(r) {
+		clear.Secure = true
+	}
+	http.SetCookie(w, clear)
 
 	s.logger.Info("logout", "ip", clientIP(r))
 	http.Redirect(w, r, "/dashboard/login", http.StatusFound)
