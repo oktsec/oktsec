@@ -92,6 +92,18 @@ func TestNormalizeCustomRuleID(t *testing.T) {
 		{"", "test 123", "CUSTOM-TEST-123"},
 		{"CUSTOM-EXISTING", "ignored", "CUSTOM-EXISTING"},
 		{"raw-id", "ignored", "CUSTOM-RAW-ID"},
+
+		// Path-traversal payloads collapse to a safe id: the byte
+		// filter strips "/", ".", and any other non-[A-Z0-9-] byte
+		// so the result is a valid filename component under
+		// cfg.CustomRulesDir.
+		{"../../etc/cron.d/pwn", "ignored", "CUSTOM-ETCCRONDPWN"},
+		{"CUSTOM-../../etc", "ignored", "CUSTOM-ETC"},
+		{"CUSTOM-hello/world", "ignored", "CUSTOM-HELLOWORLD"},
+		// All-special input collapses to the bare prefix; the
+		// handler is responsible for refusing this shape with 400.
+		{"../", "ignored", "CUSTOM-"},
+		{"...", "ignored", "CUSTOM-"},
 	}
 	for _, tc := range tests {
 		got := normalizeCustomRuleID(tc.ruleID, tc.name)

@@ -1947,6 +1947,95 @@ func TestServer_CreateCustomRuleNoPatterns(t *testing.T) {
 	}
 }
 
+// TestServer_CreateCustomRule_PathTraversalIDStaysInsideRulesDir
+// asserts the file written for a traversal-shaped rule_id lands
+// inside CustomRulesDir, not above it. The byte filter in
+// normalizeCustomRuleID strips the path separators so the call
+// is benign even though the input string carries "..".
+func TestServer_CreateCustomRule_PathTraversalIDStaysInsideRulesDir(t *testing.T) {
+	srv := newTestServer(t)
+	root := t.TempDir()
+	rulesDir := filepath.Join(root, "rules")
+	srv.cfgPath = filepath.Join(root, "oktsec.yaml")
+	srv.cfg.CustomRulesDir = rulesDir
+	srv.scanner = nil
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{
+		"name":     {"Traversal Test"},
+		"rule_id":  {"../../etc/cron.d/pwn"},
+		"severity": {"high"},
+		"category": {"custom"},
+		"patterns": {"foo"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/rules/custom", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("traversal id status = %d, want 302; body=%s", w.Code, w.Body.String())
+	}
+
+	// Walk from `root` and assert the only file written below it
+	// is inside rulesDir. A successful traversal would have
+	// dropped a file at `root/etc/...` or above.
+	var written []string
+	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		written = append(written, p)
+		return nil
+	})
+	for _, p := range written {
+		rel, err := filepath.Rel(rulesDir, p)
+		if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+			t.Errorf("file written outside CustomRulesDir: %s", p)
+		}
+	}
+	if len(written) == 0 {
+		t.Error("no rule file was written; expected a sanitised id under CustomRulesDir")
+	}
+}
+
+// TestServer_CreateCustomRule_BarePrefixIDRejected covers the
+// degenerate case where the user-supplied rule_id is built
+// entirely of bytes the normaliser drops. The result collapses
+// to "CUSTOM-" and the handler must refuse with 400 instead of
+// writing a CUSTOM-.yaml file.
+func TestServer_CreateCustomRule_BarePrefixIDRejected(t *testing.T) {
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+	srv.cfg.CustomRulesDir = filepath.Join(dir, "custom-rules")
+	srv.scanner = nil
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	form := url.Values{
+		"name":     {"Bare Prefix"},
+		"rule_id":  {"../"},
+		"severity": {"high"},
+		"category": {"custom"},
+		"patterns": {"foo"},
+	}
+	req := httptest.NewRequest("POST", "/dashboard/rules/custom", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("bare-prefix id status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "alphanumeric") {
+		t.Errorf("400 body should explain the alphanumeric rule; got %q", w.Body.String())
+	}
+}
+
 func TestServer_DeleteCustomRule(t *testing.T) {
 	srv := newTestServer(t)
 	dir := t.TempDir()
