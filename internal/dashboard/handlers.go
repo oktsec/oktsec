@@ -4379,15 +4379,20 @@ func (s *Server) handleAPIGraph(w http.ResponseWriter, r *http.Request) {
 // The endpoint returns both the raw inventory and the derived health
 // view so a single fetch is enough to render the Connection Health
 // card without a follow-up round-trip.
+//
+// The optional ?project= query param goes through resolveClaudeCodeProjectDir
+// before the connector ever sees it: a non-blank value must be an
+// absolute, existing directory whose canonical (symlink-resolved)
+// form is inside the operator's home or the loaded config directory.
+// Anything else is a 400 — relative paths, NUL bytes, traversal,
+// and symlinks that escape the allowed roots all fail the same way
+// so an authenticated dashboard user cannot turn the connector into
+// a filesystem probe.
 func (s *Server) handleClaudeCodeHealth(w http.ResponseWriter, r *http.Request) {
-	projectDir := r.URL.Query().Get("project")
-	if projectDir == "" {
-		// Default to the directory the config file lives in. That is
-		// the most useful "current project" for `oktsec run` users
-		// because the proxy is launched from there.
-		if s.cfgPath != "" {
-			projectDir = filepath.Dir(s.cfgPath)
-		}
+	projectDir, err := s.resolveClaudeCodeProjectDir(r.URL.Query().Get("project"))
+	if err != nil {
+		http.Error(w, "invalid project: "+err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -4409,6 +4414,116 @@ func (s *Server) handleClaudeCodeHealth(w http.ResponseWriter, r *http.Request) 
 		"inventory": inv,
 		"health":    health,
 	})
+}
+
+// resolveClaudeCodeProjectDir validates and canonicalises a
+// dashboard-supplied project directory before it reaches the
+// Claude Code connector.
+//
+// Rules:
+//
+//   - blank input falls back to filepath.Dir(s.cfgPath) when the
+//     server has a config path, otherwise empty (the connector
+//     treats empty as "no project scope" and only reads HomeDir
+//     state). The default path is operator-trusted and not
+//     re-validated.
+//   - a non-blank input must contain no NUL byte, must be an
+//     absolute path, must point at an existing directory, and its
+//     EvalSymlinks-resolved form must live inside one of the
+//     allowed roots: the operator's home directory or the loaded
+//     config directory. The two roots are themselves resolved with
+//     EvalSymlinks so a system whose home is symlinked
+//     (e.g. /var/home/x → /home/x) compares correctly against the
+//     canonical input.
+//
+// The function returns either a path the caller can hand to
+// claudecode.Read or an error — never a partially cleaned value.
+// computeClaudeCodeConnectionHealth does NOT route through this
+// helper because it builds the project dir from s.cfgPath itself,
+// not from request input; the same is true for the CLI doctor
+// command, which is an explicit local invocation outside the HTTP
+// trust boundary.
+func (s *Server) resolveClaudeCodeProjectDir(raw string) (string, error) {
+	if raw == "" {
+		if s.cfgPath != "" {
+			return filepath.Dir(s.cfgPath), nil
+		}
+		return "", nil
+	}
+	if strings.ContainsRune(raw, 0) {
+		return "", fmt.Errorf("path contains NUL byte")
+	}
+	if !filepath.IsAbs(raw) {
+		return "", fmt.Errorf("path must be absolute")
+	}
+	cleaned := filepath.Clean(raw)
+	info, err := os.Stat(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("path not accessible: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is not a directory")
+	}
+	canonical, err := filepath.EvalSymlinks(cleaned)
+	if err != nil {
+		return "", fmt.Errorf("path resolution failed: %w", err)
+	}
+
+	roots := s.allowedClaudeCodeProjectRoots()
+	if len(roots) == 0 {
+		return "", fmt.Errorf("no allowed root configured")
+	}
+	for _, root := range roots {
+		if pathInside(canonical, root) {
+			return canonical, nil
+		}
+	}
+	return "", fmt.Errorf("path is outside allowed roots")
+}
+
+// allowedClaudeCodeProjectRoots returns the operator-trusted roots
+// a dashboard-supplied project dir is permitted to live inside.
+// Each root is canonicalised with EvalSymlinks so the membership
+// check against an EvalSymlinks-resolved input is a like-for-like
+// comparison. Roots that fail to resolve (missing dir, broken
+// symlink) are dropped silently — the helper degrades to the
+// roots that DID resolve, and rejects everything if none did.
+func (s *Server) allowedClaudeCodeProjectRoots() []string {
+	var roots []string
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if h, err := filepath.EvalSymlinks(home); err == nil {
+			roots = append(roots, h)
+		}
+	}
+	if s.cfgPath != "" {
+		cfgDir := filepath.Dir(s.cfgPath)
+		if c, err := filepath.EvalSymlinks(cfgDir); err == nil {
+			roots = append(roots, c)
+		}
+	}
+	return roots
+}
+
+// pathInside reports whether child is the same path as root or a
+// descendant of it. Uses filepath.Rel rather than HasPrefix so
+// /home/usera does not match /home/user as a prefix accident, and
+// rejects ".."-prefixed or absolute relative results so escaping
+// the root through resolved separators stays a hard NO.
+func pathInside(child, root string) bool {
+	rel, err := filepath.Rel(root, child)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	if strings.HasPrefix(rel, "..") {
+		return false
+	}
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	return true
 }
 
 // computeClaudeCodeConnectionHealth is the Overview's projection
