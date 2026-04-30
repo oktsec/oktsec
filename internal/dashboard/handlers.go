@@ -2383,6 +2383,28 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ruleID := normalizeCustomRuleID(strings.TrimSpace(r.FormValue("rule_id")), name)
+	// Reject ids that survived normalisation but carry no useful
+	// payload beyond the CUSTOM- prefix. This happens when the
+	// user-supplied rule_id is built entirely of bytes the
+	// normaliser drops (path separators, "..", control bytes), so
+	// the result collapses to the bare prefix.
+	if strings.TrimPrefix(ruleID, "CUSTOM-") == "" {
+		http.Error(w, "rule id must contain at least one alphanumeric character", http.StatusBadRequest)
+		return
+	}
+	// safeRuleIDRe is the existing rule-id contract enforced by the
+	// DELETE handler. Reusing it here keeps the create/delete
+	// surface in lock-step. filepath.IsLocal is the static-analysis
+	// barrier on the path that filepath.Join below builds: it
+	// rejects "..", absolute paths, and NUL bytes, and it is the
+	// pattern CodeQL recognises as sanitised input for
+	// go/path-injection.
+	ruleFilename := ruleID + ".yaml"
+	if !safeRuleIDRe.MatchString(ruleID) || !filepath.IsLocal(ruleFilename) {
+		http.Error(w, "invalid rule id", http.StatusBadRequest)
+		return
+	}
+
 	yamlContent := buildCustomRuleYAML(ruleID, name, r.FormValue("severity"), strings.TrimSpace(r.FormValue("category")), patterns)
 
 	// Validate the generated YAML before writing
@@ -2398,8 +2420,8 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	filename := filepath.Join(s.cfg.CustomRulesDir, ruleID+".yaml")
-	if err := os.WriteFile(filename, []byte(yamlContent), 0o644); err != nil {
+	rulePath := filepath.Join(s.cfg.CustomRulesDir, ruleFilename)
+	if err := os.WriteFile(rulePath, []byte(yamlContent), 0o644); err != nil {
 		s.logger.Error("write failed", "error", err)
 		http.Error(w, "write failed", http.StatusInternalServerError)
 		return
@@ -2416,21 +2438,32 @@ func (s *Server) handleCreateCustomRule(w http.ResponseWriter, r *http.Request) 
 	http.Redirect(w, r, "/dashboard/rules?tab=custom", http.StatusFound)
 }
 
+// normalizeCustomRuleID maps free-form user input to a safe rule
+// id used as a filename component under cfg.CustomRulesDir. The
+// byte filter is applied to the FINAL id (not only the
+// auto-derived form) so a non-empty rule_id from the form cannot
+// smuggle path separators, "..", or NUL into the file write that
+// follows. The CUSTOM- prefix is always present on output.
+//
+// The handler still validates the result against safeRuleIDRe and
+// filepath.IsLocal as belt-and-braces; this helper just guarantees
+// the input shape every caller can rely on.
 func normalizeCustomRuleID(ruleID, name string) string {
-	if ruleID == "" {
-		slug := strings.ToUpper(strings.ReplaceAll(name, " ", "-"))
-		var clean []byte
-		for _, b := range []byte(slug) {
-			if (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' {
-				clean = append(clean, b)
-			}
+	candidate := ruleID
+	if candidate == "" {
+		candidate = strings.ToUpper(strings.ReplaceAll(name, " ", "-"))
+	}
+	if !strings.HasPrefix(strings.ToUpper(candidate), "CUSTOM-") {
+		candidate = "CUSTOM-" + candidate
+	}
+	candidate = strings.ToUpper(candidate)
+	var safe []byte
+	for _, b := range []byte(candidate) {
+		if (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' {
+			safe = append(safe, b)
 		}
-		ruleID = "CUSTOM-" + string(clean)
 	}
-	if !strings.HasPrefix(strings.ToUpper(ruleID), "CUSTOM-") {
-		ruleID = "CUSTOM-" + ruleID
-	}
-	return strings.ToUpper(ruleID)
+	return string(safe)
 }
 
 func splitNonEmpty(s, sep string) []string {
