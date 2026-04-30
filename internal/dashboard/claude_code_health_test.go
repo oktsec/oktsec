@@ -235,3 +235,69 @@ func TestClaudeCodeHealth_DefaultsToConfigDirWhenProjectOmitted(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
 }
+
+// TestClaudeCodeHealth_RejectsAbsoluteMissingPathOutsideRoot — an
+// absolute path that does NOT exist and is also outside every
+// allowed root must surface as "outside allowed roots", not as
+// "path not accessible". The earlier ordering (Stat first,
+// root-check after) leaked filesystem existence: missing-outside
+// returned the os error wording, existing-outside returned the
+// root-check wording. The lexical pre-check collapses both into
+// the same uniform refusal so an authenticated dashboard user
+// cannot use the endpoint to probe arbitrary filesystem paths.
+func TestClaudeCodeHealth_RejectsAbsoluteMissingPathOutsideRoot(t *testing.T) {
+	_, handler, cookie, _, _ := newProjectValidationServer(t)
+	missing := "/this-path-should-not-exist-anywhere/oktsec-test-12345"
+	w := projectHealthRequest(t, handler, cookie, missing)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "outside allowed roots") {
+		t.Errorf("400 body must say 'outside allowed roots' (no FS probe leak); got %q", body)
+	}
+	// Negative assertion: a leaky path would have surfaced as the
+	// stat error wording, which the helper used to forward as
+	// "path not accessible".
+	if strings.Contains(body, "path not accessible") {
+		t.Errorf("body leaked filesystem state: %q", body)
+	}
+}
+
+// TestClaudeCodeHealth_RejectsFileInsideAllowedRoot — a regular
+// file (not a directory) that lives inside an allowed root reaches
+// the IsDir check and is refused with the "not a directory"
+// message. Documents that the FS probes only run after the lexical
+// gate has accepted the path.
+func TestClaudeCodeHealth_RejectsFileInsideAllowedRoot(t *testing.T) {
+	_, handler, cookie, _, cfgDir := newProjectValidationServer(t)
+	f := filepath.Join(cfgDir, "not-a-dir.txt")
+	if err := os.WriteFile(f, []byte("oktsec"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	w := projectHealthRequest(t, handler, cookie, f)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "not a directory") {
+		t.Errorf("400 body should say 'not a directory'; got %q", w.Body.String())
+	}
+}
+
+// TestClaudeCodeHealth_AcceptsDoubleDotPrefixedDirectory — a
+// directory whose name happens to start with the two dot bytes
+// (e.g. "..project") is a perfectly valid POSIX name and must be
+// accepted when it lives inside an allowed root. A naive
+// HasPrefix(rel, "..") check would mis-classify it as traversal
+// and produce a false-positive 400.
+func TestClaudeCodeHealth_AcceptsDoubleDotPrefixedDirectory(t *testing.T) {
+	_, handler, cookie, _, cfgDir := newProjectValidationServer(t)
+	weird := filepath.Join(cfgDir, "..project")
+	if err := os.MkdirAll(weird, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	w := projectHealthRequest(t, handler, cookie, weird)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+}

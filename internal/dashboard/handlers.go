@@ -4420,6 +4420,13 @@ func (s *Server) handleClaudeCodeHealth(w http.ResponseWriter, r *http.Request) 
 // dashboard-supplied project directory before it reaches the
 // Claude Code connector.
 //
+// Order matters here: the lexical root-membership check runs
+// BEFORE any filesystem call on the request path, so the helper
+// cannot be used as an existence/access probe for paths outside
+// the allowed roots. Stat / EvalSymlinks only run after the path
+// is provably inside an allowed root; a second post-symlink check
+// catches a symlink that lives inside a root but resolves outside.
+//
 // Rules:
 //
 //   - blank input falls back to filepath.Dir(s.cfgPath) when the
@@ -4428,16 +4435,23 @@ func (s *Server) handleClaudeCodeHealth(w http.ResponseWriter, r *http.Request) 
 //     state). The default path is operator-trusted and not
 //     re-validated.
 //   - a non-blank input must contain no NUL byte, must be an
-//     absolute path, must point at an existing directory, and its
-//     EvalSymlinks-resolved form must live inside one of the
-//     allowed roots: the operator's home directory or the loaded
-//     config directory. The two roots are themselves resolved with
-//     EvalSymlinks so a system whose home is symlinked
-//     (e.g. /var/home/x → /home/x) compares correctly against the
-//     canonical input.
+//     absolute path, and its filepath.Clean form must lexically
+//     live inside one of the allowed roots. Allowed roots are
+//     gathered in two forms — the raw filepath.Clean of the
+//     directory and its EvalSymlinks canonical — so the operator
+//     can pass the literal path their environment advertises
+//     (e.g. /var/home/x) or its symlink-resolved form
+//     (/home/x), but not anything else.
+//   - only after the lexical check passes do we Stat the path
+//     (it must be a directory) and EvalSymlinks the result. A
+//     symlink that lives inside a root but points outside is
+//     refused at the post-symlink re-check.
 //
-// The function returns either a path the caller can hand to
-// claudecode.Read or an error — never a partially cleaned value.
+// Failure mode is uniform: any non-blank input that does not
+// resolve to an allowed-root directory returns an error message
+// the caller maps to 400. Existence-vs-access distinctions for
+// outside paths are not reachable.
+//
 // computeClaudeCodeConnectionHealth does NOT route through this
 // helper because it builds the project dir from s.cfgPath itself,
 // not from request input; the same is true for the CLI doctor
@@ -4457,6 +4471,26 @@ func (s *Server) resolveClaudeCodeProjectDir(raw string) (string, error) {
 		return "", fmt.Errorf("path must be absolute")
 	}
 	cleaned := filepath.Clean(raw)
+
+	// Allowed roots in two forms. Both resolve at most once per
+	// request and only touch operator-trusted paths (the home
+	// directory and the loaded config directory), never the
+	// request path. EvalSymlinks failures degrade silently — a
+	// missing canonical form just means the lexical check leans
+	// on the raw form, never on the request.
+	rawRoots, canonicalRoots := s.allowedClaudeCodeProjectRoots()
+	if len(rawRoots) == 0 && len(canonicalRoots) == 0 {
+		return "", fmt.Errorf("no allowed root configured")
+	}
+
+	// Lexical pre-check: the request path must already live
+	// inside an allowed root in either form. This is the line
+	// that prevents the helper from being a filesystem probe —
+	// outside paths never reach Stat or EvalSymlinks.
+	if !anyPathInside(cleaned, rawRoots) && !anyPathInside(cleaned, canonicalRoots) {
+		return "", fmt.Errorf("path is outside allowed roots")
+	}
+
 	info, err := os.Stat(cleaned)
 	if err != nil {
 		return "", fmt.Errorf("path not accessible: %w", err)
@@ -4469,46 +4503,73 @@ func (s *Server) resolveClaudeCodeProjectDir(raw string) (string, error) {
 		return "", fmt.Errorf("path resolution failed: %w", err)
 	}
 
-	roots := s.allowedClaudeCodeProjectRoots()
-	if len(roots) == 0 {
-		return "", fmt.Errorf("no allowed root configured")
+	// Post-symlink re-check. A symlink under cfgDir or HomeDir
+	// is allowed lexically because its name lives inside the
+	// root, but the target it resolves to may not. Only the
+	// canonical roots make sense for this comparison since the
+	// canonical form is what the connector will actually read.
+	if !anyPathInside(canonical, canonicalRoots) {
+		return "", fmt.Errorf("path is outside allowed roots")
 	}
-	for _, root := range roots {
-		if pathInside(canonical, root) {
-			return canonical, nil
-		}
-	}
-	return "", fmt.Errorf("path is outside allowed roots")
+	return canonical, nil
 }
 
 // allowedClaudeCodeProjectRoots returns the operator-trusted roots
-// a dashboard-supplied project dir is permitted to live inside.
-// Each root is canonicalised with EvalSymlinks so the membership
-// check against an EvalSymlinks-resolved input is a like-for-like
-// comparison. Roots that fail to resolve (missing dir, broken
-// symlink) are dropped silently — the helper degrades to the
-// roots that DID resolve, and rejects everything if none did.
-func (s *Server) allowedClaudeCodeProjectRoots() []string {
-	var roots []string
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		if h, err := filepath.EvalSymlinks(home); err == nil {
-			roots = append(roots, h)
+// a dashboard-supplied project dir is permitted to live inside,
+// in two forms:
+//
+//   - rawRoots: filepath.Clean of the directory string. Used for
+//     the lexical pre-check so the request path can match the
+//     literal root the operator's environment advertises (e.g.
+//     /var/home/x on a system whose HOME is the symlink form).
+//   - canonicalRoots: EvalSymlinks-resolved form. Used for the
+//     post-symlink re-check, and also accepted in the lexical
+//     pre-check so a request that already passes the canonical
+//     form is not rejected.
+//
+// Roots that fail to resolve (missing dir, broken symlink) drop
+// out of the canonical set silently; the helper degrades to the
+// surviving entries and rejects everything if both sets are
+// empty.
+func (s *Server) allowedClaudeCodeProjectRoots() (rawRoots, canonicalRoots []string) {
+	addRoot := func(p string) {
+		if p == "" {
+			return
 		}
+		rawRoots = append(rawRoots, filepath.Clean(p))
+		if c, err := filepath.EvalSymlinks(p); err == nil {
+			canonicalRoots = append(canonicalRoots, c)
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		addRoot(home)
 	}
 	if s.cfgPath != "" {
-		cfgDir := filepath.Dir(s.cfgPath)
-		if c, err := filepath.EvalSymlinks(cfgDir); err == nil {
-			roots = append(roots, c)
+		addRoot(filepath.Dir(s.cfgPath))
+	}
+	return rawRoots, canonicalRoots
+}
+
+// anyPathInside reports whether child sits inside any of the
+// provided roots. Empty roots slice returns false; pathInside is
+// called per-root so the directional comparison is consistent.
+func anyPathInside(child string, roots []string) bool {
+	for _, r := range roots {
+		if pathInside(child, r) {
+			return true
 		}
 	}
-	return roots
+	return false
 }
 
 // pathInside reports whether child is the same path as root or a
 // descendant of it. Uses filepath.Rel rather than HasPrefix so
-// /home/usera does not match /home/user as a prefix accident, and
-// rejects ".."-prefixed or absolute relative results so escaping
-// the root through resolved separators stays a hard NO.
+// /home/usera does not match /home/user as a prefix accident.
+// Rejects only the relative forms that escape the root: the
+// literal "..", a path that begins with the ".." element followed
+// by a separator, and absolute results. Names like "..project"
+// that simply happen to start with the two dot bytes are NOT
+// traversal and stay valid.
 func pathInside(child, root string) bool {
 	rel, err := filepath.Rel(root, child)
 	if err != nil {
@@ -4517,7 +4578,7 @@ func pathInside(child, root string) bool {
 	if rel == "." {
 		return true
 	}
-	if strings.HasPrefix(rel, "..") {
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return false
 	}
 	if filepath.IsAbs(rel) {
