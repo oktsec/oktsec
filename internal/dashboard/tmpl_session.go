@@ -210,3 +210,171 @@ function analyzeSession(sid) {
 </script>
 
 ` + layoutFoot))
+
+// runtimeSessionDetailTmpl renders the runtime-backed session
+// page. It deliberately diverges from sessionTraceTmpl in two
+// ways: (1) the timeline is built from runtime hook events, which
+// carry hashes instead of raw input/output, and (2) the AI
+// analysis sidebar is hidden — the session-analysis schema and
+// the runtime envelope have not been reconciled yet, so showing
+// audit-driven analysis next to runtime evidence would mix two
+// stores. AI returns when the runtime path adopts the analysis
+// pipeline.
+var runtimeSessionDetailTmpl = template.Must(template.New("runtime-session-detail").Funcs(tmplFuncs).Parse(layoutHead + `
+<style>
+.rt-meta{font-size:var(--text-sm);color:var(--text3);margin-bottom:20px;display:flex;flex-wrap:wrap;gap:18px}
+.rt-meta b{color:var(--text);font-weight:500}
+.rt-meta .ss-status{display:inline-block;padding:2px 8px;border-radius:4px;font-size:var(--text-xs);font-weight:600}
+.rt-meta .ss-status.s-active{background:var(--success-muted);color:var(--success);border:1px solid var(--success-border)}
+.rt-meta .ss-status.s-ended{background:var(--surface2);color:var(--text2);border:1px solid var(--border)}
+.rt-meta .ss-status.s-heartbeat{background:transparent;color:var(--text3);border:1px solid var(--border)}
+
+.rt-actions{display:flex;gap:8px;margin-bottom:20px}
+.rt-actions a{padding:5px 12px;font-size:var(--text-xs);border:1px solid var(--border);border-radius:5px;color:var(--text2);text-decoration:none;background:transparent}
+.rt-actions a:hover{background:var(--surface2);color:var(--text)}
+
+.rt-stats{display:grid;grid-template-columns:repeat(5,1fr);margin-bottom:24px;background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.rt-stat{padding:16px 20px;text-align:center}
+.rt-stat+.rt-stat{border-left:1px solid var(--border)}
+.rt-stat .label{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin-bottom:4px}
+.rt-stat .value{font-size:1.2rem;font-weight:600;color:var(--text)}
+.rt-stat .value.v-danger{color:var(--danger)}
+@media(max-width:1100px){.rt-stats{grid-template-columns:repeat(3,1fr)}.rt-stat:nth-child(n+4){border-top:1px solid var(--border)}}
+
+.rt-section{padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:24px}
+.rt-section h3{font-size:var(--text-xs);text-transform:uppercase;letter-spacing:var(--ls-caps);color:var(--text3);margin:0 0 12px 0;font-weight:600}
+
+.rt-actor{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:var(--text-sm)}
+.rt-actor .name{font-weight:500;color:var(--text);font-family:var(--mono);font-size:0.78rem}
+.rt-actor .kind{font-size:0.62rem;padding:2px 7px;border-radius:4px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;background:var(--surface2);color:var(--text3);border:1px solid var(--border)}
+.rt-actor .kind.k-root{color:var(--accent);border-color:var(--accent-border);background:rgba(56,139,253,0.10)}
+.rt-actor .kind.k-subagent{color:var(--purple);border-color:var(--purple-border);background:var(--purple-muted)}
+.rt-actor .kind.k-task{color:var(--warn);border-color:var(--warn-border);background:var(--warn-muted)}
+.rt-actor .meta{font-size:var(--text-xs);color:var(--text3);margin-left:auto}
+.rt-actor .meta .blocks{color:var(--danger)}
+.rt-actor.indent-1{padding-left:24px}
+.rt-actor.indent-2{padding-left:48px}
+.rt-actor.indent-3{padding-left:72px}
+
+.rt-timeline{position:relative;padding-left:32px}
+.rt-timeline::before{content:'';position:absolute;left:11px;top:8px;bottom:8px;width:2px;background:var(--border)}
+.rt-row{position:relative;margin-bottom:14px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.rt-row::before{content:'';position:absolute;left:-25px;top:18px;width:10px;height:10px;border-radius:50%;background:var(--success);border:2px solid var(--bg);box-shadow:0 0 6px var(--success-muted)}
+.rt-row.s-blocked{border-left:3px solid var(--danger);background:var(--danger-muted)}
+.rt-row.s-blocked::before{background:var(--danger);box-shadow:0 0 6px var(--danger-muted)}
+.rt-row.s-quarantined{border-left:3px solid var(--warn);background:var(--warn-muted)}
+.rt-row.s-quarantined::before{background:var(--warn);box-shadow:0 0 6px var(--warn-muted)}
+.rt-row.s-heartbeat{opacity:0.55;border-left:3px solid var(--border);background:transparent}
+.rt-row.s-heartbeat::before{background:var(--text3)}
+
+.rt-row-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.rt-event{font-weight:600;color:var(--text);font-size:var(--text-sm)}
+.rt-actor-tag{font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)}
+.rt-stage{font-size:0.62rem;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:0.5px;background:var(--surface2);color:var(--text3);border:1px solid var(--border)}
+.rt-status{font-size:var(--text-xs);padding:2px 8px;border-radius:4px;font-weight:500}
+.rt-status.v-clean{color:var(--success);background:var(--success-muted);border:1px solid var(--success-border)}
+.rt-status.v-blocked{color:var(--danger);background:var(--danger-muted);border:1px solid var(--danger-border)}
+.rt-status.v-quarantined{color:var(--warn);background:var(--warn-muted);border:1px solid var(--warn-border)}
+.rt-status.v-delivered,.rt-status.v-allowed{color:var(--text2);background:var(--surface2);border:1px solid var(--border)}
+.rt-time{font-size:var(--text-xs);color:var(--text3);margin-left:auto;font-family:var(--mono)}
+.rt-meta-line{font-size:var(--text-xs);color:var(--text3);font-family:var(--mono);word-break:break-all}
+.rt-meta-line + .rt-meta-line{margin-top:4px}
+.rt-link{font-size:var(--text-xs);color:var(--accent);text-decoration:none;margin-top:6px;display:inline-block}
+.rt-link:hover{text-decoration:underline}
+.rt-empty{padding:40px;text-align:center;color:var(--text3)}
+.rt-diagnostic-banner{padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:var(--text-sm);color:var(--text2);margin-bottom:20px}
+</style>
+
+<div class="page-header" style="margin-bottom:8px">
+  <h1 style="margin-bottom:4px">Session</h1>
+</div>
+<p style="color:var(--text3);font-size:var(--text-sm);margin:0 0 16px">Runtime hook events for this session</p>
+
+<div class="rt-meta">
+  <span><b>Session:</b> <span style="font-family:var(--mono);font-size:var(--text-xs)">{{.Detail.Session.SessionID}}</span></span>
+  {{if .Detail.Session.PrincipalID}}<span><b>Principal:</b> <span style="font-family:var(--mono);font-size:var(--text-xs)">{{.Detail.Session.PrincipalID}}</span></span>{{end}}
+  {{if .Detail.Session.ClientID}}<span><b>Client:</b> {{.Detail.Session.ClientID}}</span>{{end}}
+  {{if .Detail.Session.ConnectorID}}<span><b>Connector:</b> {{.Detail.Session.ConnectorID}}</span>{{end}}
+  <span><b>Status:</b> <span class="ss-status s-{{.Detail.Session.StatusClass}}">{{.Detail.Session.StatusLabel}}</span></span>
+</div>
+
+<div class="rt-actions">
+  <a href="{{.Detail.JSONExportURL}}">JSON</a>
+  <a href="{{.Detail.CSVExportURL}}">CSV</a>
+</div>
+
+{{if .Detail.Session.IsHeartbeatOnly}}
+<div class="rt-diagnostic-banner">
+  This session id is a heartbeat keepalive. The events below are diagnostic only — no real hook activity has been recorded.
+</div>
+{{end}}
+
+<div class="rt-stats">
+  <div class="rt-stat">
+    <div class="label">Events</div>
+    <div class="value">{{.Detail.Session.EventCount}}</div>
+  </div>
+  <div class="rt-stat">
+    <div class="label">Tool calls</div>
+    <div class="value">{{.Detail.Session.ToolEventCount}}</div>
+  </div>
+  <div class="rt-stat">
+    <div class="label">Subagents</div>
+    <div class="value">{{.Detail.Session.SubagentCount}}</div>
+  </div>
+  <div class="rt-stat">
+    <div class="label">Tasks</div>
+    <div class="value">{{.Detail.Session.TaskCount}}</div>
+  </div>
+  <div class="rt-stat">
+    <div class="label">Blocks</div>
+    <div class="value{{if gt .Detail.Session.BlockCount 0}} v-danger{{end}}">{{.Detail.Session.BlockCount}}</div>
+  </div>
+</div>
+
+{{if .Detail.Actors}}
+<div class="rt-section">
+  <h3>Actor tree</h3>
+  {{range .Detail.Actors}}
+  <div class="rt-actor{{if eq .Kind "subagent"}} indent-1{{else if eq .Kind "task"}} indent-2{{end}}">
+    <span class="name">{{.Label}}</span>
+    {{if .Kind}}<span class="kind k-{{.Kind}}">{{.Kind}}</span>{{end}}
+    <span class="meta">
+      {{.EventCount}} event{{if ne .EventCount 1}}s{{end}}{{if gt .ToolCount 0}} &middot; {{.ToolCount}} tool{{if ne .ToolCount 1}}s{{end}}{{end}}{{if gt .BlockCount 0}} &middot; <span class="blocks">{{.BlockCount}} blocked</span>{{end}}
+    </span>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+<div class="rt-section">
+  <h3>Timeline</h3>
+  {{if .Detail.Events}}
+  <div class="rt-timeline">
+    {{range .Detail.Events}}
+    <div class="rt-row{{if .IsHeartbeat}} s-heartbeat{{end}}{{if eq .Status "blocked"}} s-blocked{{end}}{{if eq .Status "quarantined"}} s-quarantined{{end}}">
+      <div class="rt-row-header">
+        <span class="rt-event">{{.HookEventName}}</span>
+        {{if .ActorLabel}}<span class="rt-actor-tag">{{.ActorLabel}}</span>{{end}}
+        {{if .ToolName}}<span class="rt-actor-tag">tool: {{.ToolName}}</span>{{end}}
+        {{if .Stage}}<span class="rt-stage">{{.Stage}}</span>{{end}}
+        {{if .Status}}<span class="rt-status v-{{.Status}}">{{.Status}}</span>{{end}}
+        <span class="rt-time" data-ts="{{.Timestamp}}">{{.Timestamp}}</span>
+      </div>
+      {{if .ToolUseID}}<div class="rt-meta-line">use_id: {{.ToolUseID}}</div>{{end}}
+      {{if .ToolInputHash}}<div class="rt-meta-line">input: sha256:{{truncate .ToolInputHash 16}}</div>{{end}}
+      {{if .ToolOutputHash}}<div class="rt-meta-line">output: sha256:{{truncate .ToolOutputHash 16}}</div>{{end}}
+      {{if .FilePathTail}}<div class="rt-meta-line">path: {{.FilePathTail}}</div>{{end}}
+      {{if .TaskSubject}}<div class="rt-meta-line">task: {{.TaskSubject}}</div>{{end}}
+      {{if .CoverageMode}}<div class="rt-meta-line">coverage: {{.CoverageMode}}{{if gt .Confidence 0}} &middot; confidence {{.Confidence}}{{end}}</div>{{end}}
+      {{if and (ne .PolicyDecision "") (ne .PolicyDecision .Status)}}<div class="rt-meta-line">policy: {{.PolicyDecision}}</div>{{end}}
+      {{if gt .LatencyMs 0}}<div class="rt-meta-line">latency: {{.LatencyMs}}ms</div>{{end}}
+      {{if .AuditEntryID}}<a href="/dashboard/events/{{.AuditEntryID}}" class="rt-link">View audit entry &rarr;</a>{{end}}
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <div class="rt-empty">No hook events recorded for this session.</div>
+  {{end}}
+</div>
+` + layoutFoot))

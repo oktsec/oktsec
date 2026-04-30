@@ -728,8 +728,19 @@ func (s *Store) QueryEvents(ctx context.Context, q EventQuery) ([]HookEvent, err
 	if !q.Until.IsZero() {
 		add("timestamp <= "+s.placeholder(idx+1), q.Until.UTC().Format(time.RFC3339Nano))
 	}
+	if q.ExcludeHeartbeats {
+		// Heartbeat sessions are diagnostic — see runtime.IsHeartbeatSession.
+		// The literal prefix is fixed by the same helper, so the filter is
+		// safe against any future heartbeat-id schema change because the
+		// constant lives next to the helper.
+		add("session_id NOT LIKE 'heartbeat-%'")
+	}
 	args = append(args, limit)
 	limitPh := s.placeholder(idx + 1)
+	order := "ASC"
+	if q.Descending {
+		order = "DESC"
+	}
 	query := `SELECT id, timestamp, session_id, principal_id,
         actor_id, parent_actor_id, root_actor_id,
         client_id, connector_id,
@@ -740,7 +751,7 @@ func (s *Store) QueryEvents(ctx context.Context, q EventQuery) ([]HookEvent, err
         status, policy_decision, coverage_mode, confidence,
         audit_entry_id, activity_event_id, latency_ms
         FROM runtime_hook_events WHERE ` + where + `
-        ORDER BY timestamp ASC LIMIT ` + limitPh
+        ORDER BY timestamp ` + order + ` LIMIT ` + limitPh
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("runtime: query events: %w", err)

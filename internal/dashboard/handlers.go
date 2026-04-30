@@ -1712,6 +1712,19 @@ func (s *Server) handleEventPage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSessionExport(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
+	if detail, ok := s.runtimeSessionDetail(r.Context(), sessionID); ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="session-%s.json"`, truncateID(sessionID)))
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(map[string]any{
+			"source":  "runtime",
+			"session": detail.Session,
+			"actors":  detail.Actors,
+			"events":  detail.Events,
+		})
+		return
+	}
 	trace, err := s.audit.BuildSessionTrace(sessionID)
 	if err != nil || trace == nil {
 		http.Error(w, "session not found", http.StatusNotFound)
@@ -1726,6 +1739,10 @@ func (s *Server) handleSessionExport(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSessionCSV(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
+	if detail, ok := s.runtimeSessionDetail(r.Context(), sessionID); ok {
+		writeRuntimeSessionCSV(w, sessionID, detail)
+		return
+	}
 	trace, err := s.audit.BuildSessionTrace(sessionID)
 	if err != nil || trace == nil {
 		http.Error(w, "session not found", http.StatusNotFound)
@@ -1750,6 +1767,47 @@ func (s *Server) handleSessionCSV(w http.ResponseWriter, r *http.Request) {
 			i+1, step.Timestamp, step.ToolName, step.Verdict, step.Decision,
 			step.LatencyMs, step.GapMs, step.PlanStep, step.PlanTotal,
 			step.EventID, reasoning,
+		)
+	}
+}
+
+// writeRuntimeSessionCSV emits the runtime CSV column set per the
+// Phase 3C spec. The columns are deliberately distinct from the
+// audit CSV — runtime carries hashes (input/output) instead of
+// tool input bodies, so the legacy "Reasoning" column is not
+// applicable. Header comments document the source so an operator
+// piping the file into a downstream tool knows the row shape up
+// front.
+func writeRuntimeSessionCSV(w http.ResponseWriter, sessionID string, detail *runtimeSessionDetailView) {
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="session-%s.csv"`, truncateID(sessionID)))
+	fmt.Fprintf(w, "# Runtime Session Export\r\n")
+	fmt.Fprintf(w, "# Generated: %s\r\n", time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(w, "# Session ID: %s\r\n", detail.Session.SessionID)
+	fmt.Fprintf(w, "# Principal: %s\r\n", detail.Session.PrincipalID)
+	fmt.Fprintf(w, "# Status: %s\r\n", detail.Session.StatusLabel)
+	fmt.Fprintf(w, "# Events: %d\r\n", detail.Session.EventCount)
+	fmt.Fprintf(w, "\r\n")
+	fmt.Fprintf(w, "timestamp,actor,kind,hook_event,lifecycle,stage,tool_name,tool_use_id,tool_input_hash,tool_output_hash,status,policy_decision,coverage_mode,confidence,latency_ms,audit_entry_id,activity_event_id\r\n")
+	for _, ev := range detail.Events {
+		fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%s,%s\r\n",
+			csvEscape(ev.Timestamp),
+			csvEscape(ev.ActorLabel),
+			csvEscape(ev.ActorKind),
+			csvEscape(ev.HookEventName),
+			csvEscape(ev.Lifecycle),
+			csvEscape(ev.Stage),
+			csvEscape(ev.ToolName),
+			csvEscape(ev.ToolUseID),
+			csvEscape(ev.ToolInputHash),
+			csvEscape(ev.ToolOutputHash),
+			csvEscape(ev.Status),
+			csvEscape(ev.PolicyDecision),
+			csvEscape(ev.CoverageMode),
+			ev.Confidence,
+			ev.LatencyMs,
+			csvEscape(ev.AuditEntryID),
+			csvEscape(ev.ActivityEventID),
 		)
 	}
 }
@@ -1842,23 +1900,21 @@ func csvEscape(s string) string {
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	rangeParam := r.URL.Query().Get("range")
-	if rangeParam == "" {
-		rangeParam = "24h"
+	rangeParam := parseSessionsRange(r.URL.Query().Get("range"))
+	since := sessionsRangeSince(rangeParam)
+	sinceStr := since.UTC().Format(time.RFC3339)
+
+	// Runtime first: when runtime is wired AND the window has at
+	// least one runtime row, render the runtime view. An empty
+	// runtime result with ok=true still falls through to legacy
+	// because pre-3B installs and existing audit-only tests rely on
+	// the audit shape rendering when no runtime evidence exists.
+	if rows, ok := s.runtimeSessionRows(r.Context(), since, sessionsRowLimit); ok && len(rows) > 0 {
+		s.renderTemplate(w, runtimeSessionsPageTmpl, runtimeSessionsTemplateData(rows, rangeParam, s.cfg.Identity.RequireSignature))
+		return
 	}
 
-	var since string
-	switch rangeParam {
-	case "7d":
-		since = time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	case "30d":
-		since = time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	default:
-		rangeParam = "24h"
-		since = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
-	}
-
-	sessions, err := s.audit.QuerySessions(since, 200)
+	sessions, err := s.audit.QuerySessions(sinceStr, sessionsRowLimit)
 	if err != nil {
 		s.logger.Error("query sessions", "error", err)
 		sessions = nil
@@ -1905,21 +1961,72 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, sessionsPageTmpl, data)
 }
 
-func (s *Server) handleSessionsExport(w http.ResponseWriter, r *http.Request) {
-	rangeParam := r.URL.Query().Get("range")
-	format := r.URL.Query().Get("format")
+// runtimeSessionsTemplateData builds the data map the runtime
+// Sessions template consumes. Stats follow the spec: total
+// counts every rendered row, threat count excludes heartbeat-only,
+// average duration uses ended/active windows and ignores
+// non-positive intervals.
+func runtimeSessionsTemplateData(rows []sessionListRow, rangeParam string, requireSig bool) map[string]any {
+	totalEvents := int64(0)
+	threats := 0
+	var totalDuration time.Duration
+	durCount := 0
+	for _, r := range rows {
+		totalEvents += r.EventCount
+		if r.Threat {
+			threats++
+		}
+		if r.IsHeartbeatOnly {
+			// 0s by spec — does not count toward avg duration.
+			continue
+		}
+		if r.Duration == "" || r.Duration == "—" {
+			continue
+		}
+		if d, err := time.ParseDuration(r.Duration); err == nil && d > 0 {
+			totalDuration += d
+			durCount++
+		}
+	}
+	avgDuration := "-"
+	if durCount > 0 {
+		avg := totalDuration / time.Duration(durCount)
+		if avg >= time.Second {
+			avgDuration = avg.Round(time.Second).String()
+		} else if avg > 0 {
+			avgDuration = avg.Round(time.Millisecond).String()
+		}
+	}
+	return map[string]any{
+		"Active":         "sessions",
+		"Sessions":       rows,
+		"Range":          rangeParam,
+		"TotalSessions":  len(rows),
+		"ThreatSessions": threats,
+		"AvgDuration":    avgDuration,
+		"TotalEvents":    totalEvents,
+		"RequireSig":     requireSig,
+	}
+}
 
-	var since string
-	switch rangeParam {
-	case "7d":
-		since = time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	case "30d":
-		since = time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	default:
-		since = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+func (s *Server) handleSessionsExport(w http.ResponseWriter, r *http.Request) {
+	rangeParam := parseSessionsRange(r.URL.Query().Get("range"))
+	format := r.URL.Query().Get("format")
+	since := sessionsRangeSince(rangeParam)
+	sinceStr := since.UTC().Format(time.RFC3339)
+
+	// Mirror the Sessions list decision: when runtime is reachable
+	// AND the window has runtime rows, the export must reflect the
+	// same dataset the operator just saw on /dashboard/sessions.
+	// Falling through to audit when runtime has rows would hand the
+	// operator a different (legacy) shape and break the audit
+	// promise the page makes.
+	if rows, ok := s.runtimeSessionRows(r.Context(), since, sessionsExportLimit); ok && len(rows) > 0 {
+		writeRuntimeSessionsExport(w, format, rows)
+		return
 	}
 
-	sessions, err := s.audit.QuerySessions(since, 500)
+	sessions, err := s.audit.QuerySessions(sinceStr, sessionsExportLimit)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)
 		return
@@ -1938,6 +2045,51 @@ func (s *Server) handleSessionsExport(w http.ResponseWriter, r *http.Request) {
 	default: // json
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(sessions)
+	}
+}
+
+// sessionsExportLimit gives the bulk export a higher cap than the
+// page render — operators may genuinely want the full window in
+// one file — but still bounded so an attacker-supplied range
+// cannot stream the entire history.
+const sessionsExportLimit = 500
+
+// writeRuntimeSessionsExport emits the same sessionListRow shape
+// the runtime page renders, in JSON or CSV. JSON wraps the rows
+// under {source: "runtime", sessions: [...]} so a downstream
+// consumer can detect the runtime path and tell it apart from
+// the legacy SessionSummary array. CSV header lists every
+// runtime field explicitly so the column order is stable.
+func writeRuntimeSessionsExport(w http.ResponseWriter, format string, rows []sessionListRow) {
+	switch format {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=sessions.csv")
+		_, _ = w.Write([]byte("session_id,principal_id,client_id,connector_id,status,started_at,last_seen_at,duration,event_count,tool_event_count,subagent_count,task_count,block_count,heartbeat_only\n"))
+		for _, sr := range rows {
+			_, _ = fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%t\n",
+				csvEscape(sr.SessionID),
+				csvEscape(sr.PrincipalID),
+				csvEscape(sr.ClientID),
+				csvEscape(sr.ConnectorID),
+				csvEscape(sr.Status),
+				csvEscape(sr.StartedAt),
+				csvEscape(sr.LastSeenAt),
+				csvEscape(sr.Duration),
+				sr.EventCount,
+				sr.ToolEventCount,
+				sr.SubagentCount,
+				sr.TaskCount,
+				sr.BlockCount,
+				sr.IsHeartbeatOnly,
+			)
+		}
+	default: // json
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"source":   "runtime",
+			"sessions": rows,
+		})
 	}
 }
 
@@ -1977,6 +2129,22 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 	if sessionID == "" {
 		s.handleNotFound(w, r)
+		return
+	}
+
+	// Runtime first: when runtime has a session row for this id we
+	// render the runtime detail (actor tree + hashed timeline) and
+	// skip the audit trace. AI analysis is intentionally hidden in
+	// the runtime view for this slice — the Phase 3D-era runtime
+	// shape predates the session-analysis schema and we do not
+	// silently mix the two surfaces. Audit-only sessions keep their
+	// existing AI flow.
+	if detail, ok := s.runtimeSessionDetail(r.Context(), sessionID); ok {
+		s.renderTemplate(w, runtimeSessionDetailTmpl, map[string]any{
+			"Active":     "sessions",
+			"Detail":     detail,
+			"RequireSig": s.cfg.Identity.RequireSignature,
+		})
 		return
 	}
 
