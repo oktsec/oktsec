@@ -11,6 +11,7 @@ import (
 
 	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/coverage"
+	"github.com/oktsec/oktsec/internal/runtime"
 )
 
 // activityQueryTimeout bounds the activity Store.Query call the
@@ -233,19 +234,7 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 	cells := coverage.Compute(s.cfg, nil)
 	cellCoverage, cellConnector := lookupCell(cells, principalID, surface)
 
-	data := struct {
-		PrincipalID   string
-		Surface       string
-		SurfaceLabel  string
-		Coverage      string
-		CoverageLabel string
-		ConnectorID   string
-		Connector     string
-		Explanation   string
-		NextAction    coverageAction
-		Events        []activityEventDTO
-		Limit         int
-	}{
+	data := coverageCellDrawerData{
 		PrincipalID:   principalID,
 		Surface:       surface,
 		SurfaceLabel:  surfaceDisplayName(surface),
@@ -256,6 +245,23 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 		Explanation:   coverageExplanation(cellCoverage),
 		NextAction:    coverageNextAction(cellCoverage, surface, principalID),
 		Limit:         drillDownEventLimit,
+	}
+
+	// For surface=hooks, prefer the runtime store: it carries the
+	// per-hook lifecycle / tool / coverage shape the drawer is
+	// supposed to surface. Heartbeat-only state renders a
+	// diagnostic banner instead of an "everything fine" empty list.
+	// mcp_http and http_egress_proxy keep the activity-store path
+	// untouched — runtime hook events do not represent those
+	// surfaces.
+	if surface == "hooks" {
+		if rows, mode, ok := s.runtimeHookDrawerEvents(r.Context(), principalID, drillDownEventLimit); ok {
+			data.HookSource = "runtime"
+			data.HookEvents = rows
+			data.HeartbeatOnly = mode == "heartbeat_only"
+			s.renderCoverageDrawer(w, data)
+			return
+		}
 	}
 
 	store := s.coverageActivityStore()
@@ -273,6 +279,141 @@ func (s *Server) handleCoverageCellDrawer(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	s.renderCoverageDrawer(w, data)
+}
+
+// coverageCellDrawerData is the shape coverageCellDrawerTmpl
+// consumes. HookSource / HookEvents / HeartbeatOnly are populated
+// only when the runtime branch fires for surface=hooks; the
+// legacy activity branch leaves them empty and the template
+// renders the existing Events list.
+type coverageCellDrawerData struct {
+	PrincipalID   string
+	Surface       string
+	SurfaceLabel  string
+	Coverage      string
+	CoverageLabel string
+	ConnectorID   string
+	Connector     string
+	Explanation   string
+	NextAction    coverageAction
+	Events        []activityEventDTO
+	Limit         int
+	HookSource    string // "runtime" when runtime branch served the response
+	HookEvents    []runtimeHookDrawerRow
+	HeartbeatOnly bool
+}
+
+// runtimeHookDrawerRow is the one-row shape the runtime branch
+// passes into the template. Kept distinct from runtimeEventView
+// so the drawer can stay narrow (no hashes, no actor metadata
+// the drawer does not render) and the Sessions detail page can
+// keep its own richer shape.
+type runtimeHookDrawerRow struct {
+	Timestamp      string
+	HookEventName  string
+	ToolName       string
+	ActorLabel     string
+	Status         string
+	PolicyDecision string
+	CoverageMode   string
+	Confidence     int
+	SessionID      string
+	IsHeartbeat    bool
+}
+
+// runtimeHookDrawerEvents queries runtime hook events for one
+// principal and splits them into "real" and "heartbeat" classes.
+// Returns:
+//
+//   - (rows, "real", true) when at least one non-heartbeat event
+//     exists in the principal's recent runtime evidence.
+//   - (nil, "heartbeat_only", true) when the principal's runtime
+//     evidence is heartbeat-only — the drawer shows the diagnostic
+//     banner without falling back to activity rows that pre-date
+//     the heartbeat-only state.
+//   - (nil, "", false) when runtime is unavailable or the query
+//     returned zero rows; the caller then runs the legacy
+//     activity-store branch.
+func (s *Server) runtimeHookDrawerEvents(ctx context.Context, principalID string, limit int) ([]runtimeHookDrawerRow, string, bool) {
+	store := s.runtimeStore()
+	if store == nil {
+		return nil, "", false
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, activityQueryTimeout)
+	defer cancel()
+	events, err := store.QueryEvents(queryCtx, runtime.EventQuery{
+		PrincipalID: principalID,
+		Limit:       limit * 4, // headroom so dropping heartbeats still leaves room for `limit` real rows
+	})
+	if err != nil {
+		s.logger.Warn("coverage hook drawer: runtime QueryEvents failed", "error", err, "principal_id", principalID)
+		return nil, "", false
+	}
+	if len(events) == 0 {
+		return nil, "", false
+	}
+
+	real := make([]runtimeHookDrawerRow, 0, len(events))
+	sawHeartbeat := false
+	for _, ev := range events {
+		if runtime.IsHeartbeatSession(ev.SessionID) {
+			sawHeartbeat = true
+			continue
+		}
+		real = append(real, runtimeHookDrawerRow{
+			Timestamp:      formatRuntimeTimestamp(ev.Timestamp),
+			HookEventName:  ev.HookEventName,
+			ToolName:       ev.ToolName,
+			ActorLabel:     hookDrawerActorLabel(ev),
+			Status:         ev.Status,
+			PolicyDecision: ev.PolicyDecision,
+			CoverageMode:   ev.CoverageMode,
+			Confidence:     ev.Confidence,
+			SessionID:      ev.SessionID,
+			IsHeartbeat:    false,
+		})
+		if len(real) >= limit {
+			break
+		}
+	}
+	if len(real) > 0 {
+		return real, "real", true
+	}
+	if sawHeartbeat {
+		return nil, "heartbeat_only", true
+	}
+	return nil, "", false
+}
+
+// hookDrawerActorLabel picks a short display string for the
+// drawer row. The drawer does not have access to the actor map
+// (those are queried per-session, not per-principal) so it falls
+// back to the tail of the actor id when nothing better is on
+// hand. Roots resolve to the principal id which the drawer header
+// already shows; we elide that case to avoid duplication.
+func hookDrawerActorLabel(ev runtime.HookEvent) string {
+	if ev.ActorID == "" {
+		return ""
+	}
+	if strings.HasSuffix(ev.ActorID, ":root") {
+		return ""
+	}
+	if strings.Contains(ev.ActorID, ":subagent:") || strings.Contains(ev.ActorID, ":subagent-type:") {
+		tail := actorIDTail(ev.ActorID)
+		return "subagent/" + tail
+	}
+	if strings.Contains(ev.ActorID, ":task:") {
+		tail := actorIDTail(ev.ActorID)
+		return "task/" + tail
+	}
+	return actorIDTail(ev.ActorID)
+}
+
+// renderCoverageDrawer emits the drawer HTML. The split out of
+// handleCoverageCellDrawer is just so the runtime and legacy
+// branches above stay readable.
+func (s *Server) renderCoverageDrawer(w http.ResponseWriter, data coverageCellDrawerData) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := coverageCellDrawerTmpl.Execute(w, data); err != nil {
@@ -467,6 +608,32 @@ var coverageCellDrawerTmpl = template.Must(template.New("coverage-cell-drawer").
   <pre class="cd-next-cmd"><code>{{.NextAction.Command}}</code></pre>
   {{end}}
 </div>
+{{if eq .HookSource "runtime"}}
+<div class="cd-events">
+  {{if .HeartbeatOnly}}
+    <div class="cd-empty" style="padding:var(--sp-3) 0">Heartbeat reached the gateway. No hook activity recorded yet.</div>
+  {{else if .HookEvents}}
+    <h4>Runtime hook events</h4>
+    {{range .HookEvents}}
+    <div class="cd-event">
+      <div class="cd-event-row">
+        <span class="cd-event-resource">{{.HookEventName}}{{if .ToolName}} &middot; {{.ToolName}}{{end}}</span>
+        <span class="cd-event-time" data-ts="{{.Timestamp}}">{{.Timestamp}}</span>
+      </div>
+      <div class="cd-event-meta">
+        {{if .ActorLabel}}{{.ActorLabel}} &middot; {{end}}
+        status: {{if .Status}}{{.Status}}{{else}}—{{end}} &middot;
+        policy: {{if .PolicyDecision}}{{.PolicyDecision}}{{else}}—{{end}} &middot;
+        coverage: {{.CoverageMode}}{{if gt .Confidence 0}} ({{.Confidence}}){{end}}
+      </div>
+      {{if .SessionID}}<div class="cd-event-meta"><a href="/dashboard/sessions/{{.SessionID}}" style="color:var(--accent);text-decoration:none">View session &rarr;</a></div>{{end}}
+    </div>
+    {{end}}
+  {{else}}
+    <div class="cd-empty">No runtime hook events recorded for this surface yet.</div>
+  {{end}}
+</div>
+{{else}}
 <div class="cd-events">
   <h4>Last {{.Limit}} activity events</h4>
   {{if .Events}}
@@ -488,4 +655,5 @@ var coverageCellDrawerTmpl = template.Must(template.New("coverage-cell-drawer").
     <div class="cd-empty">No activity recorded for this surface yet.</div>
   {{end}}
 </div>
+{{end}}
 `))
