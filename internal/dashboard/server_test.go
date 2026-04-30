@@ -814,8 +814,12 @@ func TestServer_AuditPageProductInfo(t *testing.T) {
 		t.Fatalf("audit page: status = %d, want 200", w.Code)
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Security posture") {
-		t.Error("audit page should contain posture heading")
+	// Phase 4A renamed the hero from "Security posture" to
+	// "Agent Runtime Posture". The sidebar still says
+	// "Security Posture" but the page-level heading is the
+	// runtime-first one.
+	if !strings.Contains(body, "Agent Runtime Posture") {
+		t.Error("audit page should contain Agent Runtime Posture heading")
 	}
 	// "Priority Remediations" section only shown when there are critical/high
 	// findings — the test config triggers some, so at least verify the page

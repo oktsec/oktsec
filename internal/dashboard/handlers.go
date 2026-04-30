@@ -454,9 +454,33 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Phase 4A — Agent Runtime Posture view model. The handler
+	// stays an orchestrator: it gathers connection health, runtime
+	// readiness, identity config, and the auditcheck score, then
+	// hands them to the pure builder. The template renders the
+	// snapshot directly and never re-derives freshness or status
+	// from raw timestamps.
+	connection := s.computeClaudeCodeConnectionHealth(r.Context())
+	posture := buildRuntimePostureSnapshot(PostureInputs{
+		Connection:         connection,
+		Identity:           s.cfg.Identity,
+		Cfg:                s.cfg,
+		HookInstalled:      connection.HookInstalled,
+		Auditcheck:         findings,
+		AuditcheckSummary:  summary,
+		AuditcheckScore:    score,
+		AuditcheckGrade:    grade,
+		FixableCount:       fixableCount,
+		RuntimeStoreReady:  s.runtimeStore() != nil,
+		AuditChainValid:    chainResult.Valid,
+		AuditChainEntries:  chainResult.Entries,
+		HasRuntimeEvidence: connection.Runtime.HasEvidence,
+	})
+
 	data := map[string]any{
 		"Active":      "audit",
 		"RequireSig":  s.cfg.Identity.RequireSignature,
+		"Posture":     posture,
 		"Score":       score,
 		"Grade":       grade,
 		"Groups":      groups,
