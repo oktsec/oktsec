@@ -335,6 +335,12 @@ type runtimeHookDrawerRow struct {
 //   - (nil, "", false) when runtime is unavailable or the query
 //     returned zero rows; the caller then runs the legacy
 //     activity-store branch.
+//
+// The query runs Descending=true so the database LIMIT picks from
+// the newest window. An ASC query at the same limit would let an
+// older burst of events shadow a fresh tool call when the
+// principal's history is larger than the limit, and the operator
+// would never see the recent activity in the drawer.
 func (s *Server) runtimeHookDrawerEvents(ctx context.Context, principalID string, limit int) ([]runtimeHookDrawerRow, string, bool) {
 	store := s.runtimeStore()
 	if store == nil {
@@ -344,7 +350,11 @@ func (s *Server) runtimeHookDrawerEvents(ctx context.Context, principalID string
 	defer cancel()
 	events, err := store.QueryEvents(queryCtx, runtime.EventQuery{
 		PrincipalID: principalID,
-		Limit:       limit * 4, // headroom so dropping heartbeats still leaves room for `limit` real rows
+		// Headroom: dropping heartbeat sessions in this loop still
+		// has to leave room for `limit` real rows. Descending sort
+		// guarantees the headroom is taken from the freshest end.
+		Limit:      limit * 4,
+		Descending: true,
 	})
 	if err != nil {
 		s.logger.Warn("coverage hook drawer: runtime QueryEvents failed", "error", err, "principal_id", principalID)

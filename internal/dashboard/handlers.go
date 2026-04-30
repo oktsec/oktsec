@@ -2010,20 +2010,23 @@ func runtimeSessionsTemplateData(rows []sessionListRow, rangeParam string, requi
 }
 
 func (s *Server) handleSessionsExport(w http.ResponseWriter, r *http.Request) {
-	rangeParam := r.URL.Query().Get("range")
+	rangeParam := parseSessionsRange(r.URL.Query().Get("range"))
 	format := r.URL.Query().Get("format")
+	since := sessionsRangeSince(rangeParam)
+	sinceStr := since.UTC().Format(time.RFC3339)
 
-	var since string
-	switch rangeParam {
-	case "7d":
-		since = time.Now().Add(-7 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	case "30d":
-		since = time.Now().Add(-30 * 24 * time.Hour).UTC().Format(time.RFC3339)
-	default:
-		since = time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	// Mirror the Sessions list decision: when runtime is reachable
+	// AND the window has runtime rows, the export must reflect the
+	// same dataset the operator just saw on /dashboard/sessions.
+	// Falling through to audit when runtime has rows would hand the
+	// operator a different (legacy) shape and break the audit
+	// promise the page makes.
+	if rows, ok := s.runtimeSessionRows(r.Context(), since, sessionsExportLimit); ok && len(rows) > 0 {
+		writeRuntimeSessionsExport(w, format, rows)
+		return
 	}
 
-	sessions, err := s.audit.QuerySessions(since, 500)
+	sessions, err := s.audit.QuerySessions(sinceStr, sessionsExportLimit)
 	if err != nil {
 		http.Error(w, "query error", http.StatusInternalServerError)
 		return
@@ -2042,6 +2045,51 @@ func (s *Server) handleSessionsExport(w http.ResponseWriter, r *http.Request) {
 	default: // json
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(sessions)
+	}
+}
+
+// sessionsExportLimit gives the bulk export a higher cap than the
+// page render — operators may genuinely want the full window in
+// one file — but still bounded so an attacker-supplied range
+// cannot stream the entire history.
+const sessionsExportLimit = 500
+
+// writeRuntimeSessionsExport emits the same sessionListRow shape
+// the runtime page renders, in JSON or CSV. JSON wraps the rows
+// under {source: "runtime", sessions: [...]} so a downstream
+// consumer can detect the runtime path and tell it apart from
+// the legacy SessionSummary array. CSV header lists every
+// runtime field explicitly so the column order is stable.
+func writeRuntimeSessionsExport(w http.ResponseWriter, format string, rows []sessionListRow) {
+	switch format {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=sessions.csv")
+		_, _ = w.Write([]byte("session_id,principal_id,client_id,connector_id,status,started_at,last_seen_at,duration,event_count,tool_event_count,subagent_count,task_count,block_count,heartbeat_only\n"))
+		for _, sr := range rows {
+			_, _ = fmt.Fprintf(w, "%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%d,%t\n",
+				csvEscape(sr.SessionID),
+				csvEscape(sr.PrincipalID),
+				csvEscape(sr.ClientID),
+				csvEscape(sr.ConnectorID),
+				csvEscape(sr.Status),
+				csvEscape(sr.StartedAt),
+				csvEscape(sr.LastSeenAt),
+				csvEscape(sr.Duration),
+				sr.EventCount,
+				sr.ToolEventCount,
+				sr.SubagentCount,
+				sr.TaskCount,
+				sr.BlockCount,
+				sr.IsHeartbeatOnly,
+			)
+		}
+	default: // json
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"source":   "runtime",
+			"sessions": rows,
+		})
 	}
 }
 

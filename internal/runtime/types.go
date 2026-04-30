@@ -146,6 +146,13 @@ type ActorQuery struct {
 // EventQuery filters runtime_hook_events. The dashboard's
 // timeline view passes (SessionID, Since) most often; the audit
 // drill-down passes AuditEntryID alone.
+//
+// Descending flips the ORDER BY clause from ASC to DESC. The
+// session-detail timeline reads chronologically (default ASC),
+// but newest-first surfaces — like the coverage drawer's "last
+// N hook events" listing — must set Descending=true so the LIMIT
+// selects the freshest evidence rather than truncating an
+// oldest-first window.
 type EventQuery struct {
 	SessionID    string
 	ActorID      string
@@ -155,6 +162,7 @@ type EventQuery struct {
 	Since        time.Time
 	Until        time.Time
 	Limit        int
+	Descending   bool
 }
 
 // EdgeQuery filters runtime_actors-derived edges. Empty PrincipalID

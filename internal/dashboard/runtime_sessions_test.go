@@ -395,6 +395,182 @@ func TestCoverageHooksDrawer_HeartbeatOnlyDiagnostic(t *testing.T) {
 	}
 }
 
+// TestSessionsExport_RuntimePreferredOverAudit covers a P2 caught
+// in review of the original Phase 3C slice: the Sessions list
+// rendered runtime rows, but /dashboard/api/sessions/export was
+// still wired to s.audit.QuerySessions, so an operator who
+// clicked JSON or CSV on the runtime page would receive the
+// legacy audit shape for a different set of session ids. The
+// export must follow the same runtime-first decision as the page
+// itself.
+func TestSessionsExport_RuntimePreferredOverAudit(t *testing.T) {
+	srv, rs, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"SessionStart","session_id":"sess-export"}`,
+		"sess-export", "local-codex", now.Add(-10*time.Minute), runtime.OutcomeRefs{})
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-export","tool_name":"Read","tool_use_id":"u-export"}`,
+		"sess-export", "local-codex", now.Add(-9*time.Minute), runtime.OutcomeRefs{Status: "delivered"})
+
+	auditStore.Log(audit.Entry{
+		ID: "audit-export-phantom", Timestamp: now.Add(-8 * time.Minute).Format(time.RFC3339),
+		FromAgent: "phantom-export", ToAgent: "echo", Status: "delivered", PolicyDecision: "allow",
+		SessionID: "audit-export-phantom",
+	})
+	auditStore.Flush()
+
+	// JSON export must carry runtime rows + source marker.
+	reqJSON := httptest.NewRequest("GET", "/dashboard/api/sessions/export?format=json&range=24h", nil)
+	reqJSON.AddCookie(cookie)
+	wJSON := httptest.NewRecorder()
+	handler.ServeHTTP(wJSON, reqJSON)
+	if wJSON.Code != http.StatusOK {
+		t.Fatalf("json export status = %d, body=%s", wJSON.Code, wJSON.Body.String())
+	}
+	jsonBody := wJSON.Body.String()
+	if !strings.Contains(jsonBody, `"source":"runtime"`) {
+		t.Errorf(`JSON export missing "source":"runtime"; body=%.300s`, jsonBody)
+	}
+	if !strings.Contains(jsonBody, "sess-export") {
+		t.Errorf("JSON export missing runtime session id; body=%.300s", jsonBody)
+	}
+	if strings.Contains(jsonBody, "audit-export-phantom") {
+		t.Errorf("JSON export leaked audit-only row when runtime had data")
+	}
+
+	// CSV export must use the runtime header row.
+	reqCSV := httptest.NewRequest("GET", "/dashboard/api/sessions/export?format=csv&range=24h", nil)
+	reqCSV.AddCookie(cookie)
+	wCSV := httptest.NewRecorder()
+	handler.ServeHTTP(wCSV, reqCSV)
+	if wCSV.Code != http.StatusOK {
+		t.Fatalf("csv export status = %d", wCSV.Code)
+	}
+	csvBody := wCSV.Body.String()
+	if !strings.Contains(csvBody, "session_id,principal_id,client_id,connector_id,status,started_at,last_seen_at,duration,event_count,tool_event_count,subagent_count,task_count,block_count,heartbeat_only") {
+		t.Errorf("CSV export missing runtime header; body=%.300s", csvBody)
+	}
+	if !strings.Contains(csvBody, "sess-export") {
+		t.Errorf("CSV export missing runtime session id; body=%.300s", csvBody)
+	}
+	if strings.Contains(csvBody, "audit-export-phantom") {
+		t.Errorf("CSV export leaked audit-only row when runtime had data")
+	}
+}
+
+// TestSessionsExport_FallsBackToAuditWhenRuntimeEmpty pairs with
+// the test above: when the runtime store has no rows in the
+// window, the export must keep using the legacy audit shape so
+// pre-3B installs and audit-only fixtures still produce a usable
+// download.
+func TestSessionsExport_FallsBackToAuditWhenRuntimeEmpty(t *testing.T) {
+	srv, _, auditStore := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	auditStore.Log(audit.Entry{
+		ID: "audit-only-export", Timestamp: now.Add(-3 * time.Minute).Format(time.RFC3339),
+		FromAgent: "agent-a", ToAgent: "agent-b", Status: "delivered", PolicyDecision: "allow",
+		SessionID: "audit-only-export-session",
+	})
+	auditStore.Flush()
+
+	req := httptest.NewRequest("GET", "/dashboard/api/sessions/export?format=csv&range=24h", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("export status = %d", w.Code)
+	}
+	csvBody := w.Body.String()
+	// Legacy header signature.
+	if !strings.Contains(csvBody, "session_id,started_at,ended_at,duration,events,agents,blocks,quarantines,flags,risk_score") {
+		t.Errorf("audit-fallback CSV header missing; body=%.300s", csvBody)
+	}
+	if !strings.Contains(csvBody, "audit-only-export-session") {
+		t.Errorf("audit-fallback row missing")
+	}
+}
+
+// TestCoverageHooksDrawer_PicksNewestEventOverOldBacklog is the
+// regression for the second P2: runtimeHookDrawerEvents was using
+// the runtime store's default ASC-by-timestamp ordering, so a
+// principal with a long backlog never had its newest hook event
+// reach the drawer — the LIMIT cut from the oldest end. Seed an
+// 80-event backlog plus a single fresh event and assert the
+// drawer surfaces the fresh one.
+func TestCoverageHooksDrawer_PicksNewestEventOverOldBacklog(t *testing.T) {
+	srv, rs, _ := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	// 80 old events, all the same shape. They live on a real
+	// (non-heartbeat) session id so the runtime branch fires.
+	for i := 0; i < 80; i++ {
+		seedRuntimeEvent(t, rs,
+			`{"hook_event_name":"PreToolUse","session_id":"sess-old","tool_name":"OldTool","tool_use_id":"u-old-`+strItoa(i)+`"}`,
+			"sess-old", "local-codex", now.Add(-2*time.Hour).Add(time.Duration(i)*time.Second),
+			runtime.OutcomeRefs{Status: "delivered"})
+	}
+	// One fresh event with a distinctive tool name so the
+	// assertion is unambiguous.
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-fresh","tool_name":"FRESH_RECENT_TOOL","tool_use_id":"u-fresh"}`,
+		"sess-fresh", "local-codex", now.Add(-30*time.Second),
+		runtime.OutcomeRefs{Status: "delivered"})
+
+	status, body := fetchCoverageDrawer(t, cookie, handler, "local-codex", "hooks")
+	if status != http.StatusOK {
+		t.Fatalf("drawer status = %d", status)
+	}
+	if !strings.Contains(body, "FRESH_RECENT_TOOL") {
+		t.Errorf("drawer truncated the newest event; body=%.500s", body)
+	}
+}
+
+// TestCoverageHooksDrawer_HeartbeatSpamDoesNotBuryRecentEvent
+// covers the more adversarial variant of the same bug: when
+// heartbeat keepalives flood the recent window, the drawer must
+// still surface the one real hook event in that window and must
+// NOT collapse to the heartbeat-only diagnostic. Without
+// Descending=true the heartbeats can dominate the LIMIT and the
+// real event never reaches the dedupe step.
+func TestCoverageHooksDrawer_HeartbeatSpamDoesNotBuryRecentEvent(t *testing.T) {
+	srv, rs, _ := newRuntimeGraphTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	for i := 0; i < 100; i++ {
+		seedRuntimeEvent(t, rs,
+			`{"hook_event_name":"SessionStart","session_id":"heartbeat-2026-04-30-spam-`+strItoa(i)+`"}`,
+			"heartbeat-2026-04-30-spam-"+strItoa(i), "local-codex",
+			now.Add(-1*time.Hour).Add(time.Duration(i)*time.Second), runtime.OutcomeRefs{})
+	}
+	// One real recent event in the same window.
+	seedRuntimeEvent(t, rs,
+		`{"hook_event_name":"PreToolUse","session_id":"sess-real-after-spam","tool_name":"RECENT_REAL_TOOL","tool_use_id":"u-real"}`,
+		"sess-real-after-spam", "local-codex", now.Add(-10*time.Second),
+		runtime.OutcomeRefs{Status: "delivered"})
+
+	status, body := fetchCoverageDrawer(t, cookie, handler, "local-codex", "hooks")
+	if status != http.StatusOK {
+		t.Fatalf("drawer status = %d", status)
+	}
+	if strings.Contains(body, "Heartbeat reached the gateway") {
+		t.Errorf("drawer collapsed to heartbeat-only despite a real recent event; body=%.500s", body)
+	}
+	if !strings.Contains(body, "RECENT_REAL_TOOL") {
+		t.Errorf("drawer missed the real event behind heartbeat spam; body=%.500s", body)
+	}
+}
+
 // TestCoverageDrawer_MCPAndEgressUnchanged — the runtime branch
 // only fires for surface=hooks. mcp_http and http_egress_proxy
 // continue to render the legacy activity-store block (the
