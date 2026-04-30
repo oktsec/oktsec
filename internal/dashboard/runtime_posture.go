@@ -199,9 +199,13 @@ func evidenceFreshness(in PostureInputs) string {
 }
 
 // postureStatusAndTitle is the spec's status decision tree
-// inlined. The order matters: setup_pending wins outright when
-// the connection isn't healthy (no runtime evidence is even
-// possible to evaluate); the other branches fall in spec order.
+// inlined. The order is deliberate and the two axes — freshness
+// and coverage — are kept independent so the page never reads
+// "stale" off a fresh blind event or "protected" off an
+// observed-only one. Setup_pending wins outright; otherwise we
+// branch first on "is there fresh real activity?", then by
+// coverage; heartbeat-only and stale-evidence cases follow
+// after.
 func postureStatusAndTitle(in PostureInputs, freshness string) (status string, suppress bool, title, summary string) {
 	rt := in.Connection.Runtime
 
@@ -225,33 +229,45 @@ func postureStatusAndTitle(in PostureInputs, freshness string) (status string, s
 			"Hooks are present but Oktsec has not received runtime evidence yet."
 	}
 
-	// protected — fresh real event under protected coverage.
-	if rt.HasFreshRealEvent && rt.CoverageStage == PostureCellProtected {
-		return PostureStatusProtected, false,
-			"Protected — fresh runtime evidence",
-			"Real hook activity is reaching Oktsec under protected coverage."
-	}
-
-	// observing — fresh heartbeat OR fresh real event without
-	// protected coverage. Heartbeat-only must never read as
-	// protected; the spec's invariant is reused verbatim from 3C.
-	if rt.HasFreshHeartbeat || (rt.HasFreshRealEvent && rt.CoverageStage != PostureCellBlind) {
-		// Hardening grade may show as secondary because the
-		// connection is at least diagnostically healthy. The
-		// status itself stays observing — the template will not
-		// claim "protected" off this branch.
-		t := "Observing — heartbeat received, no tool activity yet"
-		s := "Hook path is reachable. Run a real agent action so Oktsec can lift coverage from observed to protected."
-		if rt.HasFreshRealEvent {
-			t = "Observing — fresh activity, coverage not yet at full enforcement"
-			s = "Real hook activity is reaching Oktsec but coverage is observed-only. Configure tool policies or block-capable hooks to enable full enforcement."
+	// Fresh real event branch — freshness alone never decides
+	// status; we still split by coverage stage so an observed
+	// or blind event does not get promoted to protected, and a
+	// fresh-but-blind event does not collapse into the stale
+	// "degraded" branch below.
+	if rt.HasFreshRealEvent {
+		switch rt.CoverageStage {
+		case PostureCellProtected:
+			return PostureStatusProtected, false,
+				"Protected — fresh runtime evidence",
+				"Real hook activity is reaching Oktsec under protected coverage."
+		case PostureCellObserved:
+			return PostureStatusObserving, false,
+				"Observing — fresh activity, coverage not yet at full enforcement",
+				"Real hook activity is reaching Oktsec but coverage is observed-only. Configure tool policies or block-capable hooks to enable full enforcement."
+		case PostureCellBlind:
+			return PostureStatusBlind, false,
+				"Blind — agent activity observed but not covered",
+				"Real hook activity is reaching Oktsec but no coverage layer is protecting the surface. Configure block-capable hooks or tool policies so coverage can lift to observed or protected."
+		default:
+			// CoverageStage is empty: we have a real event but
+			// the runtime did not yet attach a coverage stage.
+			// Observing is the safe label — never protected.
+			return PostureStatusObserving, false,
+				"Observing — fresh activity, coverage not yet evaluated",
+				"Real hook activity is reaching Oktsec. Coverage stage will appear once the next event tags one."
 		}
-		return PostureStatusObserving, false, t, s
 	}
 
-	// degraded — there IS evidence but it is stale. Score may
-	// still appear as secondary so the operator can see the
-	// historical hardening picture.
+	// Fresh heartbeat only — diagnostic. Heartbeat must never
+	// read as protected; the 3C invariant is reused verbatim.
+	if rt.HasFreshHeartbeat {
+		return PostureStatusObserving, false,
+			"Observing — heartbeat received, no tool activity yet",
+			"Hook path is reachable. Run a real agent action so Oktsec can lift coverage from observed to protected."
+	}
+
+	// degraded — there IS evidence but neither a fresh real
+	// event nor a fresh heartbeat. Stale by definition.
 	if rt.HasEvidence {
 		return PostureStatusDegraded, false,
 			"Degraded — runtime evidence is stale",
@@ -259,8 +275,7 @@ func postureStatusAndTitle(in PostureInputs, freshness string) (status string, s
 	}
 
 	// blind — connector is healthy enough to evaluate, but
-	// nothing has been observed. Hardening grade may show as
-	// secondary; status reads as a coverage gap.
+	// nothing has been observed at all.
 	return PostureStatusBlind, false,
 		"Blind — connector ready but no runtime activity observed",
 		"Agents and tools are configured but Oktsec has not observed any runtime activity for them."
@@ -305,12 +320,17 @@ func buildConnectionDimension(in PostureInputs, freshness string) RuntimePosture
 		dim.Summary = "Hooks installed; last event is older than the freshness window."
 		dim.Evidence = "Last event: " + safeDash(in.Connection.LastEvent)
 	case "ready":
+		// Connection is about reachability. Protection is the
+		// coverage dimension's job — promoting connection to
+		// "protected" off a fresh real event painted a green
+		// pill that disagreed with an observed-only or blind
+		// coverage row in the same view.
 		switch {
 		case rt.HasFreshRealEvent:
-			dim.Status = PostureCellProtected
-			dim.Summary = "Hooks installed and receiving fresh real activity."
+			dim.Status = PostureCellOK
+			dim.Summary = "Hook path reachable; receiving fresh real activity."
 		case rt.HasFreshHeartbeat:
-			dim.Status = PostureCellObserved
+			dim.Status = PostureCellOK
 			dim.Summary = "Hook path is reachable (heartbeat). Waiting for real tool activity."
 		default:
 			dim.Status = PostureCellObserved

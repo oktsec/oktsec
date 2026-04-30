@@ -291,6 +291,75 @@ func TestRuntimePosture_HardeningChecksAreSecondary(t *testing.T) {
 	}
 }
 
+// TestRuntimePosture_FreshBlindEventIsBlindNotStale is the
+// regression for the freshness-vs-coverage mixing bug found in
+// review of the original Phase 4A slice. Before the fix, a fresh
+// real event with CoverageStage=blind skipped the protected
+// branch (not protected coverage) AND the observing branch
+// (excluded blind explicitly), then fell into the HasEvidence
+// stale branch and headlined "Degraded — runtime evidence is
+// stale". The evidence is fresh; only coverage is blind.
+func TestRuntimePosture_FreshBlindEventIsBlindNotStale(t *testing.T) {
+	in := baseInputsWithConnection(claudecode.ConnectorHealth{
+		Status:        "ready",
+		Installed:     true,
+		HookInstalled: true,
+		Runtime: claudecode.RuntimeEvidence{
+			HasEvidence:       true,
+			HasFreshRealEvent: true,
+			HasFreshHeartbeat: false,
+			CoverageStage:     PostureCellBlind,
+		},
+	})
+	snap := buildRuntimePostureSnapshot(in)
+
+	if snap.Status == PostureStatusDegraded {
+		t.Errorf("Status = %q on fresh-but-blind state; want anything but degraded (evidence is fresh, only coverage is blind)", snap.Status)
+	}
+	for _, banned := range []string{"stale", "Stale"} {
+		if strings.Contains(snap.Title, banned) || strings.Contains(snap.Summary, banned) {
+			t.Errorf("hero copy mislabels fresh blind evidence as %q: title=%q summary=%q", banned, snap.Title, snap.Summary)
+		}
+	}
+	if snap.EvidenceFreshness != PostureFreshnessFresh {
+		t.Errorf("EvidenceFreshness = %q on fresh real event, want fresh", snap.EvidenceFreshness)
+	}
+}
+
+// TestRuntimePosture_FreshObservedEventDoesNotPaintConnectionProtected
+// is the regression for the second mixing bug: the connection
+// dimension was promoted to "protected" any time a fresh real
+// event arrived, regardless of coverage. That painted a green
+// protected pill on the Connection card while Coverage was only
+// observed. Connection is about reachability — protection
+// belongs to the coverage dimension.
+func TestRuntimePosture_FreshObservedEventDoesNotPaintConnectionProtected(t *testing.T) {
+	in := baseInputsWithConnection(claudecode.ConnectorHealth{
+		Status:        "ready",
+		Installed:     true,
+		HookInstalled: true,
+		Runtime: claudecode.RuntimeEvidence{
+			HasEvidence:       true,
+			HasFreshRealEvent: true,
+			HasFreshHeartbeat: false,
+			CoverageStage:     PostureCellObserved,
+		},
+	})
+	snap := buildRuntimePostureSnapshot(in)
+
+	conn := findDimension(t, snap, PostureDimConnection)
+	if conn.Status == PostureCellProtected {
+		t.Errorf("connection dimension Status = protected on observed-only event (must be ok/observed)")
+	}
+	cov := findDimension(t, snap, PostureDimCoverage)
+	if cov.Status == PostureCellProtected {
+		t.Errorf("coverage dimension Status = protected on observed-only event (sanity check)")
+	}
+	if snap.Status == PostureStatusProtected {
+		t.Errorf("top-level Status = protected on observed-only event")
+	}
+}
+
 // TestRuntimePosture_SuppressedHardeningHidesGradeAndScore is the
 // explicit guardrail gus called out: when SuppressScore=true the
 // rendered audit page must NOT show the score ring, the Grade
