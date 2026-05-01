@@ -3,6 +3,7 @@ package dashboard
 import (
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -421,6 +422,133 @@ func TestRuntimePosture_FreshHeartbeatIsDiagnosticNotProtected(t *testing.T) {
 		if strings.Contains(body, banned) {
 			t.Errorf("audit page claimed protection on a heartbeat-only state via copy %q", banned)
 		}
+	}
+}
+
+// newAuditFixTestServer wires a Server whose cfgPath points to a
+// fresh tempfile so saveConfig() — called by the auto-fix
+// handlers — can write without erroring. Pure dashboard
+// fixtures default to cfgPath="" which is fine for read-only
+// pages but breaks any handler that mutates config.
+func newAuditFixTestServer(t *testing.T) *Server {
+	t.Helper()
+	srv := newTestServer(t)
+	dir := t.TempDir()
+	srv.cfgPath = filepath.Join(dir, "oktsec.yaml")
+	srv.cfg.Identity.RequireSignature = false // ensures SIG-001 is a fixable finding
+	return srv
+}
+
+// TestRuntimePosture_AuditFixDoesNotReintroduceLegacyScoreUI is
+// the regression for the auto-fix OOB bug found in review.
+// /dashboard/api/audit/fix/{checkID} previously appended an
+// out-of-band swap that emitted ps-ring + ps-grade-label markup,
+// which would have re-injected the retired hardening hero into
+// a runtime-first page after a single click. The OOB now
+// targets the runtime-aware rp-hardening section and applies
+// the same suppress rules the initial GET enforces.
+func TestRuntimePosture_AuditFixDoesNotReintroduceLegacyScoreUI(t *testing.T) {
+	srv := newAuditFixTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("POST", "/dashboard/api/audit/fix/SIG-001", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("fix endpoint status = %d, body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+
+	for _, banned := range []string{
+		`class="ps-ring"`,         // legacy score ring markup
+		`ps-grade-label`,          // legacy grade chip class name
+		`id="posture-score"`,      // legacy OOB target id
+		`class="ps-hero-score"`,   // legacy hero score wrapper
+		`class="ps-celebrate"`,    // legacy celebration block
+	} {
+		if strings.Contains(body, banned) {
+			t.Errorf("fix endpoint reintroduced legacy artefact %q; body=%.500s", banned, body)
+		}
+	}
+
+	if !strings.Contains(body, `id="rp-hardening"`) {
+		t.Errorf("fix endpoint did not emit the runtime-aware rp-hardening OOB swap; body=%.500s", body)
+	}
+	if !strings.Contains(body, `hx-swap-oob="true"`) {
+		t.Errorf("fix endpoint OOB swap missing hx-swap-oob marker; body=%.500s", body)
+	}
+}
+
+// TestRuntimePosture_AuditFixAllDoesNotReintroduceLegacyScoreUI
+// is the same regression on the bulk fix-all endpoint. The
+// ps-celebrate block previously rendered the hardening grade as
+// a celebration headline; it is replaced by a neutral "N fixes
+// applied" confirmation.
+func TestRuntimePosture_AuditFixAllDoesNotReintroduceLegacyScoreUI(t *testing.T) {
+	srv := newAuditFixTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("POST", "/dashboard/api/audit/fix-all", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("fix-all endpoint status = %d, body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+
+	for _, banned := range []string{
+		`class="ps-ring"`,
+		`ps-grade-label`,
+		`id="posture-score"`,
+		`class="ps-hero-score"`,
+		`class="ps-celebrate"`,
+		`class="ps-celebrate-score"`,
+		`class="ps-celebrate-grade"`,
+	} {
+		if strings.Contains(body, banned) {
+			t.Errorf("fix-all endpoint reintroduced legacy artefact %q; body=%.500s", banned, body)
+		}
+	}
+
+	if !strings.Contains(body, `id="rp-hardening"`) {
+		t.Errorf("fix-all endpoint did not emit the runtime-aware rp-hardening OOB swap; body=%.500s", body)
+	}
+}
+
+// TestRuntimePosture_AuditFixHonoursSuppressRule asserts the
+// auto-fix OOB respects the same suppress contract the page
+// render uses: when the runtime cannot prove protection right
+// now (here: connector not installed → setup_pending), the
+// rebuilt rp-hardening block must not carry a Grade chip
+// either. Otherwise a Fix click could un-suppress the score
+// after the initial GET correctly hid it.
+func TestRuntimePosture_AuditFixHonoursSuppressRule(t *testing.T) {
+	srv := newAuditFixTestServer(t)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+
+	req := httptest.NewRequest("POST", "/dashboard/api/audit/fix/SIG-001", nil)
+	req.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("fix endpoint status = %d", w.Code)
+	}
+	body := w.Body.String()
+
+	// The test server has no Claude Code connector wired, so
+	// posture is setup_pending and SuppressScore is true. The
+	// rp-hardening block must therefore carry the suppressed
+	// reason copy and must NOT carry a "Grade <X>" chip.
+	if !strings.Contains(body, "Runtime evidence required") {
+		t.Errorf("fix OOB missing suppressed-reason copy; body=%.500s", body)
+	}
+	if strings.Contains(body, `class="g">Grade `) {
+		t.Errorf("fix OOB rendered a Grade chip while runtime suppress was active; body=%.500s", body)
 	}
 }
 

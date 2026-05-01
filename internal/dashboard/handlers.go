@@ -5205,8 +5205,12 @@ func (s *Server) handleAuditFix(w http.ResponseWriter, r *http.Request) {
 <div class="ps-f-body"><span class="ps-f-title">%s</span></div>
 <div class="ps-f-act"><span style="color:var(--success);font-size:1.1rem">&#10003;</span></div>
 </div>`, template.HTMLEscapeString(checkID), template.HTMLEscapeString(desc))
-	// OOB score update
-	s.writeScoreOOB(w, score, grade)
+	// OOB refresh of the secondary hardening block. Score and
+	// grade are unused here — writeHardeningOOB rebuilds the
+	// runtime posture so the suppress rules still apply.
+	_ = score
+	_ = grade
+	s.writeHardeningOOB(r.Context(), w)
 }
 
 // handleAuditFixAll applies all available auto-fixes and returns an HTML summary.
@@ -5232,16 +5236,24 @@ func (s *Server) handleAuditFixAll(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logger.Info("auto-fix-all applied", "count", len(applied))
 
-	newFindings, _, _ := s.cachedRunChecks()
-	score, grade := auditcheck.ComputeHealthScore(newFindings)
+	// Neutral confirmation block. The legacy ps-celebrate UI
+	// rendered the hardening grade as a celebration headline,
+	// which the runtime-first hero retired. The reload link
+	// rebuilds the page with the runtime posture intact.
+	fmt.Fprintf(w, `<div style="padding:24px;text-align:center">
+<div style="font-size:1rem;font-weight:600;color:var(--success);margin-bottom:8px">%d fix%s applied</div>
+<div style="font-size:0.8125rem;color:var(--text2)"><a href="/dashboard/audit">Reload to see remaining findings &rarr;</a></div>
+</div>`, len(applied), pluralEs(len(applied)))
+	s.writeHardeningOOB(r.Context(), w)
+}
 
-	// Celebration
-	fmt.Fprintf(w, `<div class="ps-celebrate">
-<div class="ps-celebrate-score">%d</div>
-<div class="ps-celebrate-grade">Grade %s</div>
-<div class="ps-celebrate-msg">%d fixes applied. <a href="/dashboard/audit">Reload to see remaining findings.</a></div>
-</div>`, score, grade, len(applied))
-	s.writeScoreOOB(w, score, grade)
+// pluralEs returns "es" when n != 1, otherwise empty. Local
+// helper so the inline template strings above stay readable.
+func pluralEs(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "es"
 }
 
 // handleAuditEnrich calls the LLM to generate one-line risk descriptions for each finding.
@@ -5348,17 +5360,73 @@ func (s *Server) handleAuditEnrich(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) writeScoreOOB(w http.ResponseWriter, score int, grade string) {
-	color := "var(--danger)"
-	if score >= 90 {
-		color = "var(--success)"
-	} else if score >= 60 {
-		color = "var(--warn)"
+// writeHardeningOOB emits an out-of-band swap that replaces the
+// rp-hardening secondary section after an auto-fix mutates the
+// configuration. The shape mirrors tmpl_audit.go so a Fix or
+// Fix-all click can never reintroduce the legacy ps-ring /
+// ps-grade-label visualisation that the runtime-first hero
+// retired. Suppress rules also mirror the page render: when
+// runtime cannot prove protection right now (setup_pending or
+// partial), the grade is hidden and only the neutral count + the
+// suppressed-reason copy render — the same contract the
+// initial GET enforces.
+func (s *Server) writeHardeningOOB(ctx context.Context, w http.ResponseWriter) {
+	allFindings, _, _ := s.cachedRunChecks()
+	var findings []auditcheck.Finding
+	for _, f := range allFindings {
+		if f.Severity == auditcheck.Info && !s.cfg.Identity.RequireSignature {
+			continue
+		}
+		findings = append(findings, f)
 	}
-	fmt.Fprintf(w, `<div id="posture-score" hx-swap-oob="true" class="ps-hero-score">
-<div class="ps-ring" style="--pct:%d;--clr:%s"><span class="ps-num">%d</span></div>
-<div class="ps-grade-label">Grade %s</div>
-</div>`, score, color, score, grade)
+	score, grade := auditcheck.ComputeHealthScore(findings)
+	summary := auditcheck.Summarize(findings)
+	fixable := 0
+	for _, f := range findings {
+		if _, ok := fixableChecks[f.CheckID]; ok && f.Severity > auditcheck.Info {
+			fixable++
+		}
+	}
+
+	connection := s.computeClaudeCodeConnectionHealth(ctx)
+	snap := buildRuntimePostureSnapshot(PostureInputs{
+		Connection:         connection,
+		Identity:           s.cfg.Identity,
+		Cfg:                s.cfg,
+		HookInstalled:      connection.HookInstalled,
+		Auditcheck:         findings,
+		AuditcheckSummary:  summary,
+		AuditcheckScore:    score,
+		AuditcheckGrade:    grade,
+		FixableCount:       fixable,
+		RuntimeStoreReady:  s.runtimeStore() != nil,
+		HasRuntimeEvidence: connection.Runtime.HasEvidence,
+	})
+
+	h := snap.Hardening
+	plural := ""
+	if h.TotalChecks != 1 {
+		plural = "s"
+	}
+	fixableMeta := ""
+	if h.FixableCount > 0 {
+		fixableMeta = fmt.Sprintf(", <strong>%d</strong> auto-fixable", h.FixableCount)
+	}
+	fmt.Fprintf(w, `<div id="rp-hardening" hx-swap-oob="true" class="rp-hardening">
+<div class="rp-hardening-head">
+<span class="rp-hardening-title">Static deployment checks</span>
+<span class="rp-hardening-meta"><strong>%d</strong> check%s available%s.</span>
+</div>`,
+		h.TotalChecks, plural, fixableMeta,
+	)
+	if h.Suppressed {
+		fmt.Fprintf(w, `<div class="rp-hardening-suppressed">%s</div>`,
+			template.HTMLEscapeString(h.Reason))
+	} else {
+		fmt.Fprintf(w, `<div class="rp-hardening-grade"><span class="g">Grade %s</span>based on static deployment checks.</div>`,
+			template.HTMLEscapeString(h.Grade))
+	}
+	fmt.Fprint(w, `</div>`)
 }
 
 func (s *Server) writeEnrichedFinding(w http.ResponseWriter, f auditcheck.Finding, risk string) {

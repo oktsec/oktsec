@@ -175,7 +175,7 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 
 <!-- Hardening — secondary section -->
 <div class="rp-section-title">Hardening checks</div>
-<div class="rp-hardening">
+<div id="rp-hardening" class="rp-hardening">
   <div class="rp-hardening-head">
     <span class="rp-hardening-title">Static deployment checks</span>
     <span class="rp-hardening-meta">
