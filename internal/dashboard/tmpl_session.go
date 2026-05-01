@@ -410,7 +410,7 @@ var runtimeSessionDetailTmpl = template.Must(template.New("runtime-session-detai
     <span>Runtime AI assessment</span>
     {{if .AnalysisModel}}<span class="rt-ai-model">{{.AnalysisModel}}</span>{{end}}
   </div>
-  <div class="rt-ai-text">{{.SavedAnalysis}}</div>
+  <div class="rt-ai-text">{{mdToHTML .SavedAnalysis}}</div>
   {{if .AnalysisDate}}
   <div class="rt-ai-meta">
     <span>Analyzed: {{.AnalysisDate}}</span>
@@ -433,9 +433,24 @@ function rtAnalyzeSession(sid) {
     .catch(function(e) {
       if (btn) { btn.disabled = false; btn.textContent = 'Analyze with AI'; }
       var slot = document.getElementById('rt-ai-panel-slot');
-      if (slot) {
-        slot.innerHTML = '<div class="rt-ai-panel" id="rt-ai-panel"><div class="rt-ai-hdr"><span>Runtime AI assessment</span></div><div class="rt-ai-text" style="color:var(--danger)">Analysis failed: ' + e.message + '</div></div>';
-      }
+      if (!slot) return;
+      // textContent (not innerHTML) so a hostile upstream message can't inject markup.
+      while (slot.firstChild) { slot.removeChild(slot.firstChild); }
+      var panel = document.createElement('div');
+      panel.className = 'rt-ai-panel';
+      panel.id = 'rt-ai-panel';
+      var hdr = document.createElement('div');
+      hdr.className = 'rt-ai-hdr';
+      var hdrTitle = document.createElement('span');
+      hdrTitle.textContent = 'Runtime AI assessment';
+      hdr.appendChild(hdrTitle);
+      var txt = document.createElement('div');
+      txt.className = 'rt-ai-text';
+      txt.style.color = 'var(--danger)';
+      txt.textContent = 'Analysis failed: ' + e.message;
+      panel.appendChild(hdr);
+      panel.appendChild(txt);
+      slot.appendChild(panel);
     });
 }
 </script>

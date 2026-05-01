@@ -361,3 +361,80 @@ func TestSessionAnalyze_AuditFallbackStillWorksForLegacySession(t *testing.T) {
 		t.Errorf("audit fallback wrote into the runtime: namespace")
 	}
 }
+
+// TestSessionAnalyze_RuntimeQueryErrorReturns503 — review #172
+// P2 #1: when buildRuntimeSessionAnalysisEnvelope sees a runtime
+// store error (here: underlying DB closed mid-flight), the
+// handler must surface 503 and NOT silently fall through to the
+// audit path. The fake LLM must also stay untouched, since the
+// runtime probe never succeeded.
+func TestSessionAnalyze_RuntimeQueryErrorReturns503(t *testing.T) {
+	fake := newFakeLLM(t, "ok")
+	srv, rs, auditStore := newRuntimeAnalysisServer(t, fake)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	seedRealActivity(t, rs, "sess-runtime-503", now, "INNOCUOUS")
+
+	// Force the runtime QuerySession to fail by closing the
+	// shared *sql.DB. audit.Store.Close is idempotent so the
+	// t.Cleanup re-close is safe.
+	if err := auditStore.Close(); err != nil {
+		t.Fatalf("close audit store: %v", err)
+	}
+
+	status, body := postAnalyze(t, handler, cookie, "sess-runtime-503")
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("analyze status = %d, want 503; body=%s", status, body)
+	}
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	if fake.last != nil {
+		t.Errorf("fake LLM was called despite runtime query error")
+	}
+}
+
+// TestSessionAnalyze_RuntimeAIErrorPanelEscapesUpstreamXSS —
+// review #172 P2 #2: a hostile or misconfigured upstream LLM
+// can return arbitrary text in its error message. The handler
+// propagates that text to the client; the client-side error
+// renderer in tmpl_session.go MUST inject it into the DOM via
+// textContent, never via innerHTML +=. We assert both halves of
+// the contract: the API surfaces the error body so the JS catch
+// receives it, and the rendered template carries the canonical
+// textContent assignment with no innerHTML += anywhere in the
+// runtime AI fallback path.
+func TestSessionAnalyze_RuntimeAIErrorPanelEscapesUpstreamXSS(t *testing.T) {
+	xssBody := `{"error":{"message":"<img src=x onerror=alert(1)>"}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(xssBody))
+	}))
+	t.Cleanup(server.Close)
+	fake := &fakeLLM{server: server}
+
+	srv, rs, _ := newRuntimeAnalysisServer(t, fake)
+	handler := srv.Handler()
+	cookie := loginSession(t, srv, handler)
+	now := time.Now().UTC()
+
+	seedRealActivity(t, rs, "sess-xss-1", now, "INNOCUOUS")
+
+	status, body := postAnalyze(t, handler, cookie, "sess-xss-1")
+	if status == http.StatusOK {
+		t.Fatalf("expected non-200 from analyze when LLM errors, got 200; body=%s", body)
+	}
+
+	detailStatus, detailBody := fetchSessionDetailHTML(t, srv, cookie, handler, "sess-xss-1")
+	if detailStatus != http.StatusOK {
+		t.Fatalf("detail status = %d", detailStatus)
+	}
+	if !strings.Contains(detailBody, "txt.textContent = 'Analysis failed: ' + e.message") {
+		t.Errorf("rt error path must build text via textContent; missing canonical line")
+	}
+	if strings.Contains(detailBody, "innerHTML += ") || strings.Contains(detailBody, "innerHTML+=") {
+		t.Errorf("rt error path must NOT use innerHTML += (XSS regression risk)")
+	}
+}

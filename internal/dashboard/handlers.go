@@ -2128,9 +2128,18 @@ func (s *Server) handleSessionAnalyze(w http.ResponseWriter, r *http.Request) {
 	// the analyser must consume runtime evidence and persist
 	// under the runtime: namespace so the result never appears
 	// next to the audit-trace AI sidebar (and vice versa). The
-	// audit fallback only runs when the runtime store has no
-	// row for the id.
-	if env, ok := s.buildRuntimeSessionAnalysisEnvelope(r.Context(), sessionID); ok {
+	// audit fallback only runs when the runtime store is
+	// reachable AND the session is genuinely absent there —
+	// not when the runtime query itself errored, because the
+	// same id might also exist in audit and falling through
+	// would analyse a different dataset than what the page
+	// renders.
+	env, found, runtimeErr := s.buildRuntimeSessionAnalysisEnvelope(r.Context(), sessionID)
+	if runtimeErr != nil {
+		http.Error(w, "runtime store unavailable: "+runtimeErr.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	if found {
 		if reason := runtimeAnalysisRejectionReason(env); reason != "" {
 			http.Error(w, reason, http.StatusBadRequest)
 			return

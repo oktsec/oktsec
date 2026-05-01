@@ -98,26 +98,37 @@ type runtimeSessionAnalysisEvent struct {
 
 // buildRuntimeSessionAnalysisEnvelope fetches the session +
 // actors + events from the runtime store and projects them into
-// the analysis envelope. Returns (nil, false) when the session
-// does not exist in runtime — the caller falls back to legacy
-// audit analysis. Heartbeat-only sessions return a non-nil
-// envelope with IsHeartbeatOnly=true; the handler refuses
-// analysis on that shape but still distinguishes "not in
-// runtime" from "in runtime but diagnostic-only".
-func (s *Server) buildRuntimeSessionAnalysisEnvelope(ctx context.Context, sessionID string) (*runtimeSessionAnalysisEnvelope, bool) {
+// the analysis envelope.
+//
+// Returns a tri-state result so the caller can keep the
+// runtime/audit boundary intact even under partial failure:
+//
+//   - (env, true,  nil)  — runtime has the session; envelope ready.
+//   - (nil, false, nil)  — runtime is reachable AND the session
+//     does not exist there. Audit fallback is the right move.
+//   - (nil, false, err)  — the runtime store errored mid-query.
+//     The caller MUST surface this as a service error (503),
+//     never as "session not in runtime", because the same
+//     session id may exist in audit and falling through would
+//     analyse a different dataset than what the page renders.
+//
+// Heartbeat-only sessions return a non-nil envelope with
+// IsHeartbeatOnly=true so the handler can refuse analysis with
+// a clear reason without re-querying the store.
+func (s *Server) buildRuntimeSessionAnalysisEnvelope(ctx context.Context, sessionID string) (*runtimeSessionAnalysisEnvelope, bool, error) {
 	store := s.runtimeStore()
 	if store == nil || sessionID == "" {
-		return nil, false
+		return nil, false, nil
 	}
 	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	detail, err := store.QuerySession(queryCtx, sessionID)
 	if err != nil {
 		s.logger.Warn("runtime session analysis: QuerySession failed", "error", err, "session_id", sessionID)
-		return nil, false
+		return nil, false, err
 	}
 	if detail == nil || detail.SessionID == "" {
-		return nil, false
+		return nil, false, nil
 	}
 
 	row := projectSessionListRow(detail.Session)
@@ -183,7 +194,7 @@ func (s *Server) buildRuntimeSessionAnalysisEnvelope(ctx context.Context, sessio
 			LatencyMs:      ev.LatencyMs,
 		})
 	}
-	return env, true
+	return env, true, nil
 }
 
 // runtimeSessionAnalysisPrompt is the system prompt for runtime
