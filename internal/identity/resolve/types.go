@@ -149,6 +149,26 @@ func (c PrincipalContext) IsZero() bool {
 		!c.Verified && len(c.Groups) == 0 && len(c.Scopes) == 0
 }
 
+// clonePrincipalContext returns a deep copy of c so a caller cannot
+// mutate the resolver-side stored context through the returned slice
+// headers. Used at every outward boundary that hands a context to a
+// caller (resolver buildResult, MemoryTokenStore.Lookup, PrincipalByID,
+// and the config -> resolver bridge in PrincipalsFromConfig).
+func clonePrincipalContext(c PrincipalContext) PrincipalContext {
+	out := c
+	if len(c.Groups) > 0 {
+		out.Groups = append([]string(nil), c.Groups...)
+	} else {
+		out.Groups = nil
+	}
+	if len(c.Scopes) > 0 {
+		out.Scopes = append([]string(nil), c.Scopes...)
+	} else {
+		out.Scopes = nil
+	}
+	return out
+}
+
 // ReportedActor is display/audit metadata supplied by the surface (header,
 // payload, hook body) or inferred by correlation. It is rendered in the UI
 // alongside the Principal, but never used for policy.

@@ -205,3 +205,78 @@ func TestPrincipalContext_DeepCopiedSlices(t *testing.T) {
 		t.Errorf("config slice mutation reached resolver record (shared backing array)")
 	}
 }
+
+// TestPrincipalContext_ResolverReturnSlicesAreIsolated — review #175
+// P2 regression. resolve once, mutate the returned Context.Groups and
+// Context.Scopes, resolve again, and assert the second resolution is
+// untouched. Without the clonePrincipalContext guard at every outward
+// boundary (resolver buildResult, MemoryTokenStore.Lookup,
+// PrincipalByID), the first resolution's slice headers shared backing
+// arrays with the store-backed PrincipalRecord and a caller could
+// poison every later resolution.
+func TestPrincipalContext_ResolverReturnSlicesAreIsolated(t *testing.T) {
+	const principalID = "claude-code"
+	raw, hash, err := GenerateRawToken(TokenTypeGatewayBearer)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	cp := ConfigPrincipal{
+		ID:          principalID,
+		DisplayName: principalID,
+		Kind:        string(PrincipalKindAgent),
+		Tokens: []ConfigToken{{
+			ID: principalID + "-tok", Type: "gateway_bearer", Hash: hash,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		}},
+		Context: fixtureConfigContext(),
+	}
+	store := NewMemoryTokenStoreWithClock(PrincipalsFromConfig([]ConfigPrincipal{cp}), nil)
+	r := NewDefaultResolver(store, nil)
+
+	hdr := http.Header{}
+	hdr.Set("Authorization", "Bearer "+raw)
+	doResolve := func() Principal {
+		got, err := r.Resolve(context.Background(), Config{
+			Profile:           ProfileLocal,
+			AllowedTokenTypes: []TokenType{TokenTypeGatewayBearer},
+		}, Evidence{Surface: SurfaceMCPHTTP, Header: hdr, RemoteAddr: "127.0.0.1:1"})
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		return got.Principal
+	}
+
+	first := doResolve()
+	if len(first.Context.Groups) != 1 || first.Context.Groups[0] != "ai-agents" {
+		t.Fatalf("first.Context.Groups = %v, want [ai-agents]", first.Context.Groups)
+	}
+	if len(first.Context.Scopes) != 2 {
+		t.Fatalf("first.Context.Scopes = %v, want length 2", first.Context.Scopes)
+	}
+
+	first.Context.Groups[0] = "ATTACKER-GROUPS"
+	first.Context.Scopes[0] = "ATTACKER-SCOPE"
+
+	second := doResolve()
+	if got := second.Context.Groups[0]; got != "ai-agents" {
+		t.Errorf("second.Context.Groups[0] = %q; mutation on first resolution reached store-backed state", got)
+	}
+	if got := second.Context.Scopes[0]; got != "mcp:tools" {
+		t.Errorf("second.Context.Scopes[0] = %q; mutation on first resolution reached store-backed state", got)
+	}
+
+	// PrincipalByID is the other outward boundary — same isolation contract.
+	rec, ok := store.PrincipalByID(principalID)
+	if !ok {
+		t.Fatal("PrincipalByID miss")
+	}
+	rec.Context.Groups[0] = "ATTACKER-PBID"
+	rec.Context.Scopes[0] = "ATTACKER-PBID-SCOPE"
+	rec2, _ := store.PrincipalByID(principalID)
+	if got := rec2.Context.Groups[0]; got != "ai-agents" {
+		t.Errorf("PrincipalByID Groups leaked: %q", got)
+	}
+	if got := rec2.Context.Scopes[0]; got != "mcp:tools" {
+		t.Errorf("PrincipalByID Scopes leaked: %q", got)
+	}
+}

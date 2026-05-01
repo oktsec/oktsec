@@ -90,29 +90,14 @@ func PrincipalsFromConfig(in []ConfigPrincipal) []PrincipalRecord {
 	return out
 }
 
-// principalContextFromConfig copies the neutral context fields. Slice
-// fields are length-preserving copies so the resolver record cannot be
-// mutated through the original config slice.
+// principalContextFromConfig copies the neutral context fields. The
+// PrincipalContext(c) conversion documents that the two structs are
+// intentionally parallel — a future divergence forces this line to
+// fail to compile, which is the right signal. Slice fields are
+// deep-copied via clonePrincipalContext so a later mutation on either
+// side cannot reach the other.
 func principalContextFromConfig(c ConfigPrincipalContext) PrincipalContext {
-	out := PrincipalContext{
-		Issuer:     c.Issuer,
-		Subject:    c.Subject,
-		Audience:   c.Audience,
-		ClientID:   c.ClientID,
-		TenantID:   c.TenantID,
-		Provider:   c.Provider,
-		Source:     c.Source,
-		Verified:   c.Verified,
-		ExpiresAt:  c.ExpiresAt,
-		ClaimsHash: c.ClaimsHash,
-	}
-	if len(c.Groups) > 0 {
-		out.Groups = append([]string(nil), c.Groups...)
-	}
-	if len(c.Scopes) > 0 {
-		out.Scopes = append([]string(nil), c.Scopes...)
-	}
-	return out
+	return clonePrincipalContext(PrincipalContext(c))
 }
 
 func tokenTypeFromString(s string) (TokenType, bool) {
