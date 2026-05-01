@@ -257,6 +257,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
 		return
 	}
+	// When a chain is present the root authority is what
+	// drives the ACL decision below. Suspension must apply to
+	// that authority too — otherwise `agent suspend human`
+	// stops cutting off authority the moment human acts via a
+	// delegate. The check uses agent_suspended for symmetry
+	// with the sender/recipient checks above; the audit row's
+	// RootAgent + DelegationChain still explain why.
+	if delegation.Present {
+		if agent, ok := h.cfg.Agents[delegation.Root]; ok && agent.Suspended {
+			resp := MessageResponse{Status: audit.StatusRejected, MessageID: msgID, PolicyDecision: audit.DecisionAgentSuspended, VerifiedSender: verified}
+			h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
+			return
+		}
+	}
 
 	// Step 3: ACL check. When delegation is present the
 	// effective authority is the chain's root, NOT req.From —

@@ -1429,6 +1429,47 @@ func TestHandler_DelegationScopeViolation(t *testing.T) {
 	}
 }
 
+// TestHandler_DelegationSuspendedRootBlocksDelegate covers the
+// suspension half of the AND-strict authority model. Once
+// delegation.Root becomes the effective ACL principal, its
+// suspension state must gate authority too — otherwise
+// `agent suspend human` stops cutting off authority the moment
+// human acts via an unsuspended delegate, and the suspension
+// surface drifts away from the policy surface. The check uses
+// agent_suspended for symmetry with the existing
+// sender/recipient checks; the audit row's RootAgent +
+// DelegationChain still explain which authority was suspended.
+func TestHandler_DelegationSuspendedRootBlocksDelegate(t *testing.T) {
+	ts, humanPriv := newDelegationTestSetup(t, false)
+	// Suspend the root authority while keeping the delegate
+	// active. Without the new gate the request would slip
+	// through because policy.CheckACL is happy with human's
+	// ACL.
+	human := ts.handler.cfg.Agents["human"]
+	human.Suspended = true
+	ts.handler.cfg.Agents["human"] = human
+
+	token := identity.CreateChainedDelegation(
+		humanPriv, "human", "test-agent",
+		[]string{"target-agent"}, nil,
+		time.Hour, "", 0, 3,
+	)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
+
+	w := signedDelegatedRequest(t, ts, "hello via suspended root", header)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	var resp MessageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PolicyDecision != audit.DecisionAgentSuspended {
+		t.Errorf("decision = %q, want %s (suspended root must not authorise via delegate)",
+			resp.PolicyDecision, audit.DecisionAgentSuspended)
+	}
+}
+
 // TestHandler_DelegationAuditStoresHashNotRawHeader is the
 // regression for Gap 4. The audit row must carry the chain hash
 // + a human-readable summary, never the base64 header. A future
