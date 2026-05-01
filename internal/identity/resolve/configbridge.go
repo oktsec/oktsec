@@ -15,6 +15,25 @@ type ConfigPrincipal struct {
 	WorkspaceID     string
 	AllowedSurfaces []string
 	Tokens          []ConfigToken
+	Context         ConfigPrincipalContext
+}
+
+// ConfigPrincipalContext mirrors config.PrincipalContextConfig but stays
+// free of YAML tags so resolve does not import config. Empty values
+// translate to a zero PrincipalContext (no enrichment).
+type ConfigPrincipalContext struct {
+	Issuer     string
+	Subject    string
+	Audience   string
+	ClientID   string
+	TenantID   string
+	Groups     []string
+	Scopes     []string
+	Provider   string
+	Source     string
+	Verified   bool
+	ExpiresAt  string
+	ClaimsHash string
 }
 
 // ConfigToken mirrors config.PrincipalTokenConfig but stays free of YAML
@@ -65,9 +84,20 @@ func PrincipalsFromConfig(in []ConfigPrincipal) []PrincipalRecord {
 			WorkspaceID:     p.WorkspaceID,
 			AllowedSurfaces: surfaces,
 			Tokens:          tokens,
+			Context:         principalContextFromConfig(p.Context),
 		})
 	}
 	return out
+}
+
+// principalContextFromConfig copies the neutral context fields. The
+// PrincipalContext(c) conversion documents that the two structs are
+// intentionally parallel — a future divergence forces this line to
+// fail to compile, which is the right signal. Slice fields are
+// deep-copied via clonePrincipalContext so a later mutation on either
+// side cannot reach the other.
+func principalContextFromConfig(c ConfigPrincipalContext) PrincipalContext {
+	return clonePrincipalContext(PrincipalContext(c))
 }
 
 func tokenTypeFromString(s string) (TokenType, bool) {

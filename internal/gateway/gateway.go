@@ -230,10 +230,30 @@ func configPrincipalsFor(cfg *config.Config) []resolve.ConfigPrincipal {
 		out = append(out, resolve.ConfigPrincipal{
 			ID: p.ID, DisplayName: p.DisplayName, Kind: p.Kind,
 			WorkspaceID: p.WorkspaceID, AllowedSurfaces: p.AllowedSurfaces,
-			Tokens: toks,
+			Tokens:  toks,
+			Context: configPrincipalContext(p.Context),
 		})
 	}
 	return out
+}
+
+// configPrincipalContext lifts the YAML PrincipalContextConfig into the
+// resolver-side neutral context. Empty in, empty out.
+func configPrincipalContext(c config.PrincipalContextConfig) resolve.ConfigPrincipalContext {
+	return resolve.ConfigPrincipalContext{
+		Issuer:     c.Issuer,
+		Subject:    c.Subject,
+		Audience:   c.Audience,
+		ClientID:   c.ClientID,
+		TenantID:   c.TenantID,
+		Groups:     c.Groups,
+		Scopes:     c.Scopes,
+		Provider:   c.Provider,
+		Source:     c.Source,
+		Verified:   c.Verified,
+		ExpiresAt:  c.ExpiresAt,
+		ClaimsHash: c.ClaimsHash,
+	}
 }
 
 // buildResolver constructs the resolver/store the gateway uses for every

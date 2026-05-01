@@ -207,6 +207,30 @@ type PrincipalConfig struct {
 	WorkspaceID     string                 `yaml:"workspace_id,omitempty"`
 	AllowedSurfaces []string               `yaml:"allowed_surfaces,omitempty"` // e.g. ["mcp_http", "http_egress_proxy"]
 	Tokens          []PrincipalTokenConfig `yaml:"tokens,omitempty"`
+	// Context carries provider-neutral identity enrichment. Optional;
+	// authorization is not driven by these fields. The YAML key is
+	// "context" on purpose — never "okta", "auth0", or "idp" — so no
+	// vendor name appears in the on-disk shape.
+	Context PrincipalContextConfig `yaml:"context,omitempty"`
+}
+
+// PrincipalContextConfig is the on-disk shape of provider-neutral
+// identity enrichment. Phase 4E-0 supports static config only; Provider
+// is display metadata and never branched on. A future PR may populate
+// these fields from verified OIDC claims.
+type PrincipalContextConfig struct {
+	Issuer     string   `yaml:"issuer,omitempty"`
+	Subject    string   `yaml:"subject,omitempty"`
+	Audience   string   `yaml:"audience,omitempty"`
+	ClientID   string   `yaml:"client_id,omitempty"`
+	TenantID   string   `yaml:"tenant_id,omitempty"`
+	Groups     []string `yaml:"groups,omitempty"`
+	Scopes     []string `yaml:"scopes,omitempty"`
+	Provider   string   `yaml:"provider,omitempty"`
+	Source     string   `yaml:"source,omitempty"`
+	Verified   bool     `yaml:"verified,omitempty"`
+	ExpiresAt  string   `yaml:"expires_at,omitempty"`
+	ClaimsHash string   `yaml:"claims_hash,omitempty"`
 }
 
 // PrincipalTokenConfig is one token bound to a Principal. The Hash field

@@ -75,12 +75,13 @@ func (r TokenRecord) Active(now time.Time) bool {
 // the Principal because lookups always start from a token and resolve to
 // the owning Principal.
 type PrincipalRecord struct {
-	ID              string        `yaml:"id" json:"id"`
-	DisplayName     string        `yaml:"display_name,omitempty" json:"display_name,omitempty"`
-	Kind            PrincipalKind `yaml:"kind,omitempty" json:"kind,omitempty"`
-	WorkspaceID     string        `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-	Tokens          []TokenRecord `yaml:"tokens,omitempty" json:"tokens,omitempty"`
-	AllowedSurfaces []Surface     `yaml:"allowed_surfaces,omitempty" json:"allowed_surfaces,omitempty"`
+	ID              string           `yaml:"id" json:"id"`
+	DisplayName     string           `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Kind            PrincipalKind    `yaml:"kind,omitempty" json:"kind,omitempty"`
+	WorkspaceID     string           `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	Tokens          []TokenRecord    `yaml:"tokens,omitempty" json:"tokens,omitempty"`
+	AllowedSurfaces []Surface        `yaml:"allowed_surfaces,omitempty" json:"allowed_surfaces,omitempty"`
+	Context         PrincipalContext `yaml:"context,omitempty" json:"context,omitempty"`
 }
 
 // TokenStore looks up tokens by ID and, given a candidate raw secret,
@@ -200,6 +201,9 @@ func (s *MemoryTokenStore) Lookup(t TokenType, raw string) (PrincipalRecord, Tok
 		s.mu.RLock()
 		principal := s.byID[idx.principalID]
 		s.mu.RUnlock()
+		// Clone Context so a caller mutating returned Groups/Scopes
+		// cannot reach into store-backed state and affect later lookups.
+		principal.Context = clonePrincipalContext(principal.Context)
 		for _, tok := range principal.Tokens {
 			if tok.ID == tokID {
 				return principal, tok, nil
@@ -227,12 +231,18 @@ func indexActive(idx tokenIndex, now time.Time) bool {
 	return now.Before(exp)
 }
 
-// PrincipalByID returns the principal record by ID.
+// PrincipalByID returns the principal record by ID. Context slices are
+// deep-copied before returning so a caller mutating Groups/Scopes
+// cannot reach into store-backed state and affect later resolutions.
 func (s *MemoryTokenStore) PrincipalByID(id string) (PrincipalRecord, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	p, ok := s.byID[id]
-	return p, ok
+	s.mu.RUnlock()
+	if !ok {
+		return PrincipalRecord{}, false
+	}
+	p.Context = clonePrincipalContext(p.Context)
+	return p, true
 }
 
 // GenerateRawToken returns a freshly generated raw token (with type prefix)

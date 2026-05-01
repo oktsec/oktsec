@@ -152,6 +152,7 @@ func (r *DefaultResolver) buildResult(p PrincipalRecord, tok TokenRecord, eviden
 			TrustLevel:  TrustAuthenticated,
 			TokenID:     tok.ID,
 			WorkspaceID: p.WorkspaceID,
+			Context:     clonePrincipalContext(p.Context),
 		},
 		ReportedActor: extractReportedActor(evidence, cfg),
 	}
