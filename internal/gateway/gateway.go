@@ -25,6 +25,7 @@ import (
 	"github.com/oktsec/oktsec/internal/llm"
 	"github.com/oktsec/oktsec/internal/mcputil"
 	"github.com/oktsec/oktsec/internal/netutil"
+	"github.com/oktsec/oktsec/internal/policy"
 	"github.com/oktsec/oktsec/internal/proxy"
 	"github.com/oktsec/oktsec/internal/verdict"
 )
@@ -679,7 +680,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 				// Enforce per-agent delegation depth cap. Crossing this line
 				// is how a rogue agent tries to fan out into a sub-tree of
 				// delegated children; we stop it at the gateway.
-				if maxDepth := resolveDelegationDepth(g.cfg, policyAgent); maxDepth > 0 && chainResult.Depth > maxDepth {
+				if maxDepth := policy.ResolveDelegationDepth(g.cfg, policyAgent); maxDepth > 0 && chainResult.Depth > maxDepth {
 					g.logger.Warn("delegation depth exceeded",
 						"agent", agent, "depth", chainResult.Depth, "max", maxDepth)
 					g.logAudit(msgID, id, m.OriginalName, audit.StatusBlocked, audit.DecisionDelegationDepthExceeded, "[]", toolArgs, sessionID, start)
