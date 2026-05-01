@@ -230,6 +230,11 @@ type Handler struct {
 	// when activity migration failed at startup.
 	activity activityWriter
 
+	// activityWG tracks in-flight async activity inserts so tests (and
+	// shutdown paths) can drain them deterministically via FlushActivity.
+	// Production cost is one Add/Done per hook event.
+	activityWG sync.WaitGroup
+
 	// runtime captures the durable session/actor/event substrate added
 	// in Phase 3A. Same nil-safety contract as activity: a missing
 	// store means the dashboard's runtime APIs (added in 3C) read from
@@ -238,6 +243,12 @@ type Handler struct {
 	// committed — runtime is evidence projection, not policy.
 	runtime *runtime.Store
 }
+
+// FlushActivity blocks until every async activity insert spawned by
+// emitHookActivity has returned. Tests use this after the audit
+// store's Flush so they can query activity_events without polling
+// for a deadline that masks contention bugs.
+func (h *Handler) FlushActivity() { h.activityWG.Wait() }
 
 // NewHandler creates a hooks handler wired to the security pipeline.
 func NewHandler(scanner *engine.Scanner, store HookStore, cfg *config.Config, logger *slog.Logger) *Handler {
@@ -403,7 +414,9 @@ func (h *Handler) emitHookActivity(activityID, msgID string, authResult resolve.
 		ResourceLabel:       ev.ToolName,
 		ResourceID:          ev.ToolName,
 	}
+	h.activityWG.Add(1)
 	go func() {
+		defer h.activityWG.Done()
 		// Detached context: the request context can be cancelled by the
 		// time the goroutine runs, and activity should still land if the
 		// DB is reachable.

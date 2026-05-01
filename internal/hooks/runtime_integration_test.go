@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
@@ -56,11 +55,12 @@ func newRuntimeWiredHandler(t *testing.T) (*Handler, *runtime.Store, *sql.DB, fu
 	}
 }
 
-// post helper sends a hook event, drains the audit batch, and
-// returns the response body. Drains are necessary because the
-// runtime store + audit batch + activity insert all write to one
-// SQLite file; without serialising on Flush() between posts a
-// burst can lose runtime/audit rows to SQLITE_BUSY contention.
+// post helper sends a hook event and deterministically drains both
+// the audit batch and the async activity insert before returning.
+// Without this drain, downstream queries against activity_events or
+// audit_log race the writeLoop / activity goroutine and tests pass
+// or fail based on Go scheduler timing under -race + full-suite
+// concurrency.
 func post(t *testing.T, h *Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/hooks/event", bytes.NewReader([]byte(body)))
@@ -72,6 +72,7 @@ func post(t *testing.T, h *Handler, body string) *httptest.ResponseRecorder {
 	if dbs, ok := h.store.(interface{ Flush() }); ok {
 		dbs.Flush()
 	}
+	h.FlushActivity()
 	return w
 }
 
@@ -297,24 +298,12 @@ func TestServeHTTP_ActivityIDMatchesRuntimeRow(t *testing.T) {
 	}
 	runtimeActivityID := events[0].ActivityEventID
 
-	// Wait for the async activity insert to land. The activity
-	// insert is bounded by activityInsertTimeout (2s) but the race
-	// detector under a full-suite run can push the goroutine past
-	// that window; SQLite write lock contention with the runtime
-	// tx and the audit batch loop can stretch the wait to ~5-8s
-	// under load. 10s gives generous slack before declaring the
-	// cross-reference broken.
-	deadline := time.Now().Add(10 * time.Second)
+	// post() drains audit + activity before returning, so a single
+	// SELECT is enough — no polling deadline can mask a real race.
 	var activityRowID string
-	for time.Now().Before(deadline) {
-		row := db.QueryRow(`SELECT id FROM activity_events WHERE session_id = ?`, "sess-3b-xref")
-		if err := row.Scan(&activityRowID); err == nil && activityRowID != "" {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if activityRowID == "" {
-		t.Fatal("activity_events row never landed within 5s")
+	row := db.QueryRow(`SELECT id FROM activity_events WHERE session_id = ?`, "sess-3b-xref")
+	if err := row.Scan(&activityRowID); err != nil {
+		t.Fatalf("activity_events row missing for sess-3b-xref: %v", err)
 	}
 	if activityRowID != runtimeActivityID {
 		t.Errorf("activity_events.id = %q, runtime row's activity_event_id = %q (must match)", activityRowID, runtimeActivityID)
@@ -442,6 +431,67 @@ func TestServeHTTP_GenericEventFormatLandsRuntimeRow(t *testing.T) {
 	}
 	if events[0].HookEventName != "PreToolUse" {
 		t.Errorf("HookEventName = %q, want PreToolUse (canonicalized from pre_tool_use)", events[0].HookEventName)
+	}
+}
+
+// TestServeHTTP_ActivityRuntimeCrossRefsSurviveRepeatedPosts —
+// Phase 4D regression. Sends a burst of hook posts through the
+// shared post() helper and asserts that every runtime row whose
+// ActivityEventID is non-empty maps to exactly one activity_events
+// row with the same id. The historic flake was that, under
+// SQLITE_BUSY contention between the audit batch, runtime tx, and
+// activity insert, a runtime row could land while its activity row
+// was lost — leaving a dangling cross-reference. With the
+// per-connection pragma fix and the deterministic FlushActivity in
+// post(), the contract holds for every row in the burst.
+func TestServeHTTP_ActivityRuntimeCrossRefsSurviveRepeatedPosts(t *testing.T) {
+	h, store, db, cleanup := newRuntimeWiredHandler(t)
+	defer cleanup()
+
+	const sessionID = "sess-4d-burst"
+	bodies := []string{
+		`{"hook_event_name":"SessionStart","session_id":"` + sessionID + `"}`,
+		`{"hook_event_name":"PreToolUse","session_id":"` + sessionID + `","tool_name":"Read","tool_input":{"path":"/etc/hosts"}}`,
+		`{"hook_event_name":"PostToolUse","session_id":"` + sessionID + `","tool_name":"Read","tool_response":"ok"}`,
+		`{"hook_event_name":"PreToolUse","session_id":"` + sessionID + `","tool_name":"Bash","tool_input":{"command":"ls"}}`,
+		`{"hook_event_name":"PostToolUse","session_id":"` + sessionID + `","tool_name":"Bash","tool_response":"a b c"}`,
+		`{"hook_event_name":"PreToolUse","session_id":"` + sessionID + `","tool_name":"Write","tool_input":{"path":"/tmp/x"}}`,
+		`{"hook_event_name":"PostToolUse","session_id":"` + sessionID + `","tool_name":"Write","tool_response":"ok"}`,
+		`{"hook_event_name":"SessionEnd","session_id":"` + sessionID + `"}`,
+	}
+	for _, body := range bodies {
+		w := post(t, h, body)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d for body=%s; body=%s", w.Code, body, w.Body.String())
+		}
+	}
+
+	events, err := store.QueryEvents(context.Background(), runtime.EventQuery{SessionID: sessionID, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != len(bodies) {
+		t.Fatalf("runtime event count = %d, want %d (lost rows under contention)", len(events), len(bodies))
+	}
+
+	for _, ev := range events {
+		if ev.ActivityEventID == "" {
+			// SessionStart/SessionEnd intentionally do not emit activity
+			// events from the hooks handler today; they upsert the
+			// runtime session row but skip emitHookActivity. The contract
+			// here is "if a runtime row carries an activity ref, that ref
+			// must resolve" — empty refs are a no-op for this test.
+			continue
+		}
+		var got string
+		row := db.QueryRow(`SELECT id FROM activity_events WHERE id = ?`, ev.ActivityEventID)
+		if err := row.Scan(&got); err != nil {
+			t.Errorf("dangling cross-ref: runtime event %s -> activity %s missing: %v", ev.HookEventName, ev.ActivityEventID, err)
+			continue
+		}
+		if got != ev.ActivityEventID {
+			t.Errorf("activity_events.id = %q, runtime activity_event_id = %q (must match)", got, ev.ActivityEventID)
+		}
 	}
 }
 
