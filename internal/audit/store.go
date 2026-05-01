@@ -260,12 +260,35 @@ func openStore(dbPath string, logger *slog.Logger, readOnly bool, retentionDays 
 		}
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("opening audit db: %w", err)
 	}
 
 	return newStore(db, SQLiteDialect{}, logger, retentionDays, readOnly)
+}
+
+// sqliteDSN appends per-connection PRAGMAs to the path so every
+// connection in the database/sql pool inherits busy_timeout, WAL,
+// and synchronous=NORMAL. Without this only the connection that
+// ran db.Exec("PRAGMA ...") was configured; later pool connections
+// came up clean and returned SQLITE_BUSY immediately under
+// contention between the audit batch, runtime tx, and activity
+// insert. :memory: is left untouched because each connection there
+// is a separate database — appending a query string would not help
+// and would break existing tests.
+func sqliteDSN(dbPath string) string {
+	if dbPath == ":memory:" {
+		return dbPath
+	}
+	sep := "?"
+	if strings.ContainsRune(dbPath, '?') {
+		sep = "&"
+	}
+	return dbPath + sep +
+		"_pragma=busy_timeout(5000)" +
+		"&_pragma=journal_mode(WAL)" +
+		"&_pragma=synchronous(NORMAL)"
 }
 
 // NewStoreWithDB creates an audit store from an existing *sql.DB connection
