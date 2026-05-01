@@ -4,26 +4,52 @@ import "html/template"
 
 var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layoutHead + `
 <style>
-/* ── Security Posture v2 ───────────────────────────────── */
+/* ── Agent Runtime Posture (Phase 4A) ─────────────────── */
+.rp-hero{display:flex;align-items:flex-start;gap:24px;padding:28px 32px;background:linear-gradient(135deg,var(--surface) 0%,rgba(56,139,253,0.04) 100%);border:1px solid var(--border);border-radius:14px;margin-bottom:24px;position:relative;overflow:hidden}
+.rp-hero::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent-light),transparent);opacity:0.4}
+.rp-hero-body{flex:1}
+.rp-eyebrow{font-size:0.65rem;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3);font-weight:600;margin-bottom:6px}
+.rp-title{font-size:1.25rem;font-weight:700;color:var(--text);letter-spacing:0;margin-bottom:6px}
+.rp-summary{font-size:0.875rem;color:var(--text2);line-height:1.55;max-width:780px}
+.rp-status-pill{display:inline-block;padding:4px 12px;border-radius:6px;font-size:0.7rem;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;margin-left:12px;vertical-align:middle}
+.rp-status-pill.s-protected{background:rgba(63,185,80,0.12);color:var(--success);border:1px solid rgba(63,185,80,0.30)}
+.rp-status-pill.s-observing{background:rgba(56,139,253,0.10);color:var(--accent);border:1px solid rgba(56,139,253,0.25)}
+.rp-status-pill.s-degraded{background:rgba(210,153,34,0.10);color:var(--warn);border:1px solid rgba(210,153,34,0.25)}
+.rp-status-pill.s-blind{background:rgba(248,81,73,0.10);color:var(--danger);border:1px solid rgba(248,81,73,0.25)}
+.rp-status-pill.s-setup_pending{background:transparent;color:var(--text3);border:1px solid var(--border)}
 
-/* Hero */
-.ps-hero{display:flex;align-items:center;gap:36px;padding:32px 36px;background:linear-gradient(135deg,var(--surface) 0%,rgba(139,92,246,0.03) 100%);border:1px solid var(--border);border-radius:14px;margin-bottom:24px;position:relative;overflow:hidden}
-.ps-hero::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent-light),transparent);opacity:0.4}
-.ps-hero-score{display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0}
-.ps-ring{width:110px;height:110px;border-radius:50%;background:conic-gradient(var(--clr,var(--success)) calc(var(--pct,0) * 1%),var(--surface2) 0);display:flex;align-items:center;justify-content:center;position:relative;box-shadow:0 0 24px rgba(0,0,0,0.2)}
-.ps-ring::before{content:'';position:absolute;inset:8px;border-radius:50%;background:var(--surface)}
-.ps-num{position:relative;font-size:2rem;font-weight:800;font-family:var(--sans);letter-spacing:0;color:var(--text)}
-.ps-grade-label{font-size:0.6875rem;color:var(--text3);font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase}
-.ps-hero-body{flex:1}
-.ps-hero-title{font-size:1.125rem;font-weight:700;color:var(--text);margin-bottom:4px;letter-spacing:0}
-.ps-hero-sub{font-size:0.8125rem;color:var(--text3);margin-bottom:6px}
-.ps-hero-detail{display:flex;gap:16px;margin-bottom:16px;font-size:0.72rem;color:var(--text3)}
-.ps-hero-detail span{display:flex;align-items:center;gap:4px}
-.ps-hero-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.ps-fix-all{padding:11px 28px;background:linear-gradient(135deg,#238636,#2ea043);border:none;border-radius:8px;color:#fff;font-size:0.8125rem;font-weight:600;cursor:pointer;transition:transform 0.2s,box-shadow 0.2s;font-family:var(--sans);letter-spacing:0;box-shadow:0 2px 8px rgba(35,134,54,0.3)}
-.ps-fix-all:hover{transform:translateY(-1px);box-shadow:0 4px 16px rgba(35,134,54,0.4)}
-.ps-fix-all:disabled{opacity:0.6;cursor:wait;transform:none}
-.ps-resolved{font-size:0.75rem;color:var(--success);display:flex;align-items:center;gap:6px;margin-top:8px}
+.rp-section-title{font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.6px;color:var(--text3);font-weight:600;margin:24px 0 12px;padding-left:2px}
+.rp-dim-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:24px}
+.rp-dim{padding:14px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.rp-dim-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.rp-dim-label{font-size:0.8125rem;font-weight:600;color:var(--text)}
+.rp-dim-pill{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.62rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px}
+.rp-dim-pill.cell-ok,.rp-dim-pill.cell-protected{background:rgba(63,185,80,0.12);color:var(--success);border:1px solid rgba(63,185,80,0.30)}
+.rp-dim-pill.cell-observed{background:rgba(56,139,253,0.10);color:var(--accent);border:1px solid rgba(56,139,253,0.25)}
+.rp-dim-pill.cell-partial,.rp-dim-pill.cell-warn,.rp-dim-pill.cell-stale{background:rgba(210,153,34,0.10);color:var(--warn);border:1px solid rgba(210,153,34,0.25)}
+.rp-dim-pill.cell-blind{background:rgba(248,81,73,0.10);color:var(--danger);border:1px solid rgba(248,81,73,0.25)}
+.rp-dim-pill.cell-not_configured{background:transparent;color:var(--text3);border:1px solid var(--border)}
+.rp-dim-summary{font-size:0.78rem;color:var(--text2);line-height:1.5;margin-bottom:6px}
+.rp-dim-evidence{font-size:0.7rem;color:var(--text3);font-family:var(--mono);word-break:break-word}
+
+.rp-signals{margin-bottom:24px}
+.rp-signal{display:flex;align-items:flex-start;gap:14px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
+.rp-signal-sev{flex-shrink:0;min-width:64px;padding-top:1px}
+.rp-signal-sev .ps-sev{display:inline-block;font-size:0.6rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding:3px 8px;border-radius:4px}
+.rp-signal-body{flex:1;min-width:0}
+.rp-signal-title{font-size:0.8rem;font-weight:600;color:var(--text)}
+.rp-signal-detail{font-size:0.75rem;color:var(--text3);margin-top:4px;line-height:1.5}
+
+.rp-hardening{padding:18px 22px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:20px}
+.rp-hardening-head{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:8px}
+.rp-hardening-title{font-size:0.9rem;font-weight:600;color:var(--text)}
+.rp-hardening-meta{font-size:0.75rem;color:var(--text3)}
+.rp-hardening-meta strong{color:var(--text2);font-weight:600}
+.rp-hardening-grade{font-size:0.78rem;color:var(--text2);margin-top:6px}
+.rp-hardening-grade .g{display:inline-block;padding:2px 10px;border-radius:4px;font-weight:700;background:var(--surface2);color:var(--text);border:1px solid var(--border);font-family:var(--mono);margin-right:6px}
+.rp-hardening-suppressed{font-size:0.75rem;color:var(--text3);font-style:italic;margin-top:6px}
+
+/* ── Security Posture v2 (legacy classes still used by findings list) ── */
 
 /* Status bar */
 .ps-status{display:flex;justify-content:space-between;align-items:center;padding:10px 0;margin-bottom:20px;border-bottom:1px solid var(--border);font-size:0.75rem;color:var(--text3)}
@@ -69,13 +95,6 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .ps-enrich-btn{padding:7px 18px;background:rgba(139,92,246,0.06);border:1px solid var(--accent-border);color:var(--accent-light);border-radius:6px;font-size:0.75rem;font-weight:500;cursor:pointer;transition:background 0.15s,border-color 0.15s;display:flex;align-items:center;gap:6px}
 .ps-enrich-btn:hover{background:rgba(139,92,246,0.12);border-color:var(--accent-light)}
 
-/* Celebration */
-.ps-celebrate{text-align:center;padding:40px;background:linear-gradient(135deg,rgba(35,134,54,0.06),rgba(63,185,80,0.03));border:1px solid rgba(63,185,80,0.2);border-radius:14px;margin-bottom:24px}
-.ps-celebrate-score{font-size:3rem;font-weight:800;color:var(--success);font-family:var(--sans);letter-spacing:0}
-.ps-celebrate-grade{font-size:0.875rem;color:var(--text3);font-family:var(--mono);margin-top:4px}
-.ps-celebrate-msg{font-size:0.8125rem;color:var(--text2);margin-top:16px}
-.ps-celebrate-msg a{color:var(--accent-light);text-decoration:none}
-
 /* Loading */
 .htmx-indicator{display:none}
 .htmx-request .htmx-indicator,.htmx-request.htmx-indicator{display:inline}
@@ -100,13 +119,11 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 .ps-empty-filter{padding:24px;text-align:center;color:var(--text3);font-size:0.8rem}
 
 @media(max-width:768px){
-  .ps-hero{flex-direction:column;text-align:center;gap:20px;padding:24px}
-  .ps-hero-detail{justify-content:center}
   .ps-findings .ps-finding{flex-wrap:wrap}
 }
 </style>
 
-<p class="page-desc">Security posture: <strong>{{.TotalChecks}} finding{{if ne .TotalChecks 1}}s{{end}}</strong> to review.{{if gt .FixableCount 0}} <strong>{{.FixableCount}}</strong> can be auto-fixed.{{end}}</p>
+<p class="page-desc">Runtime evidence first. Hardening checks below as secondary context.</p>
 
 {{if .Sandbox}}
 <div style="display:flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--border);border-radius:10px;margin-bottom:20px;font-size:0.8125rem;color:var(--text3)">
@@ -115,33 +132,67 @@ var auditTmpl = template.Must(template.New("audit").Funcs(tmplFuncs).Parse(layou
 </div>
 {{end}}
 
-<!-- Hero -->
-<div class="ps-hero">
-  <div class="ps-hero-score" id="posture-score">
-    <div class="ps-ring" style="--pct:{{.Score}};--clr:{{if ge .Score 90}}var(--success){{else if ge .Score 60}}var(--warn){{else}}var(--danger){{end}}">
-      <span class="ps-num">{{.Score}}</span>
-    </div>
-    <div class="ps-grade-label">Grade {{.Grade}}</div>
-  </div>
-  <div class="ps-hero-body">
-    <div class="ps-hero-title">{{if ge .Score 90}}Deployment secured{{else if ge .Score 60}}Deployment needs attention{{else}}Critical security gaps detected{{end}}</div>
-    <div class="ps-hero-detail">
-      {{if gt .Summary.Critical 0}}<span><span class="ps-hero-dot" style="background:var(--danger)"></span>{{.Summary.Critical}} critical</span>{{end}}
-      {{if gt .Summary.High 0}}<span><span class="ps-hero-dot" style="background:var(--danger)"></span>{{.Summary.High}} high</span>{{end}}
-      {{if gt .Summary.Medium 0}}<span><span class="ps-hero-dot" style="background:var(--warn)"></span>{{.Summary.Medium}} medium</span>{{end}}
-      {{if gt .Summary.Info 0}}<span><span class="ps-hero-dot" style="background:var(--text3)"></span>{{.Summary.Info}} info</span>{{end}}
-    </div>
-    {{if gt .FixableCount 0}}
-    <button class="ps-fix-all"
-      hx-post="/dashboard/api/audit/fix-all"
-      hx-target="#posture-findings"
-      hx-swap="innerHTML"
-      hx-confirm="Apply {{.FixableCount}} safe fixes? This enables security features in your config.">Fix {{.FixableCount}} {{if eq .FixableCount 1}}issue{{else}}issues{{end}} automatically</button>
-    {{end}}
+{{with .Posture}}
+<!-- Hero — runtime-first -->
+<div class="rp-hero">
+  <div class="rp-hero-body">
+    <div class="rp-eyebrow">Agent Runtime Posture</div>
+    <div class="rp-title">{{.Title}}<span class="rp-status-pill s-{{.Status}}">{{.Status}}</span></div>
+    <div class="rp-summary">{{.Summary}}</div>
   </div>
 </div>
 
-<!-- Status bar -->
+<!-- Runtime dimensions -->
+<div class="rp-section-title">Runtime dimensions</div>
+<div class="rp-dim-grid">
+  {{range .Dimensions}}
+  <div class="rp-dim">
+    <div class="rp-dim-head">
+      <span class="rp-dim-label">{{.Label}}</span>
+      <span class="rp-dim-pill cell-{{.Status}}">{{.Status}}</span>
+    </div>
+    <div class="rp-dim-summary">{{.Summary}}</div>
+    {{if .Evidence}}<div class="rp-dim-evidence">{{.Evidence}}</div>{{end}}
+  </div>
+  {{end}}
+</div>
+
+{{if .Signals}}
+<div class="rp-section-title">Gaps and next actions</div>
+<div class="rp-signals">
+  {{range .Signals}}
+  <div class="rp-signal">
+    <div class="rp-signal-sev"><span class="ps-sev sev-{{.Severity}}">{{.Severity}}</span></div>
+    <div class="rp-signal-body">
+      <div class="rp-signal-title">{{.Title}}</div>
+      {{if .Detail}}<div class="rp-signal-detail">{{.Detail}}</div>{{end}}
+      {{if .Evidence}}<div class="rp-signal-detail">{{.Evidence}}</div>{{end}}
+    </div>
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+<!-- Hardening — secondary section -->
+<div class="rp-section-title">Hardening checks</div>
+<div id="rp-hardening" class="rp-hardening">
+  <div class="rp-hardening-head">
+    <span class="rp-hardening-title">Static deployment checks</span>
+    <span class="rp-hardening-meta">
+      <strong>{{.Hardening.TotalChecks}}</strong> check{{if ne .Hardening.TotalChecks 1}}s{{end}} available{{if gt .Hardening.FixableCount 0}}, <strong>{{.Hardening.FixableCount}}</strong> auto-fixable{{end}}.
+    </span>
+  </div>
+  {{if .Hardening.Suppressed}}
+  <div class="rp-hardening-suppressed">{{.Hardening.Reason}}</div>
+  {{else}}
+  <div class="rp-hardening-grade">
+    <span class="g">Grade {{.Hardening.Grade}}</span>based on static deployment checks.
+  </div>
+  {{end}}
+</div>
+{{end}}
+
+<!-- Status bar — audit trail + AI enrich (legacy advisory section) -->
 <div class="ps-status">
   <div>
     Audit trail: {{formatNum .ChainCount}} entries{{if .ChainValid}}, integrity verified{{end}}
