@@ -2124,6 +2124,34 @@ func (s *Server) handleSessionAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Runtime first. When the runtime store has the session,
+	// the analyser must consume runtime evidence and persist
+	// under the runtime: namespace so the result never appears
+	// next to the audit-trace AI sidebar (and vice versa). The
+	// audit fallback only runs when the runtime store has no
+	// row for the id.
+	if env, ok := s.buildRuntimeSessionAnalysisEnvelope(r.Context(), sessionID); ok {
+		if reason := runtimeAnalysisRejectionReason(env); reason != "" {
+			http.Error(w, reason, http.StatusBadRequest)
+			return
+		}
+		analysis, err := s.analyzeRuntimeSession(r.Context(), env)
+		if err != nil {
+			s.logger.Warn("runtime session analysis failed", "error", err, "session", sessionID)
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		model := s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
+		if store, ok := s.audit.(*audit.Store); ok {
+			if saveErr := store.SaveSessionAnalysis(runtimeSessionAnalysisKey(sessionID), analysis, model); saveErr != nil {
+				s.logger.Warn("failed to save runtime session analysis", "error", saveErr)
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(analysis))
+		return
+	}
+
 	trace, err := s.audit.BuildSessionTrace(sessionID)
 	if err != nil || trace == nil {
 		http.Error(w, "session not found", http.StatusNotFound)
@@ -2137,7 +2165,10 @@ func (s *Server) handleSessionAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Persist to DB as evidence
+	// Persist to DB as evidence under the bare sessionID. This
+	// key namespace stays distinct from runtimeSessionAnalysisKey
+	// so a session with both runtime and audit evidence keeps
+	// the two analyses isolated.
 	model := s.cfg.LLM.Provider + "/" + s.cfg.LLM.Model
 	if store, ok := s.audit.(*audit.Store); ok {
 		if saveErr := store.SaveSessionAnalysis(sessionID, analysis, model); saveErr != nil {
@@ -2158,16 +2189,46 @@ func (s *Server) handleSessionTrace(w http.ResponseWriter, r *http.Request) {
 
 	// Runtime first: when runtime has a session row for this id we
 	// render the runtime detail (actor tree + hashed timeline) and
-	// skip the audit trace. AI analysis is intentionally hidden in
-	// the runtime view for this slice — the Phase 3D-era runtime
-	// shape predates the session-analysis schema and we do not
-	// silently mix the two surfaces. Audit-only sessions keep their
-	// existing AI flow.
+	// skip the audit trace. The AI sidebar is rendered for runtime
+	// sessions that have real (non-heartbeat) activity; the saved
+	// analysis lives under the runtime: namespace so it never
+	// collides with the audit-trace analysis for the same id.
 	if detail, ok := s.runtimeSessionDetail(r.Context(), sessionID); ok {
+		canAnalyze := !detail.Session.IsHeartbeatOnly && detail.Session.EventCount > 0
+		disabledReason := ""
+		if !canAnalyze {
+			if detail.Session.IsHeartbeatOnly {
+				disabledReason = "Heartbeat-only sessions have no analysable activity."
+			} else {
+				disabledReason = "No runtime events recorded yet."
+			}
+		}
+
+		var savedAnalysis, analysisModel, analysisDate string
+		if canAnalyze {
+			if store, ok := s.audit.(*audit.Store); ok {
+				if r := store.QuerySessionAnalysis(runtimeSessionAnalysisKey(sessionID)); r != nil {
+					savedAnalysis = r.Text
+					analysisModel = r.Model
+					if t, err := time.Parse(time.RFC3339, r.Timestamp); err == nil {
+						analysisDate = t.Local().Format("Jan 02, 2006 15:04")
+					} else {
+						analysisDate = r.Timestamp
+					}
+				}
+			}
+		}
+
 		s.renderTemplate(w, runtimeSessionDetailTmpl, map[string]any{
-			"Active":     "sessions",
-			"Detail":     detail,
-			"RequireSig": s.cfg.Identity.RequireSignature,
+			"Active":                 "sessions",
+			"Detail":                 detail,
+			"RequireSig":             s.cfg.Identity.RequireSignature,
+			"LLMEnabled":             s.cfg.LLM.Enabled,
+			"CanAnalyze":             canAnalyze,
+			"AnalysisDisabledReason": disabledReason,
+			"SavedAnalysis":          savedAnalysis,
+			"AnalysisModel":          analysisModel,
+			"AnalysisDate":           analysisDate,
 		})
 		return
 	}

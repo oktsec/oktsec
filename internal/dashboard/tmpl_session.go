@@ -283,6 +283,22 @@ var runtimeSessionDetailTmpl = template.Must(template.New("runtime-session-detai
 .rt-link:hover{text-decoration:underline}
 .rt-empty{padding:40px;text-align:center;color:var(--text3)}
 .rt-diagnostic-banner{padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:var(--text-sm);color:var(--text2);margin-bottom:20px}
+
+/* Phase 4C — runtime AI sidebar. Distinct rt-* classes (rather
+   than reusing the legacy ss-ai-* prefix) so the runtime branch
+   never gets mistaken for the audit branch by a template grep
+   or a copy-pinned test. */
+.rt-ai-actions{display:inline-flex;gap:8px;align-items:center;margin-left:auto}
+.rt-ai-analyze-btn{padding:6px 14px;background:#1f6feb;color:#fff;border:1px solid var(--accent-border);border-radius:6px;font-size:var(--text-sm);cursor:pointer;font-weight:500;transition:background 0.15s}
+.rt-ai-analyze-btn:hover{background:#388bfd}
+.rt-ai-analyze-btn:disabled{opacity:0.6;cursor:wait}
+.rt-ai-disabled{font-size:var(--text-xs);color:var(--text3);font-style:italic}
+.rt-ai-panel{margin-top:24px;padding:18px 20px;background:var(--surface);border:1px solid var(--accent-border);border-radius:10px;position:relative}
+.rt-ai-panel::before{content:'';position:absolute;left:0;top:14px;bottom:14px;width:3px;background:var(--accent-light);border-radius:2px}
+.rt-ai-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:var(--text-sm);font-weight:600;color:var(--text)}
+.rt-ai-model{font-size:0.65rem;color:var(--text3);font-family:var(--mono);font-weight:400;padding:2px 8px;background:var(--surface2);border-radius:4px}
+.rt-ai-text{font-size:var(--text-sm);color:var(--text2);line-height:1.65;white-space:pre-wrap}
+.rt-ai-meta{display:flex;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);font-size:0.68rem;color:var(--text3)}
 </style>
 
 <div class="page-header" style="margin-bottom:8px">
@@ -301,6 +317,15 @@ var runtimeSessionDetailTmpl = template.Must(template.New("runtime-session-detai
 <div class="rt-actions">
   <a href="{{.Detail.JSONExportURL}}">JSON</a>
   <a href="{{.Detail.CSVExportURL}}">CSV</a>
+  {{if .LLMEnabled}}
+    {{if .CanAnalyze}}
+    <span class="rt-ai-actions">
+      <button class="rt-ai-analyze-btn" id="rt-ai-analyze-btn" onclick="rtAnalyzeSession('{{.Detail.Session.SessionID}}')">{{if .SavedAnalysis}}Re-analyze with AI{{else}}Analyze with AI{{end}}</button>
+    </span>
+    {{else if .AnalysisDisabledReason}}
+    <span class="rt-ai-disabled">{{.AnalysisDisabledReason}}</span>
+    {{end}}
+  {{end}}
 </div>
 
 {{if .Detail.Session.IsHeartbeatOnly}}
@@ -377,4 +402,41 @@ var runtimeSessionDetailTmpl = template.Must(template.New("runtime-session-detai
   <div class="rt-empty">No hook events recorded for this session.</div>
   {{end}}
 </div>
+
+<div id="rt-ai-panel-slot">
+{{if .SavedAnalysis}}
+<div class="rt-ai-panel" id="rt-ai-panel">
+  <div class="rt-ai-hdr">
+    <span>Runtime AI assessment</span>
+    {{if .AnalysisModel}}<span class="rt-ai-model">{{.AnalysisModel}}</span>{{end}}
+  </div>
+  <div class="rt-ai-text">{{.SavedAnalysis}}</div>
+  {{if .AnalysisDate}}
+  <div class="rt-ai-meta">
+    <span>Analyzed: {{.AnalysisDate}}</span>
+  </div>
+  {{end}}
+</div>
+{{end}}
+</div>
+
+<script>
+function rtAnalyzeSession(sid) {
+  var btn = document.getElementById('rt-ai-analyze-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Analyzing...'; }
+  fetch('/dashboard/api/sessions/' + sid + '/analyze', {method: 'POST'})
+    .then(function(r) {
+      if (!r.ok) { return r.text().then(function(t){ throw new Error(t || r.statusText); }); }
+      return r.text();
+    })
+    .then(function() { window.location.reload(); })
+    .catch(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Analyze with AI'; }
+      var slot = document.getElementById('rt-ai-panel-slot');
+      if (slot) {
+        slot.innerHTML = '<div class="rt-ai-panel" id="rt-ai-panel"><div class="rt-ai-hdr"><span>Runtime AI assessment</span></div><div class="rt-ai-text" style="color:var(--danger)">Analysis failed: ' + e.message + '</div></div>';
+      }
+    });
+}
+</script>
 ` + layoutFoot))

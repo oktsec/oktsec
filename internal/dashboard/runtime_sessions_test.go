@@ -240,9 +240,17 @@ func TestSessionDetail_RuntimeTreeAndTimeline(t *testing.T) {
 	if !strings.Contains(body, "subagent") {
 		t.Errorf("runtime detail did not surface the subagent actor")
 	}
-	// AI sidebar must be hidden on runtime detail per spec.
-	if strings.Contains(body, "Analyze with AI") || strings.Contains(body, "ai-analyze-btn") {
-		t.Errorf("runtime detail leaked the audit AI button")
+	// LLM is disabled in this fixture, so neither the legacy
+	// audit AI button (id=ai-analyze-btn) nor the runtime
+	// AI button (id=rt-ai-analyze-btn) should render. The
+	// substring "Analyze with AI" appears in the runtime JS
+	// fallback string regardless, so check the actual button
+	// markup instead of the label.
+	if strings.Contains(body, `id="ai-analyze-btn"`) {
+		t.Errorf("runtime detail leaked the legacy audit AI button")
+	}
+	if strings.Contains(body, `id="rt-ai-analyze-btn"`) {
+		t.Errorf("runtime AI button rendered with LLM disabled")
 	}
 }
 
