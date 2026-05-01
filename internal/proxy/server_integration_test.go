@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -28,6 +29,13 @@ func testServer(t *testing.T) (*Server, string) {
 		t.Fatal(err)
 	}
 
+	// dbPath pins the audit DB inside dir. Without this, config.Load
+	// defaults DBPath to "oktsec.db" and resolves it via filepath.Abs,
+	// landing in cwd (the repo root under `make integration-test`).
+	// A stale repo-local DB would then silently poison every later
+	// integration run.
+	dbPath := filepath.Join(dir, "integration-test.db")
+
 	cfg := &config.Config{
 		Version: "1",
 		Server: config.ServerConfig{
@@ -35,6 +43,7 @@ func testServer(t *testing.T) (*Server, string) {
 			Bind:     "127.0.0.1",
 			LogLevel: "error",
 		},
+		DBPath: dbPath,
 		Identity: config.IdentityConfig{
 			KeysDir:          keysDir,
 			RequireSignature: false,
@@ -67,6 +76,13 @@ func testServer(t *testing.T) (*Server, string) {
 	cfg.Agents = map[string]config.Agent{
 		"test-agent":   {CanMessage: []string{"target-agent"}},
 		"target-agent": {},
+	}
+	// Defensive: Save+Load round-trips DBPath via the YAML db_path
+	// field; if a future config.Load change ever strips it (or
+	// re-resolves it relative to cwd) the fail-fast assertion here
+	// catches it before NewServer opens the wrong file.
+	if cfg.DBPath != dbPath {
+		t.Fatalf("cfg.DBPath = %q after Load; want %q (testServer must keep audit DB inside t.TempDir)", cfg.DBPath, dbPath)
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -400,5 +416,41 @@ func TestIntegration_UnsignedByAgentQuery(t *testing.T) {
 		if r.Unsigned != r.Total {
 			t.Errorf("agent %s: unsigned=%d total=%d, expected all unsigned", r.Agent, r.Unsigned, r.Total)
 		}
+	}
+}
+
+// TestIntegration_TestServerUsesIsolatedDBPath is the Phase 4D
+// follow-up regression: testServer must wire the audit store to a
+// temp DB inside t.TempDir, never to the repo-root oktsec.db that
+// `make integration-test` would otherwise share across runs and
+// across PRs. Failing this test means a stale repo-local DB can
+// poison validation locally and in CI. Designed to fail on main
+// before the testServer DBPath isolation fix.
+func TestIntegration_TestServerUsesIsolatedDBPath(t *testing.T) {
+	srv, baseURL := testServer(t)
+	// One real HTTP call so Server.Start settles before t.Cleanup
+	// invokes Shutdown — same pattern every other integration test
+	// in this file uses to avoid racing the start goroutine.
+	resp, err := http.Get(baseURL + "/health")
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if srv.cfg.DBPath == "" {
+		t.Fatal("server cfg.DBPath empty")
+	}
+	if !strings.HasSuffix(srv.cfg.DBPath, string(filepath.Separator)+"integration-test.db") {
+		t.Errorf("cfg.DBPath = %q; want a temp path ending in /integration-test.db (testServer must isolate audit DB)", srv.cfg.DBPath)
+	}
+	if !filepath.IsAbs(srv.cfg.DBPath) {
+		t.Errorf("cfg.DBPath = %q; want an absolute path", srv.cfg.DBPath)
+	}
+	cwd, getwdErr := os.Getwd()
+	if getwdErr != nil {
+		t.Fatalf("getwd: %v", getwdErr)
+	}
+	if filepath.Dir(srv.cfg.DBPath) == cwd {
+		t.Errorf("cfg.DBPath is in cwd (%q); testServer wrote audit DB into the working directory", cwd)
 	}
 }
