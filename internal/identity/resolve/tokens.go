@@ -75,12 +75,13 @@ func (r TokenRecord) Active(now time.Time) bool {
 // the Principal because lookups always start from a token and resolve to
 // the owning Principal.
 type PrincipalRecord struct {
-	ID              string        `yaml:"id" json:"id"`
-	DisplayName     string        `yaml:"display_name,omitempty" json:"display_name,omitempty"`
-	Kind            PrincipalKind `yaml:"kind,omitempty" json:"kind,omitempty"`
-	WorkspaceID     string        `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-	Tokens          []TokenRecord `yaml:"tokens,omitempty" json:"tokens,omitempty"`
-	AllowedSurfaces []Surface     `yaml:"allowed_surfaces,omitempty" json:"allowed_surfaces,omitempty"`
+	ID              string           `yaml:"id" json:"id"`
+	DisplayName     string           `yaml:"display_name,omitempty" json:"display_name,omitempty"`
+	Kind            PrincipalKind    `yaml:"kind,omitempty" json:"kind,omitempty"`
+	WorkspaceID     string           `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	Tokens          []TokenRecord    `yaml:"tokens,omitempty" json:"tokens,omitempty"`
+	AllowedSurfaces []Surface        `yaml:"allowed_surfaces,omitempty" json:"allowed_surfaces,omitempty"`
+	Context         PrincipalContext `yaml:"context,omitempty" json:"context,omitempty"`
 }
 
 // TokenStore looks up tokens by ID and, given a candidate raw secret,

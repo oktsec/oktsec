@@ -113,6 +113,40 @@ type Principal struct {
 	TrustLevel  TrustLevel
 	TokenID     string // empty when auth method is not token-based
 	WorkspaceID string
+	// Context is provider-neutral identity enrichment. Empty is valid
+	// and means no external identity context is configured. It is
+	// metadata only — authorization stays driven by ID, AuthMethod,
+	// TrustLevel, delegation, suspension, ACL, and runtime policy.
+	Context PrincipalContext
+}
+
+// PrincipalContext is the provider-neutral identity context model.
+// Phase 4E-0 wires it as static enrichment carried through config; a
+// later phase may populate it from verified OIDC/JWT claims, but no
+// code path may branch on Provider — it is display metadata only.
+type PrincipalContext struct {
+	Issuer     string
+	Subject    string
+	Audience   string
+	ClientID   string
+	TenantID   string
+	Groups     []string
+	Scopes     []string
+	Provider   string // display-only label, e.g. "custom_oidc"
+	Source     string // "static_config" in 4E-0; "oidc_jwt" reserved for 4E-1
+	Verified   bool
+	ExpiresAt  string
+	ClaimsHash string // optional short hash if raw claims existed upstream
+}
+
+// IsZero reports whether the context carries no enrichment. Used by
+// the posture builder and by tests to decide whether to render the
+// "external context mapped" copy or the local-only fallback.
+func (c PrincipalContext) IsZero() bool {
+	return c.Issuer == "" && c.Subject == "" && c.Audience == "" &&
+		c.ClientID == "" && c.TenantID == "" && c.Provider == "" &&
+		c.Source == "" && c.ExpiresAt == "" && c.ClaimsHash == "" &&
+		!c.Verified && len(c.Groups) == 0 && len(c.Scopes) == 0
 }
 
 // ReportedActor is display/audit metadata supplied by the surface (header,

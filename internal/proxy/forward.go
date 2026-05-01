@@ -158,7 +158,8 @@ func buildForwardProxyIdentity(cfg *config.ForwardProxyConfig, fullCfg *config.C
 			principals = append(principals, resolve.ConfigPrincipal{
 				ID: p.ID, DisplayName: p.DisplayName, Kind: p.Kind,
 				WorkspaceID: p.WorkspaceID, AllowedSurfaces: p.AllowedSurfaces,
-				Tokens: toks,
+				Tokens:  toks,
+				Context: configPrincipalContextForward(p.Context),
 			})
 		}
 	}
@@ -735,5 +736,26 @@ func copyWithDeadline(dst, src net.Conn, idle time.Duration) (int64, error) {
 		if err != nil {
 			return total, err
 		}
+	}
+}
+
+// configPrincipalContextForward lifts the YAML PrincipalContextConfig
+// into the resolver-side neutral context. Empty in, empty out. Mirrors
+// the helpers in gateway and hooks; lives here to keep the resolver
+// independent of internal/config.
+func configPrincipalContextForward(c config.PrincipalContextConfig) resolve.ConfigPrincipalContext {
+	return resolve.ConfigPrincipalContext{
+		Issuer:     c.Issuer,
+		Subject:    c.Subject,
+		Audience:   c.Audience,
+		ClientID:   c.ClientID,
+		TenantID:   c.TenantID,
+		Groups:     c.Groups,
+		Scopes:     c.Scopes,
+		Provider:   c.Provider,
+		Source:     c.Source,
+		Verified:   c.Verified,
+		ExpiresAt:  c.ExpiresAt,
+		ClaimsHash: c.ClaimsHash,
 	}
 }

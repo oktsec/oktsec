@@ -15,6 +15,25 @@ type ConfigPrincipal struct {
 	WorkspaceID     string
 	AllowedSurfaces []string
 	Tokens          []ConfigToken
+	Context         ConfigPrincipalContext
+}
+
+// ConfigPrincipalContext mirrors config.PrincipalContextConfig but stays
+// free of YAML tags so resolve does not import config. Empty values
+// translate to a zero PrincipalContext (no enrichment).
+type ConfigPrincipalContext struct {
+	Issuer     string
+	Subject    string
+	Audience   string
+	ClientID   string
+	TenantID   string
+	Groups     []string
+	Scopes     []string
+	Provider   string
+	Source     string
+	Verified   bool
+	ExpiresAt  string
+	ClaimsHash string
 }
 
 // ConfigToken mirrors config.PrincipalTokenConfig but stays free of YAML
@@ -65,7 +84,33 @@ func PrincipalsFromConfig(in []ConfigPrincipal) []PrincipalRecord {
 			WorkspaceID:     p.WorkspaceID,
 			AllowedSurfaces: surfaces,
 			Tokens:          tokens,
+			Context:         principalContextFromConfig(p.Context),
 		})
+	}
+	return out
+}
+
+// principalContextFromConfig copies the neutral context fields. Slice
+// fields are length-preserving copies so the resolver record cannot be
+// mutated through the original config slice.
+func principalContextFromConfig(c ConfigPrincipalContext) PrincipalContext {
+	out := PrincipalContext{
+		Issuer:     c.Issuer,
+		Subject:    c.Subject,
+		Audience:   c.Audience,
+		ClientID:   c.ClientID,
+		TenantID:   c.TenantID,
+		Provider:   c.Provider,
+		Source:     c.Source,
+		Verified:   c.Verified,
+		ExpiresAt:  c.ExpiresAt,
+		ClaimsHash: c.ClaimsHash,
+	}
+	if len(c.Groups) > 0 {
+		out.Groups = append([]string(nil), c.Groups...)
+	}
+	if len(c.Scopes) > 0 {
+		out.Scopes = append([]string(nil), c.Scopes...)
 	}
 	return out
 }

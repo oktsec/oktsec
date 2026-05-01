@@ -430,18 +430,54 @@ func buildIdentityContextDimension(in PostureInputs) RuntimePostureDimension {
 		ID:    PostureDimIdentityContext,
 		Label: "Identity context",
 	}
-	if in.Identity.RequireSignature {
-		dim.Status = PostureCellOK
+	if !in.Identity.RequireSignature {
+		// Signature gate is the floor. Even a fully populated identity
+		// context cannot promote this state — context is enrichment,
+		// not authority. This must keep warning users that signed
+		// identity is off.
+		dim.Status = PostureCellWarn
+		dim.Summary = "Signature is not required. Local development mode."
+		dim.Evidence = "Set identity.require_signature=true to enforce signed identity on every request."
+		return dim
+	}
+	dim.Status = PostureCellOK
+	contextMapped := identityContextMapped(in)
+	switch {
+	case contextMapped && in.Identity.RequireDelegation:
+		dim.Summary = "Signed identity, delegation enforced, external context mapped."
+	case contextMapped:
+		dim.Summary = "Signed identity with external context mapped. Delegation not enforced."
+	default:
 		dim.Summary = "Local signed identity required (Ed25519)."
 		if in.Identity.RequireDelegation {
 			dim.Summary += " Delegation chain enforced."
 		}
-	} else {
-		dim.Status = PostureCellWarn
-		dim.Summary = "Signature is not required. Local development mode."
-		dim.Evidence = "Set identity.require_signature=true to enforce signed identity on every request."
+		dim.Summary += " External identity context not configured."
 	}
 	return dim
+}
+
+// identityContextMapped reports whether any configured Principal carries
+// non-empty PrincipalContextConfig. The check stays vendor-neutral on
+// purpose: it asks "is there any external context at all" not "which
+// IdP is in use". Provider is display metadata only — never branched on.
+func identityContextMapped(in PostureInputs) bool {
+	if in.Cfg == nil {
+		return false
+	}
+	for _, p := range in.Cfg.Identity.Principals {
+		if !principalContextEmpty(p.Context) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalContextEmpty(c config.PrincipalContextConfig) bool {
+	return c.Issuer == "" && c.Subject == "" && c.Audience == "" &&
+		c.ClientID == "" && c.TenantID == "" && c.Provider == "" &&
+		c.Source == "" && c.ExpiresAt == "" && c.ClaimsHash == "" &&
+		!c.Verified && len(c.Groups) == 0 && len(c.Scopes) == 0
 }
 
 func buildEvidenceDimension(in PostureInputs) RuntimePostureDimension {

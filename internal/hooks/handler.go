@@ -52,7 +52,8 @@ func buildHooksIdentity(cfg *config.Config) (resolve.Resolver, resolve.Config, b
 			principals = append(principals, resolve.ConfigPrincipal{
 				ID: p.ID, DisplayName: p.DisplayName, Kind: p.Kind,
 				WorkspaceID: p.WorkspaceID, AllowedSurfaces: p.AllowedSurfaces,
-				Tokens: toks,
+				Tokens:  toks,
+				Context: configPrincipalContextHooks(p.Context),
 			})
 		}
 	}
@@ -1018,4 +1019,25 @@ func truncateStr(s string, max int) string {
 		return s
 	}
 	return s[:max]
+}
+
+// configPrincipalContextHooks lifts the YAML PrincipalContextConfig
+// into the resolver-side neutral context. Empty in, empty out. Mirrors
+// the helpers in gateway and forward proxy; lives here so the resolver
+// stays independent of internal/config.
+func configPrincipalContextHooks(c config.PrincipalContextConfig) resolve.ConfigPrincipalContext {
+	return resolve.ConfigPrincipalContext{
+		Issuer:     c.Issuer,
+		Subject:    c.Subject,
+		Audience:   c.Audience,
+		ClientID:   c.ClientID,
+		TenantID:   c.TenantID,
+		Groups:     c.Groups,
+		Scopes:     c.Scopes,
+		Provider:   c.Provider,
+		Source:     c.Source,
+		Verified:   c.Verified,
+		ExpiresAt:  c.ExpiresAt,
+		ClaimsHash: c.ClaimsHash,
+	}
 }
