@@ -236,9 +236,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 1b: Delegation chain verification
-	if code, resp := h.checkDelegation(r, req.To, msgID, verified, &entry); resp != nil {
-		h.rejectAndLog(w, code, *resp, &entry, start)
-		return
+	var delegation delegationAuth
+	{
+		auth, code, dResp := h.checkDelegation(r, req.From, req.To, msgID, sigStatus, verified, &entry)
+		if dResp != nil {
+			h.rejectAndLog(w, code, *dResp, &entry, start)
+			return
+		}
+		delegation = auth
 	}
 
 	// Step 2: Agent suspension check
@@ -252,9 +257,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
 		return
 	}
+	// When a chain is present the root authority is what
+	// drives the ACL decision below. Suspension must apply to
+	// that authority too — otherwise `agent suspend human`
+	// stops cutting off authority the moment human acts via a
+	// delegate. The check uses agent_suspended for symmetry
+	// with the sender/recipient checks above; the audit row's
+	// RootAgent + DelegationChain still explain why.
+	if delegation.Present {
+		if agent, ok := h.cfg.Agents[delegation.Root]; ok && agent.Suspended {
+			resp := MessageResponse{Status: audit.StatusRejected, MessageID: msgID, PolicyDecision: audit.DecisionAgentSuspended, VerifiedSender: verified}
+			h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
+			return
+		}
+	}
 
-	// Step 3: ACL check
-	if !h.policy.CheckACL(req.From, req.To).Allowed {
+	// Step 3: ACL check. When delegation is present the
+	// effective authority is the chain's root, NOT req.From —
+	// the whole point of delegated authority is that the
+	// delegate inherits permission from the principal who
+	// issued the chain. The audit row keeps FromAgent=req.From
+	// so the actor stays clear; RootAgent + DelegationChainHash
+	// explain the authorisation source.
+	aclFrom := req.From
+	if delegation.Present {
+		aclFrom = delegation.Root
+	}
+	if !h.policy.CheckACL(aclFrom, req.To).Allowed {
 		resp := MessageResponse{Status: audit.StatusRejected, MessageID: msgID, PolicyDecision: audit.DecisionACLDenied, VerifiedSender: verified}
 		h.rejectAndLog(w, http.StatusForbidden, resp, &entry, start)
 		return
@@ -781,10 +810,47 @@ func (h *Handler) verifyIdentity(req *MessageRequest, reqKeyVersion int64) (sigS
 	return 1, true, result.Fingerprint
 }
 
-// checkDelegation verifies the delegation chain from the X-Oktsec-Delegation
-// header and populates the audit entry. Returns an HTTP response if the
-// request should be rejected (invalid chain or missing when required).
-func (h *Handler) checkDelegation(r *http.Request, recipient, msgID string, verified bool, entry *audit.Entry) (int, *MessageResponse) {
+// delegationAuth is the verified delegation context the
+// post-identity pipeline uses to make ACL decisions. Present is
+// false when no X-Oktsec-Delegation header arrived — the caller
+// then falls back to req.From for ACL. Present is true only after
+// the chain has passed every gate in checkDelegation: signature,
+// expiry, scope, depth, sender-binding, and (for the
+// require-signature-when-chain-present rule) cryptographic proof
+// the delegate issued the request.
+type delegationAuth struct {
+	Present   bool
+	Root      string // root delegator — the human/origin who granted authority
+	Delegate  string // final delegate — must equal req.From by contract
+	Depth     int
+	ChainHash string
+}
+
+// checkDelegation verifies the delegation chain from the
+// X-Oktsec-Delegation header. Phase 4B turns the wiring into
+// enforcement:
+//
+//   - Sender binding: a valid chain alone is not enough; the
+//     final Delegate of the chain must equal req.From, otherwise
+//     a stolen header would let an attacker reuse a chain issued
+//     for someone else.
+//   - Signature requirement: when a chain is present the request
+//     must be cryptographically signed by the delegate, even if
+//     identity.require_signature is false. Without this, the
+//     header degenerates into a bearer token: the chain proves
+//     the delegate WAS authorised, not that the delegate is
+//     issuing this particular request.
+//   - Depth cap: shared with the gateway via
+//     policy.ResolveDelegationDepth, so the proxy cannot be a
+//     weaker enforcement point than the gateway is.
+//
+// Returns:
+//   - (auth, 0, nil)              — header valid (or absent and not required)
+//   - (zero,  code, *MessageResponse) — request must be rejected
+//
+// The audit entry is populated for the success path; rejection
+// fields are filled by the caller via rejectAndLog.
+func (h *Handler) checkDelegation(r *http.Request, sender, recipient, msgID string, sigStatus int, verified bool, entry *audit.Entry) (delegationAuth, int, *MessageResponse) {
 	header := r.Header.Get("X-Oktsec-Delegation")
 
 	if header == "" {
@@ -796,12 +862,33 @@ func (h *Handler) checkDelegation(r *http.Request, recipient, msgID string, veri
 				PolicyDecision: audit.DecisionDelegationRequired,
 				VerifiedSender: verified,
 			}
-			return http.StatusUnauthorized, &resp
+			return delegationAuth{}, http.StatusUnauthorized, &resp
 		}
-		return 0, nil
+		return delegationAuth{}, 0, nil
 	}
 
-	// Header present — always verify (invalid = reject regardless of RequireDelegation)
+	// Header present — the request must be cryptographically
+	// signed by the delegate. Without the delegate's signature the
+	// chain is a bearer token: anyone who captures the header can
+	// replay it. checkIdentity has already reduced sigStatus to
+	// {-1: rejected, 0: unverified, 1: verified}; -1 was already
+	// rejected upstream, but 0 is allowed when identity.require
+	// _signature is false. Delegated requests MUST tighten that.
+	if sigStatus < 1 {
+		h.logger.Warn("delegated request without verified delegate signature",
+			"message_id", msgID, "from", sender)
+		resp := MessageResponse{
+			Status:         audit.StatusRejected,
+			MessageID:      msgID,
+			PolicyDecision: audit.DecisionSignatureRequired,
+			VerifiedSender: verified,
+		}
+		return delegationAuth{}, http.StatusUnauthorized, &resp
+	}
+
+	// Verify the chain — invalid means reject regardless of
+	// RequireDelegation (a present-but-broken chain is itself a
+	// signal something is wrong).
 	result := h.verifyDelegation(header, recipient)
 	if !result.Valid {
 		h.logger.Warn("delegation chain invalid",
@@ -812,28 +899,61 @@ func (h *Handler) checkDelegation(r *http.Request, recipient, msgID string, veri
 			PolicyDecision: audit.DecisionDelegationInvalid,
 			VerifiedSender: verified,
 		}
-		return http.StatusForbidden, &resp
+		return delegationAuth{}, http.StatusForbidden, &resp
 	}
 
-	// Valid chain — populate audit entry
+	// Sender binding: a valid chain that was issued for someone
+	// else is still a stolen token. Refuse anything where the
+	// final delegate does not match the actual request sender.
+	if result.Delegate != sender {
+		h.logger.Warn("delegation chain delegate does not match sender",
+			"message_id", msgID, "chain_delegate", result.Delegate, "from", sender)
+		resp := MessageResponse{
+			Status:         audit.StatusRejected,
+			MessageID:      msgID,
+			PolicyDecision: audit.DecisionDelegationInvalid,
+			VerifiedSender: verified,
+		}
+		return delegationAuth{}, http.StatusForbidden, &resp
+	}
+
+	// Depth cap. The cap applies to the sender (the agent we are
+	// gating). Same helper the gateway uses so a multi-surface
+	// deployment cannot be tighter on one path than the other.
+	if maxDepth := policy.ResolveDelegationDepth(h.cfg, sender); maxDepth > 0 && result.Depth > maxDepth {
+		h.logger.Warn("delegation depth exceeded",
+			"message_id", msgID, "from", sender, "depth", result.Depth, "max", maxDepth)
+		resp := MessageResponse{
+			Status:         audit.StatusRejected,
+			MessageID:      msgID,
+			PolicyDecision: audit.DecisionDelegationDepthExceeded,
+			VerifiedSender: verified,
+		}
+		return delegationAuth{}, http.StatusForbidden, &resp
+	}
+
+	// Valid chain — populate audit entry. The audit row carries
+	// FromAgent=sender (the actor) and RootAgent / DelegationChain
+	// / ChainHash / ParentAgent (the authority context) so a
+	// reader can answer "who delegated this" without re-parsing
+	// the header.
 	entry.DelegationChainHash = result.ChainHash
 	entry.RootAgent = result.Root
 	entry.AgentDepth = result.Depth
-
-	// Build human-readable chain summary
 	if result.Depth <= 2 {
 		entry.DelegationChain = result.Root + " -> " + result.Delegate
 	} else {
 		entry.DelegationChain = fmt.Sprintf("%s -> ... -> %s (%d hops)", result.Root, result.Delegate, result.Depth)
 	}
-
-	// ParentAgent is the delegator from the last token (the one that delegated to the current sender)
-	// For a chain like human -> A -> B, the ParentAgent of B is A.
-	// result.Root is the first delegator, result.Delegate is the final delegate.
-	// We parse the chain once more to get the parent from the last token.
 	entry.ParentAgent = h.extractParentAgent(header)
 
-	return 0, nil
+	return delegationAuth{
+		Present:   true,
+		Root:      result.Root,
+		Delegate:  result.Delegate,
+		Depth:     result.Depth,
+		ChainHash: result.ChainHash,
+	}, 0, nil
 }
 
 // verifyDelegation decodes and verifies a base64-encoded delegation chain

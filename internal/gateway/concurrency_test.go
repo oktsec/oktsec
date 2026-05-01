@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/policy"
 )
 
 func TestConcurrencyLimiter_EnforcesPerAgentCap(t *testing.T) {
@@ -100,6 +101,9 @@ func TestConcurrencyLimiter_ContextCancel(t *testing.T) {
 	}
 }
 
+// TestResolveDelegationDepth — the helper now lives in
+// internal/policy. The gateway-side test stays as a smoke check
+// that the gateway calls into the canonical implementation.
 func TestResolveDelegationDepth(t *testing.T) {
 	cfg := &config.Config{
 		Agents: map[string]config.Agent{
@@ -107,13 +111,13 @@ func TestResolveDelegationDepth(t *testing.T) {
 			"wide":   {MaxDelegationDepth: -1},
 		},
 	}
-	if got := resolveDelegationDepth(cfg, "narrow"); got != 1 {
+	if got := policy.ResolveDelegationDepth(cfg, "narrow"); got != 1 {
 		t.Fatalf("narrow: got %d want 1", got)
 	}
-	if got := resolveDelegationDepth(cfg, "wide"); got != -1 {
+	if got := policy.ResolveDelegationDepth(cfg, "wide"); got != -1 {
 		t.Fatalf("wide: got %d want -1 (unlimited)", got)
 	}
-	if got := resolveDelegationDepth(cfg, "default"); got != defaultMaxDelegationDepth {
-		t.Fatalf("default: got %d want %d", got, defaultMaxDelegationDepth)
+	if got := policy.ResolveDelegationDepth(cfg, "default"); got != policy.DefaultMaxDelegationDepth {
+		t.Fatalf("default: got %d want %d", got, policy.DefaultMaxDelegationDepth)
 	}
 }

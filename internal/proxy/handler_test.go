@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -940,8 +941,30 @@ func TestHandler_NoOverrideKeepsDefault(t *testing.T) {
 	}
 }
 
-// newDelegationTestSetup creates a test setup with keys for "human", "test-agent",
-// and "target-agent", with delegation-specific configuration.
+// newDelegationTestSetup builds the canonical Phase 4B
+// delegation fixture. Three identities, three keys, one
+// authority model:
+//
+//   - "human" is the root delegator. It has a key (so it can
+//     sign delegation tokens) and an ACL to target-agent. This
+//     is the agent whose authority a delegation chain inherits.
+//   - "test-agent" is the delegate. It has a key (so it can
+//     sign request bodies — Phase 4B requires a verified
+//     delegate signature whenever a chain is present) but NO
+//     direct ACL to target-agent. A direct request without a
+//     chain therefore fails ACL; the only way through is via a
+//     valid delegation chain rooted at human.
+//   - "target-agent" is the recipient.
+//
+// DefaultPolicy is "deny" — without that, an unknown sender
+// could pass ACL by accident and the chain-authority assertions
+// in the tests would be false-greens.
+//
+// RequireSignature is intentionally false: the Phase 4B contract
+// is that delegated requests demand cryptographic proof of the
+// delegate REGARDLESS of the global flag. A fixture that sets
+// require_signature=true would conflate the new gate with the
+// existing one.
 func newDelegationTestSetup(t *testing.T, requireDelegation bool) (*testSetup, ed25519.PrivateKey) {
 	t.Helper()
 
@@ -951,7 +974,6 @@ func newDelegationTestSetup(t *testing.T, requireDelegation bool) (*testSetup, e
 		t.Fatal(err)
 	}
 
-	// Generate keypairs for human, test-agent, and target-agent
 	humanPub, humanPriv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -971,15 +993,23 @@ func newDelegationTestSetup(t *testing.T, requireDelegation bool) (*testSetup, e
 	}
 
 	cfg := &config.Config{
-		Version: "1",
-		Server:  config.ServerConfig{Port: 0, LogLevel: "error"},
+		Version:       "1",
+		DefaultPolicy: "deny",
+		Server:        config.ServerConfig{Port: 0, LogLevel: "error"},
 		Identity: config.IdentityConfig{
 			KeysDir:           keysDir,
-			RequireSignature:  false, // simplify: focus on delegation
+			RequireSignature:  false,
 			RequireDelegation: requireDelegation,
 		},
 		Agents: map[string]config.Agent{
-			"test-agent": {CanMessage: []string{"target-agent"}},
+			// Root authority — direct ACL to target so a
+			// chain rooted here authorises the delivery.
+			"human": {CanMessage: []string{"target-agent"}},
+			// Delegate — has a key (so requests can be
+			// signed) but no direct ACL. Must rely on
+			// delegation.
+			"test-agent":   {},
+			"target-agent": {},
 		},
 	}
 
@@ -1013,6 +1043,29 @@ func newDelegationTestSetup(t *testing.T, requireDelegation bool) (*testSetup, e
 	return ts, humanPriv
 }
 
+// signedDelegatedRequest builds a MessageRequest signed by the
+// delegate (test-agent's privKey) with the given X-Oktsec-Delegation
+// header. Phase 4B rejects any delegated request that is not
+// cryptographically signed by the delegate, so every delegation
+// test that wants to reach the chain-verification logic must
+// sign through this helper.
+func signedDelegatedRequest(t *testing.T, ts *testSetup, content, header string) *httptest.ResponseRecorder {
+	t.Helper()
+	timestamp := time.Now().UTC().Format(time.RFC3339)
+	sig := signMsg(ts.privKey, "test-agent", "target-agent", content, timestamp)
+	headers := map[string]string{}
+	if header != "" {
+		headers["X-Oktsec-Delegation"] = header
+	}
+	return postMessageWithHeaders(ts.handler, MessageRequest{
+		From:      "test-agent",
+		To:        "target-agent",
+		Content:   content,
+		Signature: sig,
+		Timestamp: timestamp,
+	}, headers)
+}
+
 // encodeDelegationHeader encodes a delegation chain as a base64 JSON string
 // suitable for the X-Oktsec-Delegation header.
 func encodeDelegationHeader(chain identity.DelegationChain) string {
@@ -1020,29 +1073,26 @@ func encodeDelegationHeader(chain identity.DelegationChain) string {
 	return base64.StdEncoding.EncodeToString(data)
 }
 
-func TestHandler_DelegationValidChain(t *testing.T) {
+// TestHandler_DelegationUsesRootAuthorityForACL — the canonical
+// happy path. test-agent has no direct ACL to target-agent;
+// human (root) does. A signed request with a valid
+// human -> test-agent chain must succeed because the chain
+// inherits root's authority. Audit row carries FromAgent=test-agent
+// (the actor) and RootAgent=human (the authoriser).
+func TestHandler_DelegationUsesRootAuthorityForACL(t *testing.T) {
 	ts, humanPriv := newDelegationTestSetup(t, false)
 
-	// Create a valid delegation chain: human -> test-agent
 	token := identity.CreateChainedDelegation(
 		humanPriv, "human", "test-agent",
 		[]string{"target-agent"}, nil,
 		time.Hour, "", 0, 3,
 	)
-	chain := identity.DelegationChain{*token}
-	header := encodeDelegationHeader(chain)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
 
-	w := postMessageWithHeaders(ts.handler, MessageRequest{
-		From:      "test-agent",
-		To:        "target-agent",
-		Content:   "hello with delegation",
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}, map[string]string{"X-Oktsec-Delegation": header})
-
+	w := signedDelegatedRequest(t, ts, "hello with delegation", header)
 	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", w.Code)
+		t.Errorf("status = %d, want 200; body=%s", w.Code, w.Body.String())
 	}
-
 	var resp MessageResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
@@ -1051,8 +1101,7 @@ func TestHandler_DelegationValidChain(t *testing.T) {
 		t.Errorf("status = %q, want delivered", resp.Status)
 	}
 
-	// Verify audit entry has delegation data
-	time.Sleep(100 * time.Millisecond) // wait for async write
+	time.Sleep(100 * time.Millisecond)
 	entries, err := ts.auditStore.Query(audit.QueryOpts{Limit: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -1061,86 +1110,116 @@ func TestHandler_DelegationValidChain(t *testing.T) {
 		t.Fatal("expected at least one audit entry")
 	}
 	entry := entries[0]
+	if entry.FromAgent != "test-agent" {
+		t.Errorf("FromAgent = %q, want test-agent (sender stays the actor)", entry.FromAgent)
+	}
+	if entry.RootAgent != "human" {
+		t.Errorf("RootAgent = %q, want human (authoriser)", entry.RootAgent)
+	}
 	if entry.DelegationChainHash == "" {
 		t.Error("DelegationChainHash should be set for valid delegation")
 	}
 	if entry.DelegationChain == "" {
 		t.Error("DelegationChain should be set for valid delegation")
 	}
-	if entry.RootAgent != "human" {
-		t.Errorf("RootAgent = %q, want human", entry.RootAgent)
-	}
 }
 
-func TestHandler_DelegationExpiredToken(t *testing.T) {
+// TestHandler_DelegationBlocksWhenRootAuthorityLacksACL — the
+// AND-strict half of Gap 2. Reverse the fixture: give test-agent
+// direct ACL to target-agent and strip the root's ACL. With a
+// valid chain present, the ACL gate now evaluates the root's
+// permissions ONLY — the delegate's direct ACL is ignored. The
+// request must be denied with acl_denied (not delegation_invalid;
+// the chain itself is valid).
+func TestHandler_DelegationBlocksWhenRootAuthorityLacksACL(t *testing.T) {
 	ts, humanPriv := newDelegationTestSetup(t, false)
+	// Flip the fixture: delegate has direct ACL, root is not a
+	// registered policy principal at all. The keystore still
+	// has human's key (so the chain can verify), but cfg.Agents
+	// no longer carries it — DefaultPolicy=deny then refuses
+	// the request because the effective authoriser is unknown
+	// to policy.
+	ts.handler.cfg.Agents["test-agent"] = config.Agent{CanMessage: []string{"target-agent"}}
+	delete(ts.handler.cfg.Agents, "human")
+	ts.handler.policy = policy.NewEvaluator(ts.handler.cfg)
 
-	// Create an expired delegation token (TTL of -1h means it expired 1h ago)
-	now := time.Now().UTC()
-	token := &identity.DelegationToken{
-		Delegator: "human",
-		Delegate:  "test-agent",
-		Scope:     []string{"target-agent"},
-		IssuedAt:  now.Add(-2 * time.Hour),
-		ExpiresAt: now.Add(-1 * time.Hour), // expired
-		MaxDepth:  3,
-	}
-	// Compute token ID and sign
-	payload := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s\n%d\n%d\n%s",
-		token.Delegator, token.Delegate, "target-agent",
-		token.IssuedAt.UTC().Format(time.RFC3339),
-		token.ExpiresAt.UTC().Format(time.RFC3339),
-		"", 0, 3, "")
-	sig := ed25519.Sign(humanPriv, []byte(payload))
-	token.Signature = base64.StdEncoding.EncodeToString(sig)
-
-	chain := identity.DelegationChain{*token}
-	header := encodeDelegationHeader(chain)
-
-	w := postMessageWithHeaders(ts.handler, MessageRequest{
-		From:      "test-agent",
-		To:        "target-agent",
-		Content:   "hello with expired delegation",
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}, map[string]string{"X-Oktsec-Delegation": header})
-
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403 for expired delegation", w.Code)
-	}
-
-	var resp MessageResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.PolicyDecision != audit.DecisionDelegationInvalid {
-		t.Errorf("decision = %q, want %s", resp.PolicyDecision, audit.DecisionDelegationInvalid)
-	}
-}
-
-func TestHandler_DelegationInvalidSignature(t *testing.T) {
-	ts, _ := newDelegationTestSetup(t, false)
-
-	// Create a token signed with a wrong key
-	_, wrongPriv, _ := ed25519.GenerateKey(rand.Reader)
 	token := identity.CreateChainedDelegation(
-		wrongPriv, "human", "test-agent",
+		humanPriv, "human", "test-agent",
 		[]string{"target-agent"}, nil,
 		time.Hour, "", 0, 3,
 	)
-	chain := identity.DelegationChain{*token}
-	header := encodeDelegationHeader(chain)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
 
+	w := signedDelegatedRequest(t, ts, "hello with chain but no root ACL", header)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	var resp MessageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PolicyDecision != audit.DecisionACLDenied {
+		t.Errorf("decision = %q, want %s (AND-strict: delegate's direct ACL must be ignored when chain present)",
+			resp.PolicyDecision, audit.DecisionACLDenied)
+	}
+}
+
+// TestHandler_DelegationRequiresVerifiedDelegateSignature — Gap 0.
+// A request that carries a valid chain but no signature must be
+// rejected with signature_required, even if
+// identity.require_signature is false. Without this gate the
+// header degenerates into a bearer token: anyone who captures
+// it can replay.
+func TestHandler_DelegationRequiresVerifiedDelegateSignature(t *testing.T) {
+	ts, humanPriv := newDelegationTestSetup(t, false)
+
+	token := identity.CreateChainedDelegation(
+		humanPriv, "human", "test-agent",
+		[]string{"target-agent"}, nil,
+		time.Hour, "", 0, 3,
+	)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
+
+	// Note: NO signature on the body. Same chain, same sender,
+	// different gate triggers.
 	w := postMessageWithHeaders(ts.handler, MessageRequest{
 		From:      "test-agent",
 		To:        "target-agent",
-		Content:   "hello with bad sig",
+		Content:   "hello with chain but no body signature",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}, map[string]string{"X-Oktsec-Delegation": header})
 
-	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403 for invalid signature", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 (delegated request requires verified signature); body=%s", w.Code, w.Body.String())
 	}
+	var resp MessageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PolicyDecision != audit.DecisionSignatureRequired {
+		t.Errorf("decision = %q, want %s", resp.PolicyDecision, audit.DecisionSignatureRequired)
+	}
+}
 
+// TestHandler_DelegationDelegateMustMatchSender — Gap 1. A
+// chain issued for someone else is a stolen token. Even if the
+// chain verifies, the delegate at the tail must equal req.From.
+func TestHandler_DelegationDelegateMustMatchSender(t *testing.T) {
+	ts, humanPriv := newDelegationTestSetup(t, false)
+
+	// Chain delegates to "other-agent" — but the sender will be
+	// test-agent. Stolen-token shape.
+	token := identity.CreateChainedDelegation(
+		humanPriv, "human", "other-agent",
+		[]string{"target-agent"}, nil,
+		time.Hour, "", 0, 3,
+	)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
+
+	w := signedDelegatedRequest(t, ts, "hello with chain for other agent", header)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
 	var resp MessageResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
@@ -1150,24 +1229,94 @@ func TestHandler_DelegationInvalidSignature(t *testing.T) {
 	}
 }
 
-func TestHandler_DelegationNotRequiredNoneProvided(t *testing.T) {
-	ts, _ := newDelegationTestSetup(t, false)
+// TestHandler_DelegationDepthExceededBlocksInProxy — Gap 3. The
+// proxy must enforce the same depth cap the gateway already
+// enforces, via the shared policy.ResolveDelegationDepth helper.
+// max_delegation_depth=1 allows a single-hop chain and blocks a
+// two-hop chain.
+func TestHandler_DelegationDepthExceededBlocksInProxy(t *testing.T) {
+	ts, humanPriv := newDelegationTestSetup(t, false)
+	// Tighten the cap on the sender to 1 hop.
+	ac := ts.handler.cfg.Agents["test-agent"]
+	ac.MaxDelegationDepth = 1
+	ts.handler.cfg.Agents["test-agent"] = ac
 
-	// No delegation header, RequireDelegation=false — should pass through
+	// Build an intermediate "agent-mid" and a 2-hop chain
+	// human -> agent-mid -> test-agent. The chain's sender
+	// continues to be test-agent; depth = 2 exceeds cap = 1.
+	midPub, midPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keysDir := ts.handler.cfg.Identity.KeysDir
+	midKP := &identity.Keypair{Name: "agent-mid", PublicKey: midPub, PrivateKey: midPriv}
+	if err := midKP.Save(keysDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := ts.handler.keys.LoadFromDir(keysDir); err != nil {
+		t.Fatal(err)
+	}
+
+	tok1 := identity.CreateChainedDelegation(humanPriv, "human", "agent-mid",
+		[]string{"target-agent"}, nil, time.Hour, "", 0, 3)
+	// Second hop: ChainDepth=1 and ParentTokenID linked to
+	// tok1 so VerifyChain accepts the linkage. The chain
+	// itself is structurally valid; we want the proxy's depth
+	// cap (max_delegation_depth=1) to be the gate that fires,
+	// not the per-token MaxDepth.
+	tok2 := identity.CreateChainedDelegation(midPriv, "agent-mid", "test-agent",
+		[]string{"target-agent"}, nil, time.Hour, tok1.TokenID, 1, 3)
+	header := encodeDelegationHeader(identity.DelegationChain{*tok1, *tok2})
+
+	w := signedDelegatedRequest(t, ts, "hello via 2-hop chain", header)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	var resp MessageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PolicyDecision != audit.DecisionDelegationDepthExceeded {
+		t.Errorf("decision = %q, want %s", resp.PolicyDecision, audit.DecisionDelegationDepthExceeded)
+	}
+}
+
+// TestHandler_DelegationMissingHeaderStillAllowedByDefault — when
+// the chain header is absent and require_delegation is off,
+// requests pass through normally. The fixture's ACL is set up
+// so test-agent has a direct chain via giving it temporary
+// CanMessage just for this test (the spec calls it the legacy
+// passthrough behaviour).
+func TestHandler_DelegationMissingHeaderStillAllowedByDefault(t *testing.T) {
+	ts, _ := newDelegationTestSetup(t, false)
+	// Without delegation, ACL evaluates the sender directly.
+	// Give the sender a one-off direct ACL so the legacy
+	// path is exercised in isolation.
+	ac := ts.handler.cfg.Agents["test-agent"]
+	ac.CanMessage = []string{"target-agent"}
+	ts.handler.cfg.Agents["test-agent"] = ac
+	ts.handler.policy = policy.NewEvaluator(ts.handler.cfg)
+
 	w := postMessageWithHeaders(ts.handler, MessageRequest{
 		From:      "test-agent",
 		To:        "target-agent",
 		Content:   "hello without delegation",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}, nil)
-
 	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200 (delegation not required)", w.Code)
+		t.Errorf("status = %d, want 200 (delegation not required, direct ACL allows); body=%s", w.Code, w.Body.String())
 	}
 }
 
-func TestHandler_DelegationRequiredNoneProvided(t *testing.T) {
+// TestHandler_DelegationMissingHeaderRejectedWhenRequired — when
+// require_delegation=true the absence of the header is a hard
+// 401 with delegation_required, regardless of direct ACL.
+func TestHandler_DelegationMissingHeaderRejectedWhenRequired(t *testing.T) {
 	ts, _ := newDelegationTestSetup(t, true) // RequireDelegation=true
+	ac := ts.handler.cfg.Agents["test-agent"]
+	ac.CanMessage = []string{"target-agent"}
+	ts.handler.cfg.Agents["test-agent"] = ac
+	ts.handler.policy = policy.NewEvaluator(ts.handler.cfg)
 
 	w := postMessageWithHeaders(ts.handler, MessageRequest{
 		From:      "test-agent",
@@ -1177,9 +1326,8 @@ func TestHandler_DelegationRequiredNoneProvided(t *testing.T) {
 	}, nil)
 
 	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401 (delegation required but not provided)", w.Code)
+		t.Errorf("status = %d, want 401", w.Code)
 	}
-
 	var resp MessageResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
@@ -1189,35 +1337,181 @@ func TestHandler_DelegationRequiredNoneProvided(t *testing.T) {
 	}
 }
 
-func TestHandler_DelegationScopeViolation(t *testing.T) {
-	ts, humanPriv := newDelegationTestSetup(t, false)
+// TestHandler_DelegationInvalidHeaderRejectedEvenWhenNotRequired —
+// a malformed/invalid chain is rejected even when delegation is
+// optional. The presence of a broken header is itself a signal
+// something is wrong.
+func TestHandler_DelegationInvalidHeaderRejectedEvenWhenNotRequired(t *testing.T) {
+	ts, _ := newDelegationTestSetup(t, false)
 
-	// Create delegation with scope limited to "other-agent" (not target-agent)
+	// Token signed with a wrong key — chain verify fails.
+	_, wrongPriv, _ := ed25519.GenerateKey(rand.Reader)
 	token := identity.CreateChainedDelegation(
-		humanPriv, "human", "test-agent",
-		[]string{"other-agent"}, nil, // scope does NOT include target-agent
+		wrongPriv, "human", "test-agent",
+		[]string{"target-agent"}, nil,
 		time.Hour, "", 0, 3,
 	)
-	chain := identity.DelegationChain{*token}
-	header := encodeDelegationHeader(chain)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
 
-	w := postMessageWithHeaders(ts.handler, MessageRequest{
-		From:      "test-agent",
-		To:        "target-agent",
-		Content:   "hello with wrong scope",
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-	}, map[string]string{"X-Oktsec-Delegation": header})
-
+	w := signedDelegatedRequest(t, ts, "hello with bad sig in chain", header)
 	if w.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403 for scope violation", w.Code)
+		t.Errorf("status = %d, want 403", w.Code)
 	}
-
 	var resp MessageResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
 	if resp.PolicyDecision != audit.DecisionDelegationInvalid {
 		t.Errorf("decision = %q, want %s", resp.PolicyDecision, audit.DecisionDelegationInvalid)
+	}
+}
+
+// TestHandler_DelegationExpiredTokenRejected — same shape as the
+// invalid-signature test but for expiry. Kept distinct because
+// it exercises a different VerifyChain branch.
+func TestHandler_DelegationExpiredTokenRejected(t *testing.T) {
+	ts, humanPriv := newDelegationTestSetup(t, false)
+
+	now := time.Now().UTC()
+	token := &identity.DelegationToken{
+		Delegator: "human",
+		Delegate:  "test-agent",
+		Scope:     []string{"target-agent"},
+		IssuedAt:  now.Add(-2 * time.Hour),
+		ExpiresAt: now.Add(-1 * time.Hour),
+		MaxDepth:  3,
+	}
+	payload := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s\n%d\n%d\n%s",
+		token.Delegator, token.Delegate, "target-agent",
+		token.IssuedAt.UTC().Format(time.RFC3339),
+		token.ExpiresAt.UTC().Format(time.RFC3339),
+		"", 0, 3, "")
+	sig := ed25519.Sign(humanPriv, []byte(payload))
+	token.Signature = base64.StdEncoding.EncodeToString(sig)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
+
+	w := signedDelegatedRequest(t, ts, "hello with expired delegation", header)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+	var resp MessageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PolicyDecision != audit.DecisionDelegationInvalid {
+		t.Errorf("decision = %q, want %s", resp.PolicyDecision, audit.DecisionDelegationInvalid)
+	}
+}
+
+// TestHandler_DelegationScopeViolation — chain whose scope does
+// NOT include the request recipient is rejected with
+// delegation_invalid.
+func TestHandler_DelegationScopeViolation(t *testing.T) {
+	ts, humanPriv := newDelegationTestSetup(t, false)
+
+	token := identity.CreateChainedDelegation(
+		humanPriv, "human", "test-agent",
+		[]string{"other-agent"}, nil, // scope omits target-agent
+		time.Hour, "", 0, 3,
+	)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
+
+	w := signedDelegatedRequest(t, ts, "hello with wrong scope", header)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", w.Code)
+	}
+	var resp MessageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PolicyDecision != audit.DecisionDelegationInvalid {
+		t.Errorf("decision = %q, want %s", resp.PolicyDecision, audit.DecisionDelegationInvalid)
+	}
+}
+
+// TestHandler_DelegationSuspendedRootBlocksDelegate covers the
+// suspension half of the AND-strict authority model. Once
+// delegation.Root becomes the effective ACL principal, its
+// suspension state must gate authority too — otherwise
+// `agent suspend human` stops cutting off authority the moment
+// human acts via an unsuspended delegate, and the suspension
+// surface drifts away from the policy surface. The check uses
+// agent_suspended for symmetry with the existing
+// sender/recipient checks; the audit row's RootAgent +
+// DelegationChain still explain which authority was suspended.
+func TestHandler_DelegationSuspendedRootBlocksDelegate(t *testing.T) {
+	ts, humanPriv := newDelegationTestSetup(t, false)
+	// Suspend the root authority while keeping the delegate
+	// active. Without the new gate the request would slip
+	// through because policy.CheckACL is happy with human's
+	// ACL.
+	human := ts.handler.cfg.Agents["human"]
+	human.Suspended = true
+	ts.handler.cfg.Agents["human"] = human
+
+	token := identity.CreateChainedDelegation(
+		humanPriv, "human", "test-agent",
+		[]string{"target-agent"}, nil,
+		time.Hour, "", 0, 3,
+	)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
+
+	w := signedDelegatedRequest(t, ts, "hello via suspended root", header)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", w.Code, w.Body.String())
+	}
+	var resp MessageResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.PolicyDecision != audit.DecisionAgentSuspended {
+		t.Errorf("decision = %q, want %s (suspended root must not authorise via delegate)",
+			resp.PolicyDecision, audit.DecisionAgentSuspended)
+	}
+}
+
+// TestHandler_DelegationAuditStoresHashNotRawHeader is the
+// regression for Gap 4. The audit row must carry the chain hash
+// + a human-readable summary, never the base64 header. A future
+// refactor that accidentally writes the raw header somewhere
+// would surface here as a substring match in any audit field.
+func TestHandler_DelegationAuditStoresHashNotRawHeader(t *testing.T) {
+	ts, humanPriv := newDelegationTestSetup(t, false)
+
+	token := identity.CreateChainedDelegation(
+		humanPriv, "human", "test-agent",
+		[]string{"target-agent"}, nil,
+		time.Hour, "", 0, 3,
+	)
+	header := encodeDelegationHeader(identity.DelegationChain{*token})
+
+	w := signedDelegatedRequest(t, ts, "hello", header)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	time.Sleep(100 * time.Millisecond)
+	entries, err := ts.auditStore.Query(audit.QueryOpts{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("expected audit entry")
+	}
+	entry := entries[0]
+	for _, field := range []string{
+		entry.DelegationChain,
+		entry.DelegationChainHash,
+		entry.RootAgent,
+		entry.ParentAgent,
+		entry.Intent,
+		entry.RulesTriggered,
+	} {
+		if field != "" && strings.Contains(field, header) {
+			t.Errorf("audit field leaked raw delegation header: %q", field)
+		}
+	}
+	if entry.DelegationChainHash == "" {
+		t.Error("DelegationChainHash should be set so the row is forensically usable")
 	}
 }
 

@@ -216,6 +216,30 @@ func TestRuntimePosture_LocalSignedIdentityIsEnough(t *testing.T) {
 	}
 }
 
+// TestRuntimePosture_DelegationSummaryOnlyWhenRequireDelegation —
+// the identity_context dimension should claim "Delegation chain
+// enforced." only when identity.require_delegation is true.
+// Without the flag, the page must NOT advertise a guarantee
+// the runtime is not actually enforcing.
+func TestRuntimePosture_DelegationSummaryOnlyWhenRequireDelegation(t *testing.T) {
+	in := baseInputsWithConnection(fixtureProtectedConnection())
+	in.Identity.RequireSignature = true
+
+	in.Identity.RequireDelegation = false
+	snap := buildRuntimePostureSnapshot(in)
+	id := findDimension(t, snap, PostureDimIdentityContext)
+	if strings.Contains(id.Summary, "Delegation chain enforced") {
+		t.Errorf("identity_context advertises delegation enforcement when require_delegation=false: %q", id.Summary)
+	}
+
+	in.Identity.RequireDelegation = true
+	snap = buildRuntimePostureSnapshot(in)
+	id = findDimension(t, snap, PostureDimIdentityContext)
+	if !strings.Contains(id.Summary, "Delegation chain enforced") {
+		t.Errorf("identity_context missing delegation summary when require_delegation=true: %q", id.Summary)
+	}
+}
+
 // TestRuntimePosture_AuditFallbackDoesNotOverrideRuntimePartial —
 // a runtime-partial state must stay setup_pending even when the
 // audit chain is valid and the auditcheck score is high. The

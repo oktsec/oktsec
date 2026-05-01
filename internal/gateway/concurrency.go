@@ -7,14 +7,16 @@ import (
 	"github.com/oktsec/oktsec/internal/config"
 )
 
-// Defaults when an Agent config omits a cap. Both numbers are intentionally
-// conservative: the gateway is the shared path through which N sub-agents
-// hit M backends, so a single rogue agent blasting concurrency hurts peers.
-// Operators who need more can override per-agent or pass < 0 for unlimited.
-const (
-	defaultMaxConcurrentCalls = 5
-	defaultMaxDelegationDepth = 3
-)
+// Default when an Agent config omits a concurrency cap. Conservative
+// because the gateway is the shared path through which N sub-agents
+// hit M backends, so a single rogue agent blasting concurrency hurts
+// peers. Operators who need more can override per-agent or pass < 0
+// for unlimited.
+//
+// The matching delegation-depth default lives in internal/policy
+// (DefaultMaxDelegationDepth) so the proxy and gateway evaluate the
+// cap with one helper.
+const defaultMaxConcurrentCalls = 5
 
 // concurrencyLimiter hands out per-agent semaphore slots. Slots are created
 // lazily on first use and never deleted (the set of agent names is bounded
@@ -73,20 +75,4 @@ func (cl *concurrencyLimiter) acquire(ctx context.Context, agent string) (func()
 	case <-ctx.Done():
 		return func() {}, ctx.Err()
 	}
-}
-
-// resolveDelegationDepth picks the effective delegation depth cap for an agent.
-func resolveDelegationDepth(cfg *config.Config, agent string) int {
-	if cfg == nil {
-		return defaultMaxDelegationDepth
-	}
-	if ac, ok := cfg.Agents[agent]; ok {
-		switch {
-		case ac.MaxDelegationDepth < 0:
-			return -1
-		case ac.MaxDelegationDepth > 0:
-			return ac.MaxDelegationDepth
-		}
-	}
-	return defaultMaxDelegationDepth
 }
