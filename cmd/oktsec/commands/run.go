@@ -97,7 +97,31 @@ func executeRun(opts runOpts) error {
 	return startServer(configPath, opts)
 }
 
+// autoSetupDeps lets tests substitute the external effects of first-run setup
+// (MCP discovery, Claude CLI presence check, Claude Code gateway connection,
+// generic client wrapping) without invoking real CLIs or mutating real
+// ~/.claude/settings.json.
+type autoSetupDeps struct {
+	scan              func() (*discover.Result, error)
+	hasClaudeCLI      func() bool
+	connectClaudeCode func(port int, endpoint string) error
+	wrapClient        func(client string, opts discover.WrapOpts) (int, error)
+}
+
+func defaultAutoSetupDeps() autoSetupDeps {
+	return autoSetupDeps{
+		scan:              discover.Scan,
+		hasClaudeCLI:      hasClaudeCLI,
+		connectClaudeCode: autoConnectClaudeCode,
+		wrapClient:        discover.WrapClient,
+	}
+}
+
 func autoSetup(configPath string, opts runOpts) error {
+	return autoSetupWithDeps(configPath, opts, defaultAutoSetupDeps())
+}
+
+func autoSetupWithDeps(configPath string, opts runOpts, deps autoSetupDeps) error {
 	// Ensure parent directory exists (e.g. ~/.oktsec/)
 	if dir := filepath.Dir(configPath); dir != "." {
 		_ = os.MkdirAll(dir, 0o700)
@@ -105,7 +129,7 @@ func autoSetup(configPath string, opts runOpts) error {
 
 	// Step 1: Discover
 	fmt.Printf("  %s\n", color.New(color.Bold).Sprint("Scanning for MCP servers..."))
-	result, err := discover.Scan()
+	result, err := deps.scan()
 	if err != nil {
 		return err
 	}
@@ -119,7 +143,24 @@ func autoSetup(configPath string, opts runOpts) error {
 		if err := writeMinimalConfig(configPath); err != nil {
 			return err
 		}
-		return ensureSecrets(configPath)
+		if err := ensureSecrets(configPath); err != nil {
+			return err
+		}
+
+		absConfig, err := filepath.Abs(configPath)
+		if err != nil {
+			absConfig = configPath
+		}
+
+		// Discovery answers "did we find backend MCP servers to import?".
+		// Claude Code bootstrap answers "can we register oktsec as a runtime
+		// surface and install hooks?". Empty discovery must not skip the
+		// second question.
+		connectMCPClients(result, absConfig, opts, 9090, "/mcp", deps)
+
+		fmt.Println("  " + color.GreenString("Setup complete.") + " Starting server...")
+		fmt.Println()
+		return nil
 	}
 
 	fmt.Printf("  Found %s across %d client(s):\n\n", color.GreenString("%d server(s)", result.TotalServers()), result.TotalClients())
@@ -265,52 +306,65 @@ func autoSetup(configPath string, opts runOpts) error {
 	}
 
 	// Step 4: Connect clients
-	if !opts.skipWrap {
-		fmt.Println("  Connecting MCP clients...")
-
-		totalConnected := 0
-
-		// Claude Code: register gateway via HTTP MCP transport (preferred over wrapping)
-		if hasClaudeCLI() {
-			if err := autoConnectClaudeCode(9090, "/mcp"); err != nil {
-				fmt.Printf("    %-16s  error: %s\n", "Claude Code", err)
-			} else {
-				fmt.Printf("    %-16s  connected via gateway\n", "Claude Code")
-				totalConnected++
-			}
-		}
-
-		// Other clients: wrap stdio servers through oktsec proxy
-		wrapOpts := discover.WrapOpts{
-			Enforce:    opts.enforce,
-			ConfigPath: absConfig,
-		}
-		for _, cr := range result.Clients {
-			// Skip claude-code (handled above via gateway)
-			if cr.Client == "claude-code" || !discover.IsWrappable(cr.Client) || len(cr.Servers) == 0 {
-				continue
-			}
-			wrapped, err := discover.WrapClient(cr.Client, wrapOpts)
-			name := discover.ClientDisplayName(cr.Client)
-			if err != nil {
-				fmt.Printf("    %-16s  error: %s\n", name, err)
-				continue
-			}
-			if wrapped > 0 {
-				fmt.Printf("    %-16s  %d server(s) wrapped\n", name, wrapped)
-				totalConnected += wrapped
-			}
-		}
-
-		if totalConnected > 0 {
-			fmt.Printf("\n    %d client(s) now routing through oktsec.\n", totalConnected)
-		}
-		fmt.Println()
-	}
+	connectMCPClients(result, absConfig, opts, 9090, "/mcp", deps)
 
 	fmt.Println("  " + color.GreenString("Setup complete.") + " Starting server...")
 	fmt.Println()
 	return nil
+}
+
+// connectMCPClients runs the client-bootstrap phase shared by both empty and
+// non-empty discovery paths: register Claude Code via the gateway when the
+// `claude` CLI is available, and wrap any other supported clients with at
+// least one discovered MCP server. --skip-wrap is the opt-out for any
+// external client mutation.
+func connectMCPClients(result *discover.Result, absConfig string, opts runOpts, gatewayPort int, endpoint string, deps autoSetupDeps) {
+	if opts.skipWrap {
+		return
+	}
+
+	fmt.Println("  Connecting MCP clients...")
+
+	totalConnected := 0
+
+	// Claude Code: register gateway via HTTP MCP transport (preferred over wrapping).
+	// This runs even when discovery is empty so first-run setup still installs the
+	// gateway entry and PreToolUse/PostToolUse hooks.
+	if deps.hasClaudeCLI() {
+		if err := deps.connectClaudeCode(gatewayPort, endpoint); err != nil {
+			fmt.Printf("    %-16s  error: %s\n", "Claude Code", err)
+		} else {
+			fmt.Printf("    %-16s  connected via gateway\n", "Claude Code")
+			totalConnected++
+		}
+	}
+
+	// Other clients: wrap stdio servers through oktsec proxy. Skipped when
+	// discovery is empty because there are no servers to wrap.
+	wrapOpts := discover.WrapOpts{
+		Enforce:    opts.enforce,
+		ConfigPath: absConfig,
+	}
+	for _, cr := range result.Clients {
+		if cr.Client == "claude-code" || !discover.IsWrappable(cr.Client) || len(cr.Servers) == 0 {
+			continue
+		}
+		wrapped, err := deps.wrapClient(cr.Client, wrapOpts)
+		name := discover.ClientDisplayName(cr.Client)
+		if err != nil {
+			fmt.Printf("    %-16s  error: %s\n", name, err)
+			continue
+		}
+		if wrapped > 0 {
+			fmt.Printf("    %-16s  %d server(s) wrapped\n", name, wrapped)
+			totalConnected += wrapped
+		}
+	}
+
+	if totalConnected > 0 {
+		fmt.Printf("\n    %d client(s) now routing through oktsec.\n", totalConnected)
+	}
+	fmt.Println()
 }
 
 
