@@ -51,15 +51,25 @@ For other clients, this wraps their MCP servers through the oktsec proxy.`,
 				cfg = config.Defaults()
 			}
 
-			// Check gateway is configured (required for claude-code HTTP transport)
-			if client == "claude-code" && !cfg.Gateway.Enabled {
-				fmt.Println("Note: Gateway is not enabled in config. Claude Code connects via HTTP MCP")
-				fmt.Println("transport, which requires the gateway. Enable it with:")
-				fmt.Println()
-				fmt.Printf("  gateway:\n    enabled: true\n    port: 9090\n")
-				fmt.Println()
-				fmt.Println("Proceeding with agent registration and key generation...")
-				fmt.Println()
+			// Claude Code routes through the gateway via HTTP MCP transport.
+			// `connect claude-code` is strict: a successful return must mean
+			// the runtime surface is actually usable. If the loaded config
+			// (or a legacy config) leaves the gateway disabled, we enable it
+			// here BEFORE mutating Claude Code state, with port/endpoint
+			// defaults filled in. Otherwise Claude Code would point at
+			// 127.0.0.1:9090/mcp while `oktsec run` / `oktsec serve` refused
+			// to start the gateway.
+			if client == "claude-code" {
+				if !cfg.Gateway.Enabled {
+					cfg.Gateway.Enabled = true
+					fmt.Println("Enabling gateway in config (required for Claude Code HTTP MCP transport).")
+				}
+				if cfg.Gateway.Port == 0 {
+					cfg.Gateway.Port = 9090
+				}
+				if cfg.Gateway.EndpointPath == "" {
+					cfg.Gateway.EndpointPath = "/mcp"
+				}
 			}
 
 			// Resolve keys directory from config or flag
@@ -103,6 +113,16 @@ For other clients, this wraps their MCP servers through the oktsec proxy.`,
 				fmt.Printf("Keypair already exists at %s\n", keyPath)
 			}
 
+			// Persist config BEFORE mutating Claude Code state. If the
+			// strict connect fails partway through (gateway add OK but hook
+			// install fails, etc.) the operator still has an oktsec.yaml
+			// that matches the command's intent so `oktsec doctor
+			// claude-code` and a re-run of `connect` can repair the state.
+			if err := cfg.Save(cfgFile); err != nil {
+				return fmt.Errorf("saving config: %w", err)
+			}
+			fmt.Printf("Config saved to %s\n", cfgFile)
+
 			// Connect the client
 			fmt.Println()
 			if client == "claude-code" {
@@ -114,12 +134,6 @@ For other clients, this wraps their MCP servers through the oktsec proxy.`,
 					return err
 				}
 			}
-
-			// Save config
-			if err := cfg.Save(cfgFile); err != nil {
-				return fmt.Errorf("saving config: %w", err)
-			}
-			fmt.Printf("\nConfig saved to %s\n", cfgFile)
 
 			// Instructions
 			fmt.Println()

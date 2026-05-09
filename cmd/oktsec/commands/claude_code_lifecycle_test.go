@@ -234,6 +234,70 @@ func TestDisconnectClaudeCode_GatewayMissingStillAttemptsHookUninstall(t *testin
 	}
 }
 
+// TestConnectClaudeCode_GatewayAlreadyPresentIsRepairCase verifies that
+// when `claude mcp add` reports the entry already exists, the helper
+// treats it as idempotent success and continues into hook install.
+// This is the "repair connection" path: gateway present, hooks missing
+// or stale, operator runs `oktsec connect claude-code` again.
+func TestConnectClaudeCode_GatewayAlreadyPresentIsRepairCase(t *testing.T) {
+	stub := &stubLifecycleDeps{
+		hasCLI:        true,
+		addOut:        []byte("Error: MCP server \"oktsec-gateway\" already exists"),
+		addErr:        errors.New("exit status 1"),
+		installResult: claudecode.InstallResult{Wrote: true},
+	}
+	res, err := connectClaudeCodeRuntime(context.Background(),
+		claudeCodeConnectOptions{Port: 9090, Endpoint: "/mcp", Mode: claudeConnectStrict},
+		stub.deps())
+	if err != nil {
+		t.Fatalf("strict connect must succeed when gateway already exists: %v", err)
+	}
+	if !res.GatewayOK {
+		t.Errorf("gateway should be marked OK on already-present; got %+v", res)
+	}
+	if !res.HooksOK {
+		t.Errorf("hooks must still install; got %+v", res)
+	}
+	if stub.installCalls != 1 {
+		t.Errorf("installHooksV2 must run after already-present gateway; calls=%d", stub.installCalls)
+	}
+	if len(res.Warnings) == 0 {
+		t.Errorf("expected an informational warning about already-present gateway")
+	}
+}
+
+// TestDisconnectClaudeCode_MissingCLIReturnsPartialError pins the
+// stricter disconnect contract: when claude is not on PATH we cannot
+// remove or verify the gateway entry, so disconnect must report a
+// partial state even if hook uninstall succeeded.
+func TestDisconnectClaudeCode_MissingCLIReturnsPartialError(t *testing.T) {
+	stub := &stubLifecycleDeps{
+		hasCLI:          false,
+		uninstallResult: claudecode.UninstallResult{Wrote: true, RemovedV2: 14},
+	}
+	res, err := disconnectClaudeCodeRuntime(context.Background(),
+		claudeCodeDisconnectOptions{},
+		stub.deps())
+	if err == nil {
+		t.Fatal("disconnect must return error when claude CLI is missing (gateway state is unprovable)")
+	}
+	if !strings.Contains(err.Error(), "claude CLI is not on PATH") {
+		t.Errorf("error should explain the missing CLI; got %v", err)
+	}
+	if res.GatewayAttempted {
+		t.Errorf("gateway must not be marked attempted when the CLI is missing")
+	}
+	if !res.HooksOK {
+		t.Errorf("hooks should still be cleaned up; got %+v", res)
+	}
+	if stub.uninstallCalls != 1 {
+		t.Errorf("hooks uninstall must still run; calls=%d", stub.uninstallCalls)
+	}
+	if len(res.Warnings) == 0 {
+		t.Errorf("expected a warning about the missing CLI")
+	}
+}
+
 // TestPartialAndConnected_HelperContract pins the small predicate
 // methods on the lifecycle result so callers can rely on them.
 func TestPartialAndConnected_HelperContract(t *testing.T) {

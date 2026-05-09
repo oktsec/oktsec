@@ -147,17 +147,26 @@ func connectClaudeCodeRuntime(ctx context.Context, opts claudeCodeConnectOptions
 	// Gateway registration via `claude mcp add`. We always attempt it,
 	// even when the binary path is unresolvable, so the operator gets
 	// a clear failure mode.
+	//
+	// "Already present" is the repair case: the operator has run
+	// `connect claude-code` again because hooks are missing or stale.
+	// We treat it as idempotent success so the helper can continue
+	// into InstallV2 and fix the half-connected state.
 	result.GatewayAttempted = true
 	out, err := deps.runMCPAdd(ctx, port, endpoint)
 	result.GatewayOutput = string(out)
-	if err != nil {
+	switch {
+	case err == nil:
+		result.GatewayOK = true
+	case isClaudeMCPAlreadyPresent(out, err):
+		result.GatewayOK = true
+		result.Warnings = append(result.Warnings, "oktsec-gateway entry was already registered (continuing to verify hooks)")
+	default:
 		result.GatewayErr = fmt.Errorf("claude mcp add: %w (output: %s)", err, strings.TrimSpace(string(out)))
 		if opts.Mode == claudeConnectStrict {
 			return result, result.GatewayErr
 		}
 		result.Warnings = append(result.Warnings, result.GatewayErr.Error())
-	} else {
-		result.GatewayOK = true
 	}
 
 	// Hook manifest install via the shared V2 installer. The binary
@@ -207,16 +216,22 @@ func connectClaudeCodeRuntime(ctx context.Context, opts claudeCodeConnectOptions
 //
 // Hook uninstall always runs, even if `claude mcp remove` failed,
 // because a missing gateway entry must not block hook cleanup. The
-// caller renders warnings; a non-nil error is returned only when a
-// real mutation failed (a "no oktsec entries found" skip is success).
+// caller renders warnings; a non-nil error is returned when a real
+// mutation failed AND when the gateway state is unprovable. A "no
+// such oktsec entry" skip from the CLI is success; "we cannot run
+// the CLI at all" is partial-disconnect because the gateway entry
+// may still be registered.
 func disconnectClaudeCodeRuntime(ctx context.Context, opts claudeCodeDisconnectOptions, deps claudeCodeLifecycleDeps) (claudeCodeLifecycleResult, error) {
 	var result claudeCodeLifecycleResult
 
+	gatewayUnprovable := false
 	if !deps.hasClaudeCLI() {
-		// No CLI means we cannot remove the gateway entry, but we can
-		// still strip Oktsec-owned hooks from settings.json. Surface
-		// the missing CLI as a warning rather than a hard error.
-		result.Warnings = append(result.Warnings, "claude CLI not found on PATH; skipping `claude mcp remove`")
+		// No CLI means we cannot remove the gateway entry and we cannot
+		// verify whether one exists. We still strip Oktsec-owned hooks
+		// so the operator gets at least half the cleanup, but we must
+		// not claim a complete disconnect.
+		gatewayUnprovable = true
+		result.Warnings = append(result.Warnings, "claude CLI not found on PATH; cannot remove or verify oktsec-gateway entry")
 	} else {
 		result.GatewayAttempted = true
 		out, err := deps.runMCPRemove(ctx)
@@ -257,6 +272,9 @@ func disconnectClaudeCodeRuntime(ctx context.Context, opts claudeCodeDisconnectO
 	if result.HooksErr != nil {
 		return result, fmt.Errorf("partial disconnect: hook uninstall failed (%v); gateway entry was removed", result.HooksErr)
 	}
+	if gatewayUnprovable {
+		return result, fmt.Errorf("partial disconnect: claude CLI is not on PATH so the oktsec-gateway entry could not be removed or verified; install Claude Code or run `claude mcp remove oktsec-gateway` manually")
+	}
 	return result, nil
 }
 
@@ -273,4 +291,20 @@ func isClaudeMCPAlreadyAbsent(output []byte, err error) bool {
 	return strings.Contains(low, "not found") ||
 		strings.Contains(low, "no such mcp server") ||
 		strings.Contains(low, "is not configured")
+}
+
+// isClaudeMCPAlreadyPresent recognises the failure shape `claude mcp
+// add` returns when the named server is already registered. This is
+// the repair case: the operator runs `connect claude-code` again to
+// fix missing/stale hooks while the gateway entry already exists.
+// Treating it as idempotent success lets the helper continue into the
+// hook installer instead of refusing the repair.
+func isClaudeMCPAlreadyPresent(output []byte, err error) bool {
+	if err == nil {
+		return false
+	}
+	low := strings.ToLower(string(output))
+	return strings.Contains(low, "already exists") ||
+		strings.Contains(low, "already configured") ||
+		strings.Contains(low, "already registered")
 }
