@@ -25,20 +25,23 @@ func newSetupCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Discover, configure, and protect all MCP servers in one step",
-		Long: `Runs the full onboarding flow:
-  1. Discovers all MCP clients and servers on this machine
-  2. Generates oktsec.yaml with sensible defaults
-  3. Generates Ed25519 keypairs for each agent
-  4. Wraps all discovered MCP servers through oktsec proxy
-  5. Shows what's protected and how to start the dashboard`,
-		Example: `  oktsec setup
+		Short: "(deprecated) MCP-discovery-only onboarding; use `oktsec run`",
+		Long: `Deprecated. Use ` + "`oktsec run`" + ` for current runtime client setup.
+
+This legacy command only handles MCP-server discovery and stdio wrapping. It
+does not register Claude Code as a runtime surface and does not install the
+V2 hook manifest. ` + "`oktsec run`" + ` performs the full first-run flow,
+including Claude Code gateway registration and hook installation.`,
+		Example: `  oktsec setup           # legacy MCP-only onboarding
   oktsec setup --enforce
   oktsec setup --skip-wrap`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Println()
-			fmt.Println("  oktsec setup")
+			fmt.Println("  oktsec setup (deprecated)")
 			fmt.Println("  ────────────────────────────────────────")
+			fmt.Println("  Use `oktsec run` for current runtime client setup.")
+			fmt.Println("  This command only handles MCP discovery and stdio wrapping;")
+			fmt.Println("  it does not register Claude Code or install hooks.")
 			fmt.Println()
 
 			// Step 1: Discover
@@ -52,10 +55,9 @@ func newSetupCmd() *cobra.Command {
 				fmt.Println()
 				fmt.Println("  No MCP servers found on this machine.")
 				fmt.Println()
-				fmt.Println("  Checked 17 clients: Claude Desktop, Cursor, VS Code, Cline,")
-				fmt.Println("  Windsurf, Claude Code, Roo Code, and more.")
-				fmt.Println()
-				fmt.Println("  Install an MCP server first, then run 'oktsec setup' again.")
+				fmt.Println("  This legacy command exits here because it only configures")
+				fmt.Println("  discovered MCP servers. Use `oktsec run` to set up Claude Code")
+				fmt.Println("  as a runtime surface even when no MCP servers are installed.")
 				return nil
 			}
 

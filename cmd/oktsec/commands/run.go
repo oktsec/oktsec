@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -98,22 +97,30 @@ func executeRun(opts runOpts) error {
 }
 
 // autoSetupDeps lets tests substitute the external effects of first-run setup
-// (MCP discovery, Claude CLI presence check, Claude Code gateway connection,
-// generic client wrapping) without invoking real CLIs or mutating real
-// ~/.claude/settings.json.
+// (MCP discovery, Claude Code runtime lifecycle, generic client wrapping)
+// without invoking real CLIs or mutating real ~/.claude/settings.json.
+//
+// connectClaudeCode runs the shared Claude Code lifecycle (gateway entry plus
+// V2 hook manifest) in best-effort mode. Idempotent and "already in place"
+// outcomes still count as success; warnings are surfaced through the result.
 type autoSetupDeps struct {
 	scan              func() (*discover.Result, error)
-	hasClaudeCLI      func() bool
-	connectClaudeCode func(port int, endpoint string) error
+	connectClaudeCode func(ctx context.Context, port int, endpoint string) (claudeCodeLifecycleResult, error)
 	wrapClient        func(client string, opts discover.WrapOpts) (int, error)
 }
 
 func defaultAutoSetupDeps() autoSetupDeps {
+	lifecycle := defaultClaudeCodeLifecycleDeps()
 	return autoSetupDeps{
-		scan:              discover.Scan,
-		hasClaudeCLI:      hasClaudeCLI,
-		connectClaudeCode: autoConnectClaudeCode,
-		wrapClient:        discover.WrapClient,
+		scan: discover.Scan,
+		connectClaudeCode: func(ctx context.Context, port int, endpoint string) (claudeCodeLifecycleResult, error) {
+			return connectClaudeCodeRuntime(ctx, claudeCodeConnectOptions{
+				Port:     port,
+				Endpoint: endpoint,
+				Mode:     claudeConnectBestEffort,
+			}, lifecycle)
+		},
+		wrapClient: discover.WrapClient,
 	}
 }
 
@@ -314,10 +321,10 @@ func autoSetupWithDeps(configPath string, opts runOpts, deps autoSetupDeps) erro
 }
 
 // connectMCPClients runs the client-bootstrap phase shared by both empty and
-// non-empty discovery paths: register Claude Code via the gateway when the
-// `claude` CLI is available, and wrap any other supported clients with at
-// least one discovered MCP server. --skip-wrap is the opt-out for any
-// external client mutation.
+// non-empty discovery paths: register Claude Code via the shared lifecycle
+// helper (gateway entry plus V2 hook manifest), and wrap any other supported
+// clients with at least one discovered MCP server. --skip-wrap is the opt-out
+// for any external client mutation.
 func connectMCPClients(result *discover.Result, absConfig string, opts runOpts, gatewayPort int, endpoint string, deps autoSetupDeps) {
 	if opts.skipWrap {
 		return
@@ -327,15 +334,27 @@ func connectMCPClients(result *discover.Result, absConfig string, opts runOpts, 
 
 	totalConnected := 0
 
-	// Claude Code: register gateway via HTTP MCP transport (preferred over wrapping).
-	// This runs even when discovery is empty so first-run setup still installs the
-	// gateway entry and PreToolUse/PostToolUse hooks.
-	if deps.hasClaudeCLI() {
-		if err := deps.connectClaudeCode(gatewayPort, endpoint); err != nil {
-			fmt.Printf("    %-16s  error: %s\n", "Claude Code", err)
-		} else {
-			fmt.Printf("    %-16s  connected via gateway\n", "Claude Code")
-			totalConnected++
+	// Claude Code: register gateway and install V2 hooks. Best-effort:
+	// missing CLI, gateway add failure and hook install failure are all
+	// surfaced as warnings but do not abort first-run setup.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	res, err := deps.connectClaudeCode(ctx, gatewayPort, endpoint)
+	switch {
+	case err != nil:
+		fmt.Printf("    %-16s  error: %s\n", "Claude Code", err)
+	case res.Connected():
+		fmt.Printf("    %-16s  gateway + hooks installed\n", "Claude Code")
+		totalConnected++
+	case res.Partial():
+		fmt.Printf("    %-16s  partial: gateway=%t hooks=%t\n", "Claude Code", res.GatewayOK, res.HooksOK)
+		for _, w := range res.Warnings {
+			fmt.Printf("                      warn: %s\n", w)
+		}
+	default:
+		// Neither attempted (no claude CLI on PATH) or both failed best-effort.
+		for _, w := range res.Warnings {
+			fmt.Printf("    %-16s  %s\n", "Claude Code", w)
 		}
 	}
 
@@ -349,10 +368,10 @@ func connectMCPClients(result *discover.Result, absConfig string, opts runOpts, 
 		if cr.Client == "claude-code" || !discover.IsWrappable(cr.Client) || len(cr.Servers) == 0 {
 			continue
 		}
-		wrapped, err := deps.wrapClient(cr.Client, wrapOpts)
+		wrapped, werr := deps.wrapClient(cr.Client, wrapOpts)
 		name := discover.ClientDisplayName(cr.Client)
-		if err != nil {
-			fmt.Printf("    %-16s  error: %s\n", name, err)
+		if werr != nil {
+			fmt.Printf("    %-16s  error: %s\n", name, werr)
 			continue
 		}
 		if wrapped > 0 {
@@ -369,90 +388,10 @@ func connectMCPClients(result *discover.Result, absConfig string, opts runOpts, 
 
 
 // hasClaudeCLI checks if the `claude` CLI is available on the system.
+// Used by the shared Claude Code lifecycle helper.
 func hasClaudeCLI() bool {
 	_, err := exec.LookPath("claude")
 	return err == nil
-}
-
-// autoConnectClaudeCode registers the oktsec gateway as an HTTP MCP server in Claude Code
-// and configures hooks to capture all tool-call telemetry.
-func autoConnectClaudeCode(port int, endpoint string) error {
-	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, endpoint)
-
-	//nolint:gosec // args are not user-controlled
-	out, err := exec.Command(
-		"claude", "mcp", "add",
-		"--transport", "http",
-		"--header", "X-Oktsec-Agent: claude-code",
-		"--scope", "user",
-		"oktsec-gateway", url,
-	).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("claude mcp add: %w\n%s", err, string(out))
-	}
-
-	// Configure hooks to capture all tool-call telemetry.
-	if err := configureClaudeCodeHooks(port); err != nil {
-		// Non-fatal: gateway still works without hooks.
-		fmt.Printf("    %-16s  hooks: %s\n", "", err)
-	}
-
-	return nil
-}
-
-// configureClaudeCodeHooks writes PreToolUse/PostToolUse hooks to Claude Code's
-// user settings so all tool calls are forwarded to the oktsec gateway.
-func configureClaudeCodeHooks(gatewayPort int) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	settingsPath := filepath.Join(home, ".claude", "settings.json")
-
-	// Read existing settings (or start fresh).
-	var settings map[string]any
-	if data, err := os.ReadFile(settingsPath); err == nil {
-		_ = json.Unmarshal(data, &settings)
-	}
-	if settings == nil {
-		settings = make(map[string]any)
-	}
-
-	// Use a command hook instead of HTTP so that if oktsec is not running,
-	// the hook exits silently with code 0 — no error shown to the user.
-	exe, _ := os.Executable()
-	if exe == "" {
-		exe = "oktsec" // fallback to PATH lookup
-	}
-
-	hookEntry := []any{
-		map[string]any{
-			"matcher": ".*",
-			"hooks": []any{
-				map[string]any{
-					"type":    "command",
-					"command": fmt.Sprintf("%s hook --port %d", exe, gatewayPort),
-				},
-			},
-		},
-	}
-
-	hooksMap, _ := settings["hooks"].(map[string]any)
-	if hooksMap == nil {
-		hooksMap = make(map[string]any)
-	}
-	hooksMap["PreToolUse"] = hookEntry
-	hooksMap["PostToolUse"] = hookEntry
-	settings["hooks"] = hooksMap
-
-	// Ensure directory exists.
-	_ = os.MkdirAll(filepath.Dir(settingsPath), 0o700)
-
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(settingsPath, append(data, '\n'), 0o600)
 }
 
 // ensureSecrets creates the .env file with auto-generated secrets if it doesn't exist.

@@ -66,9 +66,7 @@ Checks:
 ### `setup` (deprecated)
 
 !!! warning "Deprecated"
-    Use `oktsec run` instead. The `setup` command still works but prints a deprecation notice.
-
-One-command onboarding: discover all MCP servers, generate config and keypairs, wrap everything.
+    Use `oktsec run` instead. `setup` is a legacy MCP-discovery-only path: it does not register Claude Code as a runtime surface and does not install the V2 hook manifest. `oktsec run` performs the full first-run flow.
 
 ```bash
 oktsec setup
@@ -83,13 +81,7 @@ oktsec setup --skip-wrap
 | `--enforce` | bool | `false` | Start in enforcement mode (block malicious requests) |
 | `--skip-wrap` | bool | `false` | Generate config only, don't modify client configs |
 
-What `setup` does:
-
-1. Scans for MCP clients on the machine
-2. Generates `oktsec.yaml` with one agent per MCP server
-3. Generates Ed25519 keypairs for each agent
-4. Wraps all MCP servers through `oktsec proxy`
-5. Prints next steps
+`setup` only handles MCP-server discovery and stdio wrapping. When discovery returns zero servers, the command exits without configuring anything else; use `oktsec run` to set up Claude Code as a runtime surface even on a machine with no installed MCP servers.
 
 ### `discover`
 

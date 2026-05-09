@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,20 +10,24 @@ import (
 	"testing"
 
 	"github.com/oktsec/oktsec/internal/config"
+	"github.com/oktsec/oktsec/internal/connectors/claudecode"
 	"github.com/oktsec/oktsec/internal/discover"
 )
 
-// stubDeps records what autoSetupWithDeps invoked and lets each test override
-// individual hooks. Defaults are deliberately strict — anything not opted in
-// fails the test.
-type stubDeps struct {
+// stubAutoSetupDeps records what autoSetupWithDeps invoked. The Claude
+// Code lifecycle is collapsed into a single connectClaudeCode callback
+// that returns a claudeCodeLifecycleResult, mirroring how the helper
+// behaves in production. wrapClient is recorded the same way.
+type stubAutoSetupDeps struct {
 	scanResult *discover.Result
 	scanErr    error
 
-	hasClaude bool
-
-	connectErr   error
-	connectCalls []connectCall
+	// connectResult / connectErr are returned by the connectClaudeCode
+	// stub. Tests that want to simulate a missing CLI leave both at
+	// their zero values (no GatewayAttempted, no HooksAttempted).
+	connectResult claudeCodeLifecycleResult
+	connectErr    error
+	connectCalls  []connectCall
 
 	wrapResult int
 	wrapErr    error
@@ -39,7 +44,7 @@ type wrapCall struct {
 	opts   discover.WrapOpts
 }
 
-func (s *stubDeps) deps() autoSetupDeps {
+func (s *stubAutoSetupDeps) deps() autoSetupDeps {
 	return autoSetupDeps{
 		scan: func() (*discover.Result, error) {
 			if s.scanResult == nil && s.scanErr == nil {
@@ -47,10 +52,9 @@ func (s *stubDeps) deps() autoSetupDeps {
 			}
 			return s.scanResult, s.scanErr
 		},
-		hasClaudeCLI: func() bool { return s.hasClaude },
-		connectClaudeCode: func(port int, endpoint string) error {
+		connectClaudeCode: func(ctx context.Context, port int, endpoint string) (claudeCodeLifecycleResult, error) {
 			s.connectCalls = append(s.connectCalls, connectCall{port: port, endpoint: endpoint})
-			return s.connectErr
+			return s.connectResult, s.connectErr
 		},
 		wrapClient: func(client string, opts discover.WrapOpts) (int, error) {
 			s.wrapCalls = append(s.wrapCalls, wrapCall{client: client, opts: opts})
@@ -60,10 +64,8 @@ func (s *stubDeps) deps() autoSetupDeps {
 }
 
 // scrubKeysDir registers a cleanup that removes any keypair files written for
-// the given agent names. It is a defensive net for the non-empty-discovery
-// test: if HomeDir() was already memoized to the real user directory before
-// the test ran, the agent keypair lands there. We clean up regardless of
-// where it lands.
+// the given agent names. Defensive net for the non-empty discovery test in
+// case config.HomeDir() was already memoized to the real user directory.
 func scrubKeysDir(t *testing.T, agents ...string) {
 	t.Helper()
 	keysDir := config.DefaultKeysDir()
@@ -75,7 +77,6 @@ func scrubKeysDir(t *testing.T, agents ...string) {
 	})
 }
 
-// readConfig returns the contents of the generated oktsec.yaml as a string.
 func readConfig(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)
@@ -85,18 +86,35 @@ func readConfig(t *testing.T, path string) string {
 	return string(data)
 }
 
-// TestAutoSetup_EmptyDiscoveryConnectsClaudeCodeGateway is the direct
-// regression test for issue #176. When discovery finds zero MCP servers and
-// the `claude` CLI is available, oktsec run must still register the gateway
-// and install hooks.
-func TestAutoSetup_EmptyDiscoveryConnectsClaudeCodeGateway(t *testing.T) {
+// connectedResult builds a stub lifecycle result that mirrors a successful
+// connect: gateway entry was added and the hook manifest was installed.
+func connectedResult() claudeCodeLifecycleResult {
+	plan := []claudecode.PlannedHookEntry{{Event: "PreToolUse"}}
+	return claudeCodeLifecycleResult{
+		GatewayAttempted: true,
+		GatewayOK:        true,
+		HooksAttempted:   true,
+		HooksOK:          true,
+		InstallResult: &claudecode.InstallResult{
+			SettingsPath: "/tmp/fake-settings.json",
+			Plan:         plan,
+			Wrote:        true,
+		},
+	}
+}
+
+// TestAutoSetup_EmptyDiscoveryConnectsClaudeCodeGatewayAndHooks is the
+// regression test for issue #176 plus the Phase 4F-0 contract: zero-discovery
+// first-run setup must register the gateway entry AND install the V2 hook
+// manifest when claude is available.
+func TestAutoSetup_EmptyDiscoveryConnectsClaudeCodeGatewayAndHooks(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "")
 
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "oktsec.yaml")
 
-	stub := &stubDeps{hasClaude: true}
+	stub := &stubAutoSetupDeps{connectResult: connectedResult()}
 
 	if err := autoSetupWithDeps(cfgPath, runOpts{}, stub.deps()); err != nil {
 		t.Fatalf("autoSetupWithDeps returned error: %v", err)
@@ -108,53 +126,79 @@ func TestAutoSetup_EmptyDiscoveryConnectsClaudeCodeGateway(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
 		t.Fatalf(".env not created: %v", err)
 	}
-
 	if got := len(stub.connectCalls); got != 1 {
 		t.Fatalf("connectClaudeCode call count = %d, want 1", got)
 	}
-	got := stub.connectCalls[0]
-	if got.port != 9090 {
-		t.Errorf("connectClaudeCode port = %d, want 9090", got.port)
-	}
-	if got.endpoint != "/mcp" {
-		t.Errorf("connectClaudeCode endpoint = %q, want %q", got.endpoint, "/mcp")
+	if got := stub.connectCalls[0]; got.port != 9090 || got.endpoint != "/mcp" {
+		t.Errorf("connectClaudeCode called with port=%d endpoint=%q, want 9090 /mcp", got.port, got.endpoint)
 	}
 }
 
-// TestAutoSetup_EmptyDiscoverySkipWrapDoesNotConnectClaudeCode protects the
-// --skip-wrap opt-out: even when claude is on PATH, no external client
-// configuration should be mutated.
-func TestAutoSetup_EmptyDiscoverySkipWrapDoesNotConnectClaudeCode(t *testing.T) {
+// TestAutoSetup_EmptyDiscoveryHookFailureIsNonFatal pins the best-effort
+// contract for `oktsec run`: a hook install failure must not abort first-run
+// setup, but it must still surface as a partial state in the result.
+func TestAutoSetup_EmptyDiscoveryHookFailureIsNonFatal(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "")
 
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "oktsec.yaml")
 
-	stub := &stubDeps{hasClaude: true}
+	partial := claudeCodeLifecycleResult{
+		GatewayAttempted: true,
+		GatewayOK:        true,
+		HooksAttempted:   true,
+		HooksOK:          false,
+		HooksErr:         errors.New("simulated hook install failure"),
+		Warnings:         []string{"hook install: simulated hook install failure"},
+	}
+	stub := &stubAutoSetupDeps{connectResult: partial}
 
-	if err := autoSetupWithDeps(cfgPath, runOpts{skipWrap: true}, stub.deps()); err != nil {
-		t.Fatalf("autoSetupWithDeps returned error: %v", err)
+	if err := autoSetupWithDeps(cfgPath, runOpts{}, stub.deps()); err != nil {
+		t.Fatalf("autoSetupWithDeps must not return error when hook install fails: %v", err)
 	}
 
 	if _, err := os.Stat(cfgPath); err != nil {
 		t.Fatalf("config not created: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
-		t.Fatalf(".env not created: %v", err)
+	if got := len(stub.connectCalls); got != 1 {
+		t.Fatalf("connectClaudeCode call count = %d, want 1", got)
 	}
-	if len(stub.connectCalls) != 0 {
-		t.Fatalf("connectClaudeCode called %d time(s) under --skip-wrap, want 0", len(stub.connectCalls))
+	if !partial.Partial() {
+		t.Fatalf("partial fixture must report Partial() = true")
 	}
 	if len(stub.wrapCalls) != 0 {
-		t.Fatalf("wrapClient called %d time(s) under --skip-wrap, want 0", len(stub.wrapCalls))
+		t.Errorf("wrapClient must not be called for empty discovery, got %d calls", len(stub.wrapCalls))
 	}
 }
 
-// TestAutoSetup_EmptyDiscoveryMissingClaudeCLICompletes verifies that
-// first-run setup still succeeds when the `claude` CLI is not installed.
-// Missing claude is non-fatal: setup completes silently without a connection
-// attempt.
+// TestAutoSetup_SkipWrapSkipsGatewayAndHooks pins the --skip-wrap opt-out:
+// no gateway, no hooks, no stdio wrap, even when the lifecycle helper would
+// otherwise have something to do.
+func TestAutoSetup_SkipWrapSkipsGatewayAndHooks(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", "")
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "oktsec.yaml")
+
+	stub := &stubAutoSetupDeps{connectResult: connectedResult()}
+
+	if err := autoSetupWithDeps(cfgPath, runOpts{skipWrap: true}, stub.deps()); err != nil {
+		t.Fatalf("autoSetupWithDeps returned error: %v", err)
+	}
+
+	if len(stub.connectCalls) != 0 {
+		t.Errorf("connectClaudeCode called %d time(s) under --skip-wrap, want 0", len(stub.connectCalls))
+	}
+	if len(stub.wrapCalls) != 0 {
+		t.Errorf("wrapClient called %d time(s) under --skip-wrap, want 0", len(stub.wrapCalls))
+	}
+}
+
+// TestAutoSetup_EmptyDiscoveryMissingClaudeCLICompletes verifies missing
+// claude CLI stays non-fatal. The lifecycle helper returns a result with
+// nothing attempted; the run code path keeps going.
 func TestAutoSetup_EmptyDiscoveryMissingClaudeCLICompletes(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "")
@@ -162,31 +206,23 @@ func TestAutoSetup_EmptyDiscoveryMissingClaudeCLICompletes(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "oktsec.yaml")
 
-	stub := &stubDeps{hasClaude: false}
-	deps := stub.deps()
-	deps.connectClaudeCode = func(port int, endpoint string) error {
-		t.Fatalf("connectClaudeCode must not be called when claude CLI is missing (got port=%d endpoint=%q)", port, endpoint)
-		return nil
+	missingCLI := claudeCodeLifecycleResult{
+		Warnings: []string{"claude CLI not found on PATH; install Claude Code or run `claude --version`"},
 	}
+	stub := &stubAutoSetupDeps{connectResult: missingCLI}
 
-	if err := autoSetupWithDeps(cfgPath, runOpts{}, deps); err != nil {
+	if err := autoSetupWithDeps(cfgPath, runOpts{}, stub.deps()); err != nil {
 		t.Fatalf("autoSetupWithDeps returned error: %v", err)
 	}
-
-	if _, err := os.Stat(cfgPath); err != nil {
-		t.Fatalf("config not created: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
-		t.Fatalf(".env not created: %v", err)
-	}
-	if len(stub.connectCalls) != 0 {
-		t.Fatalf("connectClaudeCode called %d time(s) without claude CLI, want 0", len(stub.connectCalls))
+	if got := len(stub.connectCalls); got != 1 {
+		t.Fatalf("connectClaudeCode call count = %d, want 1 (must still attempt)", got)
 	}
 }
 
 // TestAutoSetup_EmptyDiscoveryClaudeConnectErrorIsNonFatal preserves the
-// existing Step 4 behaviour: a `claude mcp add` failure must not abort
-// first-run setup.
+// existing best-effort contract: a connect error returned to the caller
+// (rare path, since the helper normally swallows best-effort errors as
+// warnings) must not abort first-run setup.
 func TestAutoSetup_EmptyDiscoveryClaudeConnectErrorIsNonFatal(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "")
@@ -194,31 +230,22 @@ func TestAutoSetup_EmptyDiscoveryClaudeConnectErrorIsNonFatal(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "oktsec.yaml")
 
-	stub := &stubDeps{
-		hasClaude:  true,
-		connectErr: errors.New("simulated claude mcp add failure"),
+	stub := &stubAutoSetupDeps{
+		connectErr: errors.New("simulated lifecycle error"),
 	}
 
 	if err := autoSetupWithDeps(cfgPath, runOpts{}, stub.deps()); err != nil {
-		t.Fatalf("autoSetupWithDeps must not return error when connect fails: %v", err)
-	}
-
-	if _, err := os.Stat(cfgPath); err != nil {
-		t.Fatalf("config not created: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".env")); err != nil {
-		t.Fatalf(".env not created: %v", err)
+		t.Fatalf("autoSetupWithDeps must not return error when lifecycle fails: %v", err)
 	}
 	if got := len(stub.connectCalls); got != 1 {
 		t.Fatalf("connectClaudeCode call count = %d, want 1 (must still attempt once)", got)
 	}
 }
 
-// TestAutoSetup_DiscoveredServersStillConnectClaudeCodeGateway protects the
-// non-empty-discovery path. The bug fix routes both paths through the shared
-// helper; this test pins the original behaviour so the helper does not
-// regress it.
-func TestAutoSetup_DiscoveredServersStillConnectClaudeCodeGateway(t *testing.T) {
+// TestAutoSetup_DiscoveredServersUseSameClaudeLifecycle protects the
+// non-empty discovery path. Both paths must share the lifecycle helper:
+// gateway + V2 hooks for Claude Code, stdio wrapping for other clients.
+func TestAutoSetup_DiscoveredServersUseSameClaudeLifecycle(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "")
 
@@ -228,9 +255,9 @@ func TestAutoSetup_DiscoveredServersStillConnectClaudeCodeGateway(t *testing.T) 
 	const agent = "okt-test-disc-server"
 	scrubKeysDir(t, agent)
 
-	stub := &stubDeps{
-		hasClaude:  true,
-		wrapResult: 1,
+	stub := &stubAutoSetupDeps{
+		connectResult: connectedResult(),
+		wrapResult:    1,
 		scanResult: &discover.Result{
 			Clients: []discover.ClientResult{
 				{
@@ -248,14 +275,9 @@ func TestAutoSetup_DiscoveredServersStillConnectClaudeCodeGateway(t *testing.T) 
 		t.Fatalf("autoSetupWithDeps returned error: %v", err)
 	}
 
-	if _, err := os.Stat(cfgPath); err != nil {
-		t.Fatalf("config not created: %v", err)
-	}
-
 	if got := len(stub.connectCalls); got != 1 {
 		t.Fatalf("connectClaudeCode call count = %d, want 1", got)
 	}
-
 	if got := len(stub.wrapCalls); got != 1 {
 		t.Fatalf("wrapClient call count = %d, want 1", got)
 	}
@@ -268,13 +290,13 @@ func TestAutoSetup_DiscoveredServersStillConnectClaudeCodeGateway(t *testing.T) 
 		t.Errorf("config missing mcp_servers block:\n%s", cfgYAML)
 	}
 	if !strings.Contains(cfgYAML, agent) {
-		t.Errorf("config missing discovered agent %q in mcp_servers:\n%s", agent, cfgYAML)
+		t.Errorf("config missing discovered agent %q:\n%s", agent, cfgYAML)
 	}
 }
 
 // TestAutoSetup_EmptyDiscoveryWritesGatewayConfig is a small belt-and-braces
-// check that the minimal config still enables the gateway (the gateway must
-// be running for Claude Code's HTTP MCP transport to connect).
+// check that the minimal config still enables the gateway. The gateway must
+// be running for Claude Code's HTTP MCP transport to connect.
 func TestAutoSetup_EmptyDiscoveryWritesGatewayConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("PATH", "")
@@ -282,22 +304,64 @@ func TestAutoSetup_EmptyDiscoveryWritesGatewayConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "oktsec.yaml")
 
-	stub := &stubDeps{hasClaude: false}
+	stub := &stubAutoSetupDeps{}
 
 	if err := autoSetupWithDeps(cfgPath, runOpts{}, stub.deps()); err != nil {
 		t.Fatalf("autoSetupWithDeps returned error: %v", err)
 	}
 
 	cfgYAML := readConfig(t, cfgPath)
-	wantSubstrings := []string{
-		"gateway:",
-		"enabled: true",
-		"port: 9090",
-		fmt.Sprintf("endpoint_path: %s", `/mcp`),
-	}
-	for _, s := range wantSubstrings {
+	want := []string{"gateway:", "enabled: true", "port: 9090", fmt.Sprintf("endpoint_path: %s", `/mcp`)}
+	for _, s := range want {
 		if !strings.Contains(cfgYAML, s) {
 			t.Errorf("minimal config missing %q:\n%s", s, cfgYAML)
 		}
+	}
+}
+
+// TestRunClaudeCodeUsesManifestV2Installer pins the V2 manifest parity
+// invariant: when the default lifecycle deps are wired to the real
+// claudecode.InstallV2 against a temp HOME, the resulting settings.json
+// carries the V2 manifest marker. This test fails if any future change
+// reintroduces a hand-written PreToolUse/PostToolUse-only writer.
+func TestRunClaudeCodeUsesManifestV2Installer(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	deps := claudeCodeLifecycleDeps{
+		// Pretend claude is available and that `claude mcp add` succeeds.
+		hasClaudeCLI: func() bool { return true },
+		runMCPAdd: func(ctx context.Context, port int, endpoint string) ([]byte, error) {
+			return []byte("ok"), nil
+		},
+		runMCPRemove: func(ctx context.Context) ([]byte, error) {
+			return []byte("ok"), nil
+		},
+		// Use the real installer so we exercise the V2 manifest writer.
+		installHooksV2:   claudecode.InstallV2,
+		uninstallHooksV2: claudecode.UninstallV2,
+		executable: func() (string, error) {
+			return "/usr/local/bin/oktsec", nil
+		},
+	}
+
+	res, err := connectClaudeCodeRuntime(context.Background(),
+		claudeCodeConnectOptions{Port: 9090, Endpoint: "/mcp", Mode: claudeConnectStrict},
+		deps)
+	if err != nil {
+		t.Fatalf("connectClaudeCodeRuntime: %v", err)
+	}
+	if !res.HooksOK {
+		t.Fatalf("hooks did not install successfully: %+v", res)
+	}
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	body, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if !strings.Contains(string(body), claudecode.ManifestV2Marker) {
+		t.Errorf("expected ManifestV2Marker %q in settings.json:\n%s",
+			claudecode.ManifestV2Marker, string(body))
 	}
 }

@@ -72,11 +72,10 @@ You run OpenClaw agents with MCP tools. You need to control which agents call wh
 === "Development"
 
     ```bash
-    oktsec setup
-    oktsec serve
+    oktsec run
     ```
 
-    Zero config. Discovers your MCP servers, wraps them, starts in **observe mode**. Review activity in the dashboard before enabling enforcement.
+    Zero config. Discovers MCP servers, registers Claude Code through the gateway, installs hooks, starts in **observe mode**. Review activity in the dashboard before enabling enforcement.
 
 === "Staging"
 

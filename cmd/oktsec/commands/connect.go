@@ -1,16 +1,22 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/discover"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/spf13/cobra"
 )
+
+// claudeCodeLifecycleDepsForCmd is overridable in tests so the connect /
+// disconnect commands can run without invoking the real claude CLI or
+// touching ~/.claude/settings.json. Production callers use the default.
+var claudeCodeLifecycleDepsForCmd = defaultClaudeCodeLifecycleDeps
 
 func newConnectCmd() *cobra.Command {
 	var keysDir string
@@ -128,7 +134,11 @@ For other clients, this wraps their MCP servers through the oktsec proxy.`,
 	return cmd
 }
 
-// connectClaudeCode runs `claude mcp add` to register the oktsec gateway as an HTTP MCP server.
+// connectClaudeCode registers the oktsec gateway entry and installs the V2
+// hook manifest through the shared Claude Code lifecycle helper. Strict mode:
+// gateway add failure or hook install failure both return a non-nil error so
+// the operator can trust that a successful return means Claude Code is fully
+// connected as a runtime surface.
 func connectClaudeCode(cfg *config.Config) error {
 	port := cfg.Gateway.Port
 	if port == 0 {
@@ -140,22 +150,37 @@ func connectClaudeCode(cfg *config.Config) error {
 	}
 
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, endpoint)
-
 	fmt.Printf("Connecting Claude Code to gateway at %s...\n", url)
 
-	//nolint:gosec // args are not user-controlled
-	out, err := exec.Command(
-		"claude", "mcp", "add",
-		"--transport", "http",
-		"--header", "X-Oktsec-Agent: claude-code",
-		"--scope", "user",
-		"oktsec-gateway", url,
-	).CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	res, err := connectClaudeCodeRuntime(ctx, claudeCodeConnectOptions{
+		Port:     port,
+		Endpoint: endpoint,
+		Mode:     claudeConnectStrict,
+	}, claudeCodeLifecycleDepsForCmd())
 	if err != nil {
-		return fmt.Errorf("running 'claude mcp add': %w\n%s", err, string(out))
+		fmt.Println()
+		fmt.Println("Connection incomplete. Run `oktsec doctor claude-code` for the full inventory.")
+		return err
 	}
 
-	fmt.Println("Claude Code configured with HTTP MCP transport.")
+	fmt.Println("Gateway entry added; HTTP MCP transport configured.")
+	if res.InstallResult != nil {
+		switch {
+		case res.InstallResult.Wrote:
+			fmt.Printf("Installed %d hook(s) via the V2 manifest installer.\n", len(res.InstallResult.Plan))
+			if res.InstallResult.UpgradedV1 > 0 {
+				fmt.Printf("Upgraded %d legacy V1 hook(s) in place.\n", res.InstallResult.UpgradedV1)
+			}
+			if res.InstallResult.BackupPath != "" {
+				fmt.Printf("Backup: %s\n", res.InstallResult.BackupPath)
+			}
+		case res.InstallResult.Skipped != "":
+			fmt.Printf("Hook manifest already in place (%s).\n", res.InstallResult.Skipped)
+		}
+	}
 	return nil
 }
 
@@ -249,17 +274,42 @@ For other clients, this restores the original MCP config from backup.`,
 	return cmd
 }
 
-// disconnectClaudeCode runs `claude mcp remove` to unregister the oktsec gateway.
+// disconnectClaudeCode removes the oktsec-gateway entry and uninstalls every
+// Oktsec-owned hook (V2 plus legacy V1) through the shared Claude Code
+// lifecycle helper. Hook uninstall always runs even when gateway removal
+// reports the entry as already absent, so a partial state never leaves
+// Oktsec hook commands behind in settings.json.
 func disconnectClaudeCode() error {
-	fmt.Println("Removing oktsec-gateway from Claude Code...")
+	fmt.Println("Disconnecting Claude Code (gateway + Oktsec-owned hooks)...")
 
-	//nolint:gosec // args are not user-controlled
-	out, err := exec.Command("claude", "mcp", "remove", "oktsec-gateway").CombinedOutput()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	res, err := disconnectClaudeCodeRuntime(ctx, claudeCodeDisconnectOptions{}, claudeCodeLifecycleDepsForCmd())
 	if err != nil {
-		return fmt.Errorf("running 'claude mcp remove': %w\n%s", err, string(out))
+		fmt.Println()
+		fmt.Println("Disconnect incomplete. Run `oktsec doctor claude-code` for the full inventory.")
+		return err
 	}
 
-	fmt.Println("Removed oktsec-gateway from Claude Code.")
+	if res.GatewayAttempted && res.GatewayOK {
+		fmt.Println("Removed oktsec-gateway entry.")
+	}
+	if res.UninstallResult != nil {
+		switch {
+		case res.UninstallResult.Wrote:
+			fmt.Printf("Removed %d V2 + %d legacy V1 hook(s).\n",
+				res.UninstallResult.RemovedV2, res.UninstallResult.RemovedV1)
+			if res.UninstallResult.BackupPath != "" {
+				fmt.Printf("Backup: %s\n", res.UninstallResult.BackupPath)
+			}
+		case res.UninstallResult.Skipped != "":
+			fmt.Printf("No Oktsec-owned hooks to remove (%s).\n", res.UninstallResult.Skipped)
+		}
+	}
+	for _, w := range res.Warnings {
+		fmt.Printf("warn: %s\n", w)
+	}
 	return nil
 }
 

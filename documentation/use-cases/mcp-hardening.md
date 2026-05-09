@@ -52,7 +52,7 @@ oktsec proxy --enforce --agent filesystem -- npx @mcp/server-filesystem /data
 Or wrap all MCP clients at once:
 
 ```bash
-oktsec setup           # discovers + wraps everything
+oktsec run                    # discovers + wraps everything (current onboarding path)
 oktsec wrap --enforce --all   # enable enforcement for all
 ```
 
