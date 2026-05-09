@@ -148,10 +148,15 @@ func connectClaudeCodeRuntime(ctx context.Context, opts claudeCodeConnectOptions
 	// even when the binary path is unresolvable, so the operator gets
 	// a clear failure mode.
 	//
-	// "Already present" is the repair case: the operator has run
-	// `connect claude-code` again because hooks are missing or stale.
-	// We treat it as idempotent success so the helper can continue
-	// into InstallV2 and fix the half-connected state.
+	// "Already present" is treated as a convergence target, not as
+	// idempotent success on its own: an existing oktsec-gateway entry
+	// proves a name match but says nothing about whether its URL,
+	// transport, header or scope match the desired port/endpoint. If
+	// the operator changed `gateway.port` or `gateway.endpoint_path`
+	// in oktsec.yaml, the stale entry would silently keep Claude Code
+	// pointing at the old URL while we install hooks for the new one.
+	// We collapse that risk by removing and re-adding so the resulting
+	// entry is the one this connect call describes.
 	result.GatewayAttempted = true
 	out, err := deps.runMCPAdd(ctx, port, endpoint)
 	result.GatewayOutput = string(out)
@@ -159,8 +164,19 @@ func connectClaudeCodeRuntime(ctx context.Context, opts claudeCodeConnectOptions
 	case err == nil:
 		result.GatewayOK = true
 	case isClaudeMCPAlreadyPresent(out, err):
-		result.GatewayOK = true
-		result.Warnings = append(result.Warnings, "oktsec-gateway entry was already registered (continuing to verify hooks)")
+		repointed, repointErr := repointClaudeMCPGateway(ctx, port, endpoint, deps)
+		result.GatewayOutput = string(repointed)
+		if repointErr != nil {
+			result.GatewayErr = repointErr
+			if opts.Mode == claudeConnectStrict {
+				return result, repointErr
+			}
+			result.Warnings = append(result.Warnings, repointErr.Error())
+		} else {
+			result.GatewayOK = true
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("oktsec-gateway entry already existed; re-pointed to http://127.0.0.1:%d%s", port, endpoint))
+		}
 	default:
 		result.GatewayErr = fmt.Errorf("claude mcp add: %w (output: %s)", err, strings.TrimSpace(string(out)))
 		if opts.Mode == claudeConnectStrict {
@@ -296,9 +312,10 @@ func isClaudeMCPAlreadyAbsent(output []byte, err error) bool {
 // isClaudeMCPAlreadyPresent recognises the failure shape `claude mcp
 // add` returns when the named server is already registered. This is
 // the repair case: the operator runs `connect claude-code` again to
-// fix missing/stale hooks while the gateway entry already exists.
-// Treating it as idempotent success lets the helper continue into the
-// hook installer instead of refusing the repair.
+// fix missing/stale hooks (or to re-point the gateway after changing
+// gateway.port / gateway.endpoint_path in oktsec.yaml). The caller
+// converges by removing and re-adding so the entry matches the
+// requested URL.
 func isClaudeMCPAlreadyPresent(output []byte, err error) bool {
 	if err == nil {
 		return false
@@ -307,4 +324,23 @@ func isClaudeMCPAlreadyPresent(output []byte, err error) bool {
 	return strings.Contains(low, "already exists") ||
 		strings.Contains(low, "already configured") ||
 		strings.Contains(low, "already registered")
+}
+
+// repointClaudeMCPGateway is the convergence path for an
+// already-present oktsec-gateway entry: remove it and re-add at the
+// caller's port/endpoint. We treat an already-absent remove as
+// success because the user (or another process) may have removed the
+// entry between our add and remove calls; the re-add is what
+// determines whether convergence actually happened. Returns the most
+// recent CLI output for context-sensitive error messages.
+func repointClaudeMCPGateway(ctx context.Context, port int, endpoint string, deps claudeCodeLifecycleDeps) ([]byte, error) {
+	rmOut, rmErr := deps.runMCPRemove(ctx)
+	if rmErr != nil && !isClaudeMCPAlreadyAbsent(rmOut, rmErr) {
+		return rmOut, fmt.Errorf("re-pointing gateway: claude mcp remove failed: %w (output: %s)", rmErr, strings.TrimSpace(string(rmOut)))
+	}
+	addOut, addErr := deps.runMCPAdd(ctx, port, endpoint)
+	if addErr != nil {
+		return addOut, fmt.Errorf("re-pointing gateway: claude mcp add after remove failed: %w (output: %s)", addErr, strings.TrimSpace(string(addOut)))
+	}
+	return addOut, nil
 }

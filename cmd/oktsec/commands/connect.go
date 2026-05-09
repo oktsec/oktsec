@@ -113,19 +113,26 @@ For other clients, this wraps their MCP servers through the oktsec proxy.`,
 				fmt.Printf("Keypair already exists at %s\n", keyPath)
 			}
 
-			// Persist config BEFORE mutating Claude Code state. If the
-			// strict connect fails partway through (gateway add OK but hook
-			// install fails, etc.) the operator still has an oktsec.yaml
-			// that matches the command's intent so `oktsec doctor
-			// claude-code` and a re-run of `connect` can repair the state.
-			if err := cfg.Save(cfgFile); err != nil {
-				return fmt.Errorf("saving config: %w", err)
-			}
-			fmt.Printf("Config saved to %s\n", cfgFile)
-
-			// Connect the client
+			// Connect the client.
+			//
+			// claude-code: persist config BEFORE mutating Claude Code
+			// state. The strict lifecycle helper can fail partway through
+			// (gateway add converges but hook install fails, etc.); having
+			// the saved config match the command's intent lets `oktsec
+			// doctor claude-code` and a re-run of `connect` repair the
+			// state without re-deriving the gateway/agent block.
+			//
+			// Other clients keep the previous order: wrap first, save
+			// only after wrap succeeded. Pre-saving for stdio clients
+			// would leave a phantom registered agent in oktsec.yaml when
+			// wrapping fails (missing client config, broken backup, etc.).
 			fmt.Println()
 			if client == "claude-code" {
+				if err := cfg.Save(cfgFile); err != nil {
+					return fmt.Errorf("saving config: %w", err)
+				}
+				fmt.Printf("Config saved to %s\n", cfgFile)
+				fmt.Println()
 				if err := connectClaudeCode(cfg); err != nil {
 					return err
 				}
@@ -133,6 +140,10 @@ For other clients, this wraps their MCP servers through the oktsec proxy.`,
 				if err := connectStdioClient(client); err != nil {
 					return err
 				}
+				if err := cfg.Save(cfgFile); err != nil {
+					return fmt.Errorf("saving config: %w", err)
+				}
+				fmt.Printf("\nConfig saved to %s\n", cfgFile)
 			}
 
 			// Instructions

@@ -234,35 +234,114 @@ func TestDisconnectClaudeCode_GatewayMissingStillAttemptsHookUninstall(t *testin
 	}
 }
 
-// TestConnectClaudeCode_GatewayAlreadyPresentIsRepairCase verifies that
-// when `claude mcp add` reports the entry already exists, the helper
-// treats it as idempotent success and continues into hook install.
-// This is the "repair connection" path: gateway present, hooks missing
-// or stale, operator runs `oktsec connect claude-code` again.
-func TestConnectClaudeCode_GatewayAlreadyPresentIsRepairCase(t *testing.T) {
+// addBehavior controls the runMCPAdd stub across calls. The first
+// call returns the configured initial output/err; subsequent calls
+// return the second output/err. Useful for the re-point convergence
+// path where the helper calls runMCPAdd twice (once to detect
+// already-present, again after remove).
+type addBehavior struct {
+	calls    int
+	first    []byte
+	firstErr error
+	second   []byte
+	secondEr error
+}
+
+// TestConnectClaudeCode_GatewayAlreadyPresentRepointsAndContinues
+// verifies the convergence contract: when `claude mcp add` reports
+// the entry already exists, the helper removes the stale entry and
+// re-adds at the caller's port/endpoint so the resulting Claude Code
+// runtime points where this connect call says it should. This is the
+// repair case (hooks missing or stale) AND the re-configure case
+// (operator changed gateway.port / gateway.endpoint_path).
+func TestConnectClaudeCode_GatewayAlreadyPresentRepointsAndContinues(t *testing.T) {
+	addBeh := &addBehavior{
+		first:    []byte("Error: MCP server \"oktsec-gateway\" already exists"),
+		firstErr: errors.New("exit status 1"),
+		second:   []byte("ok"),
+	}
 	stub := &stubLifecycleDeps{
 		hasCLI:        true,
-		addOut:        []byte("Error: MCP server \"oktsec-gateway\" already exists"),
-		addErr:        errors.New("exit status 1"),
 		installResult: claudecode.InstallResult{Wrote: true},
 	}
+	deps := stub.deps()
+	deps.runMCPAdd = func(ctx context.Context, port int, endpoint string) ([]byte, error) {
+		stub.addCalls++
+		stub.addSeenPort = port
+		stub.addSeenEP = endpoint
+		addBeh.calls++
+		if addBeh.calls == 1 {
+			return addBeh.first, addBeh.firstErr
+		}
+		return addBeh.second, addBeh.secondEr
+	}
+
 	res, err := connectClaudeCodeRuntime(context.Background(),
-		claudeCodeConnectOptions{Port: 9090, Endpoint: "/mcp", Mode: claudeConnectStrict},
-		stub.deps())
+		claudeCodeConnectOptions{Port: 9595, Endpoint: "/oktsec-mcp", Mode: claudeConnectStrict},
+		deps)
 	if err != nil {
-		t.Fatalf("strict connect must succeed when gateway already exists: %v", err)
+		t.Fatalf("strict connect must converge when gateway already exists: %v", err)
 	}
 	if !res.GatewayOK {
-		t.Errorf("gateway should be marked OK on already-present; got %+v", res)
+		t.Errorf("gateway should be marked OK after re-point; got %+v", res)
 	}
 	if !res.HooksOK {
 		t.Errorf("hooks must still install; got %+v", res)
 	}
-	if stub.installCalls != 1 {
-		t.Errorf("installHooksV2 must run after already-present gateway; calls=%d", stub.installCalls)
+	if stub.addCalls != 2 {
+		t.Errorf("runMCPAdd must run twice (initial + re-point); calls=%d", stub.addCalls)
 	}
-	if len(res.Warnings) == 0 {
-		t.Errorf("expected an informational warning about already-present gateway")
+	if stub.removeCalls != 1 {
+		t.Errorf("runMCPRemove must run once between the two adds; calls=%d", stub.removeCalls)
+	}
+	if stub.addSeenPort != 9595 || stub.addSeenEP != "/oktsec-mcp" {
+		t.Errorf("re-pointed entry must use the requested port/endpoint; got %d %q", stub.addSeenPort, stub.addSeenEP)
+	}
+	if stub.installCalls != 1 {
+		t.Errorf("installHooksV2 must run after gateway converges; calls=%d", stub.installCalls)
+	}
+	repointed := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "re-pointed") {
+			repointed = true
+			break
+		}
+	}
+	if !repointed {
+		t.Errorf("expected a warning describing the re-point; got %v", res.Warnings)
+	}
+}
+
+// TestConnectClaudeCode_GatewayAlreadyPresentRepointFailsReturnsError
+// guards strict mode against silent split-runtime states: if remove +
+// re-add cannot converge the gateway entry, we must return an error
+// rather than mark GatewayOK.
+func TestConnectClaudeCode_GatewayAlreadyPresentRepointFailsReturnsError(t *testing.T) {
+	addBeh := &addBehavior{
+		first:    []byte("Error: MCP server \"oktsec-gateway\" already exists"),
+		firstErr: errors.New("exit status 1"),
+		second:   []byte("Error: invalid URL"),
+		secondEr: errors.New("exit status 2"),
+	}
+	stub := &stubLifecycleDeps{hasCLI: true}
+	deps := stub.deps()
+	deps.runMCPAdd = func(ctx context.Context, port int, endpoint string) ([]byte, error) {
+		addBeh.calls++
+		stub.addCalls++
+		if addBeh.calls == 1 {
+			return addBeh.first, addBeh.firstErr
+		}
+		return addBeh.second, addBeh.secondEr
+	}
+
+	_, err := connectClaudeCodeRuntime(context.Background(),
+		claudeCodeConnectOptions{Port: 9090, Endpoint: "/mcp", Mode: claudeConnectStrict},
+		deps)
+	if err == nil {
+		t.Fatal("strict connect must return error when re-point fails")
+	}
+	if !strings.Contains(err.Error(), "re-pointing gateway") {
+		t.Errorf("error should explain the re-point failure; got %v", err)
 	}
 }
 

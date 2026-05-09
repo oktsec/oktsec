@@ -128,6 +128,48 @@ func TestConnectClaudeCode_PersistsConfigBeforeMutatingClaude(t *testing.T) {
 	}
 }
 
+// TestConnectStdioClient_NoConfigSavedWhenWrapFails protects the
+// non-Claude path from the pre-save ordering fix that ships with
+// `connect claude-code`. Stdio clients must keep the previous order:
+// wrap first, save oktsec.yaml only after wrapping succeeded.
+// Otherwise a failed `connect cursor` (no client config to wrap)
+// would leave a phantom cursor agent in oktsec.yaml. Use a temp HOME
+// so the discover scanner cannot find a real cursor config from the
+// developer machine running the test.
+func TestConnectStdioClient_NoConfigSavedWhenWrapFails(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "oktsec.yaml")
+	keysDir := filepath.Join(dir, "keys")
+
+	seed := &config.Config{
+		Version:  "1",
+		Identity: config.IdentityConfig{KeysDir: keysDir},
+	}
+	if err := seed.Save(cfgPath); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	prevCfg := cfgFile
+	cfgFile = cfgPath
+	t.Cleanup(func() { cfgFile = prevCfg })
+
+	cmd := newConnectCmd()
+	cmd.SetArgs([]string{"cursor"})
+	if err := cmd.ExecuteContext(context.Background()); err == nil {
+		t.Fatal("connect cursor must fail when no cursor config exists")
+	}
+
+	saved, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load saved config: %v", err)
+	}
+	if _, exists := saved.Agents["cursor"]; exists {
+		t.Errorf("cursor agent must not be persisted when wrap failed; got %+v", saved.Agents)
+	}
+}
+
 // TestConnectClaudeCode_LegacyConfigKeepsCustomGatewayPort ensures we
 // only fill blanks: an operator who set a custom port stays on it.
 func TestConnectClaudeCode_LegacyConfigKeepsCustomGatewayPort(t *testing.T) {
