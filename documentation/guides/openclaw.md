@@ -327,7 +327,7 @@ Content scanning takes ~8ms per tool call. Rate limiting and ACL checks are sub-
 
 **Can I use oktsec with other MCP clients at the same time?**
 
-Yes. Run `oktsec setup` to auto-wrap Claude Desktop, Cursor, VS Code, etc. Those use stdio proxy mode. OpenClaw uses gateway mode. Both share the same dashboard and audit trail.
+Yes. Run `oktsec run` to auto-wrap Claude Desktop, Cursor, VS Code, etc., and to register Claude Code through the gateway with V2 hooks. Stdio clients use proxy mode. OpenClaw uses gateway mode. Both share the same dashboard and audit trail.
 
 **What happens when a tool call is blocked?**
 
