@@ -31,15 +31,15 @@ import (
 	"time"
 )
 
-// sdkPrincipalNameRE mirrors internal/identity.ValidatePrincipalName so
-// the SDK can refuse a malicious agent name without taking a dependency
-// on an internal package. The shape is intentionally identical,
-// including the leading-underscore allowance for internal reserved
-// principals such as _proxy.
+// sdkPrincipalNameRE mirrors the filesystem-safety shape used by the
+// internal identity package. The SDK refuses names that fail this
+// check before touching the disk.
 var sdkPrincipalNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 
 // validateAgentName rejects names that would let LoadKeypair build a
-// path outside dir.
+// path outside dir, and additionally refuses internal reserved
+// principals (leading underscore) so an external SDK caller cannot
+// load or overwrite a signing key such as _proxy.
 func validateAgentName(name string) error {
 	if name == "" {
 		return fmt.Errorf("agent name is empty")
@@ -49,6 +49,9 @@ func validateAgentName(name string) error {
 	}
 	if !sdkPrincipalNameRE.MatchString(name) {
 		return fmt.Errorf("agent name %q is not allowed: must start with a letter, digit, or underscore and contain only letters, digits, dot, underscore, or dash (max 128 chars)", name)
+	}
+	if name[0] == '_' {
+		return fmt.Errorf("agent name %q is reserved for internal use", name)
 	}
 	return nil
 }

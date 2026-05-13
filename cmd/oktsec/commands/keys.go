@@ -129,6 +129,9 @@ func newKeysRotateCmd() *cobra.Command {
 		Short: "Rotate an agent's keypair",
 		Long:  "Generates a new keypair for the agent, moving the old one to keys/revoked/.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := identity.ValidatePublicPrincipalName(agent); err != nil {
+				return err
+			}
 			cfg, err := config.Load(cfgFile)
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)
@@ -220,6 +223,9 @@ func newKeysRevokeCmd() *cobra.Command {
 		Short: "Revoke an agent's keypair",
 		Long:  "Moves the agent's keys to keys/revoked/. The proxy will reject messages signed with revoked keys.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := identity.ValidatePublicPrincipalName(agent); err != nil {
+				return err
+			}
 			cfg, err := config.Load(cfgFile)
 			if err != nil {
 				return fmt.Errorf("loading config: %w", err)

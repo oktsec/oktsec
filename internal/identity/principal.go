@@ -65,3 +65,31 @@ func ValidatePrincipalName(name string) error {
 func IsValidPrincipalName(name string) bool {
 	return ValidatePrincipalName(name) == nil
 }
+
+// IsReservedPrincipalName reports whether name is reserved for
+// internal use. Anything starting with "_" is reserved by convention.
+// The signing principal _proxy is the only current consumer, but new
+// internal principals follow the same prefix.
+//
+// Public surfaces (HTTP APIs, dashboard forms, CLI arguments, config
+// load, SDK callers) MUST reject reserved names so an external caller
+// cannot overwrite an internal key file. Only the identity package
+// and the audit-chain bootstrap may consume reserved names.
+func IsReservedPrincipalName(name string) bool {
+	return len(name) > 0 && name[0] == '_'
+}
+
+// ValidatePublicPrincipalName is the validator every user-facing
+// surface should call. It enforces the same filesystem-safety contract
+// as ValidatePrincipalName and additionally refuses internal reserved
+// names so an external caller cannot collide with a signing identity
+// such as _proxy.
+func ValidatePublicPrincipalName(name string) error {
+	if err := ValidatePrincipalName(name); err != nil {
+		return err
+	}
+	if IsReservedPrincipalName(name) {
+		return fmt.Errorf("principal name %q is reserved for internal use", name)
+	}
+	return nil
+}

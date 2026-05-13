@@ -608,16 +608,17 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Principal-name keys reach the key file system path and the audit
-	// row. Reject unsafe names at load time so a hand-edited or
-	// otherwise tampered config cannot smuggle a path traversal
-	// through to callers that skip the full Validate sweep.
+	// row. Reject unsafe or reserved names at load time so a
+	// hand-edited or otherwise tampered config cannot smuggle a path
+	// traversal or a reserved-principal collision through to callers
+	// that skip the full Validate sweep.
 	for name := range cfg.Agents {
-		if err := identity.ValidatePrincipalName(name); err != nil {
+		if err := identity.ValidatePublicPrincipalName(name); err != nil {
 			return nil, fmt.Errorf("agents map key: %w", err)
 		}
 	}
 	for name := range cfg.MCPServers {
-		if err := identity.ValidatePrincipalName(name); err != nil {
+		if err := identity.ValidatePublicPrincipalName(name); err != nil {
 			return nil, fmt.Errorf("mcp_servers map key: %w", err)
 		}
 	}
@@ -729,7 +730,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid default_policy %q (must be allow or deny)", c.DefaultPolicy)
 	}
 	for name, agent := range c.Agents {
-		if err := identity.ValidatePrincipalName(name); err != nil {
+		if err := identity.ValidatePublicPrincipalName(name); err != nil {
 			return fmt.Errorf("agents map key: %w", err)
 		}
 		for _, target := range agent.CanMessage {
@@ -768,7 +769,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid gateway port: %d", c.Gateway.Port)
 		}
 		for name, srv := range c.MCPServers {
-			if err := identity.ValidatePrincipalName(name); err != nil {
+			if err := identity.ValidatePublicPrincipalName(name); err != nil {
 				return fmt.Errorf("mcp_servers map key: %w", err)
 			}
 			switch srv.Transport {

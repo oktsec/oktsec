@@ -41,7 +41,7 @@ For other clients, this wraps their MCP servers through the oktsec proxy.`,
 				return fmt.Errorf("unsupported client %q\n\nSupported clients: %v", client, discover.WrappableClients())
 			}
 
-			if err := identity.ValidatePrincipalName(client); err != nil {
+			if err := identity.ValidatePublicPrincipalName(client); err != nil {
 				return err
 			}
 

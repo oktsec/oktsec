@@ -2934,7 +2934,7 @@ func (s *Server) handleQuarantineReject(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
-	if err := identity.ValidatePrincipalName(name); err != nil {
+	if err := identity.ValidatePublicPrincipalName(name); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -5695,7 +5695,7 @@ func (s *Server) handleSaveGatewaySettings(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
-	if err := identity.ValidatePrincipalName(name); err != nil {
+	if err := identity.ValidatePublicPrincipalName(name); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

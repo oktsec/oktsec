@@ -124,7 +124,7 @@ func (a *AgentAPI) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
-	if err := identity.ValidatePrincipalName(req.Name); err != nil {
+	if err := identity.ValidatePublicPrincipalName(req.Name); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}

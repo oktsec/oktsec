@@ -23,6 +23,9 @@ func newKeygenCmd() *cobra.Command {
 			}
 
 			for _, name := range agents {
+				if err := identity.ValidatePublicPrincipalName(name); err != nil {
+					return err
+				}
 				kp, err := identity.GenerateKeypair(name)
 				if err != nil {
 					return fmt.Errorf("generating keypair for %s: %w", name, err)

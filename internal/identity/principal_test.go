@@ -85,6 +85,35 @@ func TestValidatePrincipalName_AcceptsReservedProxyPrincipal(t *testing.T) {
 	}
 }
 
+// ValidatePublicPrincipalName is the user-facing variant. It must
+// refuse internal reserved principals so an external caller (HTTP API,
+// dashboard form, SDK consumer, hand-edited config) cannot overwrite
+// the _proxy signing key.
+func TestValidatePublicPrincipalName_RejectsReserved(t *testing.T) {
+	cases := []string{"_proxy", "_internal", "_anything"}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidatePublicPrincipalName(name); err == nil {
+				t.Fatalf("ValidatePublicPrincipalName(%q) returned nil; reserved names must be refused on public surfaces", name)
+			}
+			if !IsReservedPrincipalName(name) {
+				t.Fatalf("IsReservedPrincipalName(%q) = false, want true", name)
+			}
+		})
+	}
+}
+
+func TestValidatePublicPrincipalName_AcceptsNormalNames(t *testing.T) {
+	cases := []string{"filesystem", "github", "research-agent", "agent_01", "org.tool"}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidatePublicPrincipalName(name); err != nil {
+				t.Fatalf("ValidatePublicPrincipalName(%q) = %v, want nil", name, err)
+			}
+		})
+	}
+}
+
 // Defence in depth: filenames built from a validated principal name must
 // never escape a parent directory via filepath.Join semantics. This test
 // pins the contract that motivates the validator.

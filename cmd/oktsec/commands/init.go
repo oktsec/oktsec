@@ -48,7 +48,7 @@ func newInitCmd() *cobra.Command {
 
 			for _, entry := range result.AllServers() {
 				name := entry.Server.Name
-				if err := identity.ValidatePrincipalName(name); err != nil {
+				if err := identity.ValidatePublicPrincipalName(name); err != nil {
 					return fmt.Errorf("MCP server %q discovered in client %q: %w", name, entry.Client, err)
 				}
 				risk := assessRisk(entry.Server)
