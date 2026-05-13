@@ -7,15 +7,12 @@ on:
 
 permissions:
   contents: read
-  # id-token is required for PyPI Trusted Publishing. The publish
-  # step exchanges this for a short-lived OIDC token that PyPI
-  # accepts when the project is configured to trust this repo and
-  # workflow. See RELEASE.md for the one-time PyPI side setup.
-  id-token: write
 
 jobs:
-  publish:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -36,7 +33,31 @@ jobs:
         working-directory: sdk/python
         run: python -m build
 
+      - name: Upload distribution artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: python-sdk-dist
+          path: sdk/python/dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      # The publish job is the only step that needs an OIDC token.
+      # Keeping id-token: write off the build job prevents
+      # PyPI-sourced build tooling from minting a publish credential
+      # before the artifact is final.
+      id-token: write
+    steps:
+      - name: Download distribution artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: python-sdk-dist
+          path: dist
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
-          packages-dir: sdk/python/dist
+          packages-dir: dist
