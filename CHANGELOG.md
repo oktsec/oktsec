@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.1] - 2026-05-13
+
+### Maintenance
+
+- Republish the release pipeline to align all distribution channels for the v0.16 line. No code changes from v0.16.0.
+
 ## [0.16.0] - 2026-05-13
 
 ### Added
