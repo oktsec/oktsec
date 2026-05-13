@@ -136,22 +136,89 @@ func TestBuildSandboxEnv(t *testing.T) {
 	assert.Equal(t, "secret123", envMap["MY_TOKEN"])
 }
 
-// TestCustomEnvOverridesSandbox verifies that user-specified Env can override
-// the sandbox proxy vars (e.g., to point at a different proxy).
-func TestCustomEnvOverridesSandbox(t *testing.T) {
-	proxyAddr := "http://127.0.0.1:8083"
-	customProxy := "http://custom-proxy:9090"
+// When EgressSandbox is true, backend Env entries naming a reserved
+// proxy key are ignored. A backend config that sets NO_PROXY=* or
+// HTTPS_PROXY=http://evil could otherwise disable or redirect the
+// sandbox; the merged child env must point at the Oktsec forward
+// proxy regardless of backend config.
+func TestBuildChildEnv_SandboxRejectsBackendProxyOverride(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	b := NewBackend("test", config.MCPServerConfig{
+		Transport:     "stdio",
+		Command:       "echo",
+		EgressSandbox: true,
+		Env: map[string]string{
+			"HTTP_PROXY":  "http://evil:1",
+			"HTTPS_PROXY": "http://evil:2",
+			"ALL_PROXY":   "http://evil:3",
+			"NO_PROXY":    "*",
+			"http_proxy":  "http://evil:4",
+			"https_proxy": "http://evil:5",
+			"all_proxy":   "http://evil:6",
+			"no_proxy":    "*",
+		},
+	}, logger)
+	b.SetProxyPort(8083)
 
-	env := []string{"HOME=/home/user"}
-	env = setEnv(env, "HTTP_PROXY", proxyAddr)
-	env = setEnv(env, "HTTPS_PROXY", proxyAddr)
-
-	// User overrides HTTP_PROXY
-	env = setEnv(env, "HTTP_PROXY", customProxy)
-
+	env := b.buildChildEnv([]string{"HOME=/home/user", "PATH=/usr/bin"})
 	envMap := envToMap(env)
-	assert.Equal(t, customProxy, envMap["HTTP_PROXY"], "user Env should override sandbox proxy")
-	assert.Equal(t, proxyAddr, envMap["HTTPS_PROXY"], "non-overridden proxy var should remain")
+
+	const proxyAddr = "http://127.0.0.1:8083"
+	for _, key := range []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"} {
+		assert.Equal(t, proxyAddr, envMap[key], "%s must point at the Oktsec sandbox proxy", key)
+	}
+	assert.Equal(t, "", envMap["NO_PROXY"], "NO_PROXY must be empty so nothing bypasses the sandbox")
+	assert.Equal(t, "", envMap["no_proxy"], "no_proxy must be empty so nothing bypasses the sandbox")
+}
+
+// Non-proxy backend env still passes through under the sandbox.
+// Application-specific config (NODE_OPTIONS, MY_TOKEN, etc.) is not
+// affected by the precedence rule.
+func TestBuildChildEnv_SandboxPassesThroughNonProxyEnv(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	b := NewBackend("test", config.MCPServerConfig{
+		Transport:     "stdio",
+		Command:       "echo",
+		EgressSandbox: true,
+		Env: map[string]string{
+			"NODE_OPTIONS":   "--max-old-space-size=4096",
+			"APP_API_TOKEN":  "secret-123",
+			"FEATURE_FLAG":   "on",
+			"HTTPS_PROXY":    "http://evil:9",
+		},
+	}, logger)
+	b.SetProxyPort(8083)
+
+	env := b.buildChildEnv([]string{"HOME=/home/user"})
+	envMap := envToMap(env)
+
+	assert.Equal(t, "--max-old-space-size=4096", envMap["NODE_OPTIONS"])
+	assert.Equal(t, "secret-123", envMap["APP_API_TOKEN"])
+	assert.Equal(t, "on", envMap["FEATURE_FLAG"])
+	assert.Equal(t, "http://127.0.0.1:8083", envMap["HTTPS_PROXY"], "sandbox still wins for proxy keys")
+}
+
+// With the sandbox disabled, backend Env still passes through as
+// before. This preserves the legacy behaviour: an operator who
+// chooses to route a backend through a custom HTTP proxy without
+// Oktsec sandboxing keeps that ability.
+func TestBuildChildEnv_NoSandboxKeepsBackendEnvUnchanged(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	b := NewBackend("test", config.MCPServerConfig{
+		Transport:     "stdio",
+		Command:       "echo",
+		EgressSandbox: false,
+		Env: map[string]string{
+			"HTTPS_PROXY": "http://custom-proxy:9090",
+			"NO_PROXY":    "localhost",
+		},
+	}, logger)
+
+	env := b.buildChildEnv([]string{"HOME=/home/user"})
+	envMap := envToMap(env)
+
+	assert.Equal(t, "http://custom-proxy:9090", envMap["HTTPS_PROXY"], "without sandbox, backend env still controls proxy")
+	assert.Equal(t, "localhost", envMap["NO_PROXY"])
 }
 
 func TestDefaultProxyPort_FallbackTo8083(t *testing.T) {
