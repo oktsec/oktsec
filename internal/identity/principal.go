@@ -6,10 +6,15 @@ import (
 	"strings"
 )
 
-// principalNameRE is the canonical principal name shape: must start with
-// an alphanumeric character, then up to 127 of [A-Za-z0-9._-]. Total
-// length is bounded at 128 characters.
-var principalNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+// principalNameRE is the canonical principal name shape: must start
+// with a letter, digit, or underscore, then up to 127 of
+// [A-Za-z0-9._-]. Total length is bounded at 128 characters.
+//
+// Leading underscore is allowed for the small set of internal reserved
+// principals such as _proxy (used for audit-chain signing). Leading dot
+// is still rejected because it would create hidden files on Unix and
+// confuse directory enumeration.
+var principalNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 
 // MaxPrincipalNameLen is the maximum length accepted by
 // ValidatePrincipalName. 128 leaves room for sensible agent names while
@@ -25,13 +30,13 @@ const MaxPrincipalNameLen = 128
 // collide on a single ACL and audit row, which is worse than refusing
 // the operation.
 //
-// Allowed: ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$
+// Allowed: ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$
 //
-//	filesystem, github, research-agent, agent_01, org.tool
+//	filesystem, github, research-agent, agent_01, org.tool, _proxy
 //
 // Rejected: empty, ".", "..", anything containing path separators
-// (/, \), NUL bytes, leading ".", characters outside [A-Za-z0-9._-],
-// longer than 128 characters.
+// (/, \), NUL bytes, leading ".", leading "-", characters outside
+// [A-Za-z0-9._-], longer than 128 characters.
 func ValidatePrincipalName(name string) error {
 	if name == "" {
 		return fmt.Errorf("invalid principal name: name is empty")
@@ -48,7 +53,7 @@ func ValidatePrincipalName(name string) error {
 		return fmt.Errorf("invalid principal name %q: contains a path separator", name)
 	}
 	if !principalNameRE.MatchString(name) {
-		return fmt.Errorf("invalid principal name %q: must start with a letter or digit and contain only letters, digits, dot, underscore, or dash", name)
+		return fmt.Errorf("invalid principal name %q: must start with a letter, digit, or underscore and contain only letters, digits, dot, underscore, or dash", name)
 	}
 	return nil
 }

@@ -18,6 +18,8 @@ func TestValidatePrincipalName_Accepts(t *testing.T) {
 		"Z9",
 		"claude-code",
 		"alice.bob_carol-1",
+		"_proxy",
+		"_internal-signer_v2",
 		strings.Repeat("a", MaxPrincipalNameLen),
 	}
 	for _, name := range cases {
@@ -38,19 +40,18 @@ func TestValidatePrincipalName_Rejects(t *testing.T) {
 		want string // substring required in the error
 	}{
 		{"", "empty"},
-		{".", "must start with a letter or digit"},
-		{"..", "must start with a letter or digit"},
+		{".", "must start with a letter, digit, or underscore"},
+		{"..", "must start with a letter, digit, or underscore"},
 		{"../evil", "path separator"},
 		{"../../pwn", "path separator"},
 		{"a/b", "path separator"},
 		{`a\b`, "path separator"},
 		{"foo\x00bar", "NUL byte"},
-		{".hidden", "must start with a letter or digit"},
-		{"-leading-dash", "must start with a letter or digit"},
-		{"_leading_underscore", "must start with a letter or digit"},
-		{"name with space", "must start with a letter or digit"},
-		{"weird:char", "must start with a letter or digit"},
-		{"emoji-✓", "must start with a letter or digit"},
+		{".hidden", "must start with a letter, digit, or underscore"},
+		{"-leading-dash", "must start with a letter, digit, or underscore"},
+		{"name with space", "must start with a letter, digit, or underscore"},
+		{"weird:char", "must start with a letter, digit, or underscore"},
+		{"emoji-✓", "must start with a letter, digit, or underscore"},
 		{strings.Repeat("a", MaxPrincipalNameLen+1), "exceeds"},
 	}
 	for _, tc := range cases {
@@ -70,6 +71,17 @@ func TestValidatePrincipalName_Rejects(t *testing.T) {
 				t.Fatalf("IsValidPrincipalName(%q) = true, want false", tc.name)
 			}
 		})
+	}
+}
+
+// The _proxy principal signs audit-chain entries from
+// internal/proxy/server.go. ValidatePrincipalName must accept it; a
+// regression here would silently disable proxy signing on every fresh
+// install. See server.go LoadKeypair("_proxy") and
+// GenerateKeypair("_proxy") call sites.
+func TestValidatePrincipalName_AcceptsReservedProxyPrincipal(t *testing.T) {
+	if err := ValidatePrincipalName("_proxy"); err != nil {
+		t.Fatalf("ValidatePrincipalName(\"_proxy\") = %v, want nil; audit-chain signing depends on this name", err)
 	}
 }
 

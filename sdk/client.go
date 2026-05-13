@@ -33,8 +33,10 @@ import (
 
 // sdkPrincipalNameRE mirrors internal/identity.ValidatePrincipalName so
 // the SDK can refuse a malicious agent name without taking a dependency
-// on an internal package. The shape is intentionally identical.
-var sdkPrincipalNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+// on an internal package. The shape is intentionally identical,
+// including the leading-underscore allowance for internal reserved
+// principals such as _proxy.
+var sdkPrincipalNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 
 // validateAgentName rejects names that would let LoadKeypair build a
 // path outside dir.
@@ -46,7 +48,7 @@ func validateAgentName(name string) error {
 		return fmt.Errorf("agent name %q contains a path separator or NUL byte", name)
 	}
 	if !sdkPrincipalNameRE.MatchString(name) {
-		return fmt.Errorf("agent name %q is not allowed: must start with a letter or digit and contain only letters, digits, dot, underscore, or dash (max 128 chars)", name)
+		return fmt.Errorf("agent name %q is not allowed: must start with a letter, digit, or underscore and contain only letters, digits, dot, underscore, or dash (max 128 chars)", name)
 	}
 	return nil
 }
