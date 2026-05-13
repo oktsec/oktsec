@@ -2,6 +2,62 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.16.0] - 2026-05-13
+
+### Added
+
+- **Agent runtime posture (`/dashboard/audit` reframed)** (#170): runtime-first view of what each agent did, with hardening secondary and suppressed when the runtime cannot prove protection.
+- **Delegation as runtime authority** (#171): AND-strict ACL plus suspension on the root, signature required when a chain is present, sender-binding, shared depth cap.
+- **AI analysis on runtime sessions** (#172): tri-state envelope, isolated runtime namespace, DOM-safe error panel, `mdToHTML` render.
+- **Deterministic runtime evidence write path** (#173, #174): per-connection pragmas via DSN plus WaitGroup-backed `FlushActivity`. Integration tests are hermetic (DB path inside `t.TempDir`).
+- **Provider-neutral `PrincipalContext` model** (#175): vendor-neutral identity enrichment carried through resolve and posture, deep-copied at every outward boundary. No OIDC or IdP adapter wired yet.
+- **Unified Claude Code runtime client lifecycle** (#177, #178): shared helper across `run` / `connect` / `disconnect`. Already-present gateway converges via remove-and-re-add. Strict and best-effort modes.
+- **Runtime sessions, detail, bulk export, hooks drawer drill-down** (#169): `ExcludeHeartbeats` SQL filter; all runtime-first.
+- **Runtime event substrate** (#158, #159): sessions, actors, hook events. Hooks handler wired into `runtime.Store`.
+- **Phase 2A coverage matrix on Overview** (#136).
+- **Phase 2B.1 activity event foundation** (#137-#142): dual-write across gateway, forward proxy, and hooks; connector registry; hybrid coverage reader; activity drill-down.
+- **Phase 1 surface-agnostic identity** (#133, #134, #135): bearer-token identity for MCP HTTP gateway; `oktsec tokens` CLI for principal token management; identity resolver extended to forward proxy and hooks.
+- **Claude Code hooks installation** (#157): backup plus modern decision shape.
+- **Claude Code connector inventory plus `doctor`** (#156).
+- **Coverage drawer "Why this state"** (#144): includes the CLI command to inspect the underlying data.
+- **Coverage cells as native buttons under strict CSP** (#143).
+- **Read-only audit store hardening**: `NewStoreReadOnly` enforced on verification paths (`audit verify-chain`) so tampered rows surface instead of being silently rebuilt.
+
+### Changed
+
+- **Dashboard clarity sprint** (#116-#127): KPI labels, contrast, navigation, sorting, accessibility (skip link, `aria-current`, reduced motion); events page inspect buttons and redaction indicators; rules page filter chips and trigger counts; agent policy comprehension (ARIA tabs, wildcard explanations); AI analysis evidence framing, confidence column, rule IDs; posture page as a remediation surface with severity filters and copy buttons; graph readability and risk navigation; settings information architecture with inline confirmations.
+- **Dashboard desktop polish slice** (#148-#153): topbar mode parity, gateway port readiness callback, idempotent `Store.Close`, routed-only visibility wording, neutral typography, contrast bump, gateway state coherence plus sparkline frame, auto-fit Agents grid plus Pipeline summary wrap, all-pages smoke test.
+- **Public artifact wording sweep** (#147, #149, #154): visibility claims scoped to Oktsec-routed surfaces. README aligned with the dashboard public-contract spec. Banned-phrase plus stale rule-count sweep across rendered Overview, populated Overview, Gateway page, LLM page.
+- **`CoverageFromHookEvent`** (#140): only `pre_tool_use` can claim `Protected`.
+- **Setup banner live rule count plus dashboard page count** (#129).
+- **Graph rendering aligned with audit truth and generalised across MCP clients** (#131, #132).
+- **Generated configs no longer auto-purge audit evidence** (#155): preserves evidence by default.
+- **Aguara v0.14.4 -> v0.14.5** (#105).
+
+### Fixed
+
+- **Wildcard egress, SDK auth, Go toolchain audit findings** (#107).
+- **Agent spoofing, dual gateway, redaction audit findings** (#106).
+- **Webhook masking, graph render, modal a11y** (#113).
+- **ACL entry constraints wired into the policy evaluator** (#108).
+- **Custom rule ID sanitisation before joining onto `CustomRulesDir`** (#165).
+- **LLM queue buffer size capped to bound channel allocation** (#166).
+- **Claude Code project directory validation** (#164).
+- **Session cookie `Secure` flag derived from the request scheme** (#167, #168).
+- **`oktsec run` Claude Code bootstrap when discovery is empty** (#177).
+- **Overview sparkline test anchored on `time.Now()`** (#163).
+- **Gateway runtime contradiction plus suppressed orphan Overview sparkline** (#152).
+- **Dashboard accessibility regressions** (#126): skip link, `aria-current`, reduced motion.
+
+### Security
+
+- **Go toolchain bumped to 1.26.3** (#179): picks up patched standard library (GO-2026-4918, GO-2026-4971, GO-2026-4980, GO-2026-4982). `govulncheck` clean.
+- **Principal name validation at every key sink** (#180): central validator with two-tier contract. `ValidatePrincipalName` is filesystem-safe and accepts the reserved `_proxy` signing principal; `ValidatePublicPrincipalName` layers a reserved-name refusal for HTTP, dashboard form, CLI, config-load, gateway auto-register, and SDK surfaces. Rejects path traversal, NUL, leading dot or dash, and Windows-reserved device basenames (`NUL`, `CON`, `COM1-9`, `LPT1-9`, `AUX`, `PRN`). Two package-local agent-name regexes removed in favour of the central validator.
+- **Dashboard AI analysis transport** (#181): `Server.analysisHTTPClient` routes through `netutil.SafeDialContext`. A misconfigured `llm.base_url` pointed at `127.0.0.1`, `169.254.169.254`, or any private/reserved range is refused before the configured `Authorization` header leaves the process. Error catch handlers in `tmpl_quarantine.go` and `tmpl_session.go` switched from `innerHTML` concatenation against upstream provider error text to `createElement` plus `textContent`.
+- **Gateway egress sandbox env precedence** (#182): when `EgressSandbox=true`, reserved proxy env keys from backend config (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`, plus lowercase variants) are dropped with a warning log. `ALL_PROXY` and `all_proxy` join the sandbox injection set. `Backend.buildChildEnv` extracted for testability.
+- **Publish workflows hardened** (#183, #184): all 18 actions pinned to commit SHAs across CI, release, docs, and PyPI workflows. The Python SDK publish step migrates from a long-lived credential to PyPI Trusted Publishing via OIDC. Build and publish are separate jobs; `id-token: write` is scoped to the publish job only, never workflow-wide, so PyPI-sourced packaging tooling cannot mint a release credential. Same separation applied to `docs.yml` (deploy job carries `pages: write` plus `id-token: write`; build job does not).
+- **P1 dashboard clarity** (#116): avg duration bug, contrast, KPI labels, confidence display.
+
 ## [0.15.2] - 2026-04-24
 
 ### Changed
