@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/safefile"
 	"gopkg.in/yaml.v3"
 )
@@ -713,6 +714,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid default_policy %q (must be allow or deny)", c.DefaultPolicy)
 	}
 	for name, agent := range c.Agents {
+		if err := identity.ValidatePrincipalName(name); err != nil {
+			return fmt.Errorf("agents map key: %w", err)
+		}
 		for _, target := range agent.CanMessage {
 			if target == name {
 				return fmt.Errorf("agent %q lists itself in can_message", name)
@@ -749,6 +753,9 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("invalid gateway port: %d", c.Gateway.Port)
 		}
 		for name, srv := range c.MCPServers {
+			if err := identity.ValidatePrincipalName(name); err != nil {
+				return fmt.Errorf("mcp_servers map key: %w", err)
+			}
 			switch srv.Transport {
 			case "stdio":
 				if srv.Command == "" {

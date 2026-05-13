@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -13,9 +12,6 @@ import (
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/identity"
 )
-
-// agentAPINameRe validates agent names: alphanumeric, hyphens, underscores.
-var agentAPINameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // AgentAPI handles REST endpoints for agent CRUD operations.
 type AgentAPI struct {
@@ -128,8 +124,8 @@ func (a *AgentAPI) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" || !agentAPINameRe.MatchString(req.Name) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid agent name (alphanumeric, hyphens, underscores)"})
+	if err := identity.ValidatePrincipalName(req.Name); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 

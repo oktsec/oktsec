@@ -26,8 +26,30 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 )
+
+// sdkPrincipalNameRE mirrors internal/identity.ValidatePrincipalName so
+// the SDK can refuse a malicious agent name without taking a dependency
+// on an internal package. The shape is intentionally identical.
+var sdkPrincipalNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// validateAgentName rejects names that would let LoadKeypair build a
+// path outside dir.
+func validateAgentName(name string) error {
+	if name == "" {
+		return fmt.Errorf("agent name is empty")
+	}
+	if strings.IndexByte(name, 0) >= 0 || strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("agent name %q contains a path separator or NUL byte", name)
+	}
+	if !sdkPrincipalNameRE.MatchString(name) {
+		return fmt.Errorf("agent name %q is not allowed: must start with a letter or digit and contain only letters, digits, dot, underscore, or dash (max 128 chars)", name)
+	}
+	return nil
+}
 
 // MessageRequest is sent to POST /v1/message.
 type MessageRequest struct {
@@ -195,7 +217,11 @@ type Keypair struct {
 
 // LoadKeypair loads an oktsec keypair from PEM files in the given directory.
 // Expects <dir>/<name>.key (private) and optionally <dir>/<name>.pub (public).
+// The name must be a safe principal identifier; see validateAgentName.
 func LoadKeypair(dir, name string) (*Keypair, error) {
+	if err := validateAgentName(name); err != nil {
+		return nil, err
+	}
 	privPath := filepath.Join(dir, name+".key")
 
 	privPEM, err := readFileNoFollow(privPath)

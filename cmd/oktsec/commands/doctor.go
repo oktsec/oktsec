@@ -230,6 +230,12 @@ func checkKeypairs(cfg *config.Config) checkResult {
 	}
 	var missing []string
 	for name := range cfg.Agents {
+		// Defence in depth. config.Load already rejects unsafe agent
+		// names, but if a hand-edited config slipped one through,
+		// skip rather than stat a synthesised key path.
+		if !identity.IsValidPrincipalName(name) {
+			continue
+		}
 		keyFile := filepath.Join(keysDir, name+".key")
 		if _, err := os.Stat(keyFile); os.IsNotExist(err) {
 			missing = append(missing, name)

@@ -2932,12 +2932,10 @@ func (s *Server) handleQuarantineReject(w http.ResponseWriter, r *http.Request) 
 
 // --- Agent CRUD handlers ---
 
-var agentNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
-
 func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
-	if name == "" || !agentNameRe.MatchString(name) {
-		http.Error(w, "invalid agent name (alphanumeric, hyphens, underscores)", http.StatusBadRequest)
+	if err := identity.ValidatePrincipalName(name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if _, exists := s.cfg.Agents[name]; exists {
@@ -5695,12 +5693,10 @@ func (s *Server) handleSaveGatewaySettings(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/dashboard/gateway", http.StatusFound)
 }
 
-var mcpServerNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
-
 func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
-	if name == "" || !mcpServerNameRe.MatchString(name) {
-		http.Error(w, "invalid server name (alphanumeric, hyphens, underscores)", http.StatusBadRequest)
+	if err := identity.ValidatePrincipalName(name); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if _, exists := s.cfg.MCPServers[name]; exists {

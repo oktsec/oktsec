@@ -1002,6 +1002,13 @@ func (g *Gateway) autoRegisterAgent(name string) {
 	if g.cfg.Gateway.DisableAutoRegister {
 		return
 	}
+	// A name that fails principal-name validation must not be
+	// auto-registered. Otherwise it would land in cfg.Agents and the
+	// next key-load or save would synthesise an unsafe file path.
+	if err := identity.ValidatePrincipalName(name); err != nil {
+		g.logger.Warn("rejecting auto-register for unsafe agent name", "name", name, "error", err)
+		return
+	}
 	var needSave bool
 
 	g.registeredMu.Lock()

@@ -198,6 +198,9 @@ func autoSetupWithDeps(configPath string, opts runOpts, deps autoSetupDeps) erro
 	agents := make(map[string]agentYAML)
 	for _, entry := range result.AllServers() {
 		name := entry.Server.Name
+		if err := identity.ValidatePrincipalName(name); err != nil {
+			return fmt.Errorf("MCP server %q discovered in client %q: %w", name, entry.Client, err)
+		}
 		risk := assessRisk(entry.Server)
 		agents[name] = agentYAML{
 			CanMessage: []string{"*"},
