@@ -201,9 +201,18 @@ function analyzeSession(sid) {
       if (btn) { btn.disabled = false; btn.textContent = 'Analyze with AI'; }
       var layout = document.getElementById('st-layout');
       layout.classList.remove('no-analysis');
+      // textContent (not innerHTML) so a hostile upstream provider
+      // error body cannot inject markup into the dashboard.
       var panel = document.createElement('div');
       panel.className = 'st-ai-panel';
-      panel.innerHTML = '<h3>AI Analysis</h3><div class="st-ai-content" style="color:var(--danger)">Analysis failed: ' + e.message + '</div>';
+      var hdr = document.createElement('h3');
+      hdr.textContent = 'AI Analysis';
+      var content = document.createElement('div');
+      content.className = 'st-ai-content';
+      content.style.color = 'var(--danger)';
+      content.textContent = 'Analysis failed: ' + (e && e.message ? e.message : String(e));
+      panel.appendChild(hdr);
+      panel.appendChild(content);
       layout.appendChild(panel);
     });
 }

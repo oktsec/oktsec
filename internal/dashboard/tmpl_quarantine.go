@@ -119,7 +119,15 @@ function analyzeQuarantine(id) {
       btn.textContent = 'Re-analyze';
     })
     .catch(function(e) {
-      out.innerHTML = '<div style="color:var(--danger);font-size:0.8rem;padding:8px 0">Analysis failed: ' + (e.message || e) + '</div>';
+      // textContent (not innerHTML) so a hostile upstream provider
+      // error body cannot inject markup into the dashboard.
+      while (out.firstChild) { out.removeChild(out.firstChild); }
+      var errDiv = document.createElement('div');
+      errDiv.style.color = 'var(--danger)';
+      errDiv.style.fontSize = '0.8rem';
+      errDiv.style.padding = '8px 0';
+      errDiv.textContent = 'Analysis failed: ' + (e && e.message ? e.message : String(e));
+      out.appendChild(errDiv);
       btn.disabled = false;
       btn.textContent = original;
     });

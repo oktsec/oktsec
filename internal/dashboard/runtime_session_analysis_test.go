@@ -77,7 +77,11 @@ func (f *fakeLLM) promptText(t *testing.T) string {
 
 // newRuntimeAnalysisServer wires a Server with both the runtime
 // store AND an LLM config pointing at the fake LLM. cfgPath is
-// set so any config save in the request path can write.
+// set so any config save in the request path can write. The
+// dashboard's production analysis client routes through
+// SafeDialContext, which would block the httptest loopback URL;
+// SetAnalysisHTTPClient swaps in a permissive transport for the
+// duration of the test.
 func newRuntimeAnalysisServer(t *testing.T, fake *fakeLLM) (*Server, *runtime.Store, *audit.Store) {
 	t.Helper()
 	srv, rs, auditStore := newRuntimeGraphTestServer(t)
@@ -88,6 +92,7 @@ func newRuntimeAnalysisServer(t *testing.T, fake *fakeLLM) (*Server, *runtime.St
 		APIKey:   "test-key",
 		BaseURL:  fake.server.URL,
 	}
+	srv.SetAnalysisHTTPClient(fake.server.Client())
 	return srv, rs, auditStore
 }
 

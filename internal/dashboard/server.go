@@ -23,8 +23,36 @@ import (
 	"github.com/oktsec/oktsec/internal/graph"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
+	"github.com/oktsec/oktsec/internal/netutil"
 	"github.com/oktsec/oktsec/internal/runtime"
 )
+
+// newSafeAnalysisHTTPClient returns the production HTTP client used by
+// direct AI analysis calls. The transport routes through
+// netutil.SafeDialContext so an llm base_url pointed at loopback,
+// 169.254.169.254, or any other special-use range is refused before
+// the configured Authorization header leaves the process.
+func newSafeAnalysisHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext: netutil.SafeDialContext,
+		},
+	}
+}
+
+// SetAnalysisHTTPClient overrides the outbound HTTP client used by
+// direct AI analysis calls. The default routes through
+// netutil.SafeDialContext to refuse private/loopback destinations;
+// tests that point an llm base_url at an httptest server replace it
+// with a client whose transport tolerates loopback. Production code
+// must not call this with a permissive client.
+func (s *Server) SetAnalysisHTTPClient(c *http.Client) {
+	if c == nil {
+		c = newSafeAnalysisHTTPClient()
+	}
+	s.analysisHTTPClient = c
+}
 
 // Version is set by the CLI command at startup for use in exports (e.g., SARIF).
 var Version = "dev"
@@ -42,6 +70,16 @@ type Server struct {
 	scanner *engine.Scanner
 	logger  *slog.Logger
 	mux     *http.ServeMux
+
+	// analysisHTTPClient is the outbound client used by direct AI
+	// analysis calls (callClaude / callOpenAI in session_analysis.go
+	// and runtime_session_analysis.go). The default is wired with
+	// netutil.SafeDialContext so a misconfigured or hostile llm
+	// base_url cannot reach loopback or special-use addresses such as
+	// 169.254.169.254 with the configured Authorization header.
+	// Tests override this via SetAnalysisHTTPClient to talk to an
+	// httptest server.
+	analysisHTTPClient *http.Client
 
 	gwMu      sync.Mutex
 	gwCmd     *exec.Cmd
@@ -100,14 +138,15 @@ type Server struct {
 // NewServer creates a dashboard server with access-code authentication.
 func NewServer(cfg *config.Config, cfgPath string, auditStore audit.AuditStore, keys *identity.KeyStore, scanner *engine.Scanner, logger *slog.Logger) *Server {
 	s := &Server{
-		auth:    NewAuth(logger),
-		audit:   auditStore,
-		cfg:     cfg,
-		cfgPath: cfgPath,
-		keys:    keys,
-		scanner: scanner,
-		logger:  logger,
-		mux:     http.NewServeMux(),
+		auth:               NewAuth(logger),
+		audit:              auditStore,
+		cfg:                cfg,
+		cfgPath:            cfgPath,
+		keys:               keys,
+		scanner:            scanner,
+		logger:             logger,
+		mux:                http.NewServeMux(),
+		analysisHTTPClient: newSafeAnalysisHTTPClient(),
 	}
 	s.routes()
 
