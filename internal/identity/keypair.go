@@ -23,7 +23,12 @@ type Keypair struct {
 }
 
 // GenerateKeypair creates a new Ed25519 key pair for the named agent.
+// The name must pass ValidatePrincipalName so that downstream Save and
+// Load calls cannot escape the keys directory.
 func GenerateKeypair(name string) (*Keypair, error) {
+	if err := ValidatePrincipalName(name); err != nil {
+		return nil, err
+	}
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generating keypair: %w", err)
@@ -37,7 +42,13 @@ func GenerateKeypair(name string) (*Keypair, error) {
 
 // Save writes the keypair to disk as PEM files.
 // Creates <dir>/<name>.key (private) and <dir>/<name>.pub (public).
+//
+// Save re-validates kp.Name. Callers that build a Keypair value
+// directly (without GenerateKeypair) cannot bypass the check.
 func (kp *Keypair) Save(dir string) error {
+	if err := ValidatePrincipalName(kp.Name); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("creating keys directory: %w", err)
 	}
@@ -67,7 +78,11 @@ func (kp *Keypair) Save(dir string) error {
 
 // LoadKeypair loads a full keypair (private + public) from disk.
 // Key files must not be symlinks and must not exceed 64 KB.
+// The name must pass ValidatePrincipalName.
 func LoadKeypair(dir, name string) (*Keypair, error) {
+	if err := ValidatePrincipalName(name); err != nil {
+		return nil, err
+	}
 	privPath := filepath.Join(dir, name+".key")
 	privPEM, err := safefile.ReadFileMax(privPath, 64*1024)
 	if err != nil {
@@ -94,7 +109,11 @@ func LoadKeypair(dir, name string) (*Keypair, error) {
 
 // LoadPublicKey loads only the public key from disk.
 // The file must not be a symlink and must not exceed 64 KB.
+// The name must pass ValidatePrincipalName.
 func LoadPublicKey(dir, name string) (ed25519.PublicKey, error) {
+	if err := ValidatePrincipalName(name); err != nil {
+		return nil, err
+	}
 	pubPath := filepath.Join(dir, name+".pub")
 	pubPEM, err := safefile.ReadFileMax(pubPath, 64*1024)
 	if err != nil {
@@ -123,6 +142,13 @@ func LoadPublicKeys(dir string) (map[string]ed25519.PublicKey, error) {
 			continue // skip symlinks
 		}
 		name := entry.Name()[:len(entry.Name())-4] // strip .pub
+		// A .pub file whose stem fails principal-name validation
+		// cannot be loaded safely. Skip it so a stray or malformed
+		// filename does not abort key loading for the whole
+		// directory; auditcheck flags it separately.
+		if !IsValidPrincipalName(name) {
+			continue
+		}
 		pub, err := LoadPublicKey(dir, name)
 		if err != nil {
 			return nil, fmt.Errorf("loading key for %s: %w", name, err)

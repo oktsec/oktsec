@@ -1002,6 +1002,14 @@ func (g *Gateway) autoRegisterAgent(name string) {
 	if g.cfg.Gateway.DisableAutoRegister {
 		return
 	}
+	// A name that fails public principal-name validation must not be
+	// auto-registered. Auto-register fires on external traffic, so we
+	// also reject reserved (leading-underscore) names to prevent
+	// collision with the internal _proxy signing principal.
+	if err := identity.ValidatePublicPrincipalName(name); err != nil {
+		g.logger.Warn("rejecting auto-register for unsafe agent name", "name", name, "error", err)
+		return
+	}
 	var needSave bool
 
 	g.registeredMu.Lock()

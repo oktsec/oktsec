@@ -26,8 +26,53 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 )
+
+// sdkPrincipalNameRE mirrors the filesystem-safety shape used by the
+// internal identity package. The SDK refuses names that fail this
+// check before touching the disk.
+var sdkPrincipalNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
+
+// sdkWindowsReserved mirrors internal/identity.windowsReservedNames so
+// the SDK can refuse a name that would otherwise open a Windows
+// character device (NUL, CON, COM1, etc.) instead of a key file.
+var sdkWindowsReserved = map[string]struct{}{
+	"con": {}, "prn": {}, "aux": {}, "nul": {},
+	"com1": {}, "com2": {}, "com3": {}, "com4": {}, "com5": {},
+	"com6": {}, "com7": {}, "com8": {}, "com9": {},
+	"lpt1": {}, "lpt2": {}, "lpt3": {}, "lpt4": {}, "lpt5": {},
+	"lpt6": {}, "lpt7": {}, "lpt8": {}, "lpt9": {},
+}
+
+// validateAgentName rejects names that would let LoadKeypair build a
+// path outside dir, refuses internal reserved principals (leading
+// underscore), and refuses Windows-reserved device basenames so the
+// same SDK build behaves consistently on darwin, linux, and windows.
+func validateAgentName(name string) error {
+	if name == "" {
+		return fmt.Errorf("agent name is empty")
+	}
+	if strings.IndexByte(name, 0) >= 0 || strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("agent name %q contains a path separator or NUL byte", name)
+	}
+	if !sdkPrincipalNameRE.MatchString(name) {
+		return fmt.Errorf("agent name %q is not allowed: must start with a letter, digit, or underscore and contain only letters, digits, dot, underscore, or dash (max 128 chars)", name)
+	}
+	if name[0] == '_' {
+		return fmt.Errorf("agent name %q is reserved for internal use", name)
+	}
+	stem := name
+	if dot := strings.IndexByte(name, '.'); dot >= 0 {
+		stem = name[:dot]
+	}
+	if _, reserved := sdkWindowsReserved[strings.ToLower(stem)]; reserved {
+		return fmt.Errorf("agent name %q resolves to a reserved Windows device name", name)
+	}
+	return nil
+}
 
 // MessageRequest is sent to POST /v1/message.
 type MessageRequest struct {
@@ -195,7 +240,11 @@ type Keypair struct {
 
 // LoadKeypair loads an oktsec keypair from PEM files in the given directory.
 // Expects <dir>/<name>.key (private) and optionally <dir>/<name>.pub (public).
+// The name must be a safe principal identifier; see validateAgentName.
 func LoadKeypair(dir, name string) (*Keypair, error) {
+	if err := validateAgentName(name); err != nil {
+		return nil, err
+	}
 	privPath := filepath.Join(dir, name+".key")
 
 	privPEM, err := readFileNoFollow(privPath)
