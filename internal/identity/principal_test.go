@@ -53,6 +53,14 @@ func TestValidatePrincipalName_Rejects(t *testing.T) {
 		{"weird:char", "must start with a letter, digit, or underscore"},
 		{"emoji-✓", "must start with a letter, digit, or underscore"},
 		{strings.Repeat("a", MaxPrincipalNameLen+1), "exceeds"},
+		{"NUL", "Windows device name"},
+		{"nul", "Windows device name"},
+		{"CON", "Windows device name"},
+		{"con.agent", "Windows device name"},
+		{"COM1", "Windows device name"},
+		{"lpt9", "Windows device name"},
+		{"AUX", "Windows device name"},
+		{"PRN", "Windows device name"},
 	}
 	for _, tc := range cases {
 		label := tc.name

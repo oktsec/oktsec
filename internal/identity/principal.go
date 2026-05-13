@@ -21,6 +21,23 @@ var principalNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 // staying well under PATH_MAX on every supported platform.
 const MaxPrincipalNameLen = 128
 
+// windowsReservedNames is the set of basenames that map to character
+// devices on Windows regardless of file extension. Writing to
+// "NUL.key" on Windows opens the null device, so the validator must
+// refuse these basenames case-insensitively on every platform — the
+// resulting config files are shared across darwin, linux, and windows
+// hosts.
+//
+// Source: Microsoft "Naming Files, Paths, and Namespaces" doc, "DOS
+// device names" section.
+var windowsReservedNames = map[string]struct{}{
+	"con": {}, "prn": {}, "aux": {}, "nul": {},
+	"com1": {}, "com2": {}, "com3": {}, "com4": {}, "com5": {},
+	"com6": {}, "com7": {}, "com8": {}, "com9": {},
+	"lpt1": {}, "lpt2": {}, "lpt3": {}, "lpt4": {}, "lpt5": {},
+	"lpt6": {}, "lpt7": {}, "lpt8": {}, "lpt9": {},
+}
+
 // ValidatePrincipalName returns nil if name is safe to use as the basis
 // of a key filename or agent identifier. Otherwise it returns an
 // actionable error describing the violation.
@@ -54,6 +71,16 @@ func ValidatePrincipalName(name string) error {
 	}
 	if !principalNameRE.MatchString(name) {
 		return fmt.Errorf("invalid principal name %q: must start with a letter, digit, or underscore and contain only letters, digits, dot, underscore, or dash", name)
+	}
+	// Windows device-name check applies to the basename before the
+	// extension. Strip a trailing ".x...x" segment (the part after
+	// the first dot) and look up the lowercased prefix.
+	stem := name
+	if dot := strings.IndexByte(name, '.'); dot >= 0 {
+		stem = name[:dot]
+	}
+	if _, reserved := windowsReservedNames[strings.ToLower(stem)]; reserved {
+		return fmt.Errorf("invalid principal name %q: %s is a reserved Windows device name", name, stem)
 	}
 	return nil
 }

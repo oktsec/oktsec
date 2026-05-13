@@ -36,10 +36,21 @@ import (
 // check before touching the disk.
 var sdkPrincipalNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 
+// sdkWindowsReserved mirrors internal/identity.windowsReservedNames so
+// the SDK can refuse a name that would otherwise open a Windows
+// character device (NUL, CON, COM1, etc.) instead of a key file.
+var sdkWindowsReserved = map[string]struct{}{
+	"con": {}, "prn": {}, "aux": {}, "nul": {},
+	"com1": {}, "com2": {}, "com3": {}, "com4": {}, "com5": {},
+	"com6": {}, "com7": {}, "com8": {}, "com9": {},
+	"lpt1": {}, "lpt2": {}, "lpt3": {}, "lpt4": {}, "lpt5": {},
+	"lpt6": {}, "lpt7": {}, "lpt8": {}, "lpt9": {},
+}
+
 // validateAgentName rejects names that would let LoadKeypair build a
-// path outside dir, and additionally refuses internal reserved
-// principals (leading underscore) so an external SDK caller cannot
-// load or overwrite a signing key such as _proxy.
+// path outside dir, refuses internal reserved principals (leading
+// underscore), and refuses Windows-reserved device basenames so the
+// same SDK build behaves consistently on darwin, linux, and windows.
 func validateAgentName(name string) error {
 	if name == "" {
 		return fmt.Errorf("agent name is empty")
@@ -52,6 +63,13 @@ func validateAgentName(name string) error {
 	}
 	if name[0] == '_' {
 		return fmt.Errorf("agent name %q is reserved for internal use", name)
+	}
+	stem := name
+	if dot := strings.IndexByte(name, '.'); dot >= 0 {
+		stem = name[:dot]
+	}
+	if _, reserved := sdkWindowsReserved[strings.ToLower(stem)]; reserved {
+		return fmt.Errorf("agent name %q resolves to a reserved Windows device name", name)
 	}
 	return nil
 }
