@@ -103,20 +103,43 @@ func readSnapshotInput(path string) ([]byte, error) {
 }
 
 // decodeSnapshotStrict parses raw into a node.Snapshot using a
-// decoder that refuses unknown fields. Strictness here closes the
-// signed-subset-is-implicit gap: if a snapshot file carries a field
-// the typed struct does not represent, we cannot canonicalize it
-// without silently dropping content — so we refuse the sign-snapshot
-// call instead of producing an envelope that signs a partial view of
-// the artifact. The schema_version is also explicitly enforced
-// rather than left to the JSON Schema validator, because this
-// command does not depend on the JSON Schema files at runtime.
+// decoder that refuses unknown fields AND refuses trailing JSON
+// content. Strictness here closes two distinct flavors of the
+// "signed subset" gap:
+//
+//   - unknown fields would be silently dropped by the typed-struct
+//     decoder, so the envelope would sign a smaller artifact than
+//     the operator handed us;
+//   - trailing JSON tokens after the first object would be lost
+//     completely. A file like
+//         { "schema_version": "node_snapshot.v1", ... }
+//         { "extra": "not signed" }
+//     decodes the first object cleanly under DisallowUnknownFields,
+//     and without the EOF check we would happily sign that first
+//     object and discard the second. Same threat model, different
+//     vector — so both gates live here.
+//
+// schema_version is also enforced explicitly rather than left to
+// the JSON Schema validator, because this command does not depend
+// on the JSON Schema files at runtime.
 func decodeSnapshotStrict(raw []byte) (node.Snapshot, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	var s node.Snapshot
 	if err := dec.Decode(&s); err != nil {
 		return node.Snapshot{}, fmt.Errorf("strict decode: %w", err)
+	}
+	// Refuse trailing tokens. Decoding into a throwaway value with
+	// the same decoder reads the next JSON value; anything other
+	// than io.EOF means the input contained more than a single
+	// snapshot object and the rest would be silently dropped if
+	// signing went ahead.
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return node.Snapshot{}, fmt.Errorf("strict decode: trailing JSON content after snapshot object")
+		}
+		return node.Snapshot{}, fmt.Errorf("strict decode: trailing content not parseable: %w", err)
 	}
 	if s.SchemaVersion != node.SchemaSnapshot {
 		return node.Snapshot{}, fmt.Errorf("schema_version %q is not %q", s.SchemaVersion, node.SchemaSnapshot)

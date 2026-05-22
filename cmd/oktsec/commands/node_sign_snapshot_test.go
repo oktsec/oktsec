@@ -214,6 +214,46 @@ func TestSignSnapshotCLI_RejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestSignSnapshotCLI_RejectsTrailingJSON(t *testing.T) {
+	// Two distinct closing braces of the "signed subset" gap:
+	// the DisallowUnknownFields test catches dropped fields, this
+	// one catches dropped objects after the first. A file like
+	//   { ... valid snapshot ... }
+	//   { "extra": "not signed" }
+	// must refuse signing — without the EOF check we would sign
+	// the first object and discard the rest silently.
+	store := withTestNodeStore(t)
+	if _, err := store.Init(node.ProfileLocal); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	dir := t.TempDir()
+	snapPath, _ := stagedSnapshot(t, dir, store)
+	original, err := os.ReadFile(snapPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	trailers := map[string]string{
+		"second-object": "\n{\"extra\":\"not signed\"}\n",
+		"bare-token":    "\nnull\n",
+		"junk":          "\nnot-json-at-all\n",
+	}
+	for name, trailer := range trailers {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(snapPath, append([]byte(nil), append(original, []byte(trailer)...)...), 0o644); err != nil {
+				t.Fatalf("rewrite: %v", err)
+			}
+			out, err := runSignSnapshot(t, []string{"--snapshot", snapPath})
+			if err == nil {
+				t.Fatalf("trailing %s must refuse signing; output:\n%s", name, out)
+			}
+			if !strings.Contains(err.Error(), "trailing") &&
+				!strings.Contains(err.Error(), "strict decode") {
+				t.Fatalf("error must surface the trailing-content failure, got %v", err)
+			}
+		})
+	}
+}
+
 func TestSignSnapshotCLI_RejectsBadSchemaVersion(t *testing.T) {
 	store := withTestNodeStore(t)
 	if _, err := store.Init(node.ProfileLocal); err != nil {
