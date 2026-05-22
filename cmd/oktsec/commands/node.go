@@ -15,20 +15,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// newNodeCmd builds the `oktsec node` command group. Order 1 ships
-// three subcommands: init / status / snapshot. All are additive and
-// read-only with respect to existing oktsec runtime state.
+// newNodeCmd builds the `oktsec node` command group. Order 1 shipped
+// init / status / snapshot; Phase 5 Order 3A adds sign-snapshot for
+// producing signed envelopes that downstream consumers (e.g.
+// `oktsec-enterprise ingest`) can verify against the local node key.
+// All subcommands are local-only and read-only with respect to the
+// Oktsec runtime — none of them open a network socket or modify
+// running enforcement.
 func newNodeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "node",
-		Short: "Manage the local Oktsec node identity and snapshot",
+		Short: "Manage the local Oktsec node identity, snapshot, and signed envelopes",
 		Long: "Node commands manage this Oktsec install as a single protected runtime node. " +
 			"Identity is local-only; snapshot is read-only and reports what this node sees, " +
-			"controls, and can prove.",
+			"controls, and can prove. sign-snapshot wraps a snapshot in a signed envelope so " +
+			"downstream consumers can verify it came from this node's identity without " +
+			"exposing the private key.",
 	}
 	cmd.AddCommand(newNodeInitCmd())
 	cmd.AddCommand(newNodeStatusCmd())
 	cmd.AddCommand(newNodeSnapshotCmd())
+	cmd.AddCommand(newNodeSignSnapshotCmd())
 	return cmd
 }
 
