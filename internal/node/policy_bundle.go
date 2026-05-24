@@ -1,8 +1,14 @@
 package node
 
 import (
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/safefile"
@@ -13,36 +19,58 @@ import (
 // cap keeps a planted multi-gigabyte file from stalling a snapshot.
 const maxPolicyBundleBytes = 1 << 20 // 1 MiB
 
-// rawPolicyBundle is the minimal, tolerant projection of an Enterprise
-// signed policy bundle that Order 4B needs. Community is parse-only
-// here: it does NOT own the policy bundle contract, so the decode is
-// deliberately tolerant (no DisallowUnknownFields) and ignores the
-// signature block entirely.
-//
-// NOTE (4B.2 follow-up): the authoritative bundle field names live in
-// the Enterprise policy_bundle schema. These tags are taken from the
-// Order 4B decisions; the cross-repo fixture that proves this reader and
-// the Enterprise bundle agree lands when Enterprise pins the 4B.1 anchor.
+// Frozen constants of the policy_bundle.v1 signing contract this node
+// verifies. Order 4C.1 verifies a bundle's signature locally, which
+// means reproducing the exact signing payload the bundle signer
+// covered. These values are part of that contract: a drift here
+// surfaces as a broken signature on every bundle, which is the right
+// failure mode. A vendored signed fixture (testdata) guards the format
+// against silent divergence.
+const (
+	policyBundleSchemaVersion    = "policy_bundle.v1"
+	policyBundleVersion          = 1
+	policyBundleCanonicalization = "oktsec-policy-v1-typed-utc-json"
+	policyBundleSignatureAlg     = "Ed25519"
+)
+
+// rawPolicyBundle is the tolerant projection of a signed policy_bundle.v1
+// the snapshot needs. This node does not own the bundle contract, so the
+// decode stays tolerant (no DisallowUnknownFields). Order 4C.1 added the
+// signature block + canonicalization tag so the node can verify the
+// signature locally; the field names follow the policy_bundle.v1 shape.
 type rawPolicyBundle struct {
-	SchemaVersion string `json:"schema_version"`
-	BundleVersion int    `json:"bundle_version"`
-	PolicyHash    string `json:"policy_hash"`
-	Policy        struct {
+	SchemaVersion    string `json:"schema_version"`
+	BundleVersion    int    `json:"bundle_version"`
+	PolicyHash       string `json:"policy_hash"`
+	Canonicalization string `json:"canonicalization"`
+	Policy           struct {
 		PolicyID      string `json:"policy_id"`
 		PolicyVersion string `json:"policy_version"`
 	} `json:"policy"`
+	Signature struct {
+		Alg                  string `json:"alg"`
+		KeyID                string `json:"key_id"`
+		PublicKey            string `json:"public_key"`
+		PublicKeyFingerprint string `json:"public_key_fingerprint"`
+		SignedAt             string `json:"signed_at"`
+		Value                string `json:"value"`
+	} `json:"signature"`
 }
 
 // buildPolicySection produces the additive Order 4B policy block from
-// the supplied --policy-bundle path. It is declarative and read-only:
-// it reads and parses the bundle, echoes the declared policy_hash, and
-// never verifies the signature, recomputes the hash, or applies policy.
+// the supplied --policy-bundle path, with Order 4C.1 verification.
+//
+// Verification (4C.1) is signature-only: the node verifies the Ed25519
+// signature over the declared policy hash against the bundle's embedded
+// public key, and that the embedded key's fingerprint matches the
+// operator-configured trust fingerprint. It does NOT recompute the
+// policy body hash and does NOT apply the policy — "verified" means
+// exactly "signature over the declared policy hash verified", nothing
+// more. ActivePolicyVerificationStatus reports which check decided it.
 //
 // Returned block is never nil for a 4B+ node — the none case is an
-// explicit PolicyStatusNone block, not an absent one. Any unreadable
-// path is reported as PolicyStatusUnreadable plus a warning so a
-// consumer can tell "could not read" from "no policy here".
-func buildPolicySection(bundlePath string) (*SnapshotPolicy, []Warning) {
+// explicit PolicyStatusNone block, not an absent one.
+func buildPolicySection(bundlePath, trustFingerprint string) (*SnapshotPolicy, []Warning) {
 	if bundlePath == "" {
 		return &SnapshotPolicy{
 			ActivePolicySource:   PolicySourceNone,
@@ -53,9 +81,10 @@ func buildPolicySection(bundlePath string) (*SnapshotPolicy, []Warning) {
 
 	unreadable := func(msg string) (*SnapshotPolicy, []Warning) {
 		return &SnapshotPolicy{
-				ActivePolicySource:   PolicySourceLocalFile,
-				ActivePolicyVerified: false,
-				PolicyStatus:         PolicyStatusUnreadable,
+				ActivePolicySource:             PolicySourceLocalFile,
+				ActivePolicyVerified:           false,
+				ActivePolicyVerificationStatus: PolicyVerificationBundleUnreadable,
+				PolicyStatus:                   PolicyStatusUnreadable,
 			}, []Warning{{
 				Code:    WarnPolicyBundleUnreadable,
 				Message: "Policy bundle could not be read as a declared active policy: " + msg,
@@ -85,15 +114,94 @@ func buildPolicySection(bundlePath string) (*SnapshotPolicy, []Warning) {
 		return unreadable("bundle declares no policy.policy_id")
 	}
 
+	verified, status := verifyPolicyBundle(bundle, trustFingerprint)
 	return &SnapshotPolicy{
-		ActivePolicyHash:     bundle.PolicyHash,
-		ActivePolicyID:       bundle.Policy.PolicyID,
-		ActivePolicyVersion:  bundle.Policy.PolicyVersion,
-		ActivePolicySource:   PolicySourceLocalFile,
-		ActivePolicyLoadedAt: policyBundleLoadedAt(bundlePath),
-		ActivePolicyVerified: false,
-		PolicyStatus:         PolicyStatusActive,
+		ActivePolicyHash:               bundle.PolicyHash,
+		ActivePolicyID:                 bundle.Policy.PolicyID,
+		ActivePolicyVersion:            bundle.Policy.PolicyVersion,
+		ActivePolicySource:             PolicySourceLocalFile,
+		ActivePolicyLoadedAt:           policyBundleLoadedAt(bundlePath),
+		ActivePolicyVerified:           verified,
+		ActivePolicyVerificationStatus: status,
+		PolicyStatus:                   PolicyStatusActive,
 	}, nil
+}
+
+// verifyPolicyBundle runs the Order 4C.1 verification state machine
+// against a readable bundle. Check order is the contract:
+//
+//	unsupported signature shape         -> unsupported_bundle
+//	no trust fingerprint configured     -> no_trust_anchor
+//	embedded key fp != trust fingerprint-> signing_key_mismatch
+//	signature does not verify           -> signature_invalid
+//	all pass                            -> verified
+//
+// The signature covers policy_hash via the domain-separated payload,
+// so a verified signature authenticates the reported hash. The body is
+// NOT re-hashed here (that is 4C.2 apply territory).
+func verifyPolicyBundle(b rawPolicyBundle, trustFingerprint string) (bool, string) {
+	sig := b.Signature
+	pub, err := base64.StdEncoding.DecodeString(sig.PublicKey)
+	switch {
+	case b.SchemaVersion != policyBundleSchemaVersion,
+		b.BundleVersion != policyBundleVersion,
+		b.Canonicalization != policyBundleCanonicalization,
+		sig.Alg != policyBundleSignatureAlg,
+		sig.Value == "",
+		err != nil,
+		len(pub) != ed25519.PublicKeySize:
+		return false, PolicyVerificationUnsupportedBundle
+	}
+	// Self-consistency: the embedded key must hash to the fingerprint
+	// the bundle claims for it. A mismatch means a malformed/hand-edited
+	// signature block, not a trust decision — treat it as unsupported.
+	derivedFP := policyKeyFingerprint(pub)
+	if sig.PublicKeyFingerprint != "" && sig.PublicKeyFingerprint != derivedFP {
+		return false, PolicyVerificationUnsupportedBundle
+	}
+	if trustFingerprint == "" {
+		return false, PolicyVerificationNoTrustAnchor
+	}
+	if derivedFP != trustFingerprint {
+		return false, PolicyVerificationSigningKeyMismatch
+	}
+	sigBytes, err := base64.StdEncoding.DecodeString(sig.Value)
+	if err != nil || len(sigBytes) != ed25519.SignatureSize {
+		return false, PolicyVerificationSignatureInvalid
+	}
+	payload := policyBundleSigningPayload(
+		b.Policy.PolicyID, b.Policy.PolicyVersion, b.PolicyHash,
+		sig.SignedAt, sig.KeyID, sig.PublicKeyFingerprint)
+	if !ed25519.Verify(ed25519.PublicKey(pub), payload, sigBytes) {
+		return false, PolicyVerificationSignatureInvalid
+	}
+	return true, PolicyVerificationVerified
+}
+
+// policyBundleSigningPayload reproduces the exact bytes the
+// policy_bundle.v1 signer covers. Domain-separated labeled lines,
+// newline-joined, no trailing newline. MUST stay byte-identical to the
+// signing contract or every bundle signature fails to verify.
+func policyBundleSigningPayload(policyID, policyVersion, policyHash, signedAt, keyID, publicKeyFingerprint string) []byte {
+	lines := []string{
+		"oktsec." + policyBundleSchemaVersion,
+		fmt.Sprintf("bundle_version:%d", policyBundleVersion),
+		"policy_id:" + policyID,
+		"policy_version:" + policyVersion,
+		"policy_hash:" + policyHash,
+		"canonicalization:" + policyBundleCanonicalization,
+		"signed_at:" + signedAt,
+		"signature_key_id:" + keyID,
+		"signature_public_key_fingerprint:" + publicKeyFingerprint,
+	}
+	return []byte(strings.Join(lines, "\n"))
+}
+
+// policyKeyFingerprint is the policy_bundle.v1 key fingerprint format:
+// the wire-format fingerprint of an Ed25519 public key, sha256:<64-hex>.
+func policyKeyFingerprint(pub []byte) string {
+	sum := sha256.Sum256(pub)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // policyBundleLoadedAt returns the bundle file's modification time as

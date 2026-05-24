@@ -35,7 +35,7 @@ const validBundleJSON = `{
 }`
 
 func TestBuildPolicySection_NoPath(t *testing.T) {
-	sec, warns := buildPolicySection("")
+	sec, warns := buildPolicySection("", "")
 	if sec == nil {
 		t.Fatal("policy block must never be nil for a 4B+ node")
 	}
@@ -58,7 +58,7 @@ func TestBuildPolicySection_NoPath(t *testing.T) {
 
 func TestBuildPolicySection_ValidBundle(t *testing.T) {
 	path := writePolicyBundle(t, validBundleJSON)
-	sec, warns := buildPolicySection(path)
+	sec, warns := buildPolicySection(path, "")
 	if len(warns) != 0 {
 		t.Errorf("valid bundle must not warn, got %v", warns)
 	}
@@ -96,7 +96,7 @@ func TestBuildPolicySection_Unreadable(t *testing.T) {
 	for name, contents := range cases {
 		t.Run(name, func(t *testing.T) {
 			path := writePolicyBundle(t, contents)
-			sec, warns := buildPolicySection(path)
+			sec, warns := buildPolicySection(path, "")
 			if sec.PolicyStatus != PolicyStatusUnreadable {
 				t.Errorf("status = %q, want %q", sec.PolicyStatus, PolicyStatusUnreadable)
 			}
@@ -115,7 +115,7 @@ func TestBuildPolicySection_Unreadable(t *testing.T) {
 
 func TestBuildPolicySection_MissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "does-not-exist.json")
-	sec, warns := buildPolicySection(path)
+	sec, warns := buildPolicySection(path, "")
 	if sec.PolicyStatus != PolicyStatusUnreadable {
 		t.Errorf("status = %q, want %q", sec.PolicyStatus, PolicyStatusUnreadable)
 	}
@@ -137,7 +137,7 @@ func TestBuildPolicySection_Symlink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Skipf("symlink not supported here: %v", err)
 	}
-	sec, warns := buildPolicySection(link)
+	sec, warns := buildPolicySection(link, "")
 	if sec.PolicyStatus != PolicyStatusUnreadable {
 		t.Errorf("symlinked bundle must be unreadable, got %q", sec.PolicyStatus)
 	}

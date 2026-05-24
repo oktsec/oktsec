@@ -123,6 +123,7 @@ func newNodeSnapshotCmd() *cobra.Command {
 		jsonOutput       bool
 		includeDiscovery bool
 		policyBundle     string
+		policyTrustFP    string
 	)
 	cmd := &cobra.Command{
 		Use:   "snapshot",
@@ -132,6 +133,7 @@ func newNodeSnapshotCmd() *cobra.Command {
 		Example: "  oktsec node snapshot --json\n" +
 			"  oktsec node snapshot --since 24h --output /tmp/node.json\n" +
 			"  oktsec node snapshot --policy-bundle /etc/oktsec/policy.signed.json --json\n" +
+			"  oktsec node snapshot --policy-bundle /etc/oktsec/policy.signed.json --policy-trust-fingerprint sha256:... --json\n" +
 			"  oktsec node snapshot --since 2026-05-20T00:00:00Z --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sinceT, err := parseSnapshotSince(since)
@@ -143,15 +145,16 @@ func newNodeSnapshotCmd() *cobra.Command {
 				return err
 			}
 			opts := node.Options{
-				ConfigPath:       cfgFile,
-				DBPath:           nodeSnapshotDBPathOverride,
-				IdentityStore:    nodeStoreForTest(),
-				Since:            sinceT,
-				Until:            untilT,
-				IncludeDiscovery: includeDiscovery,
-				PolicyBundlePath: policyBundle,
-				OktsecVersion:    version,
-				OktsecCommit:     commit,
+				ConfigPath:             cfgFile,
+				DBPath:                 nodeSnapshotDBPathOverride,
+				IdentityStore:          nodeStoreForTest(),
+				Since:                  sinceT,
+				Until:                  untilT,
+				IncludeDiscovery:       includeDiscovery,
+				PolicyBundlePath:       policyBundle,
+				PolicyTrustFingerprint: policyTrustFP,
+				OktsecVersion:          version,
+				OktsecCommit:           commit,
 			}
 			snap, err := node.Build(context.Background(), opts)
 			if err != nil {
@@ -182,7 +185,8 @@ func newNodeSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outputPath, "output", "", "write snapshot to this path instead of stdout")
 	cmd.Flags().BoolVar(&jsonOutput, "json", true, "emit JSON (always true in Order 1)")
 	cmd.Flags().BoolVar(&includeDiscovery, "include-discovery", false, "request MCP client discovery (Order 1: not supported, warns)")
-	cmd.Flags().StringVar(&policyBundle, "policy-bundle", "", "path to a local signed policy bundle to report as this node's active policy (declarative only; not verified or applied)")
+	cmd.Flags().StringVar(&policyBundle, "policy-bundle", "", "path to a local signed policy bundle to report as this node's active policy")
+	cmd.Flags().StringVar(&policyTrustFP, "policy-trust-fingerprint", "", "policy signing key fingerprint (sha256:<hex>) to verify the bundle signature against; omit to report the bundle unverified")
 	return cmd
 }
 

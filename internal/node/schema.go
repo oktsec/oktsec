@@ -79,6 +79,34 @@ const (
 	PolicySourceNone = "none"
 )
 
+// Policy verification status values (Order 4C.1) reported in
+// SnapshotPolicy.ActivePolicyVerificationStatus. "verified" means
+// exactly that the Ed25519 signature over the declared policy hash
+// verified against a trusted key — NOT that the policy body was
+// re-validated or applied.
+const (
+	// PolicyVerificationVerified: signature verified against the
+	// configured trust fingerprint.
+	PolicyVerificationVerified = "verified"
+	// PolicyVerificationNoTrustAnchor: a bundle is present but no
+	// --policy-trust-fingerprint was configured, so the node cannot
+	// claim the signing key is trusted.
+	PolicyVerificationNoTrustAnchor = "no_trust_anchor"
+	// PolicyVerificationSigningKeyMismatch: the bundle's signing key
+	// fingerprint does not match the configured trust fingerprint.
+	PolicyVerificationSigningKeyMismatch = "signing_key_mismatch"
+	// PolicyVerificationSignatureInvalid: the Ed25519 signature did
+	// not verify over the reconstructed signing payload.
+	PolicyVerificationSignatureInvalid = "signature_invalid"
+	// PolicyVerificationBundleUnreadable: the bundle could not be read
+	// or parsed (mirrors PolicyStatusUnreadable).
+	PolicyVerificationBundleUnreadable = "bundle_unreadable"
+	// PolicyVerificationUnsupportedBundle: the bundle parsed but
+	// carries no usable signature block / unknown bundle shape, so it
+	// cannot be verified.
+	PolicyVerificationUnsupportedBundle = "unsupported_bundle"
+)
+
 // SnapshotPolicy is the additive Order 4B block reporting which policy
 // the node has locally. It is DECLARATIVE evidence only: the node
 // echoes the policy_hash the bundle declares and does not verify the
@@ -105,10 +133,16 @@ type SnapshotPolicy struct {
 	// time (UTC RFC3339) — when the bundle landed on the node, a
 	// staleness signal. Omitted when not active.
 	ActivePolicyLoadedAt string `json:"active_policy_loaded_at,omitempty"`
-	// ActivePolicyVerified is always false in Order 4B: the field
-	// means "self-reported by the node, not yet cryptographically
-	// verified locally". 4C performs real signature verification.
+	// ActivePolicyVerified is the Order 4C.1 verification result: true
+	// only when the bundle's signature over the declared policy hash
+	// verified against the operator-configured trust fingerprint. It
+	// does NOT assert the policy body was re-validated or applied.
 	ActivePolicyVerified bool `json:"active_policy_verified"`
+	// ActivePolicyVerificationStatus (Order 4C.1) reports which check
+	// decided ActivePolicyVerified: verified / no_trust_anchor /
+	// signing_key_mismatch / signature_invalid / bundle_unreadable /
+	// unsupported_bundle. Omitted when no bundle path was supplied.
+	ActivePolicyVerificationStatus string `json:"active_policy_verification_status,omitempty"`
 	// PolicyStatus is one of active / none / unreadable.
 	PolicyStatus string `json:"policy_status"`
 }
