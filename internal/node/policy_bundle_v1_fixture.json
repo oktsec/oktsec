@@ -1,0 +1,60 @@
+{
+  "schema_version": "policy_bundle.v1",
+  "bundle_version": 1,
+  "policy_hash": "sha256:264cc6da2c81c68bdee9f9e69e73c27e32201b466beb05eaa2b42326d148b267",
+  "canonicalization": "oktsec-policy-v1-typed-utc-json",
+  "policy": {
+    "policy_id": "voice-ai-prod",
+    "policy_version": "1",
+    "mode": "enforce",
+    "rules": {
+      "enabled": [
+        "IAP-001",
+        "IAP-003",
+        "IAP-007"
+      ],
+      "disabled": [
+        "IAP-004"
+      ],
+      "overrides": {
+        "IAP-007": {
+          "action": "block"
+        }
+      }
+    },
+    "gateway": {
+      "tools_allowed": [
+        "calendar.read",
+        "voice.dial"
+      ],
+      "tools_denied": [
+        "shell.exec"
+      ]
+    },
+    "egress": {
+      "domains_allowed": [
+        "api.openai.com",
+        "api.anthropic.com"
+      ],
+      "domains_denied": [
+        "*.suspicious.example"
+      ]
+    },
+    "redaction": {
+      "level": "analyst"
+    },
+    "metadata": {
+      "created_at": "2026-05-23T12:00:00Z",
+      "created_by": "fixture-generator",
+      "reason": "Vendored test fixture for policy_bundle.v1 schema drift guard."
+    }
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "key_id": "enterprise-policy-fixture-v1",
+    "public_key": "6wccwmxHEVCpqZIobQWgBSqk872OmPUjQcUegTXuQj0=",
+    "public_key_fingerprint": "sha256:a6e0388bec0afcaa6a83463bcad7b0d37078263e163c58d56e03eb6b08d15dcc",
+    "signed_at": "2026-05-23T12:00:01Z",
+    "value": "7CjuiG4myt7uipoAYLOEUbBGUUyS/C4w3FMiVucZGkPSoqjJNE+s1PUDkbZ1FdwseWuJrya4f5r7571Vb9MtBg=="
+  }
+}

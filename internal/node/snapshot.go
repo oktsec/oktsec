@@ -53,8 +53,13 @@ type Options struct {
 	// operator copied onto the node. When set, Order 4B reports its
 	// declared policy_hash in the snapshot's policy block. Empty
 	// means "no locally-declared active policy" (policy_status none).
-	// Declarative only: the bundle is never verified or applied here.
 	PolicyBundlePath string
+
+	// PolicyTrustFingerprint is the operator-configured policy signing
+	// key fingerprint (sha256:<hex>) the node verifies a bundle's
+	// signature against (Order 4C.1). Empty means the node reports the
+	// bundle but cannot claim it is verified (no_trust_anchor).
+	PolicyTrustFingerprint string
 
 	// OktsecVersion / OktsecCommit override the version stamped
 	// into the snapshot. CLI fills these from version.go; tests
@@ -149,7 +154,7 @@ func Build(ctx context.Context, opts Options) (Snapshot, error) {
 	// Policy reporting (Order 4B) is independent of the audit DB, so
 	// populate it before any DB-dependent early return below — the
 	// block must appear on every snapshot a 4B+ node emits.
-	policySec, policyWarnings := buildPolicySection(opts.PolicyBundlePath)
+	policySec, policyWarnings := buildPolicySection(opts.PolicyBundlePath, opts.PolicyTrustFingerprint)
 	snap.Policy = policySec
 	snap.Warnings = append(snap.Warnings, policyWarnings...)
 
