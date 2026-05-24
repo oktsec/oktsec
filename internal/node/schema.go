@@ -51,7 +51,66 @@ type Snapshot struct {
 	Inventory     SnapshotInventory `json:"inventory"`
 	Posture       SnapshotPosture  `json:"posture"`
 	Evidence      SnapshotEvidence `json:"evidence"`
+	Policy        *SnapshotPolicy  `json:"policy,omitempty"`
 	Warnings      []Warning        `json:"warnings"`
+}
+
+// Policy status values reported in SnapshotPolicy.PolicyStatus.
+const (
+	// PolicyStatusActive: a local policy bundle was found and its
+	// declared policy_hash was read. NOT a verification claim.
+	PolicyStatusActive = "active"
+	// PolicyStatusNone: no --policy-bundle path was supplied; the node
+	// has no locally-declared active policy.
+	PolicyStatusNone = "none"
+	// PolicyStatusUnreadable: a path was supplied but the bundle could
+	// not be read or parsed, or it lacked the minimal fields. Distinct
+	// from PolicyStatusNone so Enterprise does not mistake "I could not
+	// read it" for "there is no policy here".
+	PolicyStatusUnreadable = "unreadable"
+)
+
+// Policy source values reported in SnapshotPolicy.ActivePolicySource.
+const (
+	// PolicySourceLocalFile: a local bundle path was supplied (active
+	// or unreadable — source records where the node looked).
+	PolicySourceLocalFile = "local_file"
+	// PolicySourceNone: no bundle path was supplied.
+	PolicySourceNone = "none"
+)
+
+// SnapshotPolicy is the additive Order 4B block reporting which policy
+// the node has locally. It is DECLARATIVE evidence only: the node
+// echoes the policy_hash the bundle declares and does not verify the
+// signature, recompute the hash, or apply the policy. Signature
+// verification and application are deferred to Order 4C.
+//
+// The block is carried as a pointer on Snapshot with omitempty so a
+// pre-4B snapshot (no policy key) reproduces byte-identical canonical
+// bytes and existing signed envelopes keep verifying. A 4B+ node always
+// populates it, including the PolicyStatusNone case.
+type SnapshotPolicy struct {
+	// ActivePolicyHash is the policy_hash echoed from the local
+	// bundle. Empty when PolicyStatus is none or unreadable. NOT
+	// recomputed by the node and NOT a verification result.
+	ActivePolicyHash string `json:"active_policy_hash"`
+	// ActivePolicyID / ActivePolicyVersion mirror the bundle's
+	// declared identity. Omitted when not active.
+	ActivePolicyID      string `json:"active_policy_id,omitempty"`
+	ActivePolicyVersion string `json:"active_policy_version,omitempty"`
+	// ActivePolicySource is local_file when a path was supplied,
+	// none otherwise.
+	ActivePolicySource string `json:"active_policy_source"`
+	// ActivePolicyLoadedAt is the local bundle file's modification
+	// time (UTC RFC3339) — when the bundle landed on the node, a
+	// staleness signal. Omitted when not active.
+	ActivePolicyLoadedAt string `json:"active_policy_loaded_at,omitempty"`
+	// ActivePolicyVerified is always false in Order 4B: the field
+	// means "self-reported by the node, not yet cryptographically
+	// verified locally". 4C performs real signature verification.
+	ActivePolicyVerified bool `json:"active_policy_verified"`
+	// PolicyStatus is one of active / none / unreadable.
+	PolicyStatus string `json:"policy_status"`
 }
 
 // SnapshotRange describes the time window the snapshot was computed
