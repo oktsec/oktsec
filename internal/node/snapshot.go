@@ -49,6 +49,13 @@ type Options struct {
 	// client_discovery_not_included warning instead.
 	IncludeDiscovery bool
 
+	// PolicyBundlePath points at a local signed policy bundle the
+	// operator copied onto the node. When set, Order 4B reports its
+	// declared policy_hash in the snapshot's policy block. Empty
+	// means "no locally-declared active policy" (policy_status none).
+	// Declarative only: the bundle is never verified or applied here.
+	PolicyBundlePath string
+
 	// OktsecVersion / OktsecCommit override the version stamped
 	// into the snapshot. CLI fills these from version.go; tests
 	// pin them so golden output stays deterministic.
@@ -138,6 +145,13 @@ func Build(ctx context.Context, opts Options) (Snapshot, error) {
 	populateConfigSection(&snap, cfg, cfgPath)
 	populateSurfacesSection(&snap, cfg)
 	populateInventorySection(&snap, cfg, opts.IncludeDiscovery)
+
+	// Policy reporting (Order 4B) is independent of the audit DB, so
+	// populate it before any DB-dependent early return below — the
+	// block must appear on every snapshot a 4B+ node emits.
+	policySec, policyWarnings := buildPolicySection(opts.PolicyBundlePath)
+	snap.Policy = policySec
+	snap.Warnings = append(snap.Warnings, policyWarnings...)
 
 	// Postgres-backed installs must not be inspected as if they
 	// were SQLite — that would silently report stale ~/.oktsec/oktsec.db

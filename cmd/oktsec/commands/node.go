@@ -122,6 +122,7 @@ func newNodeSnapshotCmd() *cobra.Command {
 		outputPath       string
 		jsonOutput       bool
 		includeDiscovery bool
+		policyBundle     string
 	)
 	cmd := &cobra.Command{
 		Use:   "snapshot",
@@ -130,6 +131,7 @@ func newNodeSnapshotCmd() *cobra.Command {
 			"Read-only: no databases are created, no migrations run, no external clients are touched.",
 		Example: "  oktsec node snapshot --json\n" +
 			"  oktsec node snapshot --since 24h --output /tmp/node.json\n" +
+			"  oktsec node snapshot --policy-bundle /etc/oktsec/policy.signed.json --json\n" +
 			"  oktsec node snapshot --since 2026-05-20T00:00:00Z --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sinceT, err := parseSnapshotSince(since)
@@ -147,6 +149,7 @@ func newNodeSnapshotCmd() *cobra.Command {
 				Since:            sinceT,
 				Until:            untilT,
 				IncludeDiscovery: includeDiscovery,
+				PolicyBundlePath: policyBundle,
 				OktsecVersion:    version,
 				OktsecCommit:     commit,
 			}
@@ -179,6 +182,7 @@ func newNodeSnapshotCmd() *cobra.Command {
 	cmd.Flags().StringVar(&outputPath, "output", "", "write snapshot to this path instead of stdout")
 	cmd.Flags().BoolVar(&jsonOutput, "json", true, "emit JSON (always true in Order 1)")
 	cmd.Flags().BoolVar(&includeDiscovery, "include-discovery", false, "request MCP client discovery (Order 1: not supported, warns)")
+	cmd.Flags().StringVar(&policyBundle, "policy-bundle", "", "path to a local signed policy bundle to report as this node's active policy (declarative only; not verified or applied)")
 	return cmd
 }
 

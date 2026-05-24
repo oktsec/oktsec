@@ -37,4 +37,5 @@ const (
 	WarnAuditChainSignaturesPartial    = "audit_chain_signatures_partial"
 	WarnClientDiscoveryNotIncluded     = "client_discovery_not_included"
 	WarnPostgresSnapshotLimited        = "postgres_snapshot_limited"
+	WarnPolicyBundleUnreadable         = "policy_bundle_unreadable"
 )
