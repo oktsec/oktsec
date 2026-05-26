@@ -63,9 +63,12 @@ type VerifiedBundle struct {
 // most-informative one:
 //
 //  1. strict JSON decode + EOF (rejects unknown fields and trailing tokens)
+//     and duplicate-object-key rejection
 //  2. schema_version / bundle_version / canonicalization / signature.alg
-//  3. timestamp canonical-form checks (created_at, signed_at) — one
-//     canonical wire form, no equivalence class
+//  3. canonical-form + schema checks (all policy_schema_invalid): timestamps
+//     (created_at, signed_at) in the single canonical wire form; containers
+//     present as []/{} not null; required scalar fields non-empty; signed-
+//     model enums (mode, redaction.level, override actions) in range
 //  4. body re-canonicalization + policy hash recompute over exact wire
 //     strings (catches any tampering of the signed body — the check
 //     reporting verification omits)
@@ -76,8 +79,9 @@ type VerifiedBundle struct {
 //     wire signed_at and the bound key_id + fingerprint
 //
 // Steps 4 (hash recompute) and 7 (trust match) are what make this stricter
-// than snapshot-time reporting verification; step 3 enforces that timestamps
-// have exactly one canonical wire form (no parse/reformat normalization).
+// than snapshot-time reporting verification; step 3 enforces that the
+// artifact is in exactly the canonical form the official signer emits (no
+// equivalence classes, no fail-open enum values).
 func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) {
 	if trustFingerprint == "" {
 		return nil, ErrTrustFingerprintRequired
@@ -100,6 +104,13 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectDecode, "trailing content after the bundle: %s", err)
 	}
 
+	// Duplicate object keys: encoding/json keeps the last value silently, so
+	// a signed bundle could show one value to a reader and another to the
+	// verifier. Reject before trusting any field.
+	if err := rejectDuplicateKeys(raw); err != nil {
+		return nil, reject(RejectSchemaInvalid, "%s", err)
+	}
+
 	// (2) schema constant tags.
 	switch {
 	case b.SchemaVersion != SchemaVersion:
@@ -112,20 +123,28 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectSchemaInvalid, "signature.alg=%q, want %q", b.Signature.Alg, SignatureAlg)
 	}
 
-	// (3) timestamp canonical-form checks. policy_bundle.v1 has exactly one
-	// timestamp wire form; there is no "same instant" equivalence class at
-	// verification time. A byte-different but parseable timestamp (fractional
-	// seconds, an offset, lowercase t/z) is rejected here as a schema/
-	// canonicalization failure, before the hash is recomputed — so even a
-	// self-consistent bundle signed with a non-canonical timestamp is
-	// refused. created_at is optional; signed_at is required.
-	if ca := b.Policy.Metadata.CreatedAt; ca != "" {
-		if err := validateCanonicalPolicyTimestamp(ca); err != nil {
-			return nil, reject(RejectSchemaInvalid, "policy.metadata.created_at %s", err)
-		}
+	// (3) canonical-form checks: timestamps and containers. policy_bundle.v1
+	// has exactly one timestamp wire form, and one canonical empty container
+	// form ([] / {}) — there is no "same instant" or "null == []" equivalence
+	// class at verification time. A byte-different but parseable timestamp
+	// (fractional seconds, offset, lowercase t/z) or a null/omitted container
+	// is rejected here as a schema/canonicalization failure, before the hash
+	// is recomputed, so even a self-consistent bundle signed in a
+	// non-canonical form is refused. created_at and signed_at are both
+	// required and must be canonical (a struct decode cannot distinguish a
+	// missing created_at from an empty one, so empty is rejected — which
+	// covers both).
+	if err := validateCanonicalPolicyTimestamp(b.Policy.Metadata.CreatedAt); err != nil {
+		return nil, reject(RejectSchemaInvalid, "policy.metadata.created_at %s", err)
 	}
 	if err := validateCanonicalPolicyTimestamp(b.Signature.SignedAt); err != nil {
 		return nil, reject(RejectSchemaInvalid, "signature.signed_at %s", err)
+	}
+	if err := validateCanonicalPolicyContainers(b.Policy); err != nil {
+		return nil, reject(RejectSchemaInvalid, "%s", err)
+	}
+	if err := validatePolicySchema(&b); err != nil {
+		return nil, reject(RejectSchemaInvalid, "%s", err)
 	}
 
 	// (4) re-canonicalize the body and recompute the hash from the EXACT

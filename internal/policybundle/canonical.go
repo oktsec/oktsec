@@ -92,6 +92,42 @@ func policyBundleSigningPayload(policyID, policyVersion, policyHash, signedAt, k
 	return []byte(strings.Join(lines, "\n"))
 }
 
+// validateCanonicalPolicyContainers requires every list/map container in the
+// body to be present in its canonical empty form ([] / {}), never null or
+// omitted. The official signer always emits []/{} for empty sections, so the
+// apply verifier refuses a null or absent container as a non-canonical
+// artifact (policy_schema_invalid) rather than silently projecting it — the
+// apply path stays conservative about what it will trust.
+func validateCanonicalPolicyContainers(body PolicyBody) error {
+	var nilFields []string
+	if body.Rules.Enabled == nil {
+		nilFields = append(nilFields, "rules.enabled")
+	}
+	if body.Rules.Disabled == nil {
+		nilFields = append(nilFields, "rules.disabled")
+	}
+	if body.Rules.Overrides == nil {
+		nilFields = append(nilFields, "rules.overrides")
+	}
+	if body.Gateway.ToolsAllowed == nil {
+		nilFields = append(nilFields, "gateway.tools_allowed")
+	}
+	if body.Gateway.ToolsDenied == nil {
+		nilFields = append(nilFields, "gateway.tools_denied")
+	}
+	if body.Egress.DomainsAllowed == nil {
+		nilFields = append(nilFields, "egress.domains_allowed")
+	}
+	if body.Egress.DomainsDenied == nil {
+		nilFields = append(nilFields, "egress.domains_denied")
+	}
+	if len(nilFields) > 0 {
+		return fmt.Errorf("container(s) must be present as [] or {}, not null or omitted: %s",
+			strings.Join(nilFields, ", "))
+	}
+	return nil
+}
+
 // publicKeyFingerprint is the policy_bundle.v1 key fingerprint format:
 // sha256:<64-hex> over the raw Ed25519 public key bytes.
 func publicKeyFingerprint(pub ed25519.PublicKey) string {
