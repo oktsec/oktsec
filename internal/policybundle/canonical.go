@@ -77,13 +77,21 @@ func publicKeyFingerprint(pub ed25519.PublicKey) string {
 
 // normalizeRFC3339OrKeep rewrites a timestamp to UTC if it parses as
 // RFC3339, otherwise returns it verbatim.
+//
+// Precision is preserved with RFC3339Nano: a fractional-second timestamp
+// keeps its fraction in the canonical bytes. Formatting through plain
+// RFC3339 would drop the fraction, so a signed body could be edited from
+// "…00Z" to "…00.999Z" without changing the recomputed hash — a body
+// mutation the apply verifier must catch. Whole-second timestamps carry no
+// fraction, so RFC3339Nano emits them exactly as RFC3339 would and the hash
+// of an unmodified bundle is unchanged.
 func normalizeRFC3339OrKeep(s string) string {
 	if s == "" {
 		return ""
 	}
-	t, err := time.Parse(time.RFC3339, s)
+	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
 		return s
 	}
-	return t.UTC().Format(time.RFC3339)
+	return t.UTC().Format(time.RFC3339Nano)
 }

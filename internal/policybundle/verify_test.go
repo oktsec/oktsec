@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 )
 
 // fixtureBytes is a deterministically signed policy_bundle.v1 produced by
@@ -128,6 +129,23 @@ func TestVerify_SelfInconsistentKey(t *testing.T) {
 	})
 	_, err := VerifyBundle(raw, fp)
 	wantReject(t, err, RejectUnsupportedBundle)
+}
+
+func TestVerify_CreatedAtFractionIsCovered(t *testing.T) {
+	_, fp := loadFixture(t)
+	// Adding a fractional second to metadata.created_at within the same
+	// second must change the canonical body (and thus the recomputed hash).
+	// A RFC3339-truncating canonicalizer would drop the fraction and still
+	// verify — this guards that the fraction is part of the hashed bytes.
+	raw := remarshal(t, func(b *PolicyBundle) {
+		ts, err := time.Parse(time.RFC3339, b.Policy.Metadata.CreatedAt)
+		if err != nil {
+			t.Fatalf("fixture created_at not RFC3339: %v", err)
+		}
+		b.Policy.Metadata.CreatedAt = ts.Add(500 * time.Millisecond).Format(time.RFC3339Nano)
+	})
+	_, err := VerifyBundle(raw, fp)
+	wantReject(t, err, RejectHashMismatch)
 }
 
 func TestVerify_SignedAtIsBound(t *testing.T) {
