@@ -63,9 +63,12 @@ type VerifiedBundle struct {
 // most-informative one:
 //
 //  1. strict JSON decode + EOF (rejects unknown fields and trailing tokens)
+//     and duplicate-object-key rejection
 //  2. schema_version / bundle_version / canonicalization / signature.alg
-//  3. timestamp canonical-form checks (created_at, signed_at) — one
-//     canonical wire form, no equivalence class
+//  3. canonical-form + schema checks (all policy_schema_invalid): timestamps
+//     (created_at, signed_at) in the single canonical wire form; containers
+//     present as []/{} not null; required scalar fields non-empty; signed-
+//     model enums (mode, redaction.level, override actions) in range
 //  4. body re-canonicalization + policy hash recompute over exact wire
 //     strings (catches any tampering of the signed body — the check
 //     reporting verification omits)
@@ -76,8 +79,9 @@ type VerifiedBundle struct {
 //     wire signed_at and the bound key_id + fingerprint
 //
 // Steps 4 (hash recompute) and 7 (trust match) are what make this stricter
-// than snapshot-time reporting verification; step 3 enforces that timestamps
-// have exactly one canonical wire form (no parse/reformat normalization).
+// than snapshot-time reporting verification; step 3 enforces that the
+// artifact is in exactly the canonical form the official signer emits (no
+// equivalence classes, no fail-open enum values).
 func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) {
 	if trustFingerprint == "" {
 		return nil, ErrTrustFingerprintRequired
@@ -98,6 +102,13 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectDecode, "trailing JSON content after the bundle")
 	default:
 		return nil, reject(RejectDecode, "trailing content after the bundle: %s", err)
+	}
+
+	// Duplicate object keys: encoding/json keeps the last value silently, so
+	// a signed bundle could show one value to a reader and another to the
+	// verifier. Reject before trusting any field.
+	if err := rejectDuplicateKeys(raw); err != nil {
+		return nil, reject(RejectSchemaInvalid, "%s", err)
 	}
 
 	// (2) schema constant tags.
@@ -130,6 +141,9 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectSchemaInvalid, "signature.signed_at %s", err)
 	}
 	if err := validateCanonicalPolicyContainers(b.Policy); err != nil {
+		return nil, reject(RejectSchemaInvalid, "%s", err)
+	}
+	if err := validatePolicySchema(&b); err != nil {
 		return nil, reject(RejectSchemaInvalid, "%s", err)
 	}
 

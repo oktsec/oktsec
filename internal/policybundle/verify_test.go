@@ -6,8 +6,21 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
+
+// bytesReplaceOnce replaces the first occurrence of old in raw, failing if
+// it is absent — keeps the tamper tests honest about what they edit.
+func bytesReplaceOnce(t *testing.T, raw []byte, old, replacement string) []byte {
+	t.Helper()
+	s := string(raw)
+	i := strings.Index(s, old)
+	if i < 0 {
+		t.Fatalf("fixture missing %q", old)
+	}
+	return []byte(s[:i] + replacement + s[i+len(old):])
+}
 
 // fixtureBytes is a deterministically signed policy_bundle.v1 produced by
 // the upstream signer, vendored verbatim. It is embedded (not placed under
@@ -192,6 +205,53 @@ func TestVerify_NullContainersRejected(t *testing.T) {
 		raw := remarshal(t, mut)
 		_, err := VerifyBundle(raw, fp)
 		wantRejectMsg(t, err, RejectSchemaInvalid, "null "+name)
+	}
+}
+
+func TestVerify_DuplicateKeysRejected(t *testing.T) {
+	raw, fp := loadFixture(t)
+	// Prepend a conflicting duplicate of a signed field. encoding/json would
+	// keep the last value silently; the verifier must reject the duplicate.
+	dup := append([]byte(`{"policy_hash":"sha256:0000000000000000000000000000000000000000000000000000000000000000",`), raw[1:]...)
+	_, err := VerifyBundle(dup, fp)
+	wantReject(t, err, RejectSchemaInvalid)
+
+	// Duplicate nested inside policy.metadata is also rejected.
+	nested := bytesReplaceOnce(t, raw, `"created_by"`, `"created_by":"x","created_by"`)
+	_, err = VerifyBundle(nested, fp)
+	wantReject(t, err, RejectSchemaInvalid)
+}
+
+func TestVerify_InvalidEnumsRejected(t *testing.T) {
+	_, fp := loadFixture(t)
+	cases := map[string]func(*PolicyBundle){
+		"mode":            func(b *PolicyBundle) { b.Policy.Mode = "enforced" },
+		"mode empty":      func(b *PolicyBundle) { b.Policy.Mode = "" },
+		"redaction.level": func(b *PolicyBundle) { b.Policy.Redaction.Level = "externl" },
+		"override.action": func(b *PolicyBundle) {
+			b.Policy.Rules.Overrides = map[string]PolicyRuleOverride{"IAP-001": {Action: "warn"}}
+		},
+	}
+	for name, mut := range cases {
+		raw := remarshal(t, mut)
+		_, err := VerifyBundle(raw, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "enum "+name)
+	}
+}
+
+func TestVerify_RequiredScalarsRejected(t *testing.T) {
+	_, fp := loadFixture(t)
+	cases := map[string]func(*PolicyBundle){
+		"policy_id":           func(b *PolicyBundle) { b.Policy.PolicyID = "" },
+		"policy_version":      func(b *PolicyBundle) { b.Policy.PolicyVersion = "" },
+		"metadata.created_by": func(b *PolicyBundle) { b.Policy.Metadata.CreatedBy = "" },
+		"metadata.reason":     func(b *PolicyBundle) { b.Policy.Metadata.Reason = "" },
+		"signature.key_id":    func(b *PolicyBundle) { b.Signature.KeyID = "" },
+	}
+	for name, mut := range cases {
+		raw := remarshal(t, mut)
+		_, err := VerifyBundle(raw, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "empty "+name)
 	}
 }
 
