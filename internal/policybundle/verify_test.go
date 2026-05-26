@@ -175,6 +175,35 @@ func TestVerify_NonCanonicalSignedAtRejected(t *testing.T) {
 	}
 }
 
+func TestVerify_NullContainersRejected(t *testing.T) {
+	_, fp := loadFixture(t)
+	// The signer always emits []/{} for empty sections; a null or omitted
+	// container is non-canonical and must be refused, not silently projected.
+	cases := map[string]func(*PolicyBundle){
+		"rules.enabled":          func(b *PolicyBundle) { b.Policy.Rules.Enabled = nil },
+		"rules.disabled":         func(b *PolicyBundle) { b.Policy.Rules.Disabled = nil },
+		"rules.overrides":        func(b *PolicyBundle) { b.Policy.Rules.Overrides = nil },
+		"gateway.tools_allowed":  func(b *PolicyBundle) { b.Policy.Gateway.ToolsAllowed = nil },
+		"gateway.tools_denied":   func(b *PolicyBundle) { b.Policy.Gateway.ToolsDenied = nil },
+		"egress.domains_allowed": func(b *PolicyBundle) { b.Policy.Egress.DomainsAllowed = nil },
+		"egress.domains_denied":  func(b *PolicyBundle) { b.Policy.Egress.DomainsDenied = nil },
+	}
+	for name, mut := range cases {
+		raw := remarshal(t, mut)
+		_, err := VerifyBundle(raw, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "null "+name)
+	}
+}
+
+func TestVerify_EmptyCreatedAtRejected(t *testing.T) {
+	_, fp := loadFixture(t)
+	// created_at is required and must be canonical; empty (and, indistinguishably,
+	// omitted) is a schema failure.
+	raw := remarshal(t, func(b *PolicyBundle) { b.Policy.Metadata.CreatedAt = "" })
+	_, err := VerifyBundle(raw, fp)
+	wantReject(t, err, RejectSchemaInvalid)
+}
+
 // A canonical-but-different created_at second passes the form check, so the
 // body hash recompute must catch it (the hash covers exact wire bytes, with
 // no normalization that could fold two values together).

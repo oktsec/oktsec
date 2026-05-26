@@ -112,20 +112,25 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectSchemaInvalid, "signature.alg=%q, want %q", b.Signature.Alg, SignatureAlg)
 	}
 
-	// (3) timestamp canonical-form checks. policy_bundle.v1 has exactly one
-	// timestamp wire form; there is no "same instant" equivalence class at
-	// verification time. A byte-different but parseable timestamp (fractional
-	// seconds, an offset, lowercase t/z) is rejected here as a schema/
-	// canonicalization failure, before the hash is recomputed — so even a
-	// self-consistent bundle signed with a non-canonical timestamp is
-	// refused. created_at is optional; signed_at is required.
-	if ca := b.Policy.Metadata.CreatedAt; ca != "" {
-		if err := validateCanonicalPolicyTimestamp(ca); err != nil {
-			return nil, reject(RejectSchemaInvalid, "policy.metadata.created_at %s", err)
-		}
+	// (3) canonical-form checks: timestamps and containers. policy_bundle.v1
+	// has exactly one timestamp wire form, and one canonical empty container
+	// form ([] / {}) — there is no "same instant" or "null == []" equivalence
+	// class at verification time. A byte-different but parseable timestamp
+	// (fractional seconds, offset, lowercase t/z) or a null/omitted container
+	// is rejected here as a schema/canonicalization failure, before the hash
+	// is recomputed, so even a self-consistent bundle signed in a
+	// non-canonical form is refused. created_at and signed_at are both
+	// required and must be canonical (a struct decode cannot distinguish a
+	// missing created_at from an empty one, so empty is rejected — which
+	// covers both).
+	if err := validateCanonicalPolicyTimestamp(b.Policy.Metadata.CreatedAt); err != nil {
+		return nil, reject(RejectSchemaInvalid, "policy.metadata.created_at %s", err)
 	}
 	if err := validateCanonicalPolicyTimestamp(b.Signature.SignedAt); err != nil {
 		return nil, reject(RejectSchemaInvalid, "signature.signed_at %s", err)
+	}
+	if err := validateCanonicalPolicyContainers(b.Policy); err != nil {
+		return nil, reject(RejectSchemaInvalid, "%s", err)
 	}
 
 	// (4) re-canonicalize the body and recompute the hash from the EXACT
