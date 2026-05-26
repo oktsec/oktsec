@@ -1,6 +1,10 @@
 # Binary (only at root, not cmd/oktsec/)
 /oktsec
 /oktsec.yaml
+# Local operator config backups — may contain real secrets, never commit.
+# (oktsec.yaml.example is the tracked sample and is intentionally not ignored.)
+/oktsec.yaml.bak
+/oktsec.yaml.demo-backup
 *.exe
 dist/
 
