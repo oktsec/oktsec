@@ -145,23 +145,28 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 			"bundle signing key %s does not match trust fingerprint %s", derivedFP, trustFingerprint)
 	}
 
-	// (7) signed_at parse + UTC normalize. The payload is reconstructed
-	// with the UTC form, so a bundle signed in a non-UTC offset still
-	// verifies; an unparseable signed_at cannot form a payload at all.
+	// (7) signed_at must be a well-formed RFC3339 timestamp.
 	signedAt, err := time.Parse(time.RFC3339, b.Signature.SignedAt)
 	if err != nil {
 		return nil, reject(RejectSignatureInvalid, "signature.signed_at not RFC3339: %s", err)
 	}
-	signedAtUTC := signedAt.UTC().Format(time.RFC3339)
 
 	// (8) signature value + Ed25519 verify over the canonical payload.
+	// The payload binds signature.signed_at as the EXACT wire bytes, not a
+	// reparsed/reformatted form: reformatting through RFC3339 would silently
+	// drop fractional seconds (and any other precision the signer covered),
+	// letting an edited signed_at still verify. Using the wire bytes means
+	// any post-sign edit of signed_at breaks the signature. The signer
+	// normalizes signed_at before writing it, so the field already equals
+	// the value it signed. SignedAtUTC below is a convenience for callers
+	// and is never part of the verified payload.
 	sigBytes, err := base64.StdEncoding.DecodeString(b.Signature.Value)
 	if err != nil || len(sigBytes) != ed25519.SignatureSize {
 		return nil, reject(RejectSignatureInvalid, "signature.value is not a valid Ed25519 signature")
 	}
 	payload := policyBundleSigningPayload(
 		b.Policy.PolicyID, b.Policy.PolicyVersion, b.PolicyHash,
-		signedAtUTC, b.Signature.KeyID, b.Signature.PublicKeyFingerprint)
+		b.Signature.SignedAt, b.Signature.KeyID, b.Signature.PublicKeyFingerprint)
 	if !ed25519.Verify(ed25519.PublicKey(pub), payload, sigBytes) {
 		return nil, reject(RejectSignatureInvalid, "signature does not verify over the policy_bundle.v1 signing payload")
 	}
@@ -171,6 +176,6 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		CanonicalBody:    canonical,
 		PolicyHash:       computed,
 		TrustFingerprint: derivedFP,
-		SignedAtUTC:      signedAtUTC,
+		SignedAtUTC:      signedAt.UTC().Format(time.RFC3339),
 	}, nil
 }

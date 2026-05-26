@@ -130,6 +130,18 @@ func TestVerify_SelfInconsistentKey(t *testing.T) {
 	wantReject(t, err, RejectUnsupportedBundle)
 }
 
+func TestVerify_SignedAtIsBound(t *testing.T) {
+	_, fp := loadFixture(t)
+	// Editing signed_at after signing — even adding fractional seconds the
+	// RFC3339 reformatter would have dropped — must break verification,
+	// because the signature binds the exact signed_at bytes.
+	raw := remarshal(t, func(b *PolicyBundle) {
+		b.Signature.SignedAt = "2099-01-01T00:00:00.500Z"
+	})
+	_, err := VerifyBundle(raw, fp)
+	wantReject(t, err, RejectSignatureInvalid)
+}
+
 func TestVerify_SchemaInvalid(t *testing.T) {
 	_, fp := loadFixture(t)
 	raw := remarshal(t, func(b *PolicyBundle) { b.SchemaVersion = "policy_bundle.v2" })
