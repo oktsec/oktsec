@@ -176,6 +176,6 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		CanonicalBody:    canonical,
 		PolicyHash:       computed,
 		TrustFingerprint: derivedFP,
-		SignedAtUTC:      signedAt.UTC().Format(time.RFC3339),
+		SignedAtUTC:      signedAt.UTC().Format(time.RFC3339Nano),
 	}, nil
 }
