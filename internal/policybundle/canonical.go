@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -17,12 +18,13 @@ import (
 // (never a map[string]any) fixes field order; map keys serialize
 // alphabetically under encoding/json, so Rules.Overrides is deterministic.
 //
-// Metadata.created_at is UTC-normalized: a value that parses as RFC3339 is
-// rewritten to its UTC form, so two bundles that wrote the same instant in
-// different timezones canonicalize identically. A value that does not parse
-// is left as-is.
+// Timestamps are NOT normalized here. The verifier hashes the exact wire
+// strings (per the policy_bundle.v1 canonicalization amendment): a verifier
+// must not make tampered bytes disappear by parsing and reformatting them.
+// The signer is responsible for embedding canonical timestamp strings;
+// validateCanonicalPolicyTimestamp enforces the single accepted form before
+// the hash is recomputed.
 func canonicalPolicyBodyBytes(body PolicyBody) ([]byte, error) {
-	body.Metadata.CreatedAt = normalizeRFC3339OrKeep(body.Metadata.CreatedAt)
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
@@ -32,6 +34,28 @@ func canonicalPolicyBodyBytes(body PolicyBody) ([]byte, error) {
 	// Encode appends a trailing newline; strip it so the hashed bytes are
 	// exactly the marshaled JSON.
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
+// canonicalTimestamp is the single accepted policy_bundle.v1 timestamp wire
+// form: UTC, seconds precision, uppercase T and Z, exactly 20 bytes. No
+// fractional seconds, no offsets, no lowercase variants.
+var canonicalTimestamp = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$`)
+
+// validateCanonicalPolicyTimestamp rejects any timestamp string that is not
+// the single canonical wire form. It first checks the exact byte shape
+// (which alone rejects fractional seconds, offsets, lowercase t/z, and wrong
+// length), then parses to reject impossible calendar values and leap-second
+// ":60". It returns no replacement string: the caller hashes and signs the
+// original wire bytes, so there is no "same instant" equivalence class —
+// a byte-different timestamp is a different artifact.
+func validateCanonicalPolicyTimestamp(s string) error {
+	if !canonicalTimestamp.MatchString(s) {
+		return fmt.Errorf("not canonical YYYY-MM-DDTHH:MM:SSZ form: %q", s)
+	}
+	if _, err := time.Parse("2006-01-02T15:04:05Z", s); err != nil {
+		return fmt.Errorf("not a valid UTC timestamp: %q", s)
+	}
+	return nil
 }
 
 // policyHashHex returns the sha256 hex of the canonical body bytes with
@@ -73,25 +97,4 @@ func policyBundleSigningPayload(policyID, policyVersion, policyHash, signedAt, k
 func publicKeyFingerprint(pub ed25519.PublicKey) string {
 	sum := sha256.Sum256(pub)
 	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-// normalizeRFC3339OrKeep rewrites a timestamp to UTC if it parses as
-// RFC3339, otherwise returns it verbatim.
-//
-// Precision is preserved with RFC3339Nano: a fractional-second timestamp
-// keeps its fraction in the canonical bytes. Formatting through plain
-// RFC3339 would drop the fraction, so a signed body could be edited from
-// "…00Z" to "…00.999Z" without changing the recomputed hash — a body
-// mutation the apply verifier must catch. Whole-second timestamps carry no
-// fraction, so RFC3339Nano emits them exactly as RFC3339 would and the hash
-// of an unmodified bundle is unchanged.
-func normalizeRFC3339OrKeep(s string) string {
-	if s == "" {
-		return ""
-	}
-	t, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		return s
-	}
-	return t.UTC().Format(time.RFC3339Nano)
 }

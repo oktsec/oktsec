@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 )
 
 // fixtureBytes is a deterministically signed policy_bundle.v1 produced by
@@ -54,6 +53,18 @@ func wantReject(t *testing.T, err error, code RejectCode) {
 	}
 	if re.Code != code {
 		t.Fatalf("reject code = %q, want %q (%s)", re.Code, code, re.Msg)
+	}
+}
+
+// wantRejectMsg is wantReject with a case label for table-driven tests.
+func wantRejectMsg(t *testing.T, err error, code RejectCode, label string) {
+	t.Helper()
+	var re *RejectError
+	if !errors.As(err, &re) {
+		t.Fatalf("[%s] error %v is not a *RejectError", label, err)
+	}
+	if re.Code != code {
+		t.Fatalf("[%s] reject code = %q, want %q (%s)", label, re.Code, code, re.Msg)
 	}
 }
 
@@ -131,31 +142,55 @@ func TestVerify_SelfInconsistentKey(t *testing.T) {
 	wantReject(t, err, RejectUnsupportedBundle)
 }
 
-func TestVerify_CreatedAtFractionIsCovered(t *testing.T) {
+// nonCanonicalTimestamps are byte-different-but-equivalent (or invalid)
+// timestamp strings that policy_bundle.v1 must reject. There is exactly one
+// canonical wire form (YYYY-MM-DDTHH:MM:SSZ); everything else is a
+// schema/canonicalization failure, not a signature failure.
+var nonCanonicalTimestamps = []string{
+	"2026-05-23T12:00:00.000Z",        // fractional seconds (zeroes)
+	"2026-05-23T12:00:00.999Z",        // fractional seconds
+	"2026-05-23T12:00:00.0000000001Z", // more than 9 fractional digits
+	"2026-05-23T09:00:00-03:00",       // offset form (equivalent instant)
+	"2026-05-23t12:00:00Z",            // lowercase separator
+	"2026-05-23T12:00:00z",            // lowercase zone
+	"2026-05-23T12:00:60Z",            // leap second / invalid time
+	"2026-02-30T12:00:00Z",            // invalid calendar date
+}
+
+func TestVerify_NonCanonicalCreatedAtRejected(t *testing.T) {
 	_, fp := loadFixture(t)
-	// Adding a fractional second to metadata.created_at within the same
-	// second must change the canonical body (and thus the recomputed hash).
-	// A RFC3339-truncating canonicalizer would drop the fraction and still
-	// verify — this guards that the fraction is part of the hashed bytes.
-	raw := remarshal(t, func(b *PolicyBundle) {
-		ts, err := time.Parse(time.RFC3339, b.Policy.Metadata.CreatedAt)
-		if err != nil {
-			t.Fatalf("fixture created_at not RFC3339: %v", err)
-		}
-		b.Policy.Metadata.CreatedAt = ts.Add(500 * time.Millisecond).Format(time.RFC3339Nano)
-	})
+	for _, ts := range nonCanonicalTimestamps {
+		raw := remarshal(t, func(b *PolicyBundle) { b.Policy.Metadata.CreatedAt = ts })
+		_, err := VerifyBundle(raw, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "created_at "+ts)
+	}
+}
+
+func TestVerify_NonCanonicalSignedAtRejected(t *testing.T) {
+	_, fp := loadFixture(t)
+	for _, ts := range nonCanonicalTimestamps {
+		raw := remarshal(t, func(b *PolicyBundle) { b.Signature.SignedAt = ts })
+		_, err := VerifyBundle(raw, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "signed_at "+ts)
+	}
+}
+
+// A canonical-but-different created_at second passes the form check, so the
+// body hash recompute must catch it (the hash covers exact wire bytes, with
+// no normalization that could fold two values together).
+func TestVerify_CanonicalCreatedAtChangeIsHashMismatch(t *testing.T) {
+	_, fp := loadFixture(t)
+	raw := remarshal(t, func(b *PolicyBundle) { b.Policy.Metadata.CreatedAt = "2030-01-01T00:00:00Z" })
 	_, err := VerifyBundle(raw, fp)
 	wantReject(t, err, RejectHashMismatch)
 }
 
-func TestVerify_SignedAtIsBound(t *testing.T) {
+// A canonical-but-different signed_at second passes the form check and does
+// not affect the body hash, so the signature (which binds the exact wire
+// signed_at) must fail.
+func TestVerify_CanonicalSignedAtChangeBreaksSignature(t *testing.T) {
 	_, fp := loadFixture(t)
-	// Editing signed_at after signing — even adding fractional seconds the
-	// RFC3339 reformatter would have dropped — must break verification,
-	// because the signature binds the exact signed_at bytes.
-	raw := remarshal(t, func(b *PolicyBundle) {
-		b.Signature.SignedAt = "2099-01-01T00:00:00.500Z"
-	})
+	raw := remarshal(t, func(b *PolicyBundle) { b.Signature.SignedAt = "2030-01-01T00:00:00Z" })
 	_, err := VerifyBundle(raw, fp)
 	wantReject(t, err, RejectSignatureInvalid)
 }

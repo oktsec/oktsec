@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 )
 
 // RejectCode is the stable machine reason a bundle failed apply
@@ -65,17 +64,20 @@ type VerifiedBundle struct {
 //
 //  1. strict JSON decode + EOF (rejects unknown fields and trailing tokens)
 //  2. schema_version / bundle_version / canonicalization / signature.alg
-//  3. body re-canonicalization + policy hash recompute (catches any
-//     tampering of the signed body — the check reporting verification omits)
-//  4. signature public key shape (base64 + Ed25519 length)
-//  5. signature self-consistency (sha256(public_key) == claimed fingerprint)
-//  6. trust fingerprint match (the operator's apply trust decision)
-//  7. signed_at RFC3339 parse + UTC normalize
-//  8. Ed25519 verify over the canonical signing payload, using the
-//     normalized signed_at and the bound key_id + fingerprint
+//  3. timestamp canonical-form checks (created_at, signed_at) — one
+//     canonical wire form, no equivalence class
+//  4. body re-canonicalization + policy hash recompute over exact wire
+//     strings (catches any tampering of the signed body — the check
+//     reporting verification omits)
+//  5. signature public key shape (base64 + Ed25519 length)
+//  6. signature self-consistency (sha256(public_key) == claimed fingerprint)
+//  7. trust fingerprint match (the operator's apply trust decision)
+//  8. Ed25519 verify over the canonical signing payload, binding the exact
+//     wire signed_at and the bound key_id + fingerprint
 //
-// Steps 3 (hash recompute) and 6 (trust match) are what make this stricter
-// than snapshot-time reporting verification.
+// Steps 4 (hash recompute) and 7 (trust match) are what make this stricter
+// than snapshot-time reporting verification; step 3 enforces that timestamps
+// have exactly one canonical wire form (no parse/reformat normalization).
 func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) {
 	if trustFingerprint == "" {
 		return nil, ErrTrustFingerprintRequired
@@ -110,9 +112,26 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectSchemaInvalid, "signature.alg=%q, want %q", b.Signature.Alg, SignatureAlg)
 	}
 
-	// (3) re-canonicalize the body and recompute the hash. A tampered
-	// body keeps a well-formed signature block but no longer matches the
-	// bytes that signature commits to.
+	// (3) timestamp canonical-form checks. policy_bundle.v1 has exactly one
+	// timestamp wire form; there is no "same instant" equivalence class at
+	// verification time. A byte-different but parseable timestamp (fractional
+	// seconds, an offset, lowercase t/z) is rejected here as a schema/
+	// canonicalization failure, before the hash is recomputed — so even a
+	// self-consistent bundle signed with a non-canonical timestamp is
+	// refused. created_at is optional; signed_at is required.
+	if ca := b.Policy.Metadata.CreatedAt; ca != "" {
+		if err := validateCanonicalPolicyTimestamp(ca); err != nil {
+			return nil, reject(RejectSchemaInvalid, "policy.metadata.created_at %s", err)
+		}
+	}
+	if err := validateCanonicalPolicyTimestamp(b.Signature.SignedAt); err != nil {
+		return nil, reject(RejectSchemaInvalid, "signature.signed_at %s", err)
+	}
+
+	// (4) re-canonicalize the body and recompute the hash from the EXACT
+	// wire strings (no timestamp normalization). A tampered body keeps a
+	// well-formed signature block but no longer matches the bytes that
+	// signature commits to.
 	computed, canonical, err := policyHashHex(b.Policy)
 	if err != nil {
 		return nil, reject(RejectSchemaInvalid, "canonicalize body: %s", err)
@@ -121,7 +140,7 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectHashMismatch, "claimed=%s computed=%s", b.PolicyHash, computed)
 	}
 
-	// (4) public key shape.
+	// (5) public key shape.
 	pub, err := base64.StdEncoding.DecodeString(b.Signature.PublicKey)
 	if err != nil {
 		return nil, reject(RejectUnsupportedBundle, "signature.public_key base64 decode: %s", err)
@@ -130,7 +149,7 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectUnsupportedBundle, "signature.public_key length=%d, want %d", len(pub), ed25519.PublicKeySize)
 	}
 
-	// (5) self-consistency: the embedded key must hash to the fingerprint
+	// (6) self-consistency: the embedded key must hash to the fingerprint
 	// the bundle claims for it. A mismatch is an internally inconsistent
 	// artifact, a distinct failure class from a wrong trust anchor.
 	derivedFP := publicKeyFingerprint(ed25519.PublicKey(pub))
@@ -139,27 +158,16 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 			"signature.public_key_fingerprint claimed=%s computed=%s", b.Signature.PublicKeyFingerprint, derivedFP)
 	}
 
-	// (6) trust fingerprint match — the operator's apply trust decision.
+	// (7) trust fingerprint match — the operator's apply trust decision.
 	if derivedFP != trustFingerprint {
 		return nil, reject(RejectSigningKeyMismatch,
 			"bundle signing key %s does not match trust fingerprint %s", derivedFP, trustFingerprint)
 	}
 
-	// (7) signed_at must be a well-formed RFC3339 timestamp.
-	signedAt, err := time.Parse(time.RFC3339, b.Signature.SignedAt)
-	if err != nil {
-		return nil, reject(RejectSignatureInvalid, "signature.signed_at not RFC3339: %s", err)
-	}
-
-	// (8) signature value + Ed25519 verify over the canonical payload.
-	// The payload binds signature.signed_at as the EXACT wire bytes, not a
-	// reparsed/reformatted form: reformatting through RFC3339 would silently
-	// drop fractional seconds (and any other precision the signer covered),
-	// letting an edited signed_at still verify. Using the wire bytes means
-	// any post-sign edit of signed_at breaks the signature. The signer
-	// normalizes signed_at before writing it, so the field already equals
-	// the value it signed. SignedAtUTC below is a convenience for callers
-	// and is never part of the verified payload.
+	// (8) signature value + Ed25519 verify over the canonical payload. The
+	// payload binds signature.signed_at as the EXACT wire bytes (already
+	// validated canonical in step 3): it is never parsed and reformatted, so
+	// any edit to signed_at breaks the signature.
 	sigBytes, err := base64.StdEncoding.DecodeString(b.Signature.Value)
 	if err != nil || len(sigBytes) != ed25519.SignatureSize {
 		return nil, reject(RejectSignatureInvalid, "signature.value is not a valid Ed25519 signature")
@@ -171,11 +179,12 @@ func VerifyBundle(raw []byte, trustFingerprint string) (*VerifiedBundle, error) 
 		return nil, reject(RejectSignatureInvalid, "signature does not verify over the policy_bundle.v1 signing payload")
 	}
 
+	// signed_at is already canonical UTC seconds (step 3); expose it verbatim.
 	return &VerifiedBundle{
 		Bundle:           &b,
 		CanonicalBody:    canonical,
 		PolicyHash:       computed,
 		TrustFingerprint: derivedFP,
-		SignedAtUTC:      signedAt.UTC().Format(time.RFC3339Nano),
+		SignedAtUTC:      b.Signature.SignedAt,
 	}, nil
 }
