@@ -265,6 +265,74 @@ rules: []
 	}
 }
 
+func TestCommit_AnchorOnGovernedFieldReferencedElsewhereRejected(t *testing.T) {
+	// A governed field carrying an anchor that another agent aliases cannot be
+	// replaced without orphaning the alias; Commit refuses with a clear error
+	// rather than emit invalid YAML.
+	const anchorYAML = `version: "1"
+server:
+  port: 8080
+identity:
+  require_signature: false
+agents:
+  voice-ai:
+    allowed_tools: &shared [old.tool]
+  other:
+    allowed_tools: *shared
+rules: []
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(anchorYAML), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	orig, _ := os.ReadFile(path)
+	plan := planWithChanges(t, path)
+
+	_, err := Commit(plan, path)
+	if err == nil {
+		t.Fatal("Commit must refuse an anchored governed field referenced elsewhere")
+	}
+	if !strings.Contains(err.Error(), "anchor") {
+		t.Fatalf("error should mention the anchor, got: %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(orig) {
+		t.Fatal("config mutated despite anchor refusal")
+	}
+}
+
+func TestCommit_UnreferencedAnchorOnGovernedFieldApplies(t *testing.T) {
+	// An anchor that nothing aliases is harmless to drop, so apply proceeds —
+	// the refusal is precise, not blanket.
+	const yamlSrc = `version: "1"
+server:
+  port: 8080
+identity:
+  require_signature: false
+agents:
+  voice-ai:
+    allowed_tools: &shared [old.tool]
+rules: []
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(yamlSrc), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	plan := planWithChanges(t, path)
+
+	if _, err := Commit(plan, path); err != nil {
+		t.Fatalf("apply must proceed past an unreferenced anchor: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("written config must load: %v", err)
+	}
+	if va := cfg.Agents["voice-ai"]; len(va.AllowedTools) != 2 {
+		t.Fatalf("governed change not applied: %v", va.AllowedTools)
+	}
+}
+
 func TestBackupOriginal_CollisionStaysUnique(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "oktsec.yaml")

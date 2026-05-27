@@ -160,6 +160,9 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 	}
 
 	if patchRules {
+		if err := guardAnchored(&doc, mapGet(root, "rules"), "rules"); err != nil {
+			return nil, err
+		}
 		var n yaml.Node
 		if err := n.Encode(plan.projected.Rules); err != nil {
 			return nil, fmt.Errorf("encode rules: %w", err)
@@ -182,6 +185,9 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 			// patch only the governed keys in place, preserving the agent's
 			// other fields and its merge.
 			if patchTools {
+				if err := guardAnchored(&doc, mapGet(node, "allowed_tools"), "the agent's allowed_tools"); err != nil {
+					return nil, err
+				}
 				var n yaml.Node
 				if err := n.Encode(proj.AllowedTools); err != nil {
 					return nil, fmt.Errorf("encode allowed_tools: %w", err)
@@ -189,6 +195,9 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 				mapSet(node, "allowed_tools", &n)
 			}
 			if patchEgress {
+				if err := guardAnchored(&doc, mapGet(node, "egress"), "the agent's egress"); err != nil {
+					return nil, err
+				}
 				var n yaml.Node
 				if err := n.Encode(proj.Egress); err != nil {
 					return nil, fmt.Errorf("encode egress: %w", err)
@@ -235,6 +244,56 @@ func backupOriginal(targetConfig string, data []byte, mode os.FileMode) (string,
 		candidate = fmt.Sprintf("%s.%d", base, i)
 	}
 	return "", fmt.Errorf("could not create a unique backup for %q", targetConfig)
+}
+
+// guardAnchored refuses to replace oldNode when it (or a descendant) defines a
+// YAML anchor that an alias elsewhere in the document references: replacing it
+// would orphan that alias and emit invalid YAML. Rather than silently break the
+// document or expand the operator's anchors, apply refuses and asks the operator
+// to inline. A config with no anchors (the common case) is unaffected.
+func guardAnchored(doc, oldNode *yaml.Node, field string) error {
+	if oldNode == nil {
+		return nil
+	}
+	anchors := map[string]bool{}
+	collectAnchors(oldNode, anchors)
+	if len(anchors) == 0 {
+		return nil
+	}
+	aliases := map[string]bool{}
+	collectAliasNames(doc, aliases)
+	for name := range anchors {
+		if aliases[name] {
+			return fmt.Errorf("%s defines a YAML anchor %q referenced elsewhere; inline it before applying policy", field, name)
+		}
+	}
+	return nil
+}
+
+// collectAnchors records every anchor name defined in the subtree rooted at n.
+func collectAnchors(n *yaml.Node, out map[string]bool) {
+	if n == nil {
+		return
+	}
+	if n.Anchor != "" {
+		out[n.Anchor] = true
+	}
+	for _, c := range n.Content {
+		collectAnchors(c, out)
+	}
+}
+
+// collectAliasNames records every anchor name referenced by an alias in the doc.
+func collectAliasNames(n *yaml.Node, out map[string]bool) {
+	if n == nil {
+		return
+	}
+	if n.Kind == yaml.AliasNode && n.Value != "" {
+		out[n.Value] = true
+	}
+	for _, c := range n.Content {
+		collectAliasNames(c, out)
+	}
 }
 
 // mapGet returns the value node for key in a mapping node, or nil.
