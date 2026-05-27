@@ -116,5 +116,7 @@ func NewRoot() *cobra.Command {
 	verifyCmd.Hidden = true
 	root.AddCommand(verifyCmd)
 
+	root.AddCommand(newPolicyCmd())
+
 	return root
 }
