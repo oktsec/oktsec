@@ -134,15 +134,22 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 	for i, ra := range target.Rules {
 		idx[ra.ID] = i
 	}
-	// upsert sets a rule's action, recording a change ONLY when it differs
-	// from the current config — a dry-run reports exact changes, so a config
-	// already on this policy shows none.
+	// upsert sets a policy-owned rule's action. Policy rules are GLOBAL: the
+	// signed bundle carries no per-tool rule scoping, so an existing
+	// tool-scoped override (apply_to_tools / exempt_tools) must be widened to
+	// global — otherwise a policy that blocks a rule would silently stay
+	// limited to the previously-scoped tools. Widening is itself a change even
+	// when the action already matches. A dry-run reports exact diffs, so a
+	// rule already global on this action shows none.
 	upsert := func(id, action string) {
 		if i, ok := idx[id]; ok {
-			if target.Rules[i].Action == action {
-				return // already on policy — no change
+			scoped := len(target.Rules[i].ApplyToTools) > 0 || len(target.Rules[i].ExemptTools) > 0
+			if target.Rules[i].Action == action && !scoped {
+				return // already global on policy — no change
 			}
 			target.Rules[i].Action = action
+			target.Rules[i].ApplyToTools = nil
+			target.Rules[i].ExemptTools = nil
 		} else {
 			target.Rules = append(target.Rules, config.RuleAction{ID: id, Action: action})
 			idx[id] = len(target.Rules) - 1
@@ -179,7 +186,14 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 		upsert(id, "ignore")
 	}
 
-	// --- Gateway tools (agent-scoped). Only a real diff is a change. ---
+	// --- Gateway tools (agent-scoped). The narrow projection is additive
+	// scoping: a non-empty allowlist replaces the agent's tools (a change only
+	// when it actually differs). An empty list means "this policy does not
+	// govern tools" — NOT "clear the allowlist". Canonical bundles always
+	// carry [] for ungoverned dimensions, so treating empty as a clear would
+	// make a rules-only policy silently wipe every agent's tools. Removal is a
+	// distinct semantic the bundle cannot signal and the projection does not
+	// express. ---
 	switch {
 	case len(body.Gateway.ToolsAllowed) > 0:
 		if !slices.Equal(agent.AllowedTools, body.Gateway.ToolsAllowed) {
@@ -197,7 +211,9 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 		})
 	}
 
-	// --- Egress (agent-scoped). Only a real diff is a change. ---
+	// --- Egress (agent-scoped). Same additive-scoping rule as gateway tools:
+	// a non-empty domain list replaces the agent's (change only on a real
+	// diff); an empty list is "not governed", never a clear. ---
 	var curAllowed, curDenied []string
 	if agent.Egress != nil {
 		curAllowed, curDenied = agent.Egress.AllowedDomains, agent.Egress.BlockedDomains

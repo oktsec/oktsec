@@ -186,6 +186,73 @@ func TestDryRun_NoChangesWhenConfigAlreadyOnPolicy(t *testing.T) {
 	}
 }
 
+func TestDryRun_GlobalizesToolScopedRule(t *testing.T) {
+	// Policy rules are global. An existing tool-scoped override must be
+	// widened (apply_to_tools/exempt_tools cleared), and that is a change
+	// even when the action already matches — otherwise a global block would
+	// silently stay limited to the prior tools.
+	b := body()
+	b.Rules.Enabled = []string{"IAP-009"}
+	b.Rules.Overrides = map[string]policybundle.PolicyRuleOverride{"IAP-009": {Action: "block"}}
+
+	cfg := baseConfig()
+	cfg.Rules = append(cfg.Rules, config.RuleAction{
+		ID: "IAP-009", Action: "block", ApplyToTools: []string{"shell.exec"},
+	})
+
+	p, err := DryRun(verified(b), cfg, "voice-ai", targetPath)
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+	// Action already matched, but widening to global is still a change.
+	if got := ruleAction(t, p, "IAP-009"); got != "block" {
+		t.Fatalf("rule action = %q, want block", got)
+	}
+	var found bool
+	for _, ra := range p.Projected().Rules {
+		if ra.ID == "IAP-009" {
+			found = true
+			if len(ra.ApplyToTools) != 0 || len(ra.ExemptTools) != 0 {
+				t.Fatalf("tool scope must be cleared for a global policy rule: %+v", ra)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("IAP-009 missing from projected config")
+	}
+}
+
+func TestDryRun_EmptyBundleListsDoNotClearAgentScopes(t *testing.T) {
+	// Canonical bundles carry [] for dimensions a policy does not govern, so
+	// empty lists are "not governed", never "clear". A rules-only policy must
+	// not wipe an agent's existing tools or egress.
+	b := body()
+	b.Rules.Enabled = []string{"IAP-001"} // governs rules; tools/egress empty
+
+	cfg := baseConfig()
+	va := cfg.Agents["voice-ai"]
+	va.AllowedTools = []string{"keep.one", "keep.two"}
+	va.Egress = &config.EgressPolicy{AllowedDomains: []string{"api.keep.com"}}
+	cfg.Agents["voice-ai"] = va
+
+	p, err := DryRun(verified(b), cfg, "voice-ai", targetPath)
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+	tgt := p.Projected().Agents["voice-ai"]
+	if len(tgt.AllowedTools) != 2 || tgt.AllowedTools[0] != "keep.one" {
+		t.Fatalf("rules-only policy must not touch agent tools: %v", tgt.AllowedTools)
+	}
+	if tgt.Egress == nil || len(tgt.Egress.AllowedDomains) != 1 {
+		t.Fatalf("rules-only policy must not touch agent egress: %+v", tgt.Egress)
+	}
+	for _, c := range p.Changes {
+		if c.Kind != "rule_override" {
+			t.Fatalf("unexpected agent-scope change from rules-only policy: %+v", c)
+		}
+	}
+}
+
 func TestDryRun_UnsupportedToolsDeniedWithoutAllowlist(t *testing.T) {
 	b := body()
 	b.Gateway.ToolsDenied = []string{"shell.exec"}
