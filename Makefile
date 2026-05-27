@@ -4,7 +4,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 LDFLAGS := -ldflags "-s -w -X $(PKG)/cmd/oktsec/commands.version=$(VERSION) -X $(PKG)/cmd/oktsec/commands.commit=$(COMMIT)"
 
-.PHONY: build test integration-test lint run clean fmt vet bench
+.PHONY: build test integration-test lint run clean fmt vet bench baseline-bundle-smoke
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/oktsec
@@ -30,6 +30,9 @@ run:
 
 bench:
 	go run ./cmd/bench
+
+baseline-bundle-smoke:
+	go test -tags=examples -count=1 ./cmd/oktsec/commands/ -run TestStartupTeamBaselineBundle -v
 
 clean:
 	rm -f $(BINARY)
