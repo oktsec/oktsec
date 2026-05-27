@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oktsec/oktsec/internal/config"
@@ -101,6 +102,16 @@ func TestCommit_WritesBacksUpAndPreservesMode(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("config mode = %v, want 0600", info.Mode().Perm())
 	}
+
+	// Only governed sections change: load-time defaults the operator never
+	// wrote (e.g. db_path) must NOT be persisted, and untouched content (the
+	// header comment) survives.
+	if strings.Contains(string(after), "db_path") {
+		t.Fatal("apply persisted a load-time default (db_path) the original lacked")
+	}
+	if !strings.Contains(string(after), "operator config") {
+		t.Fatal("apply dropped an unrelated header comment")
+	}
 	_ = orig
 }
 
@@ -110,19 +121,34 @@ func TestCommit_NilProjectionIsError(t *testing.T) {
 	}
 }
 
-func TestCommit_InvalidProjectedRejectedBeforeAnyWrite(t *testing.T) {
-	// A plan whose projected config fails validation must be refused before
-	// any filesystem mutation. Port 0 is invalid.
-	plan := &Plan{projected: &config.Config{}}
-	dir := t.TempDir()
-	path := filepath.Join(dir, "oktsec.yaml")
-	if _, err := Commit(plan, path); err == nil {
-		t.Fatal("Commit must reject an invalid projected config")
+func TestCommit_InvalidPatchedConfigRejectedNoMutation(t *testing.T) {
+	// If the patched result would not validate, Commit must refuse before
+	// touching the config or leaving a backup. A hand-built plan injects an
+	// invalid rule action into the projection that the patch would write.
+	path := writeOrigConfig(t, 0o600)
+	orig, _ := os.ReadFile(path)
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
 	}
-	// No config and no backup should have been created.
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 0 {
-		t.Fatalf("Commit wrote files for an invalid projection: %v", entries)
+	cfg.Rules = []config.RuleAction{{ID: "X", Action: "not-a-valid-action"}}
+	plan := &Plan{
+		Agent:     "voice-ai",
+		Changes:   []Change{{Kind: "rule_override", ID: "X", Action: "not-a-valid-action"}},
+		projected: cfg,
+	}
+
+	if _, err := Commit(plan, path); err == nil {
+		t.Fatal("Commit must reject an invalid patched config")
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(orig) {
+		t.Fatal("config mutated despite an invalid patched result")
+	}
+	// Validation fails before the backup, so no stray files beside the config.
+	entries, _ := os.ReadDir(filepath.Dir(path))
+	if len(entries) != 1 || entries[0].Name() != "oktsec.yaml" {
+		t.Fatalf("stray files after rejected apply: %v", entries)
 	}
 }
 
@@ -162,26 +188,20 @@ func TestWriteExclusive_RefusesExistingTarget(t *testing.T) {
 	}
 }
 
-func TestAtomicReplace_WritesAndPreservesMode(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "oktsec.yaml")
-	if err := os.WriteFile(path, []byte("old"), 0o640); err != nil {
-		t.Fatalf("seed: %v", err)
+func TestCommit_NoStrayTempAfterApply(t *testing.T) {
+	// A successful apply leaves exactly the config + one backup, no temp files.
+	path := writeOrigConfig(t, 0o600)
+	plan := planWithChanges(t, path)
+	if _, err := Commit(plan, path); err != nil {
+		t.Fatalf("Commit: %v", err)
 	}
-	if err := atomicReplace(path, []byte("new content"), 0o640); err != nil {
-		t.Fatalf("atomicReplace: %v", err)
+	entries, _ := os.ReadDir(filepath.Dir(path))
+	if len(entries) != 2 {
+		t.Fatalf("want config + backup only, got %v", entries)
 	}
-	got, _ := os.ReadFile(path)
-	if string(got) != "new content" {
-		t.Fatalf("content = %q, want %q", got, "new content")
-	}
-	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0o640 {
-		t.Fatalf("mode = %v, want 0640", info.Mode().Perm())
-	}
-	// No temp files left behind.
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 {
-		t.Fatalf("stray files after atomicReplace: %v", entries)
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp-") {
+			t.Fatalf("stray temp file left behind: %s", e.Name())
+		}
 	}
 }

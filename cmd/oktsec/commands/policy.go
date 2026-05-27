@@ -82,10 +82,15 @@ func newPolicyApplyCmd() *cobra.Command {
 			if cfgFile == "" {
 				return fmt.Errorf("could not resolve a config path (set --config or $OKTSEC_CONFIG)")
 			}
-			// Real apply writes the config, so validate the path is a writable
-			// regular file BEFORE reading it; a missing config is a hard error
-			// (apply never creates a config — spec 7A.3 §5.2).
+			// Real apply mutates the config, so it requires an explicit
+			// --config target — never a cascaded default (cwd/home) the
+			// operator did not name. It must also be a writable regular file
+			// BEFORE reading it; a missing config is a hard error (apply never
+			// creates a config — spec 7A.3 §5.2).
 			if !dryRun {
+				if !cmd.Flags().Changed("config") {
+					return fmt.Errorf("real apply requires an explicit --config <path> (refusing to mutate a cascaded default config)")
+				}
 				if err := ensureWritableConfigPath(cfgFile); err != nil {
 					return emitApplyFailure(cmd, jsonOut, false, err)
 				}

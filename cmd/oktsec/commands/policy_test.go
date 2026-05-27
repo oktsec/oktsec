@@ -200,6 +200,17 @@ func TestPolicyApply_RealApplyWritesBacksUpAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestPolicyApply_RealApplyRequiresExplicitConfig(t *testing.T) {
+	bundlePath, _ := writePolicyApplyInputs(t)
+	// No --config: real apply must refuse rather than mutate a cascaded default.
+	if _, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--agent", "voice-ai", "--json",
+	); err == nil {
+		t.Fatal("real apply without an explicit --config must fail")
+	}
+}
+
 func TestPolicyApply_RealApplyMatchesDryRun(t *testing.T) {
 	bundlePath, configPath := writePolicyApplyInputs(t)
 	dry, err := runPolicyApply(t,
