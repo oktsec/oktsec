@@ -20,6 +20,21 @@ set -euo pipefail
 SCHEMA="oktsec_startup_team_baseline.v1"
 PROG="$(basename "$0")"
 
+# Files this harness is allowed to place in a bundle. Anything else present at
+# finish (e.g. a stale secret left in an existing dir reused with --force) makes
+# the bundle fail closed.
+EXPECTED_FILES="README.md manifest.json redactions.json audit.json audit.sarif status.txt node-status.json node-snapshot.json"
+# Generated files that intentionally describe what was omitted; excluded from
+# the secret scan so their disclosure text is not a false positive.
+DISCLOSURE_FILES="README.md manifest.json redactions.json"
+
+# SECRET_PAT is the canonical secret-value scan (grep -E). It targets token
+# *values* (key headers, provider token shapes, NAME=value assignments), not
+# bare env-var names, so a finding that merely reports the existence of a secret
+# env var is not flagged while a leaked value is. The smoke test extracts this
+# exact line, so keep it a single-quoted one-liner named SECRET_PAT.
+SECRET_PAT='BEGIN [A-Z0-9 ]*PRIVATE KEY|[A-Z0-9_]{2,}(_API_KEY|_TOKEN|_SECRET|_PASSWORD|_PRIVATE_KEY)=[^[:space:]"]|sk-(ant-|proj-)?[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|gh[ousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|xox[baprs]-[A-Za-z0-9-]{8,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.|hooks\.slack\.com'
+
 usage() {
 	cat <<EOF
 $PROG - produce a redacted Startup / Team baseline evidence bundle
@@ -128,6 +143,14 @@ fi
 mkdir -p "$OUTPUT"
 chmod 700 "$OUTPUT" 2>/dev/null || true
 
+# Remove this harness's own prior outputs so a --force re-run cannot leave a
+# stale file from a previous run (e.g. a node-snapshot.json that fails to
+# regenerate this time). Files we do not own are left untouched and are caught
+# by the unexpected-file check at the end.
+for _f in $EXPECTED_FILES; do
+	rm -f "$OUTPUT/$_f"
+done
+
 # --- helpers -----------------------------------------------------------------
 REQUIRED_FAIL=0
 MISSING_TSV="$OUTPUT/.missing.tsv"
@@ -207,12 +230,18 @@ echo "Collecting Startup / Team baseline into $OUTPUT"
 # (e.g. config could not be loaded).
 collect required audit.json audit --json
 collect required audit.sarif audit --sarif
-collect required status.txt status
 
 # Recommended but best-effort: node identity may be absent on a fresh install.
-# Per spec, that is recorded, not treated as a bundle failure.
+# Per spec, that is recorded, not treated as a bundle failure. These are
+# read-only and collected before `status` so the snapshot reflects the node's
+# state independent of any other command.
 collect optional node-status.json node status --json
 collect optional node-snapshot.json node snapshot --json
+
+# `status` is read-only and does not create the audit DB, so ordering it last
+# is belt-and-suspenders against any future side effect bleeding into the
+# read-only snapshots above.
+collect required status.txt status
 
 # --- redactions.json ---------------------------------------------------------
 {
@@ -319,24 +348,47 @@ HOST_ARCH="${OSLINE##*/}"
 	printf '}\n'
 } >"$OUTPUT/manifest.json"
 
-# --- secret self-scan (data files only; README/redactions/manifest disclose
-# these words on purpose and must not be scanned) -----------------------------
-scan_secrets() {
-	local pat='BEGIN OKTSEC ED25519 PRIVATE KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|hooks\.slack\.com|sk-[A-Za-z0-9]{16,}|xox[baprs]-'
-	local hit=0 f
-	for f in audit.json audit.sarif status.txt node-status.json node-snapshot.json; do
-		[ -f "$OUTPUT/$f" ] || continue
-		if grep -Eq "$pat" "$OUTPUT/$f"; then
-			echo "  LEAK       forbidden pattern detected in $f" >&2
-			hit=1
+# --- final safety verification ----------------------------------------------
+# Scans every entry actually present in the bundle (not a fixed list) so stale
+# files reused via --force cannot slip through: rejects unexpected files and
+# key/cert/db/env artifacts, and scans data-bearing files for secret values.
+# Disclosure files (README/redactions/manifest) name these words on purpose and
+# are excluded from the secret scan.
+is_listed() { case " $2 " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+verify_bundle() {
+	local problem=0 entry base
+	for entry in "$OUTPUT"/* "$OUTPUT"/.[!.]*; do
+		[ -e "$entry" ] || continue
+		base="$(basename "$entry")"
+		if [ ! -f "$entry" ]; then
+			echo "  UNEXPECTED non-file entry in bundle: $base" >&2
+			problem=1
+			continue
+		fi
+		if ! is_listed "$base" "$EXPECTED_FILES"; then
+			echo "  UNEXPECTED file in bundle: $base" >&2
+			problem=1
+		fi
+		case "$base" in
+		*.key | *.pem | *.crt | *.db | .env | *.env)
+			echo "  FORBIDDEN artifact in bundle: $base" >&2
+			problem=1
+			;;
+		esac
+		if ! is_listed "$base" "$DISCLOSURE_FILES"; then
+			if grep -Eq "$SECRET_PAT" "$entry"; then
+				echo "  LEAK forbidden secret pattern detected in $base" >&2
+				problem=1
+			fi
 		fi
 	done
-	return "$hit"
+	return "$problem"
 }
 
 EXIT=0
-if ! scan_secrets; then
-	echo "$PROG: ERROR - bundle contains forbidden content and is NOT safe to share. Inspect $OUTPUT." >&2
+if ! verify_bundle; then
+	echo "$PROG: ERROR - bundle failed safety verification and is NOT safe to share. Inspect $OUTPUT." >&2
 	EXIT=3
 fi
 if [ "$REQUIRED_FAIL" -eq 1 ]; then

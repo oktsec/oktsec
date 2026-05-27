@@ -77,10 +77,14 @@ func newStatusCmd() *cobra.Command {
 				fmt.Printf("  Detected:      %s\n", joinDetected(detected))
 			}
 
-			// Audit stats
+			// Audit stats. status is read-only: it must never create or
+			// migrate the audit DB. If the DB does not exist yet, report
+			// nothing rather than materializing an empty file (which would
+			// also desync read-only evidence tools like `node snapshot`).
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-			store, err := audit.NewStore(defaultDBPath(), logger)
-			if err == nil {
+			dbPath := defaultDBPath()
+			store, err := openReadOnlyAuditStoreIfPresent(dbPath, logger)
+			if err == nil && store != nil {
 				defer func() { _ = store.Close() }()
 
 				all, _ := store.Query(audit.QueryOpts{Limit: 100000})
@@ -120,6 +124,17 @@ func newStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// openReadOnlyAuditStoreIfPresent opens the audit DB read-only only when it
+// already exists. A missing DB returns (nil, nil) so callers can skip stats
+// without creating the file. Read-only avoids the migration-time auto-repair
+// that the writable constructor performs.
+func openReadOnlyAuditStoreIfPresent(dbPath string, logger *slog.Logger) (*audit.Store, error) {
+	if _, err := os.Stat(dbPath); err != nil {
+		return nil, nil //nolint:nilnil // "absent" is a valid, non-error state here
+	}
+	return audit.NewStoreReadOnly(dbPath, logger)
 }
 
 func joinDetected(detected []string) string {
