@@ -157,27 +157,52 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 		plan.Changes = append(plan.Changes, Change{Kind: "rule_override", ID: id, Action: action})
 	}
 
+	// resetToDefault restores a rule to its severity-based default by removing
+	// any local override. Community rules are active by default, so "enabled"
+	// without an override means "enforce at the rule's severity default" — and
+	// the runtime treats a config.rules entry as an override, so leaving (or
+	// adding) an allow-and-flag entry would WEAKEN a high/critical rule instead
+	// of enabling it. Removing a local override is a change; no local override
+	// is already at default and a no-op.
+	resetToDefault := func(id string) {
+		i, ok := idx[id]
+		if !ok {
+			return
+		}
+		target.Rules = append(target.Rules[:i], target.Rules[i+1:]...)
+		delete(idx, id)
+		for j := i; j < len(target.Rules); j++ {
+			idx[target.Rules[j].ID] = j
+		}
+		plan.Changes = append(plan.Changes, Change{Kind: "rule_reset_default", ID: id})
+	}
+
 	enabled := append([]string(nil), body.Rules.Enabled...)
 	sort.Strings(enabled)
 	for _, id := range enabled {
-		// An enabled rule is active and flagged by default; an explicit
-		// override escalates it. Observe mode forces every enabled/overridden
-		// rule down to allow-and-flag (signal without block/quarantine).
-		action := "allow-and-flag"
-		if !observe {
-			if ov, ok := body.Rules.Overrides[id]; ok {
-				m, mok := mapAction(ov.Action)
-				if !mok {
-					plan.Unsupported = append(plan.Unsupported, Unsupported{
-						Kind:   "rule_override_action",
-						Detail: fmt.Sprintf("rule %q has unmappable action %q", id, ov.Action),
-					})
-					continue
-				}
-				action = m
-			}
+		// Observe mode forces every enabled/overridden rule down to
+		// allow-and-flag (signal without block/quarantine) — the explicit,
+		// intended downgrade of observe.
+		if observe {
+			upsert(id, "allow-and-flag")
+			continue
 		}
-		upsert(id, action)
+		// Enforce mode: an explicit override sets the action; without one the
+		// rule runs at its severity default (reset any weakening local override).
+		ov, ok := body.Rules.Overrides[id]
+		if !ok {
+			resetToDefault(id)
+			continue
+		}
+		m, mok := mapAction(ov.Action)
+		if !mok {
+			plan.Unsupported = append(plan.Unsupported, Unsupported{
+				Kind:   "rule_override_action",
+				Detail: fmt.Sprintf("rule %q has unmappable action %q", id, ov.Action),
+			})
+			continue
+		}
+		upsert(id, m)
 	}
 
 	disabled := append([]string(nil), body.Rules.Disabled...)
@@ -218,6 +243,25 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 	if agent.Egress != nil {
 		curAllowed, curDenied = agent.Egress.AllowedDomains, agent.Egress.BlockedDomains
 	}
+
+	// The egress resolver UNIONS an agent's allowed_domains with the global
+	// forward_proxy allowlist and any integration presets, so a per-agent
+	// allowlist can only RESTRICT when no wider allow-source exists. With one
+	// present, the bundle's intended restriction can't be expressed here —
+	// refuse rather than emit a config that still permits excluded domains.
+	// (Denied domains are monotonic: a deny is additive and always faithful.)
+	if len(body.Egress.DomainsAllowed) > 0 {
+		widened := len(target.ForwardProxy.AllowedDomains) > 0 ||
+			(agent.Egress != nil && len(agent.Egress.Integrations) > 0)
+		if widened {
+			plan.Unsupported = append(plan.Unsupported, Unsupported{
+				Kind:   "agent_egress_allowed_not_restrictable",
+				Detail: "egress.domains_allowed cannot restrict the agent: a global forward_proxy allowlist or integration preset widens the effective allowlist additively",
+			})
+			body.Egress.DomainsAllowed = nil // do not emit a misleading change
+		}
+	}
+
 	allowedChange := len(body.Egress.DomainsAllowed) > 0 && !slices.Equal(curAllowed, body.Egress.DomainsAllowed)
 	deniedChange := len(body.Egress.DomainsDenied) > 0 && !slices.Equal(curDenied, body.Egress.DomainsDenied)
 	if allowedChange || deniedChange {

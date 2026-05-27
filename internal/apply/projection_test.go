@@ -84,14 +84,18 @@ func TestDryRun_MissingAgent(t *testing.T) {
 
 func TestDryRun_EnabledAndDisabledRules(t *testing.T) {
 	b := body()
-	b.Rules.Enabled = []string{"IAP-001"}
-	b.Rules.Disabled = []string{"IAP-002"}
+	b.Rules.Enabled = []string{"IAP-001"}  // no local override → severity default → no change
+	b.Rules.Disabled = []string{"IAP-002"} // → ignore
 	p, err := DryRun(verified(b), baseConfig(), "voice-ai", targetPath)
 	if err != nil {
 		t.Fatalf("DryRun: %v", err)
 	}
-	if got := ruleAction(t, p, "IAP-001"); got != "allow-and-flag" {
-		t.Fatalf("enabled rule action = %q, want allow-and-flag", got)
+	// Enabling a rule with no local override must NOT add an override entry —
+	// that would weaken a high/critical rule from its severity default.
+	for _, c := range p.Changes {
+		if c.Kind == "rule_override" && c.ID == "IAP-001" {
+			t.Fatalf("enabled rule with no override produced an override change: %+v", c)
+		}
 	}
 	if got := ruleAction(t, p, "IAP-002"); got != "ignore" {
 		t.Fatalf("disabled rule action = %q, want ignore", got)
@@ -157,17 +161,22 @@ func TestDryRun_NoChangesWhenConfigAlreadyOnPolicy(t *testing.T) {
 	// dry-run reports exact diffs, so automation never treats a clean node
 	// as drifted.
 	b := body()
-	b.Rules.Enabled = []string{"IAP-001"}    // → allow-and-flag
+	b.Rules.Enabled = []string{"IAP-001"}    // no local override → severity default → no-op
 	b.Rules.Disabled = []string{"IAP-002"}   // → ignore
+	b.Rules.Overrides = map[string]policybundle.PolicyRuleOverride{"IAP-003": {Action: "block"}}
+	b.Rules.Enabled = []string{"IAP-001", "IAP-003"}
 	b.Gateway.ToolsAllowed = []string{"calendar.read", "mail.read"}
 	b.Egress.DomainsAllowed = []string{"api.openai.com"}
 	b.Egress.DomainsDenied = []string{"evil.test"}
 
 	cfg := baseConfig()
-	// Pre-apply the policy by hand so the current config already matches it.
+	// Pre-apply the policy by hand so the current config already matches it:
+	// the disabled rule is locally ignored and the override is locally set,
+	// but IAP-001 (enabled, no override) has no local entry — it is already at
+	// its severity default.
 	cfg.Rules = append(cfg.Rules,
-		config.RuleAction{ID: "IAP-001", Action: "allow-and-flag"},
 		config.RuleAction{ID: "IAP-002", Action: "ignore"},
+		config.RuleAction{ID: "IAP-003", Action: "block"},
 	)
 	va := cfg.Agents["voice-ai"]
 	va.AllowedTools = []string{"calendar.read", "mail.read"}
@@ -249,6 +258,68 @@ func TestDryRun_EmptyBundleListsDoNotClearAgentScopes(t *testing.T) {
 	for _, c := range p.Changes {
 		if c.Kind != "rule_override" {
 			t.Fatalf("unexpected agent-scope change from rules-only policy: %+v", c)
+		}
+	}
+}
+
+func TestDryRun_EnabledRuleResetsLocalOverride(t *testing.T) {
+	// Enabling a rule (no override) in enforce mode restores severity-default
+	// enforcement: a weakening local override must be removed, not left in
+	// place — and the removal is reported as a change.
+	b := body()
+	b.Rules.Enabled = []string{"IAP-001"}
+
+	cfg := baseConfig()
+	cfg.Rules = append(cfg.Rules, config.RuleAction{ID: "IAP-001", Action: "allow-and-flag"})
+
+	p, err := DryRun(verified(b), cfg, "voice-ai", targetPath)
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+	for _, ra := range p.Projected().Rules {
+		if ra.ID == "IAP-001" {
+			t.Fatalf("enabled rule must reset to default, local override remains: %+v", ra)
+		}
+	}
+	var reset bool
+	for _, c := range p.Changes {
+		if c.Kind == "rule_reset_default" && c.ID == "IAP-001" {
+			reset = true
+		}
+	}
+	if !reset {
+		t.Fatalf("expected rule_reset_default change, got %+v", p.Changes)
+	}
+}
+
+func TestDryRun_UnsupportedEgressAllowlistWithGlobalWidener(t *testing.T) {
+	// The egress resolver unions the global forward_proxy allowlist with the
+	// agent's, so a per-agent allowlist can't restrict when a global allowlist
+	// already widens it. The projection must refuse rather than emit a config
+	// that still permits the excluded domains.
+	b := body()
+	b.Egress.DomainsAllowed = []string{"api.openai.com"}
+
+	cfg := baseConfig()
+	cfg.ForwardProxy = config.ForwardProxyConfig{Enabled: true, AllowedDomains: []string{"github.com"}}
+
+	p, err := DryRun(verified(b), cfg, "voice-ai", targetPath)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("err = %v, want ErrUnsupported", err)
+	}
+	var found bool
+	for _, u := range p.Unsupported {
+		if u.Kind == "agent_egress_allowed_not_restrictable" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected egress-allowlist unsupported, got %+v", p.Unsupported)
+	}
+	// And it must not have written the misleading allowlist change.
+	for _, c := range p.Changes {
+		if c.Kind == "agent_egress_allowed_domains" {
+			t.Fatalf("must not report an egress allow change it cannot enforce: %+v", c)
 		}
 	}
 }

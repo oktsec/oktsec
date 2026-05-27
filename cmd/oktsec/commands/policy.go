@@ -125,9 +125,12 @@ func emitPlan(cmd *cobra.Command, jsonOut bool, p *apply.Plan) {
 	fmt.Fprintf(out, "dry-run: %s v%s (%s) → %s, agent %s\n", p.PolicyID, p.PolicyVersion, p.Mode, p.TargetConfig, p.Agent)
 	fmt.Fprintf(out, "  %d change(s), %d unsupported\n", len(p.Changes), len(p.Unsupported))
 	for _, c := range p.Changes {
-		if c.Kind == "rule_override" {
+		switch c.Kind {
+		case "rule_override":
 			fmt.Fprintf(out, "  - rule %s → %s\n", c.ID, c.Action)
-		} else {
+		case "rule_reset_default":
+			fmt.Fprintf(out, "  - rule %s → severity default (local override removed)\n", c.ID)
+		default:
 			fmt.Fprintf(out, "  - %s (agent %s): %d\n", c.Kind, c.Agent, c.Count)
 		}
 	}
