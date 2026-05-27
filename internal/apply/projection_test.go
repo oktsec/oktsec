@@ -324,6 +324,67 @@ func TestDryRun_UnsupportedEgressAllowlistWithGlobalWidener(t *testing.T) {
 	}
 }
 
+func TestDryRun_ToolDenialSubtractedFromAllowlist(t *testing.T) {
+	// A bundle that both allows and denies a tool must project an allowlist
+	// with the denied tool removed — the gateway enforces only AllowedTools.
+	b := body()
+	b.Gateway.ToolsAllowed = []string{"calendar.read", "mail.read", "shell.exec"}
+	b.Gateway.ToolsDenied = []string{"shell.exec"}
+	p, err := DryRun(verified(b), baseConfig(), "voice-ai", targetPath)
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+	va := p.Projected().Agents["voice-ai"]
+	for _, tl := range va.AllowedTools {
+		if tl == "shell.exec" {
+			t.Fatalf("denied tool must be subtracted: %v", va.AllowedTools)
+		}
+	}
+	if len(va.AllowedTools) != 2 {
+		t.Fatalf("allowlist = %v, want 2 tools", va.AllowedTools)
+	}
+}
+
+func TestDryRun_UnsupportedWhenAllToolsDenied(t *testing.T) {
+	// Denying every allowed tool would leave an empty allowlist, which
+	// Community reads as "all tools allowed" — refuse rather than widen.
+	b := body()
+	b.Gateway.ToolsAllowed = []string{"a.read", "b.read"}
+	b.Gateway.ToolsDenied = []string{"a.read", "b.read"}
+	p, err := DryRun(verified(b), baseConfig(), "voice-ai", targetPath)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("err = %v, want ErrUnsupported", err)
+	}
+	var found bool
+	for _, u := range p.Unsupported {
+		if u.Kind == "gateway_tools_all_denied" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected gateway_tools_all_denied, got %+v", p.Unsupported)
+	}
+}
+
+func TestDryRun_EgressAllowlistSupportedWhenGlobalIsSubset(t *testing.T) {
+	// When the global allowlist is a subset of the bundle's, the effective
+	// union still equals the policy, so the projection is supported.
+	b := body()
+	b.Egress.DomainsAllowed = []string{"api.openai.com", "github.com"}
+	cfg := baseConfig()
+	cfg.ForwardProxy = config.ForwardProxyConfig{Enabled: true, AllowedDomains: []string{"github.com"}}
+
+	p, err := DryRun(verified(b), cfg, "voice-ai", targetPath)
+	if err != nil {
+		t.Fatalf("DryRun (global subset of policy must be supported): %v", err)
+	}
+	va := p.Projected().Agents["voice-ai"]
+	if va.Egress == nil || len(va.Egress.AllowedDomains) != 2 ||
+		va.Egress.AllowedDomains[0] != "api.openai.com" || va.Egress.AllowedDomains[1] != "github.com" {
+		t.Fatalf("egress allowlist not projected: %+v", va.Egress)
+	}
+}
+
 func TestDryRun_UnsupportedToolsDeniedWithoutAllowlist(t *testing.T) {
 	b := body()
 	b.Gateway.ToolsDenied = []string{"shell.exec"}

@@ -59,6 +59,26 @@ func mapAction(enterprise string) (string, bool) {
 	}
 }
 
+// subtractTools returns the allowed tools with any denied tool removed,
+// preserving allow order. Deny wins over allow, which the Community allowlist
+// expresses by simply omitting the denied entries.
+func subtractTools(allowed, denied []string) []string {
+	if len(denied) == 0 {
+		return append([]string(nil), allowed...)
+	}
+	deny := make(map[string]struct{}, len(denied))
+	for _, d := range denied {
+		deny[d] = struct{}{}
+	}
+	out := make([]string, 0, len(allowed))
+	for _, a := range allowed {
+		if _, blocked := deny[a]; !blocked {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // Change is one concrete edit the projection would make to the config.
 type Change struct {
 	Kind   string `json:"kind"`
@@ -221,10 +241,22 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 	// express. ---
 	switch {
 	case len(body.Gateway.ToolsAllowed) > 0:
-		if !slices.Equal(agent.AllowedTools, body.Gateway.ToolsAllowed) {
-			agent.AllowedTools = append([]string(nil), body.Gateway.ToolsAllowed...)
+		// Deny wins over allow: the gateway enforces only AllowedTools, so a
+		// denied tool must be subtracted here or it would stay callable. An
+		// empty result cannot be expressed (a Community empty allowlist means
+		// "all tools allowed"), so refuse rather than silently widen to all.
+		effective := subtractTools(body.Gateway.ToolsAllowed, body.Gateway.ToolsDenied)
+		if len(effective) == 0 {
+			plan.Unsupported = append(plan.Unsupported, Unsupported{
+				Kind:   "gateway_tools_all_denied",
+				Detail: "gateway.tools_denied removes every gateway.tools_allowed entry; a Community empty allowlist means 'all tools', so an empty allowlist cannot be expressed",
+			})
+			break
+		}
+		if !slices.Equal(agent.AllowedTools, effective) {
+			agent.AllowedTools = effective
 			plan.Changes = append(plan.Changes, Change{
-				Kind: "agent_allowed_tools", Agent: agentName, Count: len(agent.AllowedTools)})
+				Kind: "agent_allowed_tools", Agent: agentName, Count: len(effective)})
 		}
 	case len(body.Gateway.ToolsDenied) > 0:
 		// Community gateway control is an allowlist, not a per-agent denylist
@@ -245,18 +277,33 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 	}
 
 	// The egress resolver UNIONS an agent's allowed_domains with the global
-	// forward_proxy allowlist and any integration presets, so a per-agent
-	// allowlist can only RESTRICT when no wider allow-source exists. With one
-	// present, the bundle's intended restriction can't be expressed here —
-	// refuse rather than emit a config that still permits excluded domains.
+	// forward_proxy allowlist and any integration presets. Setting the agent's
+	// list to the bundle's yields an effective allowlist of (bundle ∪ global ∪
+	// presets), which equals the bundle's intended restriction ONLY when those
+	// other sources add nothing outside it. If they add a domain the policy
+	// excludes, the restriction can't be expressed here — refuse rather than
+	// emit a config that still permits that domain. Membership is exact: a
+	// non-listed additive domain is treated as outside (conservative).
 	// (Denied domains are monotonic: a deny is additive and always faithful.)
 	if len(body.Egress.DomainsAllowed) > 0 {
-		widened := len(target.ForwardProxy.AllowedDomains) > 0 ||
-			(agent.Egress != nil && len(agent.Egress.Integrations) > 0)
-		if widened {
+		policySet := make(map[string]struct{}, len(body.Egress.DomainsAllowed))
+		for _, d := range body.Egress.DomainsAllowed {
+			policySet[d] = struct{}{}
+		}
+		additive := append([]string(nil), target.ForwardProxy.AllowedDomains...)
+		if agent.Egress != nil && len(agent.Egress.Integrations) > 0 {
+			additive = append(additive, config.ResolveIntegrationDomains(agent.Egress.Integrations)...)
+		}
+		var outside []string
+		for _, d := range additive {
+			if _, ok := policySet[d]; !ok {
+				outside = append(outside, d)
+			}
+		}
+		if len(outside) > 0 {
 			plan.Unsupported = append(plan.Unsupported, Unsupported{
 				Kind:   "agent_egress_allowed_not_restrictable",
-				Detail: "egress.domains_allowed cannot restrict the agent: a global forward_proxy allowlist or integration preset widens the effective allowlist additively",
+				Detail: fmt.Sprintf("egress.domains_allowed cannot restrict the agent: a global forward_proxy allowlist or integration preset additively permits domain(s) outside the policy: %v", outside),
 			})
 			body.Egress.DomainsAllowed = nil // do not emit a misleading change
 		}
