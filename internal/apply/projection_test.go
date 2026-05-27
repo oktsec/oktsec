@@ -152,6 +152,40 @@ func TestDryRun_ToolsAndEgressScopedToSelectedAgent(t *testing.T) {
 	}
 }
 
+func TestDryRun_NoChangesWhenConfigAlreadyOnPolicy(t *testing.T) {
+	// A config already projecting this policy must show zero changes: a
+	// dry-run reports exact diffs, so automation never treats a clean node
+	// as drifted.
+	b := body()
+	b.Rules.Enabled = []string{"IAP-001"}    // → allow-and-flag
+	b.Rules.Disabled = []string{"IAP-002"}   // → ignore
+	b.Gateway.ToolsAllowed = []string{"calendar.read", "mail.read"}
+	b.Egress.DomainsAllowed = []string{"api.openai.com"}
+	b.Egress.DomainsDenied = []string{"evil.test"}
+
+	cfg := baseConfig()
+	// Pre-apply the policy by hand so the current config already matches it.
+	cfg.Rules = append(cfg.Rules,
+		config.RuleAction{ID: "IAP-001", Action: "allow-and-flag"},
+		config.RuleAction{ID: "IAP-002", Action: "ignore"},
+	)
+	va := cfg.Agents["voice-ai"]
+	va.AllowedTools = []string{"calendar.read", "mail.read"}
+	va.Egress = &config.EgressPolicy{
+		AllowedDomains: []string{"api.openai.com"},
+		BlockedDomains: []string{"evil.test"},
+	}
+	cfg.Agents["voice-ai"] = va
+
+	p, err := DryRun(verified(b), cfg, "voice-ai", targetPath)
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+	if len(p.Changes) != 0 {
+		t.Fatalf("already-on-policy config must report no changes, got %+v", p.Changes)
+	}
+}
+
 func TestDryRun_UnsupportedToolsDeniedWithoutAllowlist(t *testing.T) {
 	b := body()
 	b.Gateway.ToolsDenied = []string{"shell.exec"}

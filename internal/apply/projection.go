@@ -18,6 +18,7 @@ package apply
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/oktsec/oktsec/internal/config"
@@ -133,8 +134,14 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 	for i, ra := range target.Rules {
 		idx[ra.ID] = i
 	}
+	// upsert sets a rule's action, recording a change ONLY when it differs
+	// from the current config — a dry-run reports exact changes, so a config
+	// already on this policy shows none.
 	upsert := func(id, action string) {
 		if i, ok := idx[id]; ok {
+			if target.Rules[i].Action == action {
+				return // already on policy — no change
+			}
 			target.Rules[i].Action = action
 		} else {
 			target.Rules = append(target.Rules, config.RuleAction{ID: id, Action: action})
@@ -172,12 +179,14 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 		upsert(id, "ignore")
 	}
 
-	// --- Gateway tools (agent-scoped). ---
+	// --- Gateway tools (agent-scoped). Only a real diff is a change. ---
 	switch {
 	case len(body.Gateway.ToolsAllowed) > 0:
-		agent.AllowedTools = append([]string(nil), body.Gateway.ToolsAllowed...)
-		plan.Changes = append(plan.Changes, Change{
-			Kind: "agent_allowed_tools", Agent: agentName, Count: len(agent.AllowedTools)})
+		if !slices.Equal(agent.AllowedTools, body.Gateway.ToolsAllowed) {
+			agent.AllowedTools = append([]string(nil), body.Gateway.ToolsAllowed...)
+			plan.Changes = append(plan.Changes, Change{
+				Kind: "agent_allowed_tools", Agent: agentName, Count: len(agent.AllowedTools)})
+		}
 	case len(body.Gateway.ToolsDenied) > 0:
 		// Community gateway control is an allowlist, not a per-agent denylist
 		// over an unknown tool universe; tools_denied without tools_allowed
@@ -188,17 +197,23 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 		})
 	}
 
-	// --- Egress (agent-scoped). ---
-	if len(body.Egress.DomainsAllowed) > 0 || len(body.Egress.DomainsDenied) > 0 {
+	// --- Egress (agent-scoped). Only a real diff is a change. ---
+	var curAllowed, curDenied []string
+	if agent.Egress != nil {
+		curAllowed, curDenied = agent.Egress.AllowedDomains, agent.Egress.BlockedDomains
+	}
+	allowedChange := len(body.Egress.DomainsAllowed) > 0 && !slices.Equal(curAllowed, body.Egress.DomainsAllowed)
+	deniedChange := len(body.Egress.DomainsDenied) > 0 && !slices.Equal(curDenied, body.Egress.DomainsDenied)
+	if allowedChange || deniedChange {
 		if agent.Egress == nil {
 			agent.Egress = &config.EgressPolicy{}
 		}
-		if len(body.Egress.DomainsAllowed) > 0 {
+		if allowedChange {
 			agent.Egress.AllowedDomains = append([]string(nil), body.Egress.DomainsAllowed...)
 			plan.Changes = append(plan.Changes, Change{
 				Kind: "agent_egress_allowed_domains", Agent: agentName, Count: len(agent.Egress.AllowedDomains)})
 		}
-		if len(body.Egress.DomainsDenied) > 0 {
+		if deniedChange {
 			agent.Egress.BlockedDomains = append([]string(nil), body.Egress.DomainsDenied...)
 			plan.Changes = append(plan.Changes, Change{
 				Kind: "agent_egress_denied_domains", Agent: agentName, Count: len(agent.Egress.BlockedDomains)})
