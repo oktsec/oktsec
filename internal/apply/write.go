@@ -194,6 +194,13 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 			// patch only the governed keys in place, preserving the agent's
 			// other fields and its merge.
 			node := mapGet(agents, plan.Agent)
+			// If the agent node itself is an anchor referenced by another agent,
+			// patching its children would leak the change to that aliasing agent
+			// (and dry-run only scoped the change to this agent). Refuse rather
+			// than silently change a non-targeted agent.
+			if node.Anchor != "" && anchorReferenced(&doc, node.Anchor) {
+				return nil, fmt.Errorf("agent %q has a YAML anchor %q referenced elsewhere; inline it before applying policy", plan.Agent, node.Anchor)
+			}
 			if patchTools {
 				if err := guardAnchored(&doc, mapGet(node, "allowed_tools"), "the agent's allowed_tools"); err != nil {
 					return nil, err
@@ -305,6 +312,17 @@ func collectAliasNames(n *yaml.Node, out map[string]bool) {
 	for _, c := range n.Content {
 		collectAliasNames(c, out)
 	}
+}
+
+// anchorReferenced reports whether an alias anywhere in doc references the
+// given anchor name.
+func anchorReferenced(doc *yaml.Node, name string) bool {
+	if name == "" {
+		return false
+	}
+	aliases := map[string]bool{}
+	collectAliasNames(doc, aliases)
+	return aliases[name]
 }
 
 // isExplicitMapping reports whether n is a concrete mapping node (not nil, an

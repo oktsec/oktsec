@@ -334,6 +334,41 @@ rules: []
 	}
 }
 
+func TestCommit_AnchoredAgentNodeReferencedElsewhereRejected(t *testing.T) {
+	// The target agent mapping is itself an anchor another agent aliases.
+	// Patching its children in place would also change the aliasing agent, so
+	// Commit refuses rather than silently widen the change beyond --agent.
+	const anchorYAML = `version: "1"
+server:
+  port: 8080
+identity:
+  require_signature: false
+agents:
+  voice-ai: &shared
+    allowed_tools: [old.tool]
+  other: *shared
+rules: []
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(anchorYAML), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	orig, _ := os.ReadFile(path)
+	plan := planWithChanges(t, path)
+
+	_, err := Commit(plan, path)
+	if err == nil {
+		t.Fatal("Commit must refuse an anchored agent node referenced elsewhere")
+	}
+	if !strings.Contains(err.Error(), "anchor") {
+		t.Fatalf("error should mention the anchor, got: %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(orig) {
+		t.Fatal("config mutated despite anchored-agent refusal")
+	}
+}
+
 func TestCommit_UnreferencedAnchorOnGovernedFieldApplies(t *testing.T) {
 	// An anchor that nothing aliases is harmless to drop, so apply proceeds —
 	// the refusal is precise, not blanket.
