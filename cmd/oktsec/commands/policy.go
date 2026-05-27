@@ -32,7 +32,6 @@ func newPolicyApplyCmd() *cobra.Command {
 	var (
 		bundlePath   string
 		trustFP      string
-		configPath   string
 		agent        string
 		dryRun       bool
 		jsonOut      bool
@@ -76,15 +75,21 @@ func newPolicyApplyCmd() *cobra.Command {
 				return emitApplyFailure(cmd, jsonOut, verr)
 			}
 
-			cfg, err := config.Load(configPath)
+			// cfgFile is the root's cascading-resolved config path (honors
+			// --config, $OKTSEC_CONFIG, and the home default) set by
+			// PersistentPreRunE — do not shadow it with a command-local flag.
+			if cfgFile == "" {
+				return fmt.Errorf("could not resolve a config path (set --config or $OKTSEC_CONFIG)")
+			}
+			cfg, err := config.Load(cfgFile)
 			if err != nil {
-				return fmt.Errorf("load config %q: %w", configPath, err)
+				return fmt.Errorf("load config %q: %w", cfgFile, err)
 			}
 			if err := cfg.Validate(); err != nil {
-				return fmt.Errorf("current config %q is invalid: %w", configPath, err)
+				return fmt.Errorf("current config %q is invalid: %w", cfgFile, err)
 			}
 
-			plan, perr := apply.DryRun(v, cfg, agent, configPath)
+			plan, perr := apply.DryRun(v, cfg, agent, cfgFile)
 			if perr != nil && !errors.Is(perr, apply.ErrUnsupported) {
 				// Missing agent or an invalid projected config: no plan to show.
 				return emitApplyFailure(cmd, jsonOut, perr)
@@ -101,7 +106,6 @@ func newPolicyApplyCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&bundlePath, "bundle", "", "path to the signed policy_bundle.v1 JSON")
 	f.StringVar(&trustFP, "trust-fingerprint", "", "sha256:<fp> the bundle's signing key must match")
-	f.StringVar(&configPath, "config", "oktsec.yaml", "path to the Oktsec config to project onto")
 	f.StringVar(&agent, "agent", "", "the single agent gateway/egress changes apply to")
 	f.BoolVar(&dryRun, "dry-run", false, "compute and print the projection without writing (required)")
 	f.BoolVar(&jsonOut, "json", false, "emit the plan as JSON")

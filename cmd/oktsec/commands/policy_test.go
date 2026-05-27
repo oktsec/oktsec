@@ -47,14 +47,17 @@ func writePolicyApplyInputs(t *testing.T) (bundlePath, configPath string) {
 	return bundlePath, configPath
 }
 
+// runPolicyApply runs `oktsec policy apply ...` through the real root command
+// so the persistent --config flag and its cascading resolution
+// (PersistentPreRunE) apply, exactly as in production.
 func runPolicyApply(t *testing.T, args ...string) (map[string]any, error) {
 	t.Helper()
-	cmd := newPolicyCmd()
+	root := NewRoot()
 	var out bytes.Buffer
-	cmd.SetOut(&out)
-	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs(append([]string{"apply"}, args...))
-	err := cmd.Execute()
+	root.SetOut(&out)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs(append([]string{"policy", "apply"}, args...))
+	err := root.Execute()
 	var got map[string]any
 	if out.Len() > 0 {
 		_ = json.Unmarshal(out.Bytes(), &got)
