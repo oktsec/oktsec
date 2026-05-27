@@ -172,6 +172,78 @@ func TestCommit_SymlinkConfigRejectedNoWrite(t *testing.T) {
 	}
 }
 
+func TestCommit_ReadOnlyConfigRejectedNoMutation(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permission bits")
+	}
+	path := writeOrigConfig(t, 0o400) // read-only
+	orig, _ := os.ReadFile(path)
+	plan := planWithChanges(t, path)
+
+	if _, err := Commit(plan, path); err == nil {
+		t.Fatal("Commit must refuse a read-only config")
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(orig) {
+		t.Fatal("read-only config was mutated")
+	}
+}
+
+func TestCommit_AliasAgentRejectedNoMutation(t *testing.T) {
+	// An agent written as a YAML alias resolves at load time, but rewriting it
+	// would drop the inherited fields — Commit must refuse, not nuke them.
+	const aliasYAML = `version: "1"
+server:
+  port: 8080
+identity:
+  require_signature: false
+defaults: &defaults
+  allowed_tools: [old.tool]
+agents:
+  voice-ai: *defaults
+rules: []
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(aliasYAML), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	orig, _ := os.ReadFile(path)
+	plan := planWithChanges(t, path) // changes the agent's allowed_tools
+
+	if _, err := Commit(plan, path); err == nil {
+		t.Fatal("Commit must refuse to patch a YAML-alias agent")
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(orig) {
+		t.Fatal("alias-agent config was mutated")
+	}
+}
+
+func TestBackupOriginal_CollisionStaysUnique(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Two backups (likely the same second) must both succeed with distinct
+	// names — a backup-name clash never aborts a valid apply.
+	b1, err := backupOriginal(path, []byte("one"), 0o600)
+	if err != nil {
+		t.Fatalf("backup 1: %v", err)
+	}
+	b2, err := backupOriginal(path, []byte("two"), 0o600)
+	if err != nil {
+		t.Fatalf("backup 2: %v", err)
+	}
+	if b1 == b2 {
+		t.Fatalf("backups collided: both %q", b1)
+	}
+	for _, b := range []string{b1, b2} {
+		if _, err := os.Stat(b); err != nil {
+			t.Fatalf("backup %q missing: %v", b, err)
+		}
+	}
+}
+
 func TestWriteExclusive_RefusesExistingTarget(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "backup")

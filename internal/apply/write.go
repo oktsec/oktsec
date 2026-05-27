@@ -53,6 +53,16 @@ func Commit(plan *Plan, targetConfig string) (string, error) {
 	}
 	mode := info.Mode().Perm()
 
+	// Refuse a read-only config: os.Rename would replace it via directory
+	// permissions, so a plain mode/regular-file check is not enough. Probing
+	// O_WRONLY respects the real permissions (owner/group/ACL) portably; it
+	// neither truncates nor writes.
+	if probe, err := os.OpenFile(targetConfig, os.O_WRONLY, 0); err != nil {
+		return "", fmt.Errorf("apply: config %q is not writable: %w", targetConfig, err)
+	} else {
+		_ = probe.Close()
+	}
+
 	orig, err := safefile.ReadFileMax(targetConfig, maxConfigBytes)
 	if err != nil {
 		return "", fmt.Errorf("apply: read original config: %w", err)
@@ -104,10 +114,10 @@ func Commit(plan *Plan, targetConfig string) (string, error) {
 
 	// 15: exclusive timestamped backup of the exact original bytes, created
 	// only after validation passed. If this fails, the config is untouched.
-	backupPath := targetConfig + ".bak." + time.Now().UTC().Format("20060102T150405Z")
-	if err := writeExclusive(backupPath, orig, mode); err != nil {
+	backupPath, err := backupOriginal(targetConfig, orig, mode)
+	if err != nil {
 		cleanup()
-		return "", fmt.Errorf("apply: create backup %q: %w", backupPath, err)
+		return "", fmt.Errorf("apply: create backup: %w", err)
 	}
 
 	// 18-19: atomic replace. On failure the original config and the backup
@@ -186,6 +196,27 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 	return out, nil
 }
 
+// backupOriginal creates an exclusive backup of data beside targetConfig,
+// preferring the spec name "<config>.bak.YYYYMMDDTHHMMSSZ". Seconds-resolution
+// names collide for two applies in the same second (or a pre-existing backup),
+// so on collision it appends ".N" until a unique name succeeds — a valid apply
+// is never aborted by a backup-name clash.
+func backupOriginal(targetConfig string, data []byte, mode os.FileMode) (string, error) {
+	base := targetConfig + ".bak." + time.Now().UTC().Format("20060102T150405Z")
+	candidate := base
+	for i := 1; i <= 100; i++ {
+		err := writeExclusive(candidate, data, mode)
+		if err == nil {
+			return candidate, nil
+		}
+		if !os.IsExist(err) {
+			return "", err
+		}
+		candidate = fmt.Sprintf("%s.%d", base, i)
+	}
+	return "", fmt.Errorf("could not create a unique backup for %q", targetConfig)
+}
+
 // mapGet returns the value node for key in a mapping node, or nil.
 func mapGet(m *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(m.Content); i += 2 {
@@ -209,9 +240,12 @@ func mapSet(m *yaml.Node, key string, val *yaml.Node) {
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, val)
 }
 
-// agentMapping returns the mapping node for agents.<name>, materializing an
-// empty mapping in place if the agent was written with no fields (e.g.
-// "voice-ai:"). The agent is guaranteed to exist (DryRun rejects a missing one).
+// agentMapping returns the mapping node for agents.<name> so governed keys can
+// be set on it. A normal mapping (including one with a `<<` merge key) is used
+// in place. A bare "agent:" (null) has no fields to lose, so it is materialized
+// into an empty mapping. A YAML alias ("agent: *defaults") is REFUSED: rewriting
+// it would drop the inherited fields config.Load resolved, so the operator must
+// inline it first. The agent is guaranteed to exist (DryRun rejects a missing one).
 func agentMapping(root *yaml.Node, name string) (*yaml.Node, error) {
 	agents := mapGet(root, "agents")
 	if agents == nil || agents.Kind != yaml.MappingNode {
@@ -221,10 +255,17 @@ func agentMapping(root *yaml.Node, name string) (*yaml.Node, error) {
 	if node == nil {
 		return nil, fmt.Errorf("agent %q not found in config", name)
 	}
-	if node.Kind != yaml.MappingNode {
+	switch {
+	case node.Kind == yaml.MappingNode:
+		return node, nil
+	case node.Kind == yaml.ScalarNode && (node.Tag == "!!null" || node.Value == ""):
 		*node = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		return node, nil
+	case node.Kind == yaml.AliasNode:
+		return nil, fmt.Errorf("agent %q is a YAML alias; inline it before applying policy (refusing to drop inherited fields)", name)
+	default:
+		return nil, fmt.Errorf("agent %q is not a mapping and cannot be patched", name)
 	}
-	return node, nil
 }
 
 // writeExclusive creates path with O_EXCL — it never overwrites an existing

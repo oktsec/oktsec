@@ -88,8 +88,8 @@ func newPolicyApplyCmd() *cobra.Command {
 			// BEFORE reading it; a missing config is a hard error (apply never
 			// creates a config — spec 7A.3 §5.2).
 			if !dryRun {
-				if !cmd.Flags().Changed("config") {
-					return fmt.Errorf("real apply requires an explicit --config <path> (refusing to mutate a cascaded default config)")
+				if !cfgFileExplicit {
+					return fmt.Errorf("real apply requires an explicit, non-empty --config <path> (refusing to mutate a cascaded default config)")
 				}
 				if err := ensureWritableConfigPath(cfgFile); err != nil {
 					return emitApplyFailure(cmd, jsonOut, false, err)

@@ -202,12 +202,21 @@ func TestPolicyApply_RealApplyWritesBacksUpAndIsIdempotent(t *testing.T) {
 
 func TestPolicyApply_RealApplyRequiresExplicitConfig(t *testing.T) {
 	bundlePath, _ := writePolicyApplyInputs(t)
+	t.Setenv("OKTSEC_CONFIG", "") // ensure no env fallback masks the guard
 	// No --config: real apply must refuse rather than mutate a cascaded default.
 	if _, err := runPolicyApply(t,
 		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
 		"--agent", "voice-ai", "--json",
 	); err == nil {
 		t.Fatal("real apply without an explicit --config must fail")
+	}
+	// An explicitly EMPTY --config still resolves to a cascaded default, so it
+	// must be refused too.
+	if _, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", "", "--agent", "voice-ai", "--json",
+	); err == nil {
+		t.Fatal("real apply with an empty --config must fail")
 	}
 }
 
