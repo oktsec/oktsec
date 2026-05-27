@@ -324,6 +324,42 @@ func TestDryRun_UnsupportedEgressAllowlistWithGlobalWidener(t *testing.T) {
 	}
 }
 
+func TestDryRun_StandaloneOverrideIsProjected(t *testing.T) {
+	// An override for a rule NOT listed in enabled is still meaningful and
+	// must be projected — the verifier accepts such a bundle.
+	b := body()
+	b.Rules.Overrides = map[string]policybundle.PolicyRuleOverride{"IAP-007": {Action: "quarantine"}}
+	p, err := DryRun(verified(b), baseConfig(), "voice-ai", targetPath)
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+	if got := ruleAction(t, p, "IAP-007"); got != "quarantine" {
+		t.Fatalf("standalone override action = %q, want quarantine", got)
+	}
+}
+
+func TestDryRun_EgressGlobalDomainDeniedIsSupported(t *testing.T) {
+	// Allowing only api.openai.com while denying the globally-allowed
+	// github.com is enforceable: blocked is checked before allowed.
+	b := body()
+	b.Egress.DomainsAllowed = []string{"api.openai.com"}
+	b.Egress.DomainsDenied = []string{"github.com"}
+	cfg := baseConfig()
+	cfg.ForwardProxy = config.ForwardProxyConfig{Enabled: true, AllowedDomains: []string{"github.com"}}
+
+	p, err := DryRun(verified(b), cfg, "voice-ai", targetPath)
+	if err != nil {
+		t.Fatalf("DryRun (denied global domain must be supported): %v", err)
+	}
+	va := p.Projected().Agents["voice-ai"]
+	if va.Egress == nil || len(va.Egress.AllowedDomains) != 1 || va.Egress.AllowedDomains[0] != "api.openai.com" {
+		t.Fatalf("egress allowlist not projected: %+v", va.Egress)
+	}
+	if len(va.Egress.BlockedDomains) != 1 || va.Egress.BlockedDomains[0] != "github.com" {
+		t.Fatalf("egress denylist not projected: %+v", va.Egress)
+	}
+}
+
 func TestDryRun_ToolDenialSubtractedFromAllowlist(t *testing.T) {
 	// A bundle that both allows and denies a tool must project an allowlist
 	// with the denied tool removed — the gateway enforces only AllowedTools.

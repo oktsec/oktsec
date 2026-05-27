@@ -197,9 +197,30 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 		plan.Changes = append(plan.Changes, Change{Kind: "rule_reset_default", ID: id})
 	}
 
-	enabled := append([]string(nil), body.Rules.Enabled...)
-	sort.Strings(enabled)
-	for _, id := range enabled {
+	// The policy governs every rule it enables OR overrides: an override for a
+	// rule not also in enabled is still meaningful (Community rules are active
+	// by default), so it must be projected too — the verifier accepts such a
+	// bundle. Disabled rules win and are handled separately below.
+	disabledSet := make(map[string]struct{}, len(body.Rules.Disabled))
+	for _, id := range body.Rules.Disabled {
+		disabledSet[id] = struct{}{}
+	}
+	governed := make(map[string]struct{}, len(body.Rules.Enabled)+len(body.Rules.Overrides))
+	for _, id := range body.Rules.Enabled {
+		governed[id] = struct{}{}
+	}
+	for id := range body.Rules.Overrides {
+		governed[id] = struct{}{}
+	}
+	active := make([]string, 0, len(governed))
+	for id := range governed {
+		if _, off := disabledSet[id]; off {
+			continue // disabled wins
+		}
+		active = append(active, id)
+	}
+	sort.Strings(active)
+	for _, id := range active {
 		// Observe mode forces every enabled/overridden rule down to
 		// allow-and-flag (signal without block/quarantine) — the explicit,
 		// intended downgrade of observe.
@@ -294,11 +315,30 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 		if agent.Egress != nil && len(agent.Egress.Integrations) > 0 {
 			additive = append(additive, config.ResolveIntegrationDomains(agent.Egress.Integrations)...)
 		}
+		// DomainAllowed checks blocked domains BEFORE allowed, so an additively
+		// permitted domain that the policy also denies is still blocked — not a
+		// widening. Effective deny set = bundle domains_denied (replacing the
+		// agent's when present, else the agent's current) ∪ global blocked.
+		denySet := make(map[string]struct{})
+		for _, d := range target.ForwardProxy.BlockedDomains {
+			denySet[d] = struct{}{}
+		}
+		effDenied := body.Egress.DomainsDenied
+		if len(effDenied) == 0 && agent.Egress != nil {
+			effDenied = agent.Egress.BlockedDomains
+		}
+		for _, d := range effDenied {
+			denySet[d] = struct{}{}
+		}
 		var outside []string
 		for _, d := range additive {
-			if _, ok := policySet[d]; !ok {
-				outside = append(outside, d)
+			if _, ok := policySet[d]; ok {
+				continue // within the policy allowlist
 			}
+			if _, denied := denySet[d]; denied {
+				continue // blocked wins — denied regardless of the allowlist
+			}
+			outside = append(outside, d)
 		}
 		if len(outside) > 0 {
 			plan.Unsupported = append(plan.Unsupported, Unsupported{
