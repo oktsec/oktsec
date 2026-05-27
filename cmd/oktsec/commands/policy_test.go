@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/oktsec/oktsec/internal/config"
 )
 
 // policyBundleFixture is a deterministically signed policy_bundle.v1
@@ -114,16 +116,153 @@ func TestPolicyApply_RejectsUntrustedBundle(t *testing.T) {
 	}
 }
 
-func TestPolicyApply_RequiresDryRunAndAgent(t *testing.T) {
+func TestPolicyApply_RequiresAgent(t *testing.T) {
 	bundlePath, configPath := writePolicyApplyInputs(t)
-	// Missing --dry-run.
-	if _, err := runPolicyApply(t, "--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
-		"--config", configPath, "--agent", "voice-ai"); err == nil {
-		t.Fatal("apply without --dry-run must fail in this release")
-	}
-	// Missing --agent.
+	// Missing --agent fails in both dry-run and real apply.
 	if _, err := runPolicyApply(t, "--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
 		"--config", configPath, "--dry-run"); err == nil {
 		t.Fatal("apply without --agent must fail")
+	}
+	if _, err := runPolicyApply(t, "--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", configPath); err == nil {
+		t.Fatal("real apply without --agent must fail")
+	}
+}
+
+func TestPolicyApply_RealApplyWritesBacksUpAndIsIdempotent(t *testing.T) {
+	bundlePath, configPath := writePolicyApplyInputs(t)
+	original, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+
+	// First real apply (no --dry-run) writes the projection.
+	got, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", configPath, "--agent", "voice-ai", "--json",
+	)
+	if err != nil {
+		t.Fatalf("real apply must succeed: %v", err)
+	}
+	if got["applied"] != true || got["changed"] != true || got["dry_run"] != false {
+		t.Fatalf("applied/changed/dry_run = %v/%v/%v, want true/true/false", got["applied"], got["changed"], got["dry_run"])
+	}
+	backupPath, _ := got["backup_path"].(string)
+	if backupPath == "" {
+		t.Fatal("real apply must report a backup_path")
+	}
+
+	// The backup holds the EXACT original bytes.
+	backup, err := os.ReadFile(backupPath)
+	if err != nil {
+		t.Fatalf("read backup: %v", err)
+	}
+	if !bytes.Equal(backup, original) {
+		t.Fatal("backup is not the exact original config")
+	}
+
+	// The config changed and still loads + validates.
+	afterFirst, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if bytes.Equal(afterFirst, original) {
+		t.Fatal("real apply did not modify the config")
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("applied config must load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("applied config must validate: %v", err)
+	}
+
+	// Second apply is a no-op: changed:false, no backup, bytes unchanged.
+	got2, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", configPath, "--agent", "voice-ai", "--json",
+	)
+	if err != nil {
+		t.Fatalf("second apply must succeed: %v", err)
+	}
+	if got2["applied"] != false || got2["changed"] != false {
+		t.Fatalf("idempotent apply: applied/changed = %v/%v, want false/false", got2["applied"], got2["changed"])
+	}
+	if bp, _ := got2["backup_path"].(string); bp != "" {
+		t.Fatalf("no-op apply must not create a backup, got %q", bp)
+	}
+	afterSecond, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if !bytes.Equal(afterFirst, afterSecond) {
+		t.Fatal("no-op apply rewrote the config")
+	}
+}
+
+func TestPolicyApply_RealApplyMatchesDryRun(t *testing.T) {
+	bundlePath, configPath := writePolicyApplyInputs(t)
+	dry, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", configPath, "--agent", "voice-ai", "--dry-run", "--json",
+	)
+	if err != nil {
+		t.Fatalf("dry-run: %v", err)
+	}
+	real, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", configPath, "--agent", "voice-ai", "--json",
+	)
+	if err != nil {
+		t.Fatalf("real apply: %v", err)
+	}
+	// Same inputs must yield the same change set.
+	dc, _ := json.Marshal(dry["changes"])
+	rc, _ := json.Marshal(real["changes"])
+	if string(dc) != string(rc) {
+		t.Fatalf("apply changes %s != dry-run changes %s", rc, dc)
+	}
+}
+
+func TestPolicyApply_MissingConfigRejectedNoWrite(t *testing.T) {
+	bundlePath, configPath := writePolicyApplyInputs(t)
+	missing := configPath + ".does-not-exist"
+	if _, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", missing, "--agent", "voice-ai", "--json",
+	); err == nil {
+		t.Fatal("real apply against a missing config must fail")
+	}
+	if _, statErr := os.Stat(missing); !os.IsNotExist(statErr) {
+		t.Fatal("apply must not create the missing config")
+	}
+}
+
+func TestPolicyApply_DirectoryConfigRejected(t *testing.T) {
+	bundlePath, configPath := writePolicyApplyInputs(t)
+	if _, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", filepath.Dir(configPath), "--agent", "voice-ai", "--json",
+	); err == nil {
+		t.Fatal("real apply against a directory must fail")
+	}
+}
+
+func TestPolicyApply_SymlinkConfigRejectedNoWrite(t *testing.T) {
+	bundlePath, configPath := writePolicyApplyInputs(t)
+	link := configPath + ".link"
+	if err := os.Symlink(configPath, link); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	original, _ := os.ReadFile(configPath)
+	if _, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", link, "--agent", "voice-ai", "--json",
+	); err == nil {
+		t.Fatal("real apply through a symlink must fail")
+	}
+	after, _ := os.ReadFile(configPath)
+	if !bytes.Equal(original, after) {
+		t.Fatal("symlinked apply must not write through to the target")
 	}
 }
