@@ -188,9 +188,10 @@ func TestCommit_ReadOnlyConfigRejectedNoMutation(t *testing.T) {
 	}
 }
 
-func TestCommit_AliasAgentRejectedNoMutation(t *testing.T) {
-	// An agent written as a YAML alias resolves at load time, but rewriting it
-	// would drop the inherited fields — Commit must refuse, not nuke them.
+func TestCommit_AliasAgentMaterializedPreservingInheritedFields(t *testing.T) {
+	// An agent written as a YAML alias resolves at load time; a real apply
+	// materializes the resolved agent (governed changes + inherited fields) so
+	// it matches dry-run and never drops inherited fields like suspended.
 	const aliasYAML = `version: "1"
 server:
   port: 8080
@@ -198,6 +199,7 @@ identity:
   require_signature: false
 defaults: &defaults
   allowed_tools: [old.tool]
+  suspended: true
 agents:
   voice-ai: *defaults
 rules: []
@@ -207,14 +209,59 @@ rules: []
 	if err := os.WriteFile(path, []byte(aliasYAML), 0o600); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	orig, _ := os.ReadFile(path)
 	plan := planWithChanges(t, path) // changes the agent's allowed_tools
 
-	if _, err := Commit(plan, path); err == nil {
-		t.Fatal("Commit must refuse to patch a YAML-alias agent")
+	if _, err := Commit(plan, path); err != nil {
+		t.Fatalf("Commit must materialize an alias agent: %v", err)
 	}
-	if after, _ := os.ReadFile(path); string(after) != string(orig) {
-		t.Fatal("alias-agent config was mutated")
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("written config must load: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("written config must validate: %v", err)
+	}
+	va := cfg.Agents["voice-ai"]
+	if len(va.AllowedTools) != 2 || va.AllowedTools[0] != "calendar.read" {
+		t.Fatalf("governed change not applied: %v", va.AllowedTools)
+	}
+	if !va.Suspended {
+		t.Fatal("inherited field (suspended) was dropped materializing the alias agent")
+	}
+}
+
+func TestCommit_AgentsLevelMergeMaterialized(t *testing.T) {
+	// Agents defined via an agents-level `<<` merge resolve at load time, so a
+	// real apply must materialize the target agent rather than fail to find it.
+	const mergeYAML = `version: "1"
+server:
+  port: 8080
+identity:
+  require_signature: false
+agentdefs: &agentdefs
+  voice-ai:
+    allowed_tools: [old.tool]
+agents:
+  <<: *agentdefs
+rules: []
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(mergeYAML), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	plan := planWithChanges(t, path)
+
+	if _, err := Commit(plan, path); err != nil {
+		t.Fatalf("Commit must materialize an agents-level merged agent: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("written config must load: %v", err)
+	}
+	va := cfg.Agents["voice-ai"]
+	if len(va.AllowedTools) != 2 || va.AllowedTools[0] != "calendar.read" {
+		t.Fatalf("governed change not applied to merged agent: %v", va.AllowedTools)
 	}
 }
 

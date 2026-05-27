@@ -220,6 +220,20 @@ func TestPolicyApply_RealApplyRequiresExplicitConfig(t *testing.T) {
 	}
 }
 
+func TestPolicyApply_AllowPartialRejectedOnRealApply(t *testing.T) {
+	bundlePath, configPath := writePolicyApplyInputs(t)
+	original, _ := os.ReadFile(configPath)
+	if _, err := runPolicyApply(t,
+		"--bundle", bundlePath, "--trust-fingerprint", fixtureTrustFP(t),
+		"--config", configPath, "--agent", "voice-ai", "--allow-partial", "--json",
+	); err == nil {
+		t.Fatal("--allow-partial on a real apply must fail")
+	}
+	if after, _ := os.ReadFile(configPath); !bytes.Equal(original, after) {
+		t.Fatal("rejected --allow-partial apply must not modify the config")
+	}
+}
+
 func TestPolicyApply_RealApplyMatchesDryRun(t *testing.T) {
 	bundlePath, configPath := writePolicyApplyInputs(t)
 	dry, err := runPolicyApply(t,

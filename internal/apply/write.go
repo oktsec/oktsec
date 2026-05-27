@@ -168,24 +168,44 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 	}
 
 	if patchTools || patchEgress {
-		agentNode, err := agentMapping(root, plan.Agent)
-		if err != nil {
-			return nil, err
+		agents := mapGet(root, "agents")
+		if agents == nil || agents.Kind != yaml.MappingNode {
+			return nil, errors.New("agents section missing or not a mapping")
 		}
-		proj := plan.projected.Agents[plan.Agent]
-		if patchTools {
-			var n yaml.Node
-			if err := n.Encode(proj.AllowedTools); err != nil {
-				return nil, fmt.Errorf("encode allowed_tools: %w", err)
-			}
-			mapSet(agentNode, "allowed_tools", &n)
+		proj, ok := plan.projected.Agents[plan.Agent]
+		if !ok {
+			return nil, fmt.Errorf("agent %q not in projected config", plan.Agent)
 		}
-		if patchEgress {
-			var n yaml.Node
-			if err := n.Encode(proj.Egress); err != nil {
-				return nil, fmt.Errorf("encode egress: %w", err)
+		node := mapGet(agents, plan.Agent)
+		if node != nil && node.Kind == yaml.MappingNode {
+			// Explicit agent mapping (including one with a `<<` merge key):
+			// patch only the governed keys in place, preserving the agent's
+			// other fields and its merge.
+			if patchTools {
+				var n yaml.Node
+				if err := n.Encode(proj.AllowedTools); err != nil {
+					return nil, fmt.Errorf("encode allowed_tools: %w", err)
+				}
+				mapSet(node, "allowed_tools", &n)
 			}
-			mapSet(agentNode, "egress", &n)
+			if patchEgress {
+				var n yaml.Node
+				if err := n.Encode(proj.Egress); err != nil {
+					return nil, fmt.Errorf("encode egress: %w", err)
+				}
+				mapSet(node, "egress", &n)
+			}
+		} else {
+			// The agent is reachable only via a YAML alias value
+			// ("voice-ai: *defaults") or an agents-level `<<` merge — config.Load
+			// resolved it, so dry-run saw it. Materialize the fully-resolved
+			// agent (inherited fields + governed changes) as an explicit key so
+			// real apply matches dry-run and no inherited field is lost.
+			var n yaml.Node
+			if err := n.Encode(proj); err != nil {
+				return nil, fmt.Errorf("encode agent %q: %w", plan.Agent, err)
+			}
+			mapSet(agents, plan.Agent, &n)
 		}
 	}
 
@@ -238,34 +258,6 @@ func mapSet(m *yaml.Node, key string, val *yaml.Node) {
 	}
 	m.Content = append(m.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, val)
-}
-
-// agentMapping returns the mapping node for agents.<name> so governed keys can
-// be set on it. A normal mapping (including one with a `<<` merge key) is used
-// in place. A bare "agent:" (null) has no fields to lose, so it is materialized
-// into an empty mapping. A YAML alias ("agent: *defaults") is REFUSED: rewriting
-// it would drop the inherited fields config.Load resolved, so the operator must
-// inline it first. The agent is guaranteed to exist (DryRun rejects a missing one).
-func agentMapping(root *yaml.Node, name string) (*yaml.Node, error) {
-	agents := mapGet(root, "agents")
-	if agents == nil || agents.Kind != yaml.MappingNode {
-		return nil, errors.New("agents section missing or not a mapping")
-	}
-	node := mapGet(agents, name)
-	if node == nil {
-		return nil, fmt.Errorf("agent %q not found in config", name)
-	}
-	switch {
-	case node.Kind == yaml.MappingNode:
-		return node, nil
-	case node.Kind == yaml.ScalarNode && (node.Tag == "!!null" || node.Value == ""):
-		*node = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		return node, nil
-	case node.Kind == yaml.AliasNode:
-		return nil, fmt.Errorf("agent %q is a YAML alias; inline it before applying policy (refusing to drop inherited fields)", name)
-	default:
-		return nil, fmt.Errorf("agent %q is not a mapping and cannot be patched", name)
-	}
 }
 
 // writeExclusive creates path with O_EXCL — it never overwrites an existing

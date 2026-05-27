@@ -62,6 +62,9 @@ func newPolicyApplyCmd() *cobra.Command {
 			if trustFP == "" {
 				return fmt.Errorf("--trust-fingerprint sha256:<fp> is required")
 			}
+			if allowPartial && !dryRun {
+				return fmt.Errorf("--allow-partial is only valid with --dry-run; a real apply never applies partially")
+			}
 
 			if err := safefile.RejectSymlink(bundlePath); err != nil {
 				return fmt.Errorf("bundle path not usable: %w", err)
