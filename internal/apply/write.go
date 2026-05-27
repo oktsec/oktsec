@@ -171,19 +171,29 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 	}
 
 	if patchTools || patchEgress {
-		agents := mapGet(root, "agents")
-		if agents == nil || agents.Kind != yaml.MappingNode {
-			return nil, errors.New("agents section missing or not a mapping")
-		}
 		proj, ok := plan.projected.Agents[plan.Agent]
 		if !ok {
 			return nil, fmt.Errorf("agent %q not in projected config", plan.Agent)
 		}
-		node := mapGet(agents, plan.Agent)
-		if node != nil && node.Kind == yaml.MappingNode {
+		agents := mapGet(root, "agents")
+		switch {
+		case agents == nil || agents.Kind != yaml.MappingNode:
+			// The whole agents section is reachable only via a YAML alias
+			// ("agents: *all") or a root-level `<<` merge — config.Load resolved
+			// it, so dry-run saw the agent. Materialize the resolved agents map
+			// (target's governed changes + the others) as an explicit mapping so
+			// real apply matches dry-run instead of treating it as missing.
+			var n yaml.Node
+			if err := n.Encode(plan.projected.Agents); err != nil {
+				return nil, fmt.Errorf("encode agents: %w", err)
+			}
+			mapSet(root, "agents", &n)
+
+		case isExplicitMapping(mapGet(agents, plan.Agent)):
 			// Explicit agent mapping (including one with a `<<` merge key):
 			// patch only the governed keys in place, preserving the agent's
 			// other fields and its merge.
+			node := mapGet(agents, plan.Agent)
 			if patchTools {
 				if err := guardAnchored(&doc, mapGet(node, "allowed_tools"), "the agent's allowed_tools"); err != nil {
 					return nil, err
@@ -204,7 +214,8 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 				}
 				mapSet(node, "egress", &n)
 			}
-		} else {
+
+		default:
 			// The agent is reachable only via a YAML alias value
 			// ("voice-ai: *defaults") or an agents-level `<<` merge — config.Load
 			// resolved it, so dry-run saw it. Materialize the fully-resolved
@@ -294,6 +305,12 @@ func collectAliasNames(n *yaml.Node, out map[string]bool) {
 	for _, c := range n.Content {
 		collectAliasNames(c, out)
 	}
+}
+
+// isExplicitMapping reports whether n is a concrete mapping node (not nil, an
+// alias, or a scalar).
+func isExplicitMapping(n *yaml.Node) bool {
+	return n != nil && n.Kind == yaml.MappingNode
 }
 
 // mapGet returns the value node for key in a mapping node, or nil.

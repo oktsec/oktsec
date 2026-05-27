@@ -230,6 +230,39 @@ rules: []
 	}
 }
 
+func TestCommit_WholeAgentsSectionAliasMaterialized(t *testing.T) {
+	// The entire agents section defined via a YAML alias resolves at load
+	// time; real apply must materialize it rather than treat it as missing.
+	const aliasYAML = `version: "1"
+server:
+  port: 8080
+identity:
+  require_signature: false
+allagents: &allagents
+  voice-ai:
+    allowed_tools: [old.tool]
+agents: *allagents
+rules: []
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	if err := os.WriteFile(path, []byte(aliasYAML), 0o600); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	plan := planWithChanges(t, path)
+
+	if _, err := Commit(plan, path); err != nil {
+		t.Fatalf("Commit must materialize an aliased agents section: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("written config must load: %v", err)
+	}
+	if va := cfg.Agents["voice-ai"]; len(va.AllowedTools) != 2 || va.AllowedTools[0] != "calendar.read" {
+		t.Fatalf("governed change not applied: %v", va.AllowedTools)
+	}
+}
+
 func TestCommit_AgentsLevelMergeMaterialized(t *testing.T) {
 	// Agents defined via an agents-level `<<` merge resolve at load time, so a
 	// real apply must materialize the target agent rather than fail to find it.
