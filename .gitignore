@@ -5,6 +5,8 @@
 # (oktsec.yaml.example is the tracked sample and is intentionally not ignored.)
 /oktsec.yaml.bak
 /oktsec.yaml.demo-backup
+# Timestamped backups written by `oktsec policy apply` (config.bak.<ts>[.N]).
+/oktsec.yaml.bak.*
 *.exe
 dist/
 

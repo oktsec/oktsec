@@ -1,11 +1,18 @@
 package commands
 
 import (
+	"strings"
+
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/spf13/cobra"
 )
 
 var cfgFile string
+
+// cfgFileExplicit is true when the operator passed a non-empty --config. It is
+// captured before resolution overwrites cfgFile, so a mutating command can
+// require an explicitly-named target and refuse a cascaded default.
+var cfgFileExplicit bool
 
 func NewRoot() *cobra.Command {
 	root := &cobra.Command{
@@ -35,6 +42,10 @@ func NewRoot() *cobra.Command {
 	// Resolve config path before any command runs
 	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		flagExplicit := cmd.Flags().Changed("config")
+		// Capture explicitness from the raw flag value before resolution
+		// overwrites cfgFile: an empty --config still resolves to a cascaded
+		// default but is NOT an explicit target.
+		cfgFileExplicit = flagExplicit && strings.TrimSpace(cfgFile) != ""
 		resolved, _ := config.ResolveConfigPath(cfgFile, flagExplicit)
 		cfgFile = resolved
 		return nil
