@@ -344,6 +344,29 @@ func TestStartupTeamBaselineBundle(t *testing.T) {
 		t.Errorf("status must record an unopenable DB as unavailable, not hide it:\n%s", out)
 	}
 
+	// Regression (failure reasons are scrubbed): a required step that fails
+	// writes its stderr reason into redactions.json. That reason must be path-
+	// scrubbed too, or the bundle leaks raw paths while claiming they are masked.
+	missCfg := filepath.Join(tmp, "missing-dir", "oktsec.yaml") // dir + file absent
+	failOut := filepath.Join(tmp, "bundle-failreason")
+	if _, err := runHarness("--config", missCfg, "--output", failOut); err == nil {
+		t.Error("expected non-zero exit when required collection steps fail on a missing config")
+	}
+	if data, err := os.ReadFile(filepath.Join(failOut, "redactions.json")); err != nil {
+		t.Errorf("read redactions.json: %v", err)
+	} else {
+		s := string(data)
+		if !json.Valid(data) {
+			t.Errorf("redactions.json is not valid JSON after failures:\n%s", s)
+		}
+		if strings.Contains(s, tmp) {
+			t.Errorf("redactions.json leaks raw path %q; failure reasons must be scrubbed:\n%s", tmp, s)
+		}
+		if !strings.Contains(s, "<CONFIG_DIR>") {
+			t.Errorf("redactions.json failure reason should mask the config dir as <CONFIG_DIR>:\n%s", s)
+		}
+	}
+
 	// Regression (secret scan coverage): exercise the harness's own SECRET_PAT
 	// against known token shapes and benign text, so it stays fail-closed for
 	// real tokens without flagging diagnostic env-var names.

@@ -173,15 +173,21 @@ run_oktsec() {
 SED_ARGS=()
 add_mask() {
 	local p="$1" label="$2" esc
-	[ -n "$p" ] || return 0
+	# Never mask empty or dangerously short roots ("." would replace every dot
+	# in the text, "/" every slash).
+	case "$p" in "" | "." | "./" | "/") return 0 ;; esac
 	esc="$(printf '%s' "$p" | sed 's/[][\.*^$/|]/\\&/g')"
 	SED_ARGS+=(-e "s|$esc|$label|g")
 }
-CONFIG_DIR=""
 if [ -n "$CONFIG" ]; then
-	CONFIG_DIR="$(cd "$(dirname "$CONFIG")" 2>/dev/null && pwd || true)"
+	# Mask both the canonical absolute config dir (when it exists) and the
+	# literal dirname as given. oktsec echoes an explicit --config path verbatim
+	# in errors, and that path may point at a directory that does not exist, in
+	# which case the canonical form is empty — so the literal form is what
+	# masks the path in a failure reason.
+	add_mask "$(cd "$(dirname "$CONFIG")" 2>/dev/null && pwd || true)" "<CONFIG_DIR>"
+	add_mask "$(dirname "$CONFIG")" "<CONFIG_DIR>"
 fi
-add_mask "$CONFIG_DIR" "<CONFIG_DIR>"
 add_mask "$(pwd)" "<PWD>"
 add_mask "${HOME:-}" "<HOME>"
 scrub() {
@@ -206,7 +212,10 @@ collect() {
 		return 0
 	fi
 	local reason
-	reason="$(tr '\n' ' ' <"$errf" 2>/dev/null | cut -c1-200)"
+	# Scrub identifying paths out of the failure reason (stderr is free text
+	# that often contains the config path) before recording it. Scrub before
+	# truncating so a full root still matches.
+	reason="$(tr '\n' ' ' <"$errf" 2>/dev/null | scrub | cut -c1-200)"
 	rm -f "$errf" "$OUTPUT/$out"
 	printf '%s\t%s\n' "$out" "$reason" >>"$MISSING_TSV"
 	if [ "$kind" = required ]; then
