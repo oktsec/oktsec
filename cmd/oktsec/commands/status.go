@@ -77,37 +77,56 @@ func newStatusCmd() *cobra.Command {
 				fmt.Printf("  Detected:      %s\n", joinDetected(detected))
 			}
 
-			// Audit stats
+			// Audit stats. status is read-only: it must never create or
+			// migrate the audit DB. If the DB does not exist yet, report
+			// nothing rather than materializing an empty file (which would
+			// also desync read-only evidence tools like `node snapshot`).
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-			store, err := audit.NewStore(defaultDBPath(), logger)
-			if err == nil {
+			dbPath := defaultDBPath()
+			store, err := openReadOnlyAuditStoreIfPresent(dbPath, logger)
+			switch {
+			case err != nil:
+				// The DB path exists but could not be opened (permission,
+				// symlink rejection, not-a-directory, corrupt, ...). Record it
+				// rather than hiding the audit section. A missing DB returns
+				// (nil, nil) and stays quiet — that is the normal fresh install.
+				fmt.Println("  ────────────────────────────────────────")
+				fmt.Printf("  Audit stats:   unavailable (%v)\n", err)
+			case store != nil:
 				defer func() { _ = store.Close() }()
 
-				all, _ := store.Query(audit.QueryOpts{Limit: 100000})
-				var delivered, blocked, rejected, quarantined int
-				for _, e := range all {
-					switch e.Status {
-					case audit.StatusDelivered:
-						delivered++
-					case audit.StatusBlocked:
-						blocked++
-					case audit.StatusRejected:
-						rejected++
-					case audit.StatusQuarantined:
-						quarantined++
-					}
-				}
-
+				all, qErr := store.Query(audit.QueryOpts{Limit: 100000})
 				fmt.Println("  ────────────────────────────────────────")
-				fmt.Printf("  Total msgs:    %d\n", len(all))
-				fmt.Printf("  Delivered:     %d\n", delivered)
-				fmt.Printf("  Blocked:       %d\n", blocked)
-				fmt.Printf("  Rejected:      %d\n", rejected)
-				fmt.Printf("  Quarantined:   %d\n", quarantined)
+				if qErr != nil {
+					// Strict read-only deliberately skips migrations, so an
+					// older DB can hold rows but lack columns the query selects.
+					// Never print zero counts in that case — that silently
+					// under-reports real data. Report it as unavailable instead.
+					fmt.Printf("  Audit stats:   unavailable (%v)\n", qErr)
+				} else {
+					var delivered, blocked, rejected, quarantined int
+					for _, e := range all {
+						switch e.Status {
+						case audit.StatusDelivered:
+							delivered++
+						case audit.StatusBlocked:
+							blocked++
+						case audit.StatusRejected:
+							rejected++
+						case audit.StatusQuarantined:
+							quarantined++
+						}
+					}
 
-				revoked, _ := store.ListRevokedKeys()
-				if len(revoked) > 0 {
-					fmt.Printf("  Revoked keys:  %d\n", len(revoked))
+					fmt.Printf("  Total msgs:    %d\n", len(all))
+					fmt.Printf("  Delivered:     %d\n", delivered)
+					fmt.Printf("  Blocked:       %d\n", blocked)
+					fmt.Printf("  Rejected:      %d\n", rejected)
+					fmt.Printf("  Quarantined:   %d\n", quarantined)
+
+					if revoked, rErr := store.ListRevokedKeys(); rErr == nil && len(revoked) > 0 {
+						fmt.Printf("  Revoked keys:  %d\n", len(revoked))
+					}
 				}
 			}
 
@@ -120,6 +139,23 @@ func newStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// openReadOnlyAuditStoreIfPresent opens the audit DB strictly read-only, only
+// when it already exists. A genuinely missing DB returns (nil, nil) so callers
+// stay quiet without creating the file — the normal fresh-install case. Any
+// other stat error (permission, not-a-directory, ...) and any open error are
+// returned so the caller can record the DB as unavailable rather than hiding
+// the audit section. The strict constructor performs no schema creation,
+// ANALYZE, or migration, so reporting status never grows or migrates the DB.
+func openReadOnlyAuditStoreIfPresent(dbPath string, logger *slog.Logger) (*audit.Store, error) {
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil //nolint:nilnil // "absent" is a valid, non-error state here
+		}
+		return nil, err
+	}
+	return audit.NewStoreReadOnlyStrict(dbPath, logger)
 }
 
 func joinDetected(detected []string) string {

@@ -155,21 +155,21 @@ func (h *Hub) broadcast(entry Entry) {
 
 // Store manages the SQLite audit log.
 type Store struct {
-	db            *sql.DB
-	dialect       Dialect
-	writes        chan Entry
-	done          chan struct{}
-	logger        *slog.Logger
-	Hub           *Hub
-	ctx           context.Context
-	cancel        context.CancelFunc
-	retentionDays int
-	archiveDir    string             // directory where archive-before-delete writes; empty disables auto-purge
-	purgeWarnedNoArchive bool        // single-shot warning latch when retention>0 but archiveDir==""
-	proxyKey      ed25519.PrivateKey // proxy signing key for audit chain (nil = no signing)
-	lastHash      string             // last entry hash for chain continuity
-	lastHashMu    sync.Mutex
-	inflight      atomic.Int64 // entries being processed in writeLoop
+	db                   *sql.DB
+	dialect              Dialect
+	writes               chan Entry
+	done                 chan struct{}
+	logger               *slog.Logger
+	Hub                  *Hub
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	retentionDays        int
+	archiveDir           string             // directory where archive-before-delete writes; empty disables auto-purge
+	purgeWarnedNoArchive bool               // single-shot warning latch when retention>0 but archiveDir==""
+	proxyKey             ed25519.PrivateKey // proxy signing key for audit chain (nil = no signing)
+	lastHash             string             // last entry hash for chain continuity
+	lastHashMu           sync.Mutex
+	inflight             atomic.Int64 // entries being processed in writeLoop
 
 	// readOnly disables any path that can mutate entry_hash / prev_hash /
 	// proxy_signature or backfilled columns. It exists so the CLI
@@ -217,7 +217,7 @@ func (s *Store) DialectName() string {
 // freshly opened DB it's a no-op; on an old DB it adds any missing columns
 // but never touches entry_hash/prev_hash/proxy_signature.
 func NewStoreReadOnly(dbPath string, logger *slog.Logger) (*Store, error) {
-	s, err := openStore(dbPath, logger, true, 0)
+	s, err := openStore(dbPath, logger, true, 0, false)
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +230,26 @@ func NewStoreReadOnly(dbPath string, logger *slog.Logger) (*Store, error) {
 	return s, nil
 }
 
+// NewStoreReadOnlyStrict opens an existing audit DB for reads only and never
+// writes to the file: no schema creation, ANALYZE, or column migrations run,
+// and the sqlite connection is opened with query_only so even an accidental
+// write fails. Unlike NewStoreReadOnly (which is idempotently "repair-free" but
+// still creates/migrates schema, growing an empty or old DB), this constructor
+// observes the database exactly as it is on disk. Use it for evidence
+// collection where mutating the file would corrupt the evidence (e.g. baseline
+// bundles). On a missing/empty/corrupt DB, reads simply error and the caller
+// degrades; the file is never created or grown.
+func NewStoreReadOnlyStrict(dbPath string, logger *slog.Logger) (*Store, error) {
+	s, err := openStore(dbPath, logger, true, 0, true)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.db.Exec("PRAGMA query_only=ON"); err != nil {
+		logger.Warn("query_only pragma failed (strict read-only; DSN gate still active)", "error", err)
+	}
+	return s, nil
+}
+
 // NewStore opens (or creates) the SQLite audit database.
 // retentionDays controls automatic purging of old entries (0 = no purging).
 // If the database file or its parent directory is a symlink, it is rejected.
@@ -238,12 +258,15 @@ func NewStore(dbPath string, logger *slog.Logger, retentionDays ...int) (*Store,
 	if len(retentionDays) > 0 && retentionDays[0] > 0 {
 		retention = retentionDays[0]
 	}
-	return openStore(dbPath, logger, false, retention)
+	return openStore(dbPath, logger, false, retention, false)
 }
 
 // openStore is the shared open path. `readOnly` must be decided here — not
 // flipped afterwards — because it gates the migration-time repair logic.
-func openStore(dbPath string, logger *slog.Logger, readOnly bool, retentionDays int) (*Store, error) {
+// `strict` additionally forbids every write that even an ordinary read-only
+// open would perform (schema creation, ANALYZE, column migrations), so an
+// existing empty/old/partial DB is observed exactly as-is and never grown.
+func openStore(dbPath string, logger *slog.Logger, readOnly bool, retentionDays int, strict bool) (*Store, error) {
 	if dbPath != ":memory:" {
 		// Reject symlinked parent directory
 		parentDir := filepath.Dir(dbPath)
@@ -260,12 +283,16 @@ func openStore(dbPath string, logger *slog.Logger, readOnly bool, retentionDays 
 		}
 	}
 
-	db, err := sql.Open("sqlite", sqliteDSN(dbPath))
+	dsn := sqliteDSN(dbPath)
+	if strict {
+		dsn = sqliteReadOnlyDSN(dbPath)
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening audit db: %w", err)
 	}
 
-	return newStore(db, SQLiteDialect{}, logger, retentionDays, readOnly)
+	return newStore(db, SQLiteDialect{}, logger, retentionDays, readOnly, strict)
 }
 
 // sqliteDSN appends per-connection PRAGMAs to the path so every
@@ -291,6 +318,24 @@ func sqliteDSN(dbPath string) string {
 		"&_pragma=synchronous(NORMAL)"
 }
 
+// sqliteReadOnlyDSN opens the database read-only at the SQLite level: every
+// pooled connection comes up under query_only, and no journal_mode(WAL) pragma
+// is requested (setting it is a write). Combined with skipping schema/migrate
+// in newStore, this guarantees the file is observed exactly as-is and never
+// created, migrated, or grown.
+func sqliteReadOnlyDSN(dbPath string) string {
+	if dbPath == ":memory:" {
+		return dbPath
+	}
+	sep := "?"
+	if strings.ContainsRune(dbPath, '?') {
+		sep = "&"
+	}
+	return dbPath + sep +
+		"_pragma=busy_timeout(5000)" +
+		"&_pragma=query_only(true)"
+}
+
 // NewStoreWithDB creates an audit store from an existing *sql.DB connection
 // and the specified dialect. Use this for Postgres, MySQL, or any database
 // reachable via database/sql.
@@ -298,30 +343,38 @@ func sqliteDSN(dbPath string) string {
 //	db, _ := sql.Open("pgx", "postgres://user:pass@localhost/oktsec")
 //	store, _ := audit.NewStoreWithDB(db, audit.PostgresDialect{}, logger, 90)
 func NewStoreWithDB(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays int) (*Store, error) {
-	return newStore(db, dialect, logger, retentionDays, false)
+	return newStore(db, dialect, logger, retentionDays, false, false)
 }
 
-func newStore(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays int, readOnly bool) (*Store, error) {
-	// Run dialect-specific initialization (PRAGMAs for SQLite, etc.)
-	for _, stmt := range dialect.InitPragmas() {
-		if _, err := db.Exec(stmt); err != nil {
-			logger.Warn("init statement failed", "stmt", stmt, "error", err)
+func newStore(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays int, readOnly, strict bool) (*Store, error) {
+	// strict read-only must not write to the file at all: no init pragmas
+	// (journal_mode=WAL is a write), no schema creation, no ANALYZE, no
+	// migrations. The DB is observed exactly as it is on disk.
+	if !strict {
+		// Run dialect-specific initialization (PRAGMAs for SQLite, etc.)
+		for _, stmt := range dialect.InitPragmas() {
+			if _, err := db.Exec(stmt); err != nil {
+				logger.Warn("init statement failed", "stmt", stmt, "error", err)
+			}
+		}
+
+		// Create schema
+		if _, err := db.Exec(dialect.SchemaSQL()); err != nil {
+			if cerr := db.Close(); cerr != nil {
+				return nil, fmt.Errorf("creating schema: %w (also: close: %v)", err, cerr)
+			}
+			return nil, fmt.Errorf("creating schema: %w", err)
+		}
+
+		// Update query planner statistics
+		if _, err := db.Exec("ANALYZE"); err != nil {
+			logger.Warn("ANALYZE failed", "error", err)
 		}
 	}
 
-	// Create schema
-	if _, err := db.Exec(dialect.SchemaSQL()); err != nil {
-		if cerr := db.Close(); cerr != nil {
-			return nil, fmt.Errorf("creating schema: %w (also: close: %v)", err, cerr)
-		}
-		return nil, fmt.Errorf("creating schema: %w", err)
-	}
-
-	// Update query planner statistics
-	if _, err := db.Exec("ANALYZE"); err != nil {
-		logger.Warn("ANALYZE failed", "error", err)
-	}
-
+	// strict implies read-only; collapse them so the loop guard below and the
+	// write gate stay in sync.
+	ro := readOnly || strict
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Store{
 		db:            db,
@@ -333,19 +386,21 @@ func newStore(db *sql.DB, dialect Dialect, logger *slog.Logger, retentionDays in
 		ctx:           ctx,
 		cancel:        cancel,
 		retentionDays: retentionDays,
-		readOnly:      readOnly,
+		readOnly:      ro,
 	}
 
-	// Migrate schema: add columns if they don't exist (idempotent).
-	// migrateSchema consults s.readOnly internally to skip backfill/rebuild.
-	s.migrateSchema()
+	if !strict {
+		// Migrate schema: add columns if they don't exist (idempotent).
+		// migrateSchema consults s.readOnly internally to skip backfill/rebuild.
+		s.migrateSchema()
 
-	// Load last hash for chain continuity
-	s.loadLastHash()
+		// Load last hash for chain continuity
+		s.loadLastHash()
+	}
 
 	// Background loops don't run on a read-only store — nothing to write,
 	// and expiryLoop would try to DELETE.
-	if !readOnly {
+	if !ro {
 		go s.writeLoop()
 		go s.expiryLoop()
 	}
