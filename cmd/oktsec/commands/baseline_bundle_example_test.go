@@ -15,6 +15,7 @@ package commands
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -287,6 +288,39 @@ func TestStartupTeamBaselineBundle(t *testing.T) {
 		t.Errorf("status.txt missing message stats for a populated DB:\n%s", data)
 	}
 
+	// Regression (legacy DB must not under-report): a DB with rows but missing
+	// the newer columns the query selects must report stats as unavailable, not
+	// silently print zero counts. Strict read-only skips migrations, so the
+	// query errors instead of materializing the columns.
+	legacyDB := filepath.Join(tmp, "legacy.db")
+	seedLegacyAuditDB(t, legacyDB)
+	legacyBefore, err := os.Stat(legacyDB)
+	if err != nil {
+		t.Fatalf("stat legacy DB: %v", err)
+	}
+	legacyCfg := filepath.Join(tmp, "oktsec-legacy.yaml")
+	writeBundleTestConfig(t, legacyCfg, keys, legacyDB)
+	legacyOut := filepath.Join(tmp, "bundle-legacy")
+	if logs, err := runHarness("--config", legacyCfg, "--output", legacyOut); err != nil {
+		t.Fatalf("harness failed against legacy DB: %v\n%s", err, logs)
+	}
+	if info, err := os.Stat(legacyDB); err != nil {
+		t.Errorf("stat legacy DB after run: %v", err)
+	} else if info.Size() != legacyBefore.Size() {
+		t.Errorf("legacy DB changed size %d -> %d; must not migrate under strict read-only", legacyBefore.Size(), info.Size())
+	}
+	if data, err := os.ReadFile(filepath.Join(legacyOut, "status.txt")); err != nil {
+		t.Errorf("read legacy status.txt: %v", err)
+	} else {
+		s := string(data)
+		if strings.Contains(s, "Total msgs:    0") {
+			t.Errorf("legacy DB with rows was under-reported as zero:\n%s", s)
+		}
+		if !strings.Contains(s, "unavailable") {
+			t.Errorf("legacy DB stats should be reported unavailable, not silently dropped:\n%s", s)
+		}
+	}
+
 	// Regression (secret scan coverage): exercise the harness's own SECRET_PAT
 	// against known token shapes and benign text, so it stays fail-closed for
 	// real tokens without flagging diagnostic env-var names.
@@ -333,6 +367,41 @@ func extractSecretPat(t *testing.T, script string) string {
 	}
 	t.Fatal("could not find SECRET_PAT in harness")
 	return ""
+}
+
+// seedLegacyAuditDB writes a minimal pre-migration audit_log: it has the
+// original columns and one delivered row but lacks the newer columns the
+// current query selects. Opened strictly read-only (no migration), the query
+// errors — exactly the legacy case the status command must not under-report.
+func seedLegacyAuditDB(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open legacy DB: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	const legacySchema = `CREATE TABLE audit_log (
+		id TEXT PRIMARY KEY,
+		timestamp TEXT NOT NULL,
+		from_agent TEXT NOT NULL,
+		to_agent TEXT NOT NULL,
+		content_hash TEXT NOT NULL,
+		signature_verified INTEGER,
+		pubkey_fingerprint TEXT,
+		status TEXT NOT NULL,
+		rules_triggered TEXT,
+		policy_decision TEXT NOT NULL,
+		latency_ms INTEGER
+	);`
+	if _, err := db.Exec(legacySchema); err != nil {
+		t.Fatalf("create legacy schema: %v", err)
+	}
+	if _, err := db.Exec(
+		`INSERT INTO audit_log (id, timestamp, from_agent, to_agent, content_hash, status, policy_decision)`+
+			` VALUES ('e1', ?, 'a', 'b', 'deadbeef', 'delivered', 'clean')`,
+		time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
 }
 
 // grepMatchesPattern reports whether grep -E pat matches s, using the same grep

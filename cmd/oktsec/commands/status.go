@@ -87,31 +87,38 @@ func newStatusCmd() *cobra.Command {
 			if err == nil && store != nil {
 				defer func() { _ = store.Close() }()
 
-				all, _ := store.Query(audit.QueryOpts{Limit: 100000})
-				var delivered, blocked, rejected, quarantined int
-				for _, e := range all {
-					switch e.Status {
-					case audit.StatusDelivered:
-						delivered++
-					case audit.StatusBlocked:
-						blocked++
-					case audit.StatusRejected:
-						rejected++
-					case audit.StatusQuarantined:
-						quarantined++
-					}
-				}
-
+				all, qErr := store.Query(audit.QueryOpts{Limit: 100000})
 				fmt.Println("  ────────────────────────────────────────")
-				fmt.Printf("  Total msgs:    %d\n", len(all))
-				fmt.Printf("  Delivered:     %d\n", delivered)
-				fmt.Printf("  Blocked:       %d\n", blocked)
-				fmt.Printf("  Rejected:      %d\n", rejected)
-				fmt.Printf("  Quarantined:   %d\n", quarantined)
+				if qErr != nil {
+					// Strict read-only deliberately skips migrations, so an
+					// older DB can hold rows but lack columns the query selects.
+					// Never print zero counts in that case — that silently
+					// under-reports real data. Report it as unavailable instead.
+					fmt.Printf("  Audit stats:   unavailable (%v)\n", qErr)
+				} else {
+					var delivered, blocked, rejected, quarantined int
+					for _, e := range all {
+						switch e.Status {
+						case audit.StatusDelivered:
+							delivered++
+						case audit.StatusBlocked:
+							blocked++
+						case audit.StatusRejected:
+							rejected++
+						case audit.StatusQuarantined:
+							quarantined++
+						}
+					}
 
-				revoked, _ := store.ListRevokedKeys()
-				if len(revoked) > 0 {
-					fmt.Printf("  Revoked keys:  %d\n", len(revoked))
+					fmt.Printf("  Total msgs:    %d\n", len(all))
+					fmt.Printf("  Delivered:     %d\n", delivered)
+					fmt.Printf("  Blocked:       %d\n", blocked)
+					fmt.Printf("  Rejected:      %d\n", rejected)
+					fmt.Printf("  Quarantined:   %d\n", quarantined)
+
+					if revoked, rErr := store.ListRevokedKeys(); rErr == nil && len(revoked) > 0 {
+						fmt.Printf("  Revoked keys:  %d\n", len(revoked))
+					}
 				}
 			}
 
