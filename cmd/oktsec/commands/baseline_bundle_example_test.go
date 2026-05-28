@@ -96,6 +96,14 @@ func TestStartupTeamBaselineBundle(t *testing.T) {
 		return string(out), err
 	}
 
+	runStatus := func(cfg string) (string, error) {
+		cmd := exec.Command(bin, "--config", cfg, "status")
+		cmd.Dir = tmp
+		cmd.Env = append(os.Environ(), "HOME="+home)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
 	// --- happy path ---
 	if logs, err := runHarness("--config", cfgPath, "--output", bundle); err != nil {
 		t.Fatalf("harness failed: %v\n%s", err, logs)
@@ -319,6 +327,21 @@ func TestStartupTeamBaselineBundle(t *testing.T) {
 		if !strings.Contains(s, "unavailable") {
 			t.Errorf("legacy DB stats should be reported unavailable, not silently dropped:\n%s", s)
 		}
+	}
+
+	// Regression (unopenable DB recorded, not hidden): a db_path whose parent is
+	// a regular file makes os.Stat fail with a non-IsNotExist error. status must
+	// report it as unavailable rather than silently omitting the audit section.
+	notDir := filepath.Join(tmp, "not-a-dir")
+	if err := os.WriteFile(notDir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	badCfg := filepath.Join(tmp, "oktsec-baddb.yaml")
+	writeBundleTestConfig(t, badCfg, keys, filepath.Join(notDir, "oktsec.db"))
+	if out, err := runStatus(badCfg); err != nil {
+		t.Errorf("status should exit 0 even with an unopenable DB: %v\n%s", err, out)
+	} else if !strings.Contains(out, "Audit stats:   unavailable") {
+		t.Errorf("status must record an unopenable DB as unavailable, not hide it:\n%s", out)
 	}
 
 	// Regression (secret scan coverage): exercise the harness's own SECRET_PAT

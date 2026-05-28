@@ -84,7 +84,15 @@ func newStatusCmd() *cobra.Command {
 			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 			dbPath := defaultDBPath()
 			store, err := openReadOnlyAuditStoreIfPresent(dbPath, logger)
-			if err == nil && store != nil {
+			switch {
+			case err != nil:
+				// The DB path exists but could not be opened (permission,
+				// symlink rejection, not-a-directory, corrupt, ...). Record it
+				// rather than hiding the audit section. A missing DB returns
+				// (nil, nil) and stays quiet — that is the normal fresh install.
+				fmt.Println("  ────────────────────────────────────────")
+				fmt.Printf("  Audit stats:   unavailable (%v)\n", err)
+			case store != nil:
 				defer func() { _ = store.Close() }()
 
 				all, qErr := store.Query(audit.QueryOpts{Limit: 100000})
@@ -133,14 +141,19 @@ func newStatusCmd() *cobra.Command {
 	}
 }
 
-// openReadOnlyAuditStoreIfPresent opens the audit DB strictly read-only and
-// only when it already exists. A missing DB returns (nil, nil) so callers can
-// skip stats without creating the file. The strict constructor performs no
-// schema creation, ANALYZE, or migration, so reporting status never grows or
-// migrates an existing (possibly empty or old) DB.
+// openReadOnlyAuditStoreIfPresent opens the audit DB strictly read-only, only
+// when it already exists. A genuinely missing DB returns (nil, nil) so callers
+// stay quiet without creating the file — the normal fresh-install case. Any
+// other stat error (permission, not-a-directory, ...) and any open error are
+// returned so the caller can record the DB as unavailable rather than hiding
+// the audit section. The strict constructor performs no schema creation,
+// ANALYZE, or migration, so reporting status never grows or migrates the DB.
 func openReadOnlyAuditStoreIfPresent(dbPath string, logger *slog.Logger) (*audit.Store, error) {
 	if _, err := os.Stat(dbPath); err != nil {
-		return nil, nil //nolint:nilnil // "absent" is a valid, non-error state here
+		if os.IsNotExist(err) {
+			return nil, nil //nolint:nilnil // "absent" is a valid, non-error state here
+		}
+		return nil, err
 	}
 	return audit.NewStoreReadOnlyStrict(dbPath, logger)
 }
