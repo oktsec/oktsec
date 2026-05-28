@@ -358,7 +358,10 @@ is_listed() { case " $2 " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
 verify_bundle() {
 	local problem=0 entry base
-	for entry in "$OUTPUT"/* "$OUTPUT"/.[!.]*; do
+	# Globs cover: normal names, single-dot names (.foo), and double-dot names
+	# (..foo). "." and ".." themselves never match .[!.]* or ..?*, so they are
+	# not walked. Missing matches stay literal and are skipped by the -e guard.
+	for entry in "$OUTPUT"/* "$OUTPUT"/.[!.]* "$OUTPUT"/..?*; do
 		[ -e "$entry" ] || continue
 		base="$(basename "$entry")"
 		if [ ! -f "$entry" ]; then

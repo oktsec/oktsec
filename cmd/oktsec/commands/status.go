@@ -126,15 +126,16 @@ func newStatusCmd() *cobra.Command {
 	}
 }
 
-// openReadOnlyAuditStoreIfPresent opens the audit DB read-only only when it
-// already exists. A missing DB returns (nil, nil) so callers can skip stats
-// without creating the file. Read-only avoids the migration-time auto-repair
-// that the writable constructor performs.
+// openReadOnlyAuditStoreIfPresent opens the audit DB strictly read-only and
+// only when it already exists. A missing DB returns (nil, nil) so callers can
+// skip stats without creating the file. The strict constructor performs no
+// schema creation, ANALYZE, or migration, so reporting status never grows or
+// migrates an existing (possibly empty or old) DB.
 func openReadOnlyAuditStoreIfPresent(dbPath string, logger *slog.Logger) (*audit.Store, error) {
 	if _, err := os.Stat(dbPath); err != nil {
 		return nil, nil //nolint:nilnil // "absent" is a valid, non-error state here
 	}
-	return audit.NewStoreReadOnly(dbPath, logger)
+	return audit.NewStoreReadOnlyStrict(dbPath, logger)
 }
 
 func joinDetected(detected []string) string {

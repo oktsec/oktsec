@@ -17,12 +17,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/oktsec/oktsec/internal/audit"
 )
 
 func repoRootForExample(t *testing.T) string {
@@ -212,16 +217,74 @@ func TestStartupTeamBaselineBundle(t *testing.T) {
 
 	// Regression (--force stale files): a pre-existing secret/unexpected file in
 	// the target dir must make the bundle fail closed rather than ship silently.
-	stale := filepath.Join(tmp, "bundle-stale")
-	if err := os.MkdirAll(stale, 0o700); err != nil {
+	// Includes a double-dot name (..secret.env) that an earlier glob missed.
+	for i, fname := range []string{"old-secret.env", "..secret.env"} {
+		stale := filepath.Join(tmp, fmt.Sprintf("bundle-stale-%d", i))
+		if err := os.MkdirAll(stale, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(stale, fname),
+			[]byte("ANTHROPIC_API_KEY=sk-ant-0123456789abcdefghij\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if logs, err := runHarness("--config", cfgPath, "--output", stale, "--force"); err == nil {
+			t.Errorf("expected failure with stale file %q in bundle dir\n%s", fname, logs)
+		}
+	}
+
+	// Regression (strict read-only DB): an existing empty/old DB must not be
+	// created, grown, or migrated by collecting status. Pre-create a 0-byte DB
+	// and assert its size is unchanged after a run.
+	if err := os.WriteFile(dbPath, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(stale, "old-secret.env"),
-		[]byte("ANTHROPIC_API_KEY=sk-ant-0123456789abcdefghij\n"), 0o600); err != nil {
-		t.Fatal(err)
+	roOut := filepath.Join(tmp, "bundle-ro")
+	if logs, err := runHarness("--config", cfgPath, "--output", roOut); err != nil {
+		t.Fatalf("harness failed against empty DB: %v\n%s", err, logs)
 	}
-	if logs, err := runHarness("--config", cfgPath, "--output", stale, "--force"); err == nil {
-		t.Errorf("expected failure when bundle dir contains a stale secret/unexpected file\n%s", logs)
+	if info, err := os.Stat(dbPath); err != nil {
+		t.Errorf("stat dbPath: %v", err)
+	} else if info.Size() != 0 {
+		t.Errorf("audit DB grew from 0 to %d bytes; collection must be strictly read-only", info.Size())
+	}
+
+	// Strict read-only must still READ a populated DB and report its stats
+	// without mutating the file (size stable across the run).
+	validDB := filepath.Join(tmp, "valid.db")
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	st, err := audit.NewStore(validDB, logger)
+	if err != nil {
+		t.Fatalf("seed audit DB: %v", err)
+	}
+	st.Log(audit.Entry{
+		ID: "e1", Timestamp: time.Now().UTC().Format(time.RFC3339),
+		FromAgent: "a", ToAgent: "b", ContentHash: "deadbeef",
+		Status: "delivered", PolicyDecision: "clean",
+	})
+	st.Flush()
+	if err := st.Close(); err != nil {
+		t.Fatalf("close seed DB: %v", err)
+	}
+	infoBefore, err := os.Stat(validDB)
+	if err != nil {
+		t.Fatalf("stat seeded DB: %v", err)
+	}
+	sizeBefore := infoBefore.Size()
+	validCfg := filepath.Join(tmp, "oktsec-valid.yaml")
+	writeBundleTestConfig(t, validCfg, keys, validDB)
+	validOut := filepath.Join(tmp, "bundle-valid")
+	if logs, err := runHarness("--config", validCfg, "--output", validOut); err != nil {
+		t.Fatalf("harness failed against populated DB: %v\n%s", err, logs)
+	}
+	if info, err := os.Stat(validDB); err != nil {
+		t.Errorf("stat populated DB: %v", err)
+	} else if info.Size() != sizeBefore {
+		t.Errorf("populated audit DB changed size %d -> %d under strict read-only", sizeBefore, info.Size())
+	}
+	if data, err := os.ReadFile(filepath.Join(validOut, "status.txt")); err != nil {
+		t.Errorf("read status.txt: %v", err)
+	} else if !strings.Contains(string(data), "Total msgs:") {
+		t.Errorf("status.txt missing message stats for a populated DB:\n%s", data)
 	}
 
 	// Regression (secret scan coverage): exercise the harness's own SECRET_PAT
