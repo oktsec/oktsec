@@ -949,3 +949,224 @@ func TestV2_StateFileSuffixPathIsAdjacent(t *testing.T) {
 		t.Fatalf("state file not adjacent: %q", got)
 	}
 }
+
+// rulesReplaceBody builds a fleet bundle whose rules.mode is replace and which
+// governs exactly the given enabled ids with block overrides. Used by the honest
+// replace tests below.
+func rulesReplaceBody(enabled ...string) policybundle.PolicyBodyV2 {
+	b := bodyV2()
+	overrides := map[string]policybundle.PolicyRuleOverride{}
+	for _, id := range enabled {
+		overrides[id] = policybundle.PolicyRuleOverride{Action: "block"}
+	}
+	b.Rules = policybundle.DimRulesV2{
+		Mode:      dimReplace,
+		Enabled:   append([]string(nil), enabled...),
+		Disabled:  []string{},
+		Overrides: overrides,
+	}
+	return b
+}
+
+func ruleByID(cfg *config.Config, id string) (config.RuleAction, bool) {
+	for _, ra := range cfg.Rules {
+		if ra.ID == id {
+			return ra, true
+		}
+	}
+	return config.RuleAction{}, false
+}
+
+// FIX 1 test 1: replace with a PRIOR POLICY-OWNED rule (marked) absent from the
+// bundle -> it is REMOVED (honest replace reaps stale policy-owned overrides).
+func TestV2_RulesReplaceReapsStalePolicyOwnedRule(t *testing.T) {
+	cfg := baseConfig()
+	// A previously policy-owned override the new bundle no longer declares.
+	cfg.Rules = []config.RuleAction{
+		{ID: "STALE-1", Action: "ignore", Severity: "low", ManagedByPolicy: true},
+	}
+	b := rulesReplaceBody("IAP-003")
+	p, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
+	if err != nil {
+		t.Fatalf("DryRunV2: %v", err)
+	}
+	if _, ok := ruleByID(p.Projected(), "STALE-1"); ok {
+		t.Fatalf("stale policy-owned rule must be reaped, still present: %+v", p.Projected().Rules)
+	}
+	ra, ok := ruleByID(p.Projected(), "IAP-003")
+	if !ok || !ra.ManagedByPolicy || ra.Action != "block" {
+		t.Fatalf("governed rule must be written and marked, got %+v ok=%v", ra, ok)
+	}
+}
+
+// FIX 1 test 2: replace with an OPERATOR-AUTHORED rule (unmarked) absent from the
+// bundle -> it is PRESERVED, never touched.
+func TestV2_RulesReplacePreservesOperatorAuthoredRule(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Rules = []config.RuleAction{
+		{ID: "OPER-1", Action: "quarantine", Severity: "high"}, // no marker
+	}
+	b := rulesReplaceBody("IAP-003")
+	p, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
+	if err != nil {
+		t.Fatalf("DryRunV2: %v", err)
+	}
+	ra, ok := ruleByID(p.Projected(), "OPER-1")
+	if !ok {
+		t.Fatalf("operator-authored rule must be preserved, got %+v", p.Projected().Rules)
+	}
+	if ra.Action != "quarantine" || ra.ManagedByPolicy {
+		t.Fatalf("operator-authored rule must be untouched and unmarked, got %+v", ra)
+	}
+}
+
+// FIX 1 test 3: reapplying the same bundle is a no-op (the marked governed set
+// already matches; no removal churn, no change entries).
+func TestV2_RulesReplaceReapplyIsNoop(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Rules = []config.RuleAction{
+		{ID: "IAP-003", Action: "block", Severity: "high", ManagedByPolicy: true},
+	}
+	b := rulesReplaceBody("IAP-003")
+	p, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
+	if err != nil {
+		t.Fatalf("DryRunV2: %v", err)
+	}
+	for _, c := range p.Changes {
+		if c.Kind == "rule_override" || c.Kind == "rule_reset_default" {
+			t.Fatalf("reapply of the same bundle must be a rules no-op, got change %+v", c)
+		}
+	}
+	ra, ok := ruleByID(p.Projected(), "IAP-003")
+	if !ok || !ra.ManagedByPolicy || ra.Action != "block" {
+		t.Fatalf("reapply must keep the marked rule intact, got %+v ok=%v", ra, ok)
+	}
+}
+
+// FIX 1 test 4: drop an override from the bundle and reapply -> it DISAPPEARS
+// from the runtime (the previously-marked rule is reaped).
+func TestV2_RulesReplaceDroppedOverrideDisappears(t *testing.T) {
+	cfg := baseConfig()
+	// Two prior policy-owned overrides.
+	cfg.Rules = []config.RuleAction{
+		{ID: "IAP-003", Action: "block", Severity: "high", ManagedByPolicy: true},
+		{ID: "IAP-004", Action: "block", Severity: "high", ManagedByPolicy: true},
+	}
+	// New bundle only declares IAP-003: IAP-004 must be reaped.
+	b := rulesReplaceBody("IAP-003")
+	p, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
+	if err != nil {
+		t.Fatalf("DryRunV2: %v", err)
+	}
+	if _, ok := ruleByID(p.Projected(), "IAP-004"); ok {
+		t.Fatalf("dropped override must disappear, still present: %+v", p.Projected().Rules)
+	}
+	ra, ok := ruleByID(p.Projected(), "IAP-003")
+	if !ok || !ra.ManagedByPolicy {
+		t.Fatalf("retained override must stay marked, got %+v ok=%v", ra, ok)
+	}
+}
+
+// FIX 1 test 5: the marker round-trips through the YAML write path (Commit). After
+// a real apply, the written config has the governed rules marked and the operator
+// rules unmarked; loading it back preserves the distinction. Also proves the v1
+// rule the original config carried (KEEP-1, operator-authored) is preserved.
+func TestV2_RulesReplaceMarkerRoundTripsThroughCommit(t *testing.T) {
+	path := writeOrigConfig(t, 0o600) // carries operator rule KEEP-1 (unmarked)
+	b := rulesReplaceBody("IAP-003")
+	plan := commitV2Body(t, path, b, "")
+	if _, err := CommitV2(plan, path); err != nil {
+		t.Fatalf("CommitV2: %v", err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("written config must load: %v", err)
+	}
+	// Governed rule is marked.
+	ra, ok := ruleByID(cfg, "IAP-003")
+	if !ok || !ra.ManagedByPolicy {
+		t.Fatalf("governed rule must round-trip marked, got %+v ok=%v", ra, ok)
+	}
+	// Operator rule is preserved and stays unmarked.
+	keep, ok := ruleByID(cfg, "KEEP-1")
+	if !ok {
+		t.Fatalf("operator rule KEEP-1 must be preserved, rules=%+v", cfg.Rules)
+	}
+	if keep.ManagedByPolicy {
+		t.Fatalf("operator rule must stay unmarked through round-trip, got %+v", keep)
+	}
+	// The serialized YAML must carry the marker for the governed rule and NOT for
+	// the operator rule.
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "managed_by_policy: true") {
+		t.Fatalf("written YAML must carry the marker for the governed rule:\n%s", data)
+	}
+}
+
+// FIX 2 test 1a: a bundle whose allowed_tools value contains the sentinel is
+// refused (unsupported), no write, on the CLEAR path.
+func TestV2_SentinelInClearPathValueRefused(t *testing.T) {
+	b := bodyV2()
+	g := agentGovV2("voice-ai")
+	// clear mode but the bundle still ships the sentinel as a value: refuse it.
+	g.AllowedTools = policybundle.DimStringSetV2{Mode: dimClear, Values: []string{denyAllToolsSentinel}}
+	b.Governance.Agents = []policybundle.AgentGovernanceV2{g}
+	p, err := DryRunV2(verifiedV2(b), baseConfig(), "", targetPath)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("err = %v, want ErrUnsupported", err)
+	}
+	if !hasUnsupportedV2(p, "agent_allowed_tools_reserved_value") {
+		t.Fatalf("expected reserved-value unsupported on clear path, got %+v", p.Unsupported)
+	}
+}
+
+// FIX 2 test 1b: the sentinel in a replace value is refused too (the original
+// guard, kept; reservation is now total across paths).
+func TestV2_SentinelInReplacePathValueRefused(t *testing.T) {
+	b := bodyV2()
+	g := agentGovV2("voice-ai")
+	g.AllowedTools = policybundle.DimStringSetV2{Mode: dimReplace, Values: []string{"calendar.read", denyAllToolsSentinel}}
+	b.Governance.Agents = []policybundle.AgentGovernanceV2{g}
+	p, err := DryRunV2(verifiedV2(b), baseConfig(), "", targetPath)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("err = %v, want ErrUnsupported", err)
+	}
+	if !hasUnsupportedV2(p, "agent_allowed_tools_reserved_value") {
+		t.Fatalf("expected reserved-value unsupported on replace path, got %+v", p.Unsupported)
+	}
+}
+
+// FIX 2 test 2: apply where the agent's existing config allowed_tools already
+// contains the sentinel name -> fail closed (refuse, no write). A real tool named
+// the sentinel would make the deny-all clear form a silent bypass.
+func TestV2_SentinelInLocalConfigFailsClosed(t *testing.T) {
+	cfg := baseConfig()
+	va := cfg.Agents["voice-ai"]
+	va.AllowedTools = []string{denyAllToolsSentinel} // a real tool collides with the sentinel
+	cfg.Agents["voice-ai"] = va
+	b := bodyV2()
+	g := agentGovV2("other")
+	g.Suspended = policybundle.DimScalarBoolV2{Mode: dimReplace, Value: true}
+	b.Governance.Agents = []policybundle.AgentGovernanceV2{g}
+	_, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("collision in local config must fail closed with ErrUnsupported, got %v", err)
+	}
+}
+
+// FIX 2 test 3: deny-all via clear on a normal agent (no collision) still works:
+// the agent ends with the sentinel-based zero form (zero callable tools).
+func TestV2_DenyAllClearStillWorksWithoutCollision(t *testing.T) {
+	b := bodyV2()
+	g := agentGovV2("voice-ai")
+	g.AllowedTools = policybundle.DimStringSetV2{Mode: dimClear, Values: []string{}}
+	b.Governance.Agents = []policybundle.AgentGovernanceV2{g}
+	p, err := DryRunV2(verifiedV2(b), baseConfig(), "", targetPath)
+	if err != nil {
+		t.Fatalf("DryRunV2: %v", err)
+	}
+	va := p.Projected().Agents["voice-ai"]
+	if len(va.AllowedTools) != 1 || va.AllowedTools[0] != denyAllToolsSentinel {
+		t.Fatalf("deny-all clear must yield the zero-access sentinel, got %v", va.AllowedTools)
+	}
+}

@@ -376,6 +376,15 @@ type RuleAction struct {
 	Template     string   `yaml:"template,omitempty"`       // webhook body template with {{RULE}}, {{ACTION}}, etc.
 	ApplyToTools []string `yaml:"apply_to_tools,omitempty"` // rule only enforced for these tools (empty = all)
 	ExemptTools  []string `yaml:"exempt_tools,omitempty"`   // rule NOT enforced for these tools
+	// ManagedByPolicy marks a rule override as owned by a signed policy_bundle.v2
+	// apply (rules.mode: replace), as opposed to one an operator authored by hand.
+	// It is additive and omitempty so an operator config that never goes through v2
+	// apply is byte-unchanged (the field is absent at false) and the v1 apply path,
+	// which never sets it, is unaffected. v2 replace uses it to converge the
+	// GOVERNED rule subset to the signed desired state without clobbering
+	// operator-authored overrides: a marked rule absent from the new bundle is
+	// reaped; an unmarked rule is preserved.
+	ManagedByPolicy bool `yaml:"managed_by_policy,omitempty"`
 }
 
 // ScanProfile constants.

@@ -157,6 +157,34 @@ func DryRunV2(verified *policybundle.VerifiedBundleV2, cfg *config.Config, nodeI
 		return nil, err
 	}
 
+	// --- Deny-all sentinel collision (FIX 2, fail closed). The deny-all form for
+	// allowed_tools is the reserved sentinel name denyAllToolsSentinel written into
+	// the agent's allowlist (Community reads an empty allowlist as "all tools", so
+	// zero access must be a non-empty list that matches no real tool). That only
+	// works if no REAL tool is ever named denyAllToolsSentinel. If a real tool in
+	// the local config carries that name, a deny-all (clear) would still allow it,
+	// silently defeating the zero-access representation. So if ANY real tool name in
+	// the local config (an agent's existing allowed_tools, or the global gateway
+	// allow/deny lists) equals the sentinel, refuse the whole apply with a visible
+	// fail-closed error rather than risk a silent deny-all bypass.
+	//
+	// The bundle-side reservation (a bundle value that contains the sentinel is
+	// refused on ALL paths, replace and otherwise) lives in the per-dimension
+	// projectors below; this is the LOCAL-config / inventory half.
+	//
+	// Observed inventory: a node snapshot's observed tool inventory is NOT reachable
+	// from this apply context (DryRunV2 takes only the loaded config). The
+	// observed-inventory collision check therefore belongs where that inventory is
+	// available (the gateway / runtime, which actually sees backend tool names).
+	// TODO(9A.x): when the apply path gains access to the observed tool inventory,
+	// extend collideToolSentinel to also scan it. The hard deny-all representation
+	// (a runtime-recognized flag, not a sentinel tool name) is a separate
+	// gateway-enforcement follow-up, out of scope for 9A.2.
+	if where := collideToolSentinel(target); where != "" {
+		return nil, fmt.Errorf("%w: a real tool in the local config uses the reserved deny-all sentinel name %q (%s); rename that tool before applying a policy",
+			ErrUnsupported, denyAllToolsSentinel, where)
+	}
+
 	// --- Body-level dimensions that are NOT projected in this PR fail closed
 	// when governed. unmanaged is the only "not governed" meaning. ---
 	projectRulesV2(plan, target, body)
@@ -232,22 +260,38 @@ func projectRulesV2(plan *PlanV2, target *config.Config, body policybundle.Polic
 	for i, ra := range target.Rules {
 		idx[ra.ID] = i
 	}
+	// governedWritten records every rule id the bundle's signed desired set writes
+	// or marks during this replace. It is the authoritative GOVERNED set: after the
+	// upserts and resets run, any EXISTING rule still marked managed_by_policy that
+	// is NOT in this set is a prior policy-owned override the new bundle no longer
+	// declares, so it is reaped (honest replace of the governed subset).
+	governedWritten := map[string]struct{}{}
+	// upsert writes (or updates) a rule id to action and marks it
+	// managed_by_policy: this rule is now owned by the signed policy. It records the
+	// id in governedWritten so the reap step never removes a rule the bundle just
+	// declared.
 	upsert := func(id, action string) {
+		governedWritten[id] = struct{}{}
 		if i, ok := idx[id]; ok {
 			scoped := len(target.Rules[i].ApplyToTools) > 0 || len(target.Rules[i].ExemptTools) > 0
-			if target.Rules[i].Action == action && !scoped {
+			if target.Rules[i].Action == action && !scoped && target.Rules[i].ManagedByPolicy {
 				return
 			}
 			target.Rules[i].Action = action
 			target.Rules[i].ApplyToTools = nil
 			target.Rules[i].ExemptTools = nil
+			target.Rules[i].ManagedByPolicy = true
 		} else {
-			target.Rules = append(target.Rules, config.RuleAction{ID: id, Action: action})
+			target.Rules = append(target.Rules, config.RuleAction{ID: id, Action: action, ManagedByPolicy: true})
 			idx[id] = len(target.Rules) - 1
 		}
 		plan.Changes = append(plan.Changes, ChangeV2{Kind: "rule_override", DimMode: dimReplace, ID: id, Action: action})
 	}
+	// resetToDefault removes a rule override so the rule runs at its severity
+	// default. The id is still part of the governed set (the bundle enabled it with
+	// no override), so it is recorded in governedWritten and never reaped.
 	resetToDefault := func(id string) {
+		governedWritten[id] = struct{}{}
 		i, ok := idx[id]
 		if !ok {
 			return
@@ -304,6 +348,37 @@ func projectRulesV2(plan *PlanV2, target *config.Config, body policybundle.Polic
 	sort.Strings(disabled)
 	for _, id := range disabled {
 		upsert(id, "ignore")
+	}
+
+	// Honest replace of the GOVERNED set: a rule that a PRIOR policy apply marked
+	// managed_by_policy but which this bundle no longer declares must be reaped, so
+	// the node never enforces a policy-owned override the signed desired state has
+	// dropped. Operator-authored rules (no marker) are PRESERVED, never touched. v1
+	// apply never writes the marker, so a rule v1 wrote is operator-authored from
+	// v2's perspective and is safely preserved here (v2 only reaps what v2 marked).
+	// Collect ids first (reaping mutates target.Rules / idx) and process them in a
+	// deterministic order so the plan is stable.
+	var reap []string
+	for id, i := range idx {
+		if _, kept := governedWritten[id]; kept {
+			continue
+		}
+		if target.Rules[i].ManagedByPolicy {
+			reap = append(reap, id)
+		}
+	}
+	sort.Strings(reap)
+	for _, id := range reap {
+		i, ok := idx[id]
+		if !ok {
+			continue
+		}
+		target.Rules = append(target.Rules[:i], target.Rules[i+1:]...)
+		delete(idx, id)
+		for j := i; j < len(target.Rules); j++ {
+			idx[target.Rules[j].ID] = j
+		}
+		plan.Changes = append(plan.Changes, ChangeV2{Kind: "rule_reset_default", DimMode: dimReplace, ID: id})
 	}
 }
 
@@ -409,6 +484,19 @@ func projectAgentAllowedToolsV2(plan *PlanV2, agent *config.Agent, name string, 
 	if badMode := unknownManagedMode(plan, name, "allowed_tools", mode); badMode {
 		return
 	}
+	// The deny-all sentinel name is RESERVED on EVERY path, not just replace: any
+	// bundle allowed_tools value that contains it is refused (unsupported),
+	// regardless of mode. A bundle could otherwise smuggle "deny-all" through a
+	// non-clear path, or (under replace) defeat a later clear comparison. clear
+	// carries no bundle values, so this guard is a no-op there, but checking
+	// unconditionally keeps the reservation total and future-proof.
+	if slices.Contains(gov.AllowedTools.Values, denyAllToolsSentinel) {
+		plan.Unsupported = append(plan.Unsupported, Unsupported{
+			Kind:   "agent_allowed_tools_reserved_value",
+			Detail: fmt.Sprintf("agent %q allowed_tools value contains the reserved deny-all sentinel %q; use clear for deny-all", name, denyAllToolsSentinel),
+		})
+		return
+	}
 	switch mode {
 	case dimReplace:
 		vals := gov.AllowedTools.Values
@@ -416,16 +504,6 @@ func projectAgentAllowedToolsV2(plan *PlanV2, agent *config.Agent, name string, 
 			plan.Unsupported = append(plan.Unsupported, Unsupported{
 				Kind:   "agent_allowed_tools_empty_replace",
 				Detail: fmt.Sprintf("agent %q allowed_tools replace has an empty value, which Community reads as 'all tools' (a widen); use clear for deny-all", name),
-			})
-			return
-		}
-		// The deny-all sentinel is reserved for the clear form; a replace value
-		// must never contain it, or a bundle could smuggle "deny-all" through
-		// replace (or, conversely, defeat a later clear comparison). Refuse it.
-		if slices.Contains(vals, denyAllToolsSentinel) {
-			plan.Unsupported = append(plan.Unsupported, Unsupported{
-				Kind:   "agent_allowed_tools_reserved_value",
-				Detail: fmt.Sprintf("agent %q allowed_tools replace contains the reserved deny-all sentinel %q; use clear for deny-all", name, denyAllToolsSentinel),
 			})
 			return
 		}
@@ -448,10 +526,35 @@ func projectAgentAllowedToolsV2(plan *PlanV2, agent *config.Agent, name string, 
 
 // denyAllToolsSentinel is the genuine zero-access allowlist value. Community
 // treats an empty allowlist as "all tools allowed", so deny-all must be a
-// non-empty list that matches no real tool. This name is RESERVED: a replace
-// value containing it is refused (see projectAgentAllowedToolsV2), so a real
-// tool can never carry it and the clear form can never be defeated.
+// non-empty list that matches no real tool. This name is RESERVED: a bundle
+// value containing it is refused on every path (see projectAgentAllowedToolsV2),
+// and a real tool in the local config carrying it fails the apply closed (see
+// collideToolSentinel), so the sentinel can never be a real tool and the clear
+// (deny-all) form can never be defeated.
 const denyAllToolsSentinel = "__oktsec_deny_all__"
+
+// collideToolSentinel returns a non-empty location description when any REAL tool
+// name in the local config equals the reserved deny-all sentinel. The only tool
+// names the config itself can express are each agent's allowed_tools (the gateway
+// has no static tool list in config: it discovers backend tool names at runtime,
+// which is the observed-inventory check that lives in the gateway, not here). A
+// collision means the sentinel-based deny-all form would not actually deny that
+// tool, so the caller fails the apply closed rather than risk a silent deny-all
+// bypass. Agents are scanned in sorted order so the reported location is
+// deterministic.
+func collideToolSentinel(cfg *config.Config) string {
+	names := make([]string, 0, len(cfg.Agents))
+	for name := range cfg.Agents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if slices.Contains(cfg.Agents[name].AllowedTools, denyAllToolsSentinel) {
+			return fmt.Sprintf("agent %q allowed_tools", name)
+		}
+	}
+	return ""
+}
 
 // projectAgentEgressV2 projects the per-agent egress allowed/blocked domains.
 // Only those two fields are implemented; any OTHER governed egress field (scope,
