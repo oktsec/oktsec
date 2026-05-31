@@ -2,8 +2,8 @@ package gateway
 
 import (
 	"context"
-	"log/slog"
 	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -30,7 +30,7 @@ func denyAllCallIsError(t *testing.T, g *Gateway, agent, originalName string) bo
 	b := &Backend{Name: "backend1", Tools: []*mcp.Tool{{Name: originalName}}}
 	handler := g.makeHandler(toolMapping{Backend: b, OriginalName: originalName})
 	ctx := context.WithValue(context.Background(), agentContextKey, agent)
-	res, err := handler(ctx, &mcp.CallToolRequest{Params: &mcp.CallToolParams{Name: originalName}})
+	res, err := handler(ctx, makeHandlerRequest(originalName, map[string]any{"text": "x"}))
 	if err != nil {
 		t.Fatalf("handler returned transport error: %v", err)
 	}
