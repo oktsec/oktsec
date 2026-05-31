@@ -86,14 +86,14 @@ func (p *PlanV2) Projected() *config.Config { return p.projected }
 // Change with an explicit DimMode label so the operator sees intent (REPLACE vs
 // CLEAR) in the plan, which the spec requires for v2.
 type ChangeV2 struct {
-	Kind     string `json:"kind"`
-	DimMode  string `json:"dim_mode"`        // replace | clear (unmanaged never emits a change)
-	ID       string `json:"id,omitempty"`    // rule id
-	Action   string `json:"action,omitempty"`
-	Agent    string `json:"agent,omitempty"`
-	Count    int    `json:"count,omitempty"` // list cardinality after the change
-	Value    string `json:"value,omitempty"` // scalar value (scan_profile)
-	BoolValue bool  `json:"bool_value,omitempty"` // scalar bool (suspended)
+	Kind      string `json:"kind"`
+	DimMode   string `json:"dim_mode"`     // replace | clear (unmanaged never emits a change)
+	ID        string `json:"id,omitempty"` // rule id
+	Action    string `json:"action,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	Count     int    `json:"count,omitempty"`      // list cardinality after the change
+	Value     string `json:"value,omitempty"`      // scalar value (scan_profile)
+	BoolValue bool   `json:"bool_value,omitempty"` // scalar bool (suspended)
 }
 
 // DryRunV2 projects a verified v2 bundle onto a copy of cfg. nodeID is the local
@@ -265,6 +265,50 @@ func projectRulesV2(plan *PlanV2, target *config.Config, body policybundle.Polic
 	for i, ra := range target.Rules {
 		idx[ra.ID] = i
 	}
+
+	// PREFLIGHT: fail closed on unknown-ownership rules BEFORE any mutation.
+	// A v2 replace is a HARD CLAIM that the node's governed rule set equals the
+	// signed set, named by the bundle (enabled + overrides keys + disabled). Any
+	// EXISTING local rule NOT named and NOT marked managed_by_policy is of unknown
+	// provenance: we will not silently keep it (that would leave the node above the
+	// signed set) nor blindly delete it (that would destroy operator config). We
+	// detect this BEFORE running any upsert/reset so a fail-closed apply leaves the
+	// projection byte-unchanged (no partial mutation in plan.Projected or
+	// plan.Changes) and DryRunV2 returns ErrUnsupported with no state advance.
+	// v1 apply never writes the marker, so a rule v1 wrote is unmarked and BLOCKS
+	// here; that is the correct, safe behavior. The operator reconciles by naming
+	// the rule in the policy or removing it locally first.
+	named := make(map[string]struct{}, len(body.Rules.Enabled)+len(body.Rules.Overrides)+len(body.Rules.Disabled))
+	for _, id := range body.Rules.Enabled {
+		named[id] = struct{}{}
+	}
+	for id := range body.Rules.Overrides {
+		named[id] = struct{}{}
+	}
+	for _, id := range body.Rules.Disabled {
+		named[id] = struct{}{}
+	}
+	var unowned []string
+	for _, ra := range target.Rules {
+		if _, ok := named[ra.ID]; ok {
+			continue
+		}
+		if !ra.ManagedByPolicy {
+			unowned = append(unowned, ra.ID)
+		}
+	}
+	if len(unowned) > 0 {
+		sort.Strings(unowned)
+		for _, id := range unowned {
+			plan.Unsupported = append(plan.Unsupported, Unsupported{
+				Kind:   "rules_replace_unowned_local_rule",
+				Detail: fmt.Sprintf("rule %q is a local rule of unknown ownership (not named by the bundle and not marked managed_by_policy); a v2 rules replace claims the node's governed rule set equals the signed set, so it fails closed rather than silently keep or delete it; name %q in the policy or remove it locally first", id, id),
+			})
+		}
+		// Fail closed without mutating the projection: no upsert, no reap.
+		return
+	}
+
 	// governedWritten records every rule id the bundle's signed desired set writes
 	// or marks during this replace (it is "named by the bundle"). It is the
 	// authoritative GOVERNED set: after the upserts and resets run, any EXISTING
@@ -356,46 +400,22 @@ func projectRulesV2(plan *PlanV2, target *config.Config, body policybundle.Polic
 		upsert(id, "ignore")
 	}
 
-	// Honest replace of the GOVERNED rule set, fail closed on unknown ownership.
-	// A v2 replace is a HARD CLAIM that the node's governed rule set equals the
-	// signed set. So for every EXISTING local rule not named by this bundle:
-	//   - marked managed_by_policy -> it is a stale policy-owned override the new
-	//     bundle no longer declares; REAP it (reset to severity default).
-	//   - NOT marked (unknown ownership) -> we cannot prove it is policy-owned and
-	//     we will not silently keep it (that would leave the node above the signed
-	//     set) nor blindly delete it (that would destroy operator config). FAIL
-	//     CLOSED: record an unsupported entry naming the rule so the apply refuses
-	//     with no config write and no state advance. The operator reconciles by
-	//     naming the rule in the policy or removing it locally first.
-	// v1 apply never writes the marker, so a rule v1 wrote is unmarked and BLOCKS
-	// under v2 replace as unknown ownership; that is the correct, safe behavior.
-	// We only ever REMOVE rules that carry the marker, so operator-authored config
-	// can never be deleted by a policy apply: unknown rules block, never vanish.
-	// Collect ids first (reaping mutates target.Rules / idx) and process them in a
-	// deterministic order so the plan and any error are stable.
+	// Reap stale policy-owned rules. The preflight above already failed closed on
+	// any unmarked local rule the bundle does not name, so every EXISTING local
+	// rule still not in governedWritten here is one a PRIOR policy apply marked
+	// managed_by_policy that this bundle no longer declares: reap it (reset to
+	// severity default) so the node converges exactly to the signed governed set.
+	// We only ever REMOVE rules carrying the marker, so operator-authored config is
+	// never deleted by a policy apply. Collect ids first (reaping mutates
+	// target.Rules / idx) and process them in deterministic order for a stable plan.
 	var reap []string
-	var unowned []string
 	for id, i := range idx {
 		if _, kept := governedWritten[id]; kept {
 			continue
 		}
 		if target.Rules[i].ManagedByPolicy {
 			reap = append(reap, id)
-		} else {
-			unowned = append(unowned, id)
 		}
-	}
-	if len(unowned) > 0 {
-		sort.Strings(unowned)
-		for _, id := range unowned {
-			plan.Unsupported = append(plan.Unsupported, Unsupported{
-				Kind:   "rules_replace_unowned_local_rule",
-				Detail: fmt.Sprintf("rule %q is a local rule of unknown ownership (not named by the bundle and not marked managed_by_policy); a v2 rules replace claims the node's governed rule set equals the signed set, so it fails closed rather than silently keep or delete it; name %q in the policy or remove it locally first", id, id),
-			})
-		}
-		// Do not reap when we are failing closed: a fail-closed apply writes
-		// nothing, so the projection must not mutate the rule set either.
-		return
 	}
 	sort.Strings(reap)
 	for _, id := range reap {
