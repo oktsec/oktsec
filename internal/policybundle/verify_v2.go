@@ -72,6 +72,19 @@ func VerifyBundleV2(raw []byte, trustFingerprint string) (*VerifiedBundleV2, err
 		return nil, reject(RejectSchemaInvalid, "%s", err)
 	}
 
+	// Scalar presence: every SIGNED SCALAR must be explicitly present and
+	// non-null in the raw JSON. A scalar omitted or set to null decodes to Go's
+	// zero value BEFORE the hash is recomputed, so an omitted suspended.value
+	// would verify identically to false, an omitted rollback_of identically to
+	// "", an omitted numeric identically to 0 - two verifiable byte forms for one
+	// meaning. This walks the raw JSON (no reserialize) so it can tell an absent
+	// key from a present-null one, and runs before any typed field is trusted.
+	// Containers keep their own []/{} presence rule in
+	// validateCanonicalPolicyContainersV2; this guard owns scalars only.
+	if err := validateScalarPresenceV2(raw); err != nil {
+		return nil, reject(RejectSchemaInvalid, "%s", err)
+	}
+
 	// (2) schema constant tags.
 	switch {
 	case b.SchemaVersion != SchemaVersionV2:

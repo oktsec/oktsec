@@ -797,3 +797,81 @@ func TestV2_RealignedFieldsCanonicalDeterministic(t *testing.T) {
 		t.Fatalf("realigned-field canonicalization not deterministic: %s != %s", h1, h2)
 	}
 }
+
+// TestV2_ScalarPresenceRequired locks the v2 rule that every SIGNED SCALAR
+// must be explicitly present and non-null in the raw JSON. An omitted or null
+// scalar decodes to Go's zero value before the hash is recomputed, which would
+// give one meaning two verifiable byte forms; the presence walker rejects it as
+// policy_schema_invalid. Each case starts from the valid fixture bytes and
+// removes or nulls exactly one scalar (or, for the optional-string and
+// tri-state positive controls, sets an explicit-but-empty/"unset" value that
+// must STILL verify). The surgical byte edits match the fixture's exact
+// formatting so the test fails loudly if the fixture is reflowed.
+func TestV2_ScalarPresenceRequired(t *testing.T) {
+	raw, fp := loadFixtureV2(t)
+
+	// (10) positive control: the unmodified fixture (all scalars present) verifies.
+	if _, err := VerifyBundleV2(raw, fp); err != nil {
+		t.Fatalf("unmodified fixture must verify: %v", err)
+	}
+
+	// Negative cases: each removes or nulls one scalar key.
+	negatives := map[string][]byte{
+		// (1) omit policy.assignment.rollback_of (last key in assignment).
+		"omit rollback_of": bytesReplaceOnce(t, raw, `"sequence": 1,
+      "rollback_of": ""`, `"sequence": 1`),
+		// (2) rollback_of: null.
+		"null rollback_of": bytesReplaceOnce(t, raw, `"rollback_of": ""`, `"rollback_of": null`),
+		// (3) omit governance.agents[0].suspended.value.
+		"omit suspended.value": bytesReplaceOnce(t, raw, `"mode": "replace",
+            "value": false`, `"mode": "replace"`),
+		// (4) suspended.value: null.
+		"null suspended.value": bytesReplaceOnce(t, raw, `"value": false`, `"value": null`),
+		// (5) omit governance.server.rate_limit_max.
+		"omit rate_limit_max": bytesReplaceOnce(t, raw, `"rate_limit_max": 100,
+        `, ``),
+		// (6) omit a tool_policies.by_tool.<tool>.max_amount.
+		"omit max_amount": bytesReplaceOnce(t, raw, `"max_amount": "100.00",
+                `, ``),
+		// (7) max_amount: null.
+		"null max_amount": bytesReplaceOnce(t, raw, `"max_amount": "100.00"`, `"max_amount": null`),
+		// (8) omit egress scan_requests.
+		"omit scan_requests": bytesReplaceOnce(t, raw, `"scan_requests": "true",
+            `, ``),
+		// (9) omit a nested tool_constraints[0].parameters.<k>.max_length.
+		"omit max_length": bytesReplaceOnce(t, raw, `,
+                    "max_length": 20`, ``),
+	}
+	for name, bad := range negatives {
+		if _, err := VerifyBundleV2(bad, fp); err == nil {
+			t.Fatalf("[%s] expected reject, got nil", name)
+		} else {
+			wantRejectMsg(t, err, RejectSchemaInvalid, name)
+		}
+	}
+
+	// (6b) positive: max_amount present as explicit empty string ("" = unset) is
+	// VALID - presence is satisfied by the key existing with a non-null value.
+	// remarshalV2 re-emits all keys, so the body stays fully present; this also
+	// exercises the verify path end to end (decimal "" is the canonical unset).
+	okEmptyMaxAmount := remarshalV2(t, func(b *PolicyBundleV2) {
+		tp := b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"]
+		tp.MaxAmount = ""
+		b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"] = tp
+	})
+	if _, err := VerifyBundleV2(okEmptyMaxAmount, fp); err != nil {
+		// Changing max_amount changes the body, so a hash mismatch is the expected
+		// outcome - but it must NOT be a schema/presence reject: "" present is valid.
+		wantReject(t, err, RejectHashMismatch)
+	}
+
+	// (8b) positive: scan_requests present as "unset" is VALID (tri-state). Same
+	// reasoning: the key is present with a closed-set value, so presence passes;
+	// the body changes, so a hash mismatch (not a presence/schema reject) is fine.
+	okUnsetScan := remarshalV2(t, func(b *PolicyBundleV2) {
+		b.Policy.Governance.Agents[0].Egress.ScanRequests = "unset"
+	})
+	if _, err := VerifyBundleV2(okUnsetScan, fp); err != nil {
+		wantReject(t, err, RejectHashMismatch)
+	}
+}
