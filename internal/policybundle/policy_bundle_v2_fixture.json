@@ -1,7 +1,7 @@
 {
   "schema_version": "policy_bundle.v2",
   "bundle_version": 2,
-  "policy_hash": "sha256:91a0912e05868740e939256fc0b58498ff1ae4b19a5d5fbf7b18730d8b9f5300",
+  "policy_hash": "sha256:304e887278c6d571daa9e2b4e68aa4e41fee9850e837196da27d97845de95cf2",
   "canonicalization": "oktsec-policy-v2-typed-utc-json",
   "policy": {
     "policy_id": "voice-ai-prod",
@@ -101,17 +101,21 @@
             "mode": "replace",
             "items": [
               {
-                "tool_name": "voice.dial",
-                "max_calls": 50,
-                "window_secs": 3600,
-                "params": {
+                "tool": "voice.dial",
+                "parameters": {
                   "number": {
-                    "max_length": 20,
-                    "pattern": "^[0-9+]+$",
-                    "enum": [],
-                    "required": true
+                    "allowed_patterns": [
+                      "+1*",
+                      "+44*"
+                    ],
+                    "blocked_patterns": [
+                      "+1900*"
+                    ],
+                    "max_length": 20
                   }
-                }
+                },
+                "max_response_bytes": 4096,
+                "cooldown_secs": 30
               }
             ]
           },
@@ -119,11 +123,11 @@
             "mode": "clear",
             "items": [
               {
-                "trigger": "voice.dial",
-                "blocks": [
+                "if": "voice.dial",
+                "then": [
                   "shell.exec"
                 ],
-                "reason": "no shell after a dial"
+                "cooldown_secs": 300
               }
             ]
           },
@@ -141,6 +145,34 @@
           "suspended": {
             "mode": "replace",
             "value": false
+          },
+          "egress": {
+            "mode": "replace",
+            "allowed_domains": [
+              "api.openai.com",
+              "api.anthropic.com"
+            ],
+            "blocked_domains": [
+              "*.suspicious.example"
+            ],
+            "scope": "internal+api.openai.com",
+            "tool_restrictions": {
+              "voice.dial": [
+                "api.twilio.com"
+              ]
+            },
+            "scan_requests": "true",
+            "scan_responses": "false",
+            "blocked_categories": [
+              "secrets",
+              "pii"
+            ],
+            "rate_limit": 100,
+            "rate_window": 60,
+            "integrations": [
+              "slack",
+              "github"
+            ]
           }
         }
       ]
@@ -161,6 +193,6 @@
     "public_key": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
     "public_key_fingerprint": "sha256:65b60673d6ed884bf01c2c222d82ada0740f29ac3355d6a925c81f17f47a27b8",
     "signed_at": "2026-05-23T12:00:01Z",
-    "value": "5H1st3G0BP9ZJyU3I2QCDxdytN8G8aPH+ChC9ui7iLpKcWHUUknHCr6GL8nM9MrYzPmbLXOKep6vPFu3wKUoBg=="
+    "value": "irqOgoWb1nDyeNMzPDt3C/oIavVPmnnzCG/euyi/HDv9LVCbqHFG9cKeWpVj/AVbGbsaaYkT8KyJk0dPmk8FDA=="
   }
 }

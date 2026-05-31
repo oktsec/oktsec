@@ -261,10 +261,28 @@ func validatePolicySchemaV2(b *PolicyBundleV2) error {
 			{p + ".blocked_content.mode", a.BlockedContent.Mode},
 			{p + ".scan_profile.mode", a.ScanProfile.Mode},
 			{p + ".suspended.mode", a.Suspended.Mode},
+			{p + ".egress.mode", a.Egress.Mode},
 		} {
 			if err := checkDimMode(d.name, d.mode); err != nil {
 				return err
 			}
+		}
+		// Per-agent egress tri-state enums: config.EgressPolicy's *bool fields
+		// are carried as a closed-set string on the wire, so an out-of-set value
+		// must be rejected before the bundle is labeled verified.
+		for _, ts := range []struct{ name, val string }{
+			{p + ".egress.scan_requests", a.Egress.ScanRequests},
+			{p + ".egress.scan_responses", a.Egress.ScanResponses},
+		} {
+			if !validTriState[ts.val] {
+				return fmt.Errorf("%s %q not in {unset, true, false}", ts.name, ts.val)
+			}
+		}
+		// scan_profile.value is a closed set (config ScanProfile* constants plus
+		// ""): an out-of-set value cannot be safely projected, so it is a schema
+		// reject rather than a verified bundle. The mode is validated above.
+		if !validScanProfileValues[a.ScanProfile.Value] {
+			return fmt.Errorf("%s.scan_profile.value %q not in {\"\", strict, content-aware, minimal}", p, a.ScanProfile.Value)
 		}
 		for tool, tp := range a.ToolPolicies.ByTool {
 			tpName := fmt.Sprintf("%s.tool_policies.by_tool[%q]", p, tool)
@@ -277,7 +295,55 @@ func validatePolicySchemaV2(b *PolicyBundleV2) error {
 			if err := validateCanonicalDecimal(tpName+".require_approval_above", tp.RequireApprovalAbove); err != nil {
 				return err
 			}
+			// rate_limit is an integer guardrail: the enforcer only activates it
+			// when > 0, so a negative value would silently disable a signed limit
+			// if applied. A "verified" bundle must not mean the opposite of what
+			// it declares.
+			if err := nonNegInt(tpName+".rate_limit", tp.RateLimit); err != nil {
+				return err
+			}
 		}
+
+		// Remaining integer guardrails across the agent surface. Same fail-open
+		// reasoning: the runtime only activates these when > 0 (or treats <0 as
+		// unbounded), so a signed negative value cannot be safely projected. All
+		// are non-negative counts in config (int), so verify rejects negatives.
+		for j := range a.ToolConstraints.Items {
+			c := &a.ToolConstraints.Items[j]
+			cp := fmt.Sprintf("%s.tool_constraints.items[%d]", p, j)
+			if err := nonNegInt(cp+".max_response_bytes", c.MaxResponseBytes); err != nil {
+				return err
+			}
+			if err := nonNegInt(cp+".cooldown_secs", c.CooldownSecs); err != nil {
+				return err
+			}
+			for name, pc := range c.Parameters {
+				if err := nonNegInt(fmt.Sprintf("%s.parameters[%q].max_length", cp, name), pc.MaxLength); err != nil {
+					return err
+				}
+			}
+		}
+		for j := range a.ToolChainRules.Items {
+			if err := nonNegInt(fmt.Sprintf("%s.tool_chain_rules.items[%d].cooldown_secs", p, j), a.ToolChainRules.Items[j].CooldownSecs); err != nil {
+				return err
+			}
+		}
+		if err := nonNegInt(p+".egress.rate_limit", a.Egress.RateLimit); err != nil {
+			return err
+		}
+		if err := nonNegInt(p+".egress.rate_window", a.Egress.RateWindow); err != nil {
+			return err
+		}
+	}
+
+	// Server-level integer guardrails (config.RateLimitConfig): the enforcer
+	// only activates per-agent rate limiting when > 0, so a negative signed
+	// value would fail open if applied.
+	if err := nonNegInt("policy.governance.server.rate_limit_max", b.Policy.Governance.Server.RateLimitMax); err != nil {
+		return err
+	}
+	if err := nonNegInt("policy.governance.server.rate_limit_window_s", b.Policy.Governance.Server.RateLimitWindow); err != nil {
+		return err
 	}
 
 	return nil
@@ -288,6 +354,17 @@ func validatePolicySchemaV2(b *PolicyBundleV2) error {
 func checkDimMode(field, mode string) error {
 	if !validDimModes[mode] {
 		return fmt.Errorf("%s %q not in {unmanaged, replace, clear}", field, mode)
+	}
+	return nil
+}
+
+// nonNegInt rejects a negative v2 integer guardrail. These map to non-negative
+// counts in config; a negative value would fail open when projected (the
+// runtime activates the guardrail only when positive), so the verifier refuses
+// it rather than label such a bundle verified.
+func nonNegInt(field string, v int64) error {
+	if v < 0 {
+		return fmt.Errorf("%s %d must not be negative", field, v)
 	}
 	return nil
 }

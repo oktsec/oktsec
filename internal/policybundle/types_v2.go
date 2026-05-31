@@ -85,6 +85,14 @@ type DimGatewayV2 struct {
 	ToolsDenied  []string `json:"tools_denied"`
 }
 
+// DimEgressV2 is the FLEET/GLOBAL egress dimension on the body: the
+// gateway-wide domain allow/deny lists (config.ForwardProxy global scope). It
+// is intentionally NOT the rich per-agent egress policy. Per-agent egress lives
+// on AgentGovernanceV2.Egress (DimAgentEgressV2) and mirrors
+// config.EgressPolicy field-for-field. Both scopes are kept on purpose: this
+// one governs the global forward-proxy domain lists, the per-agent one governs a
+// single agent's outbound controls (config.Agent.Egress). They are different
+// scopes and must not be collapsed.
 type DimEgressV2 struct {
 	Mode           string   `json:"mode"`
 	DomainsAllowed []string `json:"domains_allowed"`
@@ -131,6 +139,42 @@ type AgentGovernanceV2 struct {
 	BlockedContent  DimStringSetV2       `json:"blocked_content"`
 	ScanProfile     DimScalarStringV2    `json:"scan_profile"`
 	Suspended       DimScalarBoolV2      `json:"suspended"`
+	Egress          DimAgentEgressV2     `json:"egress"`
+}
+
+// DimAgentEgressV2 is the PER-AGENT egress dimension, mirroring
+// config.Agent.Egress (config.EgressPolicy) so 9A.2 can project it onto a
+// single agent's outbound controls. This is distinct from the body-level
+// DimEgressV2, which carries only the fleet/global forward-proxy domain lists.
+// The same unmanaged|replace|clear mode discipline used by every other
+// dimension applies; apply semantics are 9A.2.
+//
+// Wire-safety notes:
+//   - rate_limit and rate_window are integer counts (config int), carried as
+//     int64 so JSON encoding is deterministic. No float fields exist on
+//     config.EgressPolicy, so no decimal-string convention is needed here.
+//   - config.EgressPolicy.ScanRequests/ScanResponses are *bool (tri-state:
+//     unset, true, false). They are carried as a closed-set STRING enum
+//     ("unset"|"true"|"false") rather than a JSON null/bool, so the canonical
+//     bytes never contain null (which the container discipline forbids) and the
+//     tri-state is preserved without a pointer in the signed body.
+//   - tool_restrictions mirrors config map[string][]string; map keys serialize
+//     alphabetically, so the canonical bytes are deterministic.
+//
+// Omitted from config.EgressPolicy: nothing operator-relevant is dropped. Every
+// EgressPolicy field is represented.
+type DimAgentEgressV2 struct {
+	Mode              string              `json:"mode"`
+	AllowedDomains    []string            `json:"allowed_domains"`
+	BlockedDomains    []string            `json:"blocked_domains"`
+	Scope             string              `json:"scope"`
+	ToolRestrictions  map[string][]string `json:"tool_restrictions"`
+	ScanRequests      string              `json:"scan_requests"`  // tri-state: "unset" | "true" | "false"
+	ScanResponses     string              `json:"scan_responses"` // tri-state: "unset" | "true" | "false"
+	BlockedCategories []string            `json:"blocked_categories"`
+	RateLimit         int64               `json:"rate_limit"`
+	RateWindow        int64               `json:"rate_window"`
+	Integrations      []string            `json:"integrations"`
 }
 
 // SelectorV2 selects the agent a governance entry applies to. name is the
@@ -183,21 +227,25 @@ type DimToolConstraintsV2 struct {
 	Items []ToolConstraintV2 `json:"items"`
 }
 
-// ToolConstraintV2 mirrors config.ToolConstraintConfig. params map keys
-// serialize alphabetically.
+// ToolConstraintV2 mirrors config.ToolConstraintConfig field-for-field so 9A.2
+// maps it 1:1: tool name, the per-parameter constraint map, the max response
+// size, and the cooldown. parameters map keys serialize alphabetically, so the
+// canonical bytes are deterministic. max_response_bytes and cooldown_secs are
+// integer counts (config int), carried as int64 for deterministic JSON.
 type ToolConstraintV2 struct {
-	ToolName   string                       `json:"tool_name"`
-	MaxCalls   int64                        `json:"max_calls"`
-	WindowSecs int64                        `json:"window_secs"`
-	Params     map[string]ParamConstraintV2 `json:"params"`
+	Tool             string                       `json:"tool"`
+	Parameters       map[string]ParamConstraintV2 `json:"parameters"`
+	MaxResponseBytes int64                        `json:"max_response_bytes"`
+	CooldownSecs     int64                        `json:"cooldown_secs"`
 }
 
-// ParamConstraintV2 mirrors config.ParamConstraintConfig.
+// ParamConstraintV2 mirrors config.ParamConstraintConfig field-for-field:
+// allowed/blocked glob patterns and a max length. max_length is an integer
+// count carried as int64 for deterministic JSON.
 type ParamConstraintV2 struct {
-	MaxLength int64    `json:"max_length"`
-	Pattern   string   `json:"pattern"`
-	Enum      []string `json:"enum"`
-	Required  bool     `json:"required"`
+	AllowedPatterns []string `json:"allowed_patterns"`
+	BlockedPatterns []string `json:"blocked_patterns"`
+	MaxLength       int64    `json:"max_length"`
 }
 
 // DimToolChainRulesV2 mirrors config.Agent.ToolChainRules. List order is
@@ -207,11 +255,14 @@ type DimToolChainRulesV2 struct {
 	Items []ToolChainRuleV2 `json:"items"`
 }
 
-// ToolChainRuleV2 mirrors config.ToolChainRuleConfig.
+// ToolChainRuleV2 mirrors config.ToolChainRuleConfig field-for-field so 9A.2
+// maps it 1:1: the triggering tool (if), the tools that become blocked (then),
+// and how long the block lasts (cooldown_secs). cooldown_secs is an integer
+// count (config int) carried as int64 for deterministic JSON.
 type ToolChainRuleV2 struct {
-	Trigger string   `json:"trigger"`
-	Blocks  []string `json:"blocks"`
-	Reason  string   `json:"reason"`
+	If           string   `json:"if"`
+	Then         []string `json:"then"`
+	CooldownSecs int64    `json:"cooldown_secs"`
 }
 
 // DimScalarStringV2 is a single-string dimension (scan_profile).

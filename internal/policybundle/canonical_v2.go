@@ -16,8 +16,9 @@ import (
 // projection, HTML escaping off, no trailing newline. Encoding the typed
 // struct (never a map[string]any) fixes field order; map keys
 // (rules.overrides, selector.labels, tool_policies.by_tool, tool_constraint
-// params) serialize alphabetically under encoding/json, so the canonical bytes
-// are deterministic without explicit sorting.
+// parameters, per-agent egress.tool_restrictions) serialize alphabetically
+// under encoding/json, so the canonical bytes are deterministic without explicit
+// sorting.
 //
 // Timestamps are NOT normalized here (same rule as v1): the verifier hashes
 // the exact wire strings. validateCanonicalPolicyTimestamp enforces the single
@@ -96,6 +97,16 @@ func policyBundleV2SigningPayload(
 var (
 	validDimModes    = map[string]bool{"unmanaged": true, "replace": true, "clear": true}
 	validTargetScope = map[string]bool{"fleet": true, "node": true}
+	// validTriState is the closed-set string form for config.EgressPolicy's
+	// *bool fields (scan_requests, scan_responses), carried on the v2 wire as a
+	// string so the canonical bytes never contain null. "unset" preserves the
+	// nil-pointer (fall back to global) semantics; apply is 9A.2.
+	validTriState = map[string]bool{"unset": true, "true": true, "false": true}
+	// validScanProfileValues is the closed set of agent scan_profile values the
+	// runtime accepts (config ScanProfile* constants), plus "" for unset. A v2
+	// bundle declaring an out-of-set scan_profile cannot be safely projected, so
+	// the verifier rejects it rather than label it verified.
+	validScanProfileValues = map[string]bool{"": true, "strict": true, "content-aware": true, "minimal": true}
 )
 
 // canonicalDecimal is the single accepted decimal-string wire form for v2
@@ -109,12 +120,22 @@ var canonicalDecimal = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 // validateCanonicalDecimal rejects a v2 decimal-string value that is not in
 // the single canonical wire form. An empty string is allowed and means
 // "unset" (the field carries no value); a present value must be canonical.
+//
+// Non-negative is also required for the monetary/limit fields it guards: the
+// runtime tool-policy enforcer treats a non-positive limit as "unset", so a
+// signed bundle carrying a negative limit would silently DISABLE a limit if
+// applied. Rejecting it at verify time keeps a "verified" bundle from meaning
+// the opposite of what it declares. (A leading "-" is the only way to express a
+// negative here; canonicalDecimal already forbids "-0".)
 func validateCanonicalDecimal(field, s string) error {
 	if s == "" {
 		return nil // unset
 	}
 	if !canonicalDecimal.MatchString(s) {
 		return fmt.Errorf("%s %q is not a canonical decimal string", field, s)
+	}
+	if strings.HasPrefix(s, "-") {
+		return fmt.Errorf("%s %q must not be negative", field, s)
 	}
 	return nil
 }
@@ -153,18 +174,27 @@ func validateCanonicalPolicyContainersV2(body PolicyBodyV2) error {
 		add(a.ToolConstraints.Items == nil, p+".tool_constraints.items")
 		add(a.ToolChainRules.Items == nil, p+".tool_chain_rules.items")
 		add(a.BlockedContent.Values == nil, p+".blocked_content.values")
+		add(a.Egress.AllowedDomains == nil, p+".egress.allowed_domains")
+		add(a.Egress.BlockedDomains == nil, p+".egress.blocked_domains")
+		add(a.Egress.ToolRestrictions == nil, p+".egress.tool_restrictions")
+		add(a.Egress.BlockedCategories == nil, p+".egress.blocked_categories")
+		add(a.Egress.Integrations == nil, p+".egress.integrations")
+		for dom, vals := range a.Egress.ToolRestrictions {
+			add(vals == nil, fmt.Sprintf("%s.egress.tool_restrictions[%q]", p, dom))
+		}
 
 		for j := range a.ToolConstraints.Items {
 			c := &a.ToolConstraints.Items[j]
 			cp := fmt.Sprintf("%s.tool_constraints.items[%d]", p, j)
-			add(c.Params == nil, cp+".params")
-			for name, pc := range c.Params {
-				add(pc.Enum == nil, fmt.Sprintf("%s.params[%q].enum", cp, name))
+			add(c.Parameters == nil, cp+".parameters")
+			for name, pc := range c.Parameters {
+				add(pc.AllowedPatterns == nil, fmt.Sprintf("%s.parameters[%q].allowed_patterns", cp, name))
+				add(pc.BlockedPatterns == nil, fmt.Sprintf("%s.parameters[%q].blocked_patterns", cp, name))
 			}
 		}
 		for j := range a.ToolChainRules.Items {
 			r := &a.ToolChainRules.Items[j]
-			add(r.Blocks == nil, fmt.Sprintf("%s.tool_chain_rules.items[%d].blocks", p, j))
+			add(r.Then == nil, fmt.Sprintf("%s.tool_chain_rules.items[%d].then", p, j))
 		}
 	}
 

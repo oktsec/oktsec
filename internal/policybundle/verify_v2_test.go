@@ -408,13 +408,26 @@ func TestV2_NullContainersRejected(t *testing.T) {
 		"agent.tool_constraints": func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].ToolConstraints.Items = nil },
 		"agent.tool_chain_rules": func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].ToolChainRules.Items = nil },
 		"agent.blocked_content":  func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].BlockedContent.Values = nil },
-		"constraint.params":      func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Params = nil },
-		"constraint.param.enum": func(b *PolicyBundleV2) {
-			p := b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Params["number"]
-			p.Enum = nil
-			b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Params["number"] = p
+		"constraint.parameters":  func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Parameters = nil },
+		"constraint.param.allowed_patterns": func(b *PolicyBundleV2) {
+			p := b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Parameters["number"]
+			p.AllowedPatterns = nil
+			b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Parameters["number"] = p
 		},
-		"chainrule.blocks": func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].ToolChainRules.Items[0].Blocks = nil },
+		"constraint.param.blocked_patterns": func(b *PolicyBundleV2) {
+			p := b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Parameters["number"]
+			p.BlockedPatterns = nil
+			b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Parameters["number"] = p
+		},
+		"chainrule.then":             func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].ToolChainRules.Items[0].Then = nil },
+		"agent.egress.allowed":       func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].Egress.AllowedDomains = nil },
+		"agent.egress.blocked":       func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].Egress.BlockedDomains = nil },
+		"agent.egress.tool_restrict": func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].Egress.ToolRestrictions = nil },
+		"agent.egress.categories":    func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].Egress.BlockedCategories = nil },
+		"agent.egress.integrations":  func(b *PolicyBundleV2) { b.Policy.Governance.Agents[0].Egress.Integrations = nil },
+		"agent.egress.tool_restrict.entry": func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].Egress.ToolRestrictions["voice.dial"] = nil
+		},
 	}
 	for name, mut := range cases {
 		raw := remarshalV2(t, mut)
@@ -541,5 +554,173 @@ func TestV2_MapCanonicalizationDeterministic(t *testing.T) {
 	}
 	if h1 != h2 {
 		t.Fatalf("map insertion order changed the hash: %s != %s", h1, h2)
+	}
+}
+
+// Per-agent egress dimension mode: unmanaged/replace/clear are all accepted at
+// the verify level (apply semantics are 9A.2; the verifier only validates the
+// closed-set mode). The fixture carries egress in "replace" mode; switching the
+// mode keeps the bundle structurally valid through the egress check, so it fails
+// later at the hash recompute, which is the contract this asserts.
+func TestV2_AgentEgressModeAccepted(t *testing.T) {
+	_, fp := loadFixtureV2(t)
+	for _, mode := range []string{"unmanaged", "replace", "clear"} {
+		raw := remarshalV2(t, func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].Egress.Mode = mode
+		})
+		// A no-op remarshal that keeps "replace" (the fixture's mode) must verify
+		// end to end; the other two change the body, so the hash recompute (a
+		// later check than the egress mode validation) catches them. Either way
+		// the egress mode check itself accepts the value (no schema reject).
+		_, err := VerifyBundleV2(raw, fp)
+		if mode == "replace" {
+			if err != nil {
+				t.Fatalf("egress mode %q must verify end to end: %v", mode, err)
+			}
+			continue
+		}
+		wantReject(t, err, RejectHashMismatch)
+	}
+}
+
+// Per-agent egress scan_requests/scan_responses are a closed-set tri-state
+// string ("unset"|"true"|"false"). An out-of-set value is a schema reject,
+// before the bundle is labeled verified.
+func TestV2_AgentEgressTriStateRejected(t *testing.T) {
+	_, fp := loadFixtureV2(t)
+	bad := []string{"", "yes", "True", "1", "null", "maybe"}
+	for _, v := range bad {
+		rawReq := remarshalV2(t, func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].Egress.ScanRequests = v
+		})
+		_, err := VerifyBundleV2(rawReq, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "scan_requests "+v)
+
+		rawResp := remarshalV2(t, func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].Egress.ScanResponses = v
+		})
+		_, err = VerifyBundleV2(rawResp, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "scan_responses "+v)
+	}
+}
+
+// Negative monetary/limit decimal strings in a tool policy are rejected: the
+// runtime treats a non-positive limit as unset, so a verified bundle must not
+// carry a negative limit (it would silently disable the limit if applied).
+func TestV2_NegativeDecimalRejected(t *testing.T) {
+	_, fp := loadFixtureV2(t)
+	fields := []struct {
+		name string
+		set  func(*ToolPolicyV2, string)
+	}{
+		{"max_amount", func(tp *ToolPolicyV2, v string) { tp.MaxAmount = v }},
+		{"daily_limit", func(tp *ToolPolicyV2, v string) { tp.DailyLimit = v }},
+		{"require_approval_above", func(tp *ToolPolicyV2, v string) { tp.RequireApprovalAbove = v }},
+	}
+	for _, f := range fields {
+		raw := remarshalV2(t, func(b *PolicyBundleV2) {
+			tp := b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"]
+			f.set(&tp, "-1")
+			b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"] = tp
+		})
+		_, err := VerifyBundleV2(raw, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "negative "+f.name)
+	}
+}
+
+// Negative integer guardrails across the agent surface are rejected: the
+// runtime activates these only when positive, so a signed negative value would
+// fail open if applied. Covers tool_policies.rate_limit, tool_constraints
+// max_response_bytes/cooldown_secs/parameters.max_length,
+// tool_chain_rules.cooldown_secs, and per-agent egress rate_limit/rate_window.
+func TestV2_NegativeIntGuardrailsRejected(t *testing.T) {
+	_, fp := loadFixtureV2(t)
+	cases := map[string]func(*PolicyBundleV2){
+		"tool_policy.rate_limit": func(b *PolicyBundleV2) {
+			tp := b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"]
+			tp.RateLimit = -1
+			b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"] = tp
+		},
+		"constraint.max_response_bytes": func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].ToolConstraints.Items[0].MaxResponseBytes = -1
+		},
+		"constraint.cooldown_secs": func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].ToolConstraints.Items[0].CooldownSecs = -1
+		},
+		"param.max_length": func(b *PolicyBundleV2) {
+			pc := b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Parameters["number"]
+			pc.MaxLength = -1
+			b.Policy.Governance.Agents[0].ToolConstraints.Items[0].Parameters["number"] = pc
+		},
+		"chainrule.cooldown_secs": func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].ToolChainRules.Items[0].CooldownSecs = -1
+		},
+		"egress.rate_limit": func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].Egress.RateLimit = -1
+		},
+		"egress.rate_window": func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].Egress.RateWindow = -1
+		},
+		"server.rate_limit_max": func(b *PolicyBundleV2) {
+			b.Policy.Governance.Server.RateLimitMax = -1
+		},
+		"server.rate_limit_window_s": func(b *PolicyBundleV2) {
+			b.Policy.Governance.Server.RateLimitWindow = -1
+		},
+	}
+	for name, mut := range cases {
+		raw := remarshalV2(t, mut)
+		_, err := VerifyBundleV2(raw, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "negative "+name)
+	}
+}
+
+// scan_profile.value is a closed set; an out-of-set value is a schema reject.
+func TestV2_InvalidScanProfileRejected(t *testing.T) {
+	_, fp := loadFixtureV2(t)
+	for _, v := range []string{"off", "STRICT", "aggressive", "none"} {
+		raw := remarshalV2(t, func(b *PolicyBundleV2) {
+			b.Policy.Governance.Agents[0].ScanProfile.Value = v
+		})
+		_, err := VerifyBundleV2(raw, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "scan_profile "+v)
+	}
+}
+
+// The realigned tool_constraints / tool_chain_rules / per-agent egress fields
+// round-trip through canonicalization deterministically: re-encoding the same
+// body (including the egress.tool_restrictions and constraint.parameters maps in
+// a different insertion order) yields the identical hash. This guards the
+// config-aligned field names against accidental non-determinism.
+func TestV2_RealignedFieldsCanonicalDeterministic(t *testing.T) {
+	raw, _ := loadFixtureV2(t)
+	var b PolicyBundleV2
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	h1, _, err := policyHashHexV2(b.Policy)
+	if err != nil {
+		t.Fatalf("hash1: %v", err)
+	}
+	// Rebuild the egress tool_restrictions map fresh (different backing map, same
+	// contents) and a constraint parameters map fresh.
+	eg := &b.Policy.Governance.Agents[0].Egress
+	rebuilt := map[string][]string{}
+	for k, v := range eg.ToolRestrictions {
+		rebuilt[k] = v
+	}
+	eg.ToolRestrictions = rebuilt
+	c := &b.Policy.Governance.Agents[0].ToolConstraints.Items[0]
+	rebuiltParams := map[string]ParamConstraintV2{}
+	for k, v := range c.Parameters {
+		rebuiltParams[k] = v
+	}
+	c.Parameters = rebuiltParams
+	h2, _, err := policyHashHexV2(b.Policy)
+	if err != nil {
+		t.Fatalf("hash2: %v", err)
+	}
+	if h1 != h2 {
+		t.Fatalf("realigned-field canonicalization not deterministic: %s != %s", h1, h2)
 	}
 }
