@@ -140,9 +140,9 @@ func VerifyBundleV2(raw []byte, trustFingerprint string) (*VerifiedBundleV2, err
 	}
 
 	// (8) signature value + Ed25519 verify over the v2 canonical payload. The
-	// payload binds the assignment, target, sequence, issued_at, and
-	// rollback_of as exact wire bytes (issued_at already validated canonical in
-	// step 3), so any edit to those breaks the signature.
+	// payload binds the assignment, target, sequence, issued_at, signed_at, and
+	// rollback_of as exact wire bytes (both issued_at and signed_at already
+	// validated canonical in step 3), so any edit to those breaks the signature.
 	sigBytes, err := base64.StdEncoding.DecodeString(b.Signature.Value)
 	if err != nil || len(sigBytes) != ed25519.SignatureSize {
 		return nil, reject(RejectSignatureInvalid, "signature.value is not a valid Ed25519 signature")
@@ -151,6 +151,7 @@ func VerifyBundleV2(raw []byte, trustFingerprint string) (*VerifiedBundleV2, err
 		b.Policy.PolicyID, b.Policy.PolicyVersion, b.PolicyHash,
 		b.Policy.Assignment.AssignmentID, b.Policy.Assignment.Target.Scope,
 		b.Policy.Assignment.Target.NodeID, b.Policy.Assignment.IssuedAt,
+		b.Signature.SignedAt,
 		b.Policy.Assignment.Sequence, b.Policy.Assignment.RollbackOf,
 		b.Signature.KeyID, b.Signature.PublicKeyFingerprint)
 	if !ed25519.Verify(ed25519.PublicKey(pub), payload, sigBytes) {

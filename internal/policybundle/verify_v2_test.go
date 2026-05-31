@@ -322,6 +322,7 @@ func TestV2_AssignmentBoundInSigningPayload(t *testing.T) {
 		b.Policy.PolicyID, b.Policy.PolicyVersion, b.PolicyHash,
 		"assign-DIFFERENT", b.Policy.Assignment.Target.Scope,
 		b.Policy.Assignment.Target.NodeID, b.Policy.Assignment.IssuedAt,
+		b.Signature.SignedAt,
 		b.Policy.Assignment.Sequence, b.Policy.Assignment.RollbackOf,
 		b.Signature.KeyID, b.Signature.PublicKeyFingerprint)
 	pub, _ := base64.StdEncoding.DecodeString(b.Signature.PublicKey)
@@ -341,12 +342,35 @@ func TestV2_IssuedAtCovered(t *testing.T) {
 	wantReject(t, err, RejectHashMismatch)
 }
 
+// TestV2_SignedAtBoundInSigningPayload proves signature.signed_at is bound by
+// the Ed25519 signing payload: mutating it to a DIFFERENT but still-canonical
+// timestamp must fail at the signature-verify step, not pass through. Before
+// signed_at was bound this mutation verified; after, it cannot.
+func TestV2_SignedAtBoundInSigningPayload(t *testing.T) {
+	raw, fp := loadFixtureV2(t)
+	// Baseline: the unmodified fixture verifies.
+	if _, err := VerifyBundleV2(raw, fp); err != nil {
+		t.Fatalf("baseline fixture must verify: %v", err)
+	}
+	// Bump signed_at by one second; still a canonical UTC timestamp, body
+	// unchanged (signed_at is not in the body, so policy_hash still matches),
+	// only the bound timing metadata differs.
+	mutated := remarshalV2(t, func(b *PolicyBundleV2) {
+		if b.Signature.SignedAt != "2026-05-23T12:00:01Z" {
+			t.Fatalf("fixture signed_at changed unexpectedly: %q", b.Signature.SignedAt)
+		}
+		b.Signature.SignedAt = "2026-05-23T12:00:02Z"
+	})
+	_, err := VerifyBundleV2(mutated, fp)
+	wantReject(t, err, RejectSignatureInvalid)
+}
+
 // (12) verifier does NOT normalize timestamp bytes before hashing: a
 // non-canonical-but-parseable timestamp is rejected at the canonical-form
-// check, before the hash. Covers created_at, issued_at, and signed_at.
-// signed_at is not bound by the v2 signature (v2 binds issued_at), so without
-// this check a malformed signed_at would ride through to a verified bundle; the
-// canonical-form check is what stops it.
+// check, before the hash. Covers created_at, issued_at, and signed_at. signed_at
+// is now bound by the v2 signature (in addition to the canonical-form check), so
+// a canonical change to it fails the signature; a NON-canonical signed_at is
+// caught earlier here, at the canonical-form check.
 func TestV2_NonCanonicalTimestampsRejected(t *testing.T) {
 	_, fp := loadFixtureV2(t)
 	for _, ts := range nonCanonicalTimestamps {
@@ -507,6 +531,7 @@ func TestV2_SigningPayloadStable(t *testing.T) {
 	got := string(policyBundleV2SigningPayload(
 		"voice-ai-prod", "1", "sha256:abc",
 		"assign-0001", "node", "node-east-1", "2026-01-01T00:00:00Z",
+		"2026-01-02T00:00:00Z",
 		1, "", "kid", "sha256:fp"))
 	want := "oktsec.policy_bundle.v2\n" +
 		"bundle_version:2\n" +
@@ -518,6 +543,7 @@ func TestV2_SigningPayloadStable(t *testing.T) {
 		"target_scope:node\n" +
 		"target_node_id:node-east-1\n" +
 		"issued_at:2026-01-01T00:00:00Z\n" +
+		"signed_at:2026-01-02T00:00:00Z\n" +
 		"sequence:1\n" +
 		"rollback_of:\n" +
 		"signature_key_id:kid\n" +

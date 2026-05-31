@@ -56,14 +56,20 @@ func policyHashHexV2(body PolicyBodyV2) (string, []byte, error) {
 // policyBundleV2SigningPayload returns the exact bytes the Ed25519 signature
 // covers for a v2 bundle: domain-separated labeled lines, newline-joined, no
 // trailing newline. Beyond the v1 fields it binds the assignment, target,
-// sequence, issued_at, and rollback_of, so a store cannot rewrite a signed
-// bundle's binding or anti-rollback metadata without breaking the signature.
-// signed_at is NOT part of this payload (it lives in the v1 payload but v2
-// binds issued_at instead as the authoritative time). The signer and this
-// verifier MUST produce identical bytes or every signature fails to verify.
+// sequence, issued_at, signed_at, and rollback_of, so a store cannot rewrite a
+// signed bundle's binding, timing, or anti-rollback metadata without breaking
+// the signature. v2 uses issued_at as the authoritative time, but signed_at is
+// inherited from the v1 PolicySignature struct and is therefore also bound here
+// (immediately after issued_at): leaving it unbound would let an intermediary
+// rewrite signature.signed_at to a different canonical timestamp and still
+// verify, which is unacceptable for an evidence contract. The exact wire bytes
+// of signed_at are hashed (already validated canonical in the verify step); we
+// do NOT parse and reformat, same discipline as every other timestamp. The
+// signer and this verifier MUST produce identical bytes or every signature
+// fails to verify.
 func policyBundleV2SigningPayload(
 	policyID, policyVersion, policyHash,
-	assignmentID, targetScope, targetNodeID, issuedAt string,
+	assignmentID, targetScope, targetNodeID, issuedAt, signedAt string,
 	sequence int64,
 	rollbackOf, keyID, publicKeyFingerprint string,
 ) []byte {
@@ -78,6 +84,7 @@ func policyBundleV2SigningPayload(
 		"target_scope:" + targetScope,
 		"target_node_id:" + targetNodeID,
 		"issued_at:" + issuedAt,
+		"signed_at:" + signedAt,
 		"sequence:" + strconv.FormatInt(sequence, 10),
 		"rollback_of:" + rollbackOf,
 		"signature_key_id:" + keyID,
