@@ -852,28 +852,28 @@ func TestV2_ScalarPresenceRequired(t *testing.T) {
 
 	// (6b) positive: max_amount present as explicit empty string ("" = unset) is
 	// VALID - presence is satisfied by the key existing with a non-null value.
-	// remarshalV2 re-emits all keys, so the body stays fully present; this also
-	// exercises the verify path end to end (decimal "" is the canonical unset).
+	// remarshalV2 re-emits all keys, so the body stays fully present. Changing
+	// max_amount changes the signed body, so the EXPECTED outcome is a hash
+	// mismatch (NOT a schema/presence reject): "" present passes the presence
+	// gate. Asserting wantReject unconditionally means an unexpected successful
+	// verification (err == nil) fails the test rather than passing silently.
 	okEmptyMaxAmount := remarshalV2(t, func(b *PolicyBundleV2) {
 		tp := b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"]
 		tp.MaxAmount = ""
 		b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"] = tp
 	})
-	if _, err := VerifyBundleV2(okEmptyMaxAmount, fp); err != nil {
-		// Changing max_amount changes the body, so a hash mismatch is the expected
-		// outcome - but it must NOT be a schema/presence reject: "" present is valid.
-		wantReject(t, err, RejectHashMismatch)
-	}
+	_, err := VerifyBundleV2(okEmptyMaxAmount, fp)
+	wantReject(t, err, RejectHashMismatch)
 
 	// (8b) positive: scan_requests present as "unset" is VALID (tri-state). Same
-	// reasoning: the key is present with a closed-set value, so presence passes;
-	// the body changes, so a hash mismatch (not a presence/schema reject) is fine.
+	// reasoning: the key is present with a closed-set value, so the presence gate
+	// passes; the body changes, so the expected (and asserted) outcome is a hash
+	// mismatch, never a silent success.
 	okUnsetScan := remarshalV2(t, func(b *PolicyBundleV2) {
 		b.Policy.Governance.Agents[0].Egress.ScanRequests = "unset"
 	})
-	if _, err := VerifyBundleV2(okUnsetScan, fp); err != nil {
-		wantReject(t, err, RejectHashMismatch)
-	}
+	_, err = VerifyBundleV2(okUnsetScan, fp)
+	wantReject(t, err, RejectHashMismatch)
 }
 
 // TestV2_NullStringElementsRejected locks the companion rule to scalar
