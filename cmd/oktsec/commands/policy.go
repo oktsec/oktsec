@@ -216,7 +216,27 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 		return perr
 	}
 
-	// Anti-rollback: read state BEFORE writing; advance it only after success.
+	// Acquire the exclusive apply lock that spans the ENTIRE anti-rollback
+	// critical section: re-read state -> evaluate the rollback decision ->
+	// write config (CommitV2) -> persist state (SavePolicyState). Without it,
+	// two concurrent applies starting from the same prior state could read the
+	// same sequence, both pass the gate, and a LOWER sequence could land last,
+	// rolling the node back. The lock makes the read-decide-write-persist
+	// sequence atomic for this config/state pair. Released in every path
+	// (success, refusal, error) via defer.
+	//
+	// The projection above (DryRunV2) only READS the config for reporting and
+	// writes nothing, so it is safe before the lock; the AUTHORITATIVE gating
+	// state read is the LoadPolicyState below, which is now post-lock.
+	lock, lerr := apply.AcquireApplyLock(cfgFile)
+	if lerr != nil {
+		return emitApplyFailure(cmd, jsonOut, false, lerr)
+	}
+	defer func() { _ = lock.Release() }()
+
+	// Anti-rollback: read state AFTER the lock is held (never a pre-lock
+	// snapshot), evaluate the decision from this read, and advance it only
+	// after a successful write.
 	state, serr := apply.LoadPolicyState(cfgFile)
 	if serr != nil {
 		return emitApplyFailure(cmd, jsonOut, false, serr)
@@ -257,17 +277,32 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 
 	// Advance the anti-rollback state ONLY after CommitV2 succeeded.
 	state.Record(plan.Scope, plan.NodeID, plan.AssignmentID, time.Now().UTC().Format(time.RFC3339), plan.Sequence)
-	if err := apply.SavePolicyState(cfgFile, state); err != nil {
-		// The config was written but the state failed to persist. Surface it
-		// loudly: a re-apply of the same bundle is idempotent, and a later stale
-		// bundle is still refused on the NEXT successful state write, but the
-		// operator must know the state file did not advance.
+	if err := savePolicyStateAfterCommit(cfgFile, state); err != nil {
+		// The config was written but the high-water state failed to persist.
+		// Leaving the new config in place while the recorded sequence stayed low
+		// would let a later LOWER sequence apply (it would be > the stale state),
+		// defeating anti-rollback. Recovery: restore the config from the backup
+		// CommitV2 just made, so config AND state stay at the prior sequence and
+		// no lower sequence can ever win. Whatever the outcome, never report
+		// success: return a non-nil error naming the inconsistency.
+		if rerr := apply.RestoreConfigV2FromBackup(cfgFile, backupPath); rerr != nil {
+			return emitApplyFailure(cmd, jsonOut, false,
+				fmt.Errorf("anti-rollback state write failed (%v) AND config rollback failed (%v): config and apply state are inconsistent; restore config from backup %q manually", err, rerr, backupPath))
+		}
 		return emitApplyFailure(cmd, jsonOut, false,
-			fmt.Errorf("config applied (backup %q) but anti-rollback state write failed: %w", backupPath, err))
+			fmt.Errorf("anti-rollback state write failed; config rolled back to the prior sequence from backup %q: %w", backupPath, err))
 	}
 	emitApplyResultV2(cmd, jsonOut, plan, backupPath, true)
 	return nil
 }
+
+// savePolicyStateAfterCommit persists the v2 anti-rollback state on the
+// real-change path, AFTER CommitV2 has written the config. It is a package
+// variable, not a direct call, solely so a test can inject a state-write
+// failure that occurs after the config write, exercising the config-rollback
+// recovery. The default is the real persistence function and is never replaced
+// outside tests.
+var savePolicyStateAfterCommit = apply.SavePolicyState
 
 // emitPlanV2 prints the v2 dry-run plan as JSON (when --json) or a short summary.
 func emitPlanV2(cmd *cobra.Command, jsonOut bool, p *apply.PlanV2) {

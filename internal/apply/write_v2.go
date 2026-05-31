@@ -112,6 +112,77 @@ func CommitV2(plan *PlanV2, targetConfig string) (string, error) {
 	return backupPath, nil
 }
 
+// RestoreConfigV2FromBackup rolls targetConfig back to the exact bytes held in
+// backupPath (the backup CommitV2 just created from the original). It is the
+// recovery used when CommitV2 succeeded but the anti-rollback state then failed
+// to persist: restoring the config keeps config and state consistent at the
+// PRIOR sequence, so a later lower sequence can never win. It reuses the same
+// safety discipline as CommitV2 (refuse symlink / irregular target, validate
+// THROUGH the real load path, atomic rename, dir fsync) and never follows a
+// symlink at either path.
+func RestoreConfigV2FromBackup(targetConfig, backupPath string) error {
+	if backupPath == "" {
+		return errors.New("apply: cannot restore config without a backup path")
+	}
+	// Read the backup without following a symlink at the backup path.
+	if err := safefile.RejectSymlink(backupPath); err != nil {
+		return fmt.Errorf("apply: restore backup path not usable: %w", err)
+	}
+	orig, err := safefile.ReadFileMax(backupPath, maxConfigBytes)
+	if err != nil {
+		return fmt.Errorf("apply: read backup for restore: %w", err)
+	}
+
+	// Re-validate the target path right before writing: never follow a symlink,
+	// never write through a directory or irregular file.
+	info, err := os.Lstat(targetConfig)
+	if err != nil {
+		return fmt.Errorf("apply: stat config for restore %q: %w", targetConfig, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("apply: config %q is a symlink (rejected for security)", targetConfig)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("apply: config %q is not a regular file", targetConfig)
+	}
+	mode := info.Mode().Perm()
+
+	dir := filepath.Dir(targetConfig)
+	tmp, err := os.CreateTemp(dir, filepath.Base(targetConfig)+".restore-*")
+	if err != nil {
+		return fmt.Errorf("apply: create restore temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpPath) }
+	if _, err := tmp.Write(orig); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return fmt.Errorf("apply: write restore temp: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return fmt.Errorf("apply: fsync restore temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("apply: close restore temp: %w", err)
+	}
+	if err := os.Chmod(tmpPath, mode); err != nil {
+		cleanup()
+		return fmt.Errorf("apply: chmod restore temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, targetConfig); err != nil {
+		cleanup()
+		return fmt.Errorf("apply: atomic restore %q: %w", targetConfig, err)
+	}
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
+}
+
 // patchConfigYAMLV2 applies only the v2 plan's governed changes onto the
 // original YAML document, preserving every untouched field verbatim. It patches
 // the global rules section and, per changed agent, that agent's governed fields.
