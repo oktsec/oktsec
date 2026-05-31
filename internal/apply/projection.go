@@ -40,6 +40,14 @@ var (
 	// narrow apply projection cannot express. The returned Plan still lists
 	// them under Unsupported; the caller refuses by default.
 	ErrUnsupported = errors.New("apply: bundle contains semantics not supported by the narrow apply projection")
+	// ErrPolicyTargetMismatch (v2): a node-scoped bundle does not target this
+	// node, or carries a self-referential rollback. Checked before projection,
+	// so it never produces a plan or touches the config.
+	ErrPolicyTargetMismatch = errors.New("apply: policy_target_mismatch")
+	// ErrPolicyRollbackRefused (v2): the bundle's sequence is not greater than
+	// the last applied sequence for this target and is not a signed rollback of
+	// the currently-applied assignment. Evaluated against the state file.
+	ErrPolicyRollbackRefused = errors.New("apply: policy_rollback_refused")
 )
 
 // mapAction maps an Enterprise override action to a Community rule action.
