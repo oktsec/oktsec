@@ -1073,14 +1073,13 @@ func TestV2_RulesReplaceDroppedOverrideDisappears(t *testing.T) {
 // seeded with an operator-authored rule (OPER-1, no marker) so we prove operator
 // config is preserved through the real write path, not just in memory.
 func TestV2_RulesReplaceMarkerRoundTripsThroughCommit(t *testing.T) {
+	// Reuse the proven-stable origConfigYAML fixture (identical to the reliable
+	// CommitV2 test) but with an operator-authored rule instead of an empty rules
+	// list, so the round-trip proves operator config survives the real write path.
+	seeded := strings.Replace(origConfigYAML, "rules: []\n",
+		"rules:\n  - id: OPER-1\n    action: quarantine\n    severity: high\n", 1)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "oktsec.yaml")
-	const seeded = "# operator config\n" +
-		"server:\n  port: 8080\n" +
-		"identity:\n  require_signature: false\n" +
-		"agents:\n  voice-ai:\n    can_message: []\n    blocked_content: []\n" +
-		"rules:\n" +
-		"  - id: OPER-1\n    action: quarantine\n    severity: high\n"
 	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
 		t.Fatalf("seed config: %v", err)
 	}
@@ -1119,16 +1118,9 @@ func TestV2_RulesReplaceMarkerRoundTripsThroughCommit(t *testing.T) {
 // NOT refused as a sentinel collision (the lone sentinel is the canonical
 // deny-all form, not a real tool).
 func TestV2_DenyAllClearIsIdempotentAcrossApplies(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "oktsec.yaml")
-	const seeded = "# operator config\n" +
-		"server:\n  port: 8080\n" +
-		"identity:\n  require_signature: false\n" +
-		"agents:\n  voice-ai:\n    can_message: []\n    blocked_content: []\n    allowed_tools: [old.tool]\n" +
-		"rules: []\n"
-	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
-		t.Fatalf("seed config: %v", err)
-	}
+	// origConfigYAML already carries voice-ai with allowed_tools: [old.tool], the
+	// reliable fixture the other CommitV2 tests use.
+	path := writeOrigConfig(t, 0o600)
 	// First apply: clear -> lone sentinel written.
 	b := bodyV2()
 	g := agentGovV2("voice-ai")
