@@ -569,16 +569,29 @@ func (g *Gateway) buildToolMap() error {
 		return fmt.Errorf("no backends connected")
 	}
 
-	// Count tool name occurrences to detect conflicts
+	// Count tool name occurrences to detect conflicts. A backend tool whose name
+	// is the reserved deny-all sentinel is NEVER registered: the sentinel is a
+	// control marker, not a callable tool, and registering it would let a backend
+	// smuggle in a callable tool with the reserved name (defeating the deny-all
+	// representation). Reject it here at the single discovery chokepoint with an
+	// explicit warning so it is excluded, never silently callable.
 	nameCounts := make(map[string]int)
 	for _, b := range g.backends {
 		for _, t := range b.Tools {
+			if t.Name == config.DenyAllToolsSentinel {
+				continue
+			}
 			nameCounts[t.Name]++
 		}
 	}
 
 	for backendName, b := range g.backends {
 		for _, t := range b.Tools {
+			if t.Name == config.DenyAllToolsSentinel {
+				g.logger.Warn("backend tool uses reserved deny-all sentinel name; excluding from gateway",
+					"backend", backendName, "tool", t.Name)
+				continue
+			}
 			frontendName := t.Name
 			if nameCounts[t.Name] > 1 {
 				frontendName = backendName + "_" + t.Name
@@ -736,11 +749,28 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		}
 		defer release()
 
-		// 3. Tool allowlist check
+		// 3. Tool allowlist check.
+		// The reserved deny-all sentinel is never a callable tool name, for ANY
+		// principal (even one with no agent config). Deny it unconditionally before
+		// the agent lookup so a sentinel-named tool can never execute. Gateway
+		// discovery already excludes such a backend tool, so this is defense in
+		// depth that also closes the no-agent-config path.
+		if m.OriginalName == config.DenyAllToolsSentinel {
+			g.logAudit(msgID, id, m.OriginalName, audit.StatusBlocked, audit.DecisionToolNotAllowed, "[]", toolArgs, sessionID, start)
+			return toolError(fmt.Sprintf("tool %q not allowed for agent %q", m.OriginalName, agent)), nil
+		}
 		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok {
 			if agentCfg.Suspended {
 				g.logAudit(msgID, id, m.OriginalName, audit.StatusRejected, audit.DecisionAgentSuspended, "[]", toolArgs, sessionID, start)
 				return toolError("agent suspended"), nil
+			}
+			// Deny-all sentinel allowlist is special-cased BEFORE name matching so it
+			// can never execute as a tool: when the agent's allowlist is the lone
+			// deny-all sentinel, deny EVERY call (the sentinel is a control marker,
+			// never a matchable name).
+			if config.IsDenyAllTools(agentCfg.AllowedTools) {
+				g.logAudit(msgID, id, m.OriginalName, audit.StatusBlocked, audit.DecisionToolNotAllowed, "[]", toolArgs, sessionID, start)
+				return toolError(fmt.Sprintf("tool %q not allowed for agent %q", m.OriginalName, agent)), nil
 			}
 			if len(agentCfg.AllowedTools) > 0 {
 				allowed := false

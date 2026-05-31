@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/verdict"
 )
@@ -232,10 +233,15 @@ func (p *StdioProxy) inspectAndDecide(line []byte, from, to string) (bool, json.
 		return false, nil, ""
 	}
 
-	// Tool allowlist check: block tools/call for tools not in the allowlist
+	// Tool allowlist check: block tools/call for tools not in the allowlist.
+	// The deny-all sentinel is special-cased BEFORE name matching so it can never
+	// execute as a tool: when the allowlist is the lone sentinel every call is
+	// denied (including a call to a tool literally named the sentinel), and a tool
+	// whose name IS the reserved sentinel is denied regardless of the allowlist.
 	if p.enforce && msg.Method == "tools/call" && len(p.allowedTools) > 0 {
 		toolName := extractToolName(msg)
-		if toolName != "" && !p.allowedTools[toolName] {
+		denyAll := len(p.allowedTools) == 1 && p.allowedTools[config.DenyAllToolsSentinel]
+		if toolName != "" && (denyAll || toolName == config.DenyAllToolsSentinel || !p.allowedTools[toolName]) {
 			p.logger.Warn("tool not allowed",
 				"tool", toolName,
 				"agent", p.agent,

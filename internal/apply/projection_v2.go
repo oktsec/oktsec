@@ -176,10 +176,11 @@ func DryRunV2(verified *policybundle.VerifiedBundleV2, cfg *config.Config, nodeI
 	// from this apply context (DryRunV2 takes only the loaded config). The
 	// observed-inventory collision check therefore belongs where that inventory is
 	// available (the gateway / runtime, which actually sees backend tool names).
-	// TODO(9A.x): when the apply path gains access to the observed tool inventory,
-	// extend collideToolSentinel to also scan it. The hard deny-all representation
-	// (a runtime-recognized flag, not a sentinel tool name) is a separate
-	// gateway-enforcement follow-up, out of scope for 9A.2.
+	// That runtime guarantee is now enforced: the gateway and stdio proxy
+	// special-case config.DenyAllToolsSentinel BEFORE name matching so the sentinel
+	// can never execute as a tool, and gateway discovery excludes any backend tool
+	// that uses the reserved name. This apply-time check is the LOCAL-config half;
+	// the runtime is the inventory half.
 	if where := collideToolSentinel(target); where != "" {
 		return nil, fmt.Errorf("%w: a real tool in the local config uses the reserved deny-all sentinel name %q (%s); rename that tool before applying a policy",
 			ErrUnsupported, denyAllToolsSentinel, where)

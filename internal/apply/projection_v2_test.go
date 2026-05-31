@@ -577,6 +577,13 @@ func TestV2_ScanProfileReplace(t *testing.T) {
 
 // rules replace projected globally.
 func TestV2_RulesReplaceProjectedGlobally(t *testing.T) {
+	// baseConfig seeds an unmarked KEEP-1 rule. Under the architect's fail-closed
+	// contract a v2 replace that does not name KEEP-1 would block it as unknown
+	// ownership, so this projection-mechanics test uses a config without any
+	// pre-existing local rule (the bundle's named set is then the whole governed
+	// set and no unowned rule can trip the fail-closed guard).
+	cfg := baseConfig()
+	cfg.Rules = nil
 	b := bodyV2()
 	b.Rules = policybundle.DimRulesV2{
 		Mode:      dimReplace,
@@ -584,7 +591,7 @@ func TestV2_RulesReplaceProjectedGlobally(t *testing.T) {
 		Disabled:  []string{"IAP-002"},
 		Overrides: map[string]policybundle.PolicyRuleOverride{"IAP-003": {Action: "block"}},
 	}
-	p, err := DryRunV2(verifiedV2(b), baseConfig(), "", targetPath)
+	p, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
 	if err != nil {
 		t.Fatalf("DryRunV2: %v", err)
 	}
