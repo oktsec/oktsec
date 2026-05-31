@@ -194,6 +194,13 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 		// Target mismatch, missing agent, or invalid projected config: no plan.
 		return emitApplyFailure(cmd, jsonOut, dryRun, perr)
 	}
+	// Some ErrUnsupported failures occur BEFORE a plan is built (the deny-all
+	// sentinel collision in the local config fails closed in DryRunV2 and returns
+	// nil, ErrUnsupported). The plan emitters below dereference plan, so route a
+	// nil plan through emitApplyFailure rather than panicking.
+	if plan == nil {
+		return emitApplyFailure(cmd, jsonOut, dryRun, perr)
+	}
 
 	if dryRun {
 		emitPlanV2(cmd, jsonOut, plan)

@@ -1068,11 +1068,22 @@ func TestV2_RulesReplaceDroppedOverrideDisappears(t *testing.T) {
 }
 
 // FIX 1 test 5: the marker round-trips through the YAML write path (Commit). After
-// a real apply, the written config has the governed rules marked and the operator
-// rules unmarked; loading it back preserves the distinction. Also proves the v1
-// rule the original config carried (KEEP-1, operator-authored) is preserved.
+// a real apply, the written config has the governed rule marked and the operator
+// rule unmarked; loading it back preserves the distinction. Uses a config file
+// seeded with an operator-authored rule (OPER-1, no marker) so we prove operator
+// config is preserved through the real write path, not just in memory.
 func TestV2_RulesReplaceMarkerRoundTripsThroughCommit(t *testing.T) {
-	path := writeOrigConfig(t, 0o600) // carries operator rule KEEP-1 (unmarked)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	const seeded = "# operator config\n" +
+		"server:\n  port: 8080\n" +
+		"identity:\n  require_signature: false\n" +
+		"agents:\n  voice-ai:\n    can_message: []\n    blocked_content: []\n" +
+		"rules:\n" +
+		"  - id: OPER-1\n    action: quarantine\n    severity: high\n"
+	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
 	b := rulesReplaceBody("IAP-003")
 	plan := commitV2Body(t, path, b, "")
 	if _, err := CommitV2(plan, path); err != nil {
@@ -1088,18 +1099,52 @@ func TestV2_RulesReplaceMarkerRoundTripsThroughCommit(t *testing.T) {
 		t.Fatalf("governed rule must round-trip marked, got %+v ok=%v", ra, ok)
 	}
 	// Operator rule is preserved and stays unmarked.
-	keep, ok := ruleByID(cfg, "KEEP-1")
+	oper, ok := ruleByID(cfg, "OPER-1")
 	if !ok {
-		t.Fatalf("operator rule KEEP-1 must be preserved, rules=%+v", cfg.Rules)
+		t.Fatalf("operator rule OPER-1 must be preserved, rules=%+v", cfg.Rules)
 	}
-	if keep.ManagedByPolicy {
-		t.Fatalf("operator rule must stay unmarked through round-trip, got %+v", keep)
+	if oper.ManagedByPolicy {
+		t.Fatalf("operator rule must stay unmarked through round-trip, got %+v", oper)
 	}
 	// The serialized YAML must carry the marker for the governed rule and NOT for
 	// the operator rule.
 	data, _ := os.ReadFile(path)
 	if !strings.Contains(string(data), "managed_by_policy: true") {
 		t.Fatalf("written YAML must carry the marker for the governed rule:\n%s", data)
+	}
+}
+
+// FIX 1 + FIX 2 reinforcement: deny-all clear is IDEMPOTENT through a real apply.
+// A first clear writes the lone sentinel; a second v2 apply over that config is
+// NOT refused as a sentinel collision (the lone sentinel is the canonical
+// deny-all form, not a real tool).
+func TestV2_DenyAllClearIsIdempotentAcrossApplies(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oktsec.yaml")
+	const seeded = "# operator config\n" +
+		"server:\n  port: 8080\n" +
+		"identity:\n  require_signature: false\n" +
+		"agents:\n  voice-ai:\n    can_message: []\n    blocked_content: []\n    allowed_tools: [old.tool]\n" +
+		"rules: []\n"
+	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	// First apply: clear -> lone sentinel written.
+	b := bodyV2()
+	g := agentGovV2("voice-ai")
+	g.AllowedTools = policybundle.DimStringSetV2{Mode: dimClear, Values: []string{}}
+	b.Governance.Agents = []policybundle.AgentGovernanceV2{g}
+	plan := commitV2Body(t, path, b, "")
+	if _, err := CommitV2(plan, path); err != nil {
+		t.Fatalf("first CommitV2: %v", err)
+	}
+	// Second apply over the produced config must NOT be refused as a collision.
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if _, err := DryRunV2(verifiedV2(b), cfg, "", path); err != nil {
+		t.Fatalf("deny-all clear must be idempotent (lone sentinel is not a collision), got %v", err)
 	}
 }
 
@@ -1142,7 +1187,9 @@ func TestV2_SentinelInReplacePathValueRefused(t *testing.T) {
 func TestV2_SentinelInLocalConfigFailsClosed(t *testing.T) {
 	cfg := baseConfig()
 	va := cfg.Agents["voice-ai"]
-	va.AllowedTools = []string{denyAllToolsSentinel} // a real tool collides with the sentinel
+	// A real tool collides with the sentinel: the sentinel appears ALONGSIDE
+	// another tool, so this is not the canonical lone-sentinel deny-all form.
+	va.AllowedTools = []string{"real.tool", denyAllToolsSentinel}
 	cfg.Agents["voice-ai"] = va
 	b := bodyV2()
 	g := agentGovV2("other")

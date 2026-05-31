@@ -533,15 +533,23 @@ func projectAgentAllowedToolsV2(plan *PlanV2, agent *config.Agent, name string, 
 // (deny-all) form can never be defeated.
 const denyAllToolsSentinel = "__oktsec_deny_all__"
 
-// collideToolSentinel returns a non-empty location description when any REAL tool
+// collideToolSentinel returns a non-empty location description when a REAL tool
 // name in the local config equals the reserved deny-all sentinel. The only tool
 // names the config itself can express are each agent's allowed_tools (the gateway
 // has no static tool list in config: it discovers backend tool names at runtime,
 // which is the observed-inventory check that lives in the gateway, not here). A
 // collision means the sentinel-based deny-all form would not actually deny that
 // tool, so the caller fails the apply closed rather than risk a silent deny-all
-// bypass. Agents are scanned in sorted order so the reported location is
-// deterministic.
+// bypass.
+//
+// The CANONICAL deny-all form an apply itself writes is an allowlist of EXACTLY
+// the lone sentinel ([sentinel]); that is the zero-access representation, not a
+// real tool, so it is NOT a collision. Treating it as one would make a clear
+// non-idempotent (reapplying the same deny-all bundle, or any later v2 apply,
+// would be refused because the config it produced still carries the sentinel). A
+// genuine collision is the sentinel appearing ALONGSIDE other tool names: an
+// allowlist where the sentinel is present but the list is not exactly [sentinel].
+// Agents are scanned in sorted order so the reported location is deterministic.
 func collideToolSentinel(cfg *config.Config) string {
 	names := make([]string, 0, len(cfg.Agents))
 	for name := range cfg.Agents {
@@ -549,9 +557,15 @@ func collideToolSentinel(cfg *config.Config) string {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if slices.Contains(cfg.Agents[name].AllowedTools, denyAllToolsSentinel) {
-			return fmt.Sprintf("agent %q allowed_tools", name)
+		tools := cfg.Agents[name].AllowedTools
+		if !slices.Contains(tools, denyAllToolsSentinel) {
+			continue
 		}
+		// Lone sentinel == the canonical deny-all form this apply writes; allowed.
+		if len(tools) == 1 {
+			continue
+		}
+		return fmt.Sprintf("agent %q allowed_tools", name)
 	}
 	return ""
 }
