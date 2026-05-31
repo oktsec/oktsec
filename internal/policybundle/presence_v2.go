@@ -23,13 +23,18 @@ import (
 // timestamps (exact wire bytes), and decimals (strictly positive). v2 freezes
 // the contract requiring every signed scalar to be explicitly present.
 //
-// Scope boundary: this validator handles SCALARS only (strings, bools, numbers,
-// and the closed-set tri-state/enum strings). Containers (slices/maps) keep
-// their own presence rule in validateCanonicalPolicyContainersV2 (present as
-// []/{} not null). At a mixed boundary the two cooperate without overlap: e.g.
-// tool_policies.by_tool is a MAP (container rule), but each entry's max_amount
-// is a SCALAR (this rule); governance.agents is an ARRAY (container), but each
-// agent's suspended.value is a SCALAR (this rule).
+// Scope boundary: this validator handles SCALARS (strings, bools, numbers, and
+// the closed-set tri-state/enum strings) AND scalar leaves inside containers -
+// i.e. null ELEMENTS of signed string arrays and null VALUES of signed string
+// maps. The CONTAINER's own presence (present as []/{} not null) stays with
+// validateCanonicalPolicyContainersV2; this validator only refuses null at the
+// scalar leaf so a null cannot decode to "" and share a hash with an explicit
+// "". At a mixed boundary the two cooperate without overlap: e.g.
+// tool_policies.by_tool is a MAP (container rule for the map, scalar rule for
+// each entry's max_amount); governance.agents is an ARRAY (container rule for
+// the array, scalar rule for each agent's suspended.value);
+// gateway.tools_allowed is a string array (container rule for [], this rule for
+// each element being non-null).
 //
 // The walker is driven by the body's own structure: it descends fixed object
 // fields, EVERY element of arrays, and EVERY value of maps, asserting the
@@ -84,12 +89,39 @@ func validateScalarPresenceV2(raw []byte) error {
 		return err
 	}
 
-	// rules.overrides is a MAP (container rule) whose every entry carries a
-	// scalar "action".
+	// Top-level signed string-array containers: reject null ELEMENTS (the empty
+	// container itself is the container validator's concern). A null element
+	// decodes to "" and would otherwise share a hash with an explicit "".
+	gateway, err := childObject(policy, "policy.gateway", "gateway")
+	if err != nil {
+		return err
+	}
+	egress, err := childObject(policy, "policy.egress", "egress")
+	if err != nil {
+		return err
+	}
 	rules, err := childObject(policy, "policy.rules", "rules")
 	if err != nil {
 		return err
 	}
+	for _, sa := range []struct {
+		parent    map[string]json.RawMessage
+		path, key string
+	}{
+		{rules, "policy.rules.enabled", "enabled"},
+		{rules, "policy.rules.disabled", "disabled"},
+		{gateway, "policy.gateway.tools_allowed", "tools_allowed"},
+		{gateway, "policy.gateway.tools_denied", "tools_denied"},
+		{egress, "policy.egress.domains_allowed", "domains_allowed"},
+		{egress, "policy.egress.domains_denied", "domains_denied"},
+	} {
+		if err := rejectNullStringArrayElems(sa.parent, sa.path, sa.key); err != nil {
+			return err
+		}
+	}
+
+	// rules.overrides is a MAP (container rule) whose every entry carries a
+	// scalar "action".
 	if overrides, present, err := optionalChildMap(rules, "policy.rules.overrides", "overrides"); err != nil {
 		return err
 	} else if present {
@@ -160,9 +192,10 @@ func validateAgentScalarPresenceV2(i int, agentRaw json.RawMessage) error {
 		return err
 	}
 
-	// selector.name (selector.labels is a container; its string VALUES, when
-	// present, are guaranteed non-null by the JSON grammar for a string map and
-	// are covered by the container null-entry rule, so labels are not walked here).
+	// selector.name (scalar) + selector.labels (a string-VALUE map: the map's
+	// own presence is the container validator's concern, but a null VALUE decodes
+	// to "" and would share a hash with an explicit "", so null values are
+	// rejected here).
 	selector, err := childObject(agent, p+".selector", "selector")
 	if err != nil {
 		return err
@@ -170,10 +203,35 @@ func validateAgentScalarPresenceV2(i int, agentRaw json.RawMessage) error {
 	if err := requireScalars(p+".selector", selector, "name"); err != nil {
 		return err
 	}
+	if err := rejectNullStringMapValues(selector, p+".selector.labels", "labels"); err != nil {
+		return err
+	}
 
-	// Simple dimension modes.
-	for _, dim := range []string{"acls", "allowed_tools", "blocked_content"} {
-		if err := requireDimMode(agent, p+"."+dim, dim); err != nil {
+	// acls: mode scalar + two string-array containers (null elements rejected).
+	acls, err := childObject(agent, p+".acls", "acls")
+	if err != nil {
+		return err
+	}
+	if err := requireScalars(p+".acls", acls, "mode"); err != nil {
+		return err
+	}
+	if err := rejectNullStringArrayElems(acls, p+".acls.allowed_recipients", "allowed_recipients"); err != nil {
+		return err
+	}
+	if err := rejectNullStringArrayElems(acls, p+".acls.blocked_recipients", "blocked_recipients"); err != nil {
+		return err
+	}
+
+	// allowed_tools / blocked_content: mode scalar + a "values" string array.
+	for _, dim := range []string{"allowed_tools", "blocked_content"} {
+		d, err := childObject(agent, p+"."+dim, dim)
+		if err != nil {
+			return err
+		}
+		if err := requireScalars(p+"."+dim, d, "mode"); err != nil {
+			return err
+		}
+		if err := rejectNullStringArrayElems(d, p+"."+dim+".values", "values"); err != nil {
 			return err
 		}
 	}
@@ -255,13 +313,19 @@ func validateAgentScalarPresenceV2(i int, agentRaw json.RawMessage) error {
 					if err := requireScalars(pcName, pc, "max_length"); err != nil {
 						return err
 					}
+					if err := rejectNullStringArrayElems(pc, pcName+".allowed_patterns", "allowed_patterns"); err != nil {
+						return err
+					}
+					if err := rejectNullStringArrayElems(pc, pcName+".blocked_patterns", "blocked_patterns"); err != nil {
+						return err
+					}
 				}
 			}
 		}
 	}
 
 	// tool_chain_rules: mode scalar + items ARRAY; each item carries scalar
-	// "if" and "cooldown_secs" ("then" is a container).
+	// "if" and "cooldown_secs" plus a "then" string array (null elements rejected).
 	tcr, err := childObject(agent, p+".tool_chain_rules", "tool_chain_rules")
 	if err != nil {
 		return err
@@ -281,18 +345,36 @@ func validateAgentScalarPresenceV2(i int, agentRaw json.RawMessage) error {
 			if err := requireScalars(rp, item, "if", "cooldown_secs"); err != nil {
 				return err
 			}
+			if err := rejectNullStringArrayElems(item, rp+".then", "then"); err != nil {
+				return err
+			}
 		}
 	}
 
-	// egress: mode + scope + tri-state strings + integer counts. allowed_domains,
-	// blocked_domains, tool_restrictions, blocked_categories, integrations are
-	// containers (handled by the container validator).
+	// egress: scalars (mode, scope, tri-state strings, integer counts) plus the
+	// string-array containers (allowed_domains, blocked_domains, blocked_categories,
+	// integrations) and the string-array MAP (tool_restrictions). The containers'
+	// own presence is the container validator's concern; here we reject null
+	// string ELEMENTS / values so they cannot collide with an explicit "".
 	egress, err := childObject(agent, p+".egress", "egress")
 	if err != nil {
 		return err
 	}
 	if err := requireScalars(p+".egress", egress,
 		"mode", "scope", "scan_requests", "scan_responses", "rate_limit", "rate_window"); err != nil {
+		return err
+	}
+	for _, sa := range []struct{ path, key string }{
+		{p + ".egress.allowed_domains", "allowed_domains"},
+		{p + ".egress.blocked_domains", "blocked_domains"},
+		{p + ".egress.blocked_categories", "blocked_categories"},
+		{p + ".egress.integrations", "integrations"},
+	} {
+		if err := rejectNullStringArrayElems(egress, sa.path, sa.key); err != nil {
+			return err
+		}
+	}
+	if err := rejectNullStringMapOfArrays(egress, p+".egress.tool_restrictions", "tool_restrictions"); err != nil {
 		return err
 	}
 
@@ -387,6 +469,82 @@ func optionalChildArray(parent map[string]json.RawMessage, path, key string) ([]
 		return nil, false, fmt.Errorf("%s: not a JSON array: %s", path, err)
 	}
 	return a, true, nil
+}
+
+// rejectNullStringArrayElems rejects a JSON null ELEMENT inside a signed
+// string-array container (e.g. gateway.tools_allowed, acls.allowed_recipients,
+// a parameter's allowed_patterns). encoding/json decodes a null element of a
+// []string to "", so a bundle signed with [""] and a wire bundle with [null]
+// recompute the SAME hash and both verify - the same dual-byte-representation
+// defect this PR freezes out, one level inside the container. The container's
+// own presence ([] not null) stays with validateCanonicalPolicyContainersV2;
+// this only refuses null ELEMENTS so every string element is explicit on the
+// wire. Absent/null container itself is skipped here (container validator owns it).
+func rejectNullStringArrayElems(parent map[string]json.RawMessage, path, key string) error {
+	elems, present, err := optionalChildArray(parent, path, key)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	for i, e := range elems {
+		if isJSONNull(e) {
+			return fmt.Errorf("%s[%d]: string element must not be null", path, i)
+		}
+	}
+	return nil
+}
+
+// rejectNullStringMapValues rejects a JSON null VALUE inside a signed map whose
+// values are strings (selector.labels). Same reasoning as
+// rejectNullStringArrayElems: a null value decodes to "" and would collide with
+// an explicit "" on the hash. The map's own presence ({} not null) stays with
+// the container validator.
+func rejectNullStringMapValues(parent map[string]json.RawMessage, path, key string) error {
+	m, present, err := optionalChildMap(parent, path, key)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	for k, v := range m {
+		if isJSONNull(v) {
+			return fmt.Errorf("%s[%q]: string value must not be null", path, k)
+		}
+	}
+	return nil
+}
+
+// rejectNullStringMapOfArrays rejects a JSON null ELEMENT inside a map whose
+// values are string arrays (egress.tool_restrictions). The map and each array's
+// own presence stay with the container validator; this refuses null string
+// elements so every restriction domain is explicit.
+func rejectNullStringMapOfArrays(parent map[string]json.RawMessage, path, key string) error {
+	m, present, err := optionalChildMap(parent, path, key)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	for k, vRaw := range m {
+		if isJSONNull(vRaw) {
+			// The container validator rejects a null array value; nothing to walk.
+			continue
+		}
+		var arr []json.RawMessage
+		if err := json.Unmarshal(vRaw, &arr); err != nil {
+			return fmt.Errorf("%s[%q]: not a JSON array: %s", path, k, err)
+		}
+		for i, e := range arr {
+			if isJSONNull(e) {
+				return fmt.Errorf("%s[%q][%d]: string element must not be null", path, k, i)
+			}
+		}
+	}
+	return nil
 }
 
 // isJSONNull reports whether a raw value is the JSON literal null. A present

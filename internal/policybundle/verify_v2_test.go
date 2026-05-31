@@ -875,3 +875,56 @@ func TestV2_ScalarPresenceRequired(t *testing.T) {
 		wantReject(t, err, RejectHashMismatch)
 	}
 }
+
+// TestV2_NullStringElementsRejected locks the companion rule to scalar
+// presence: a JSON null ELEMENT of a signed string array, or a null VALUE of a
+// signed string map, must be rejected. encoding/json decodes such a null to "",
+// so a bundle signed with [""] / {"k":""} and a wire bundle with [null] /
+// {"k":null} recompute the same hash and both verify - the same
+// dual-byte-representation defect this PR freezes out, one level inside the
+// container. The container's own []/{} presence stays with the container
+// validator; this asserts every string LEAF is explicit on the wire. Each case
+// surgically rewrites one element/value to null in the fixture bytes.
+func TestV2_NullStringElementsRejected(t *testing.T) {
+	raw, fp := loadFixtureV2(t)
+	cases := map[string][]byte{
+		// top-level string arrays
+		"gateway.tools_allowed[null]": bytesReplaceOnce(t, raw, `"calendar.read",
+        "voice.dial"`, `null,
+        "voice.dial"`),
+		"egress.domains_allowed[null]": bytesReplaceOnce(t, raw, `"api.openai.com",
+        "api.anthropic.com"`, `null,
+        "api.anthropic.com"`),
+		"rules.enabled[null]": bytesReplaceOnce(t, raw, `"IAP-001",`, `null,`),
+		// per-agent string map value
+		"selector.labels value null": bytesReplaceOnce(t, raw, `"env": "prod"`, `"env": null`),
+		// per-agent string arrays
+		"acls.allowed_recipients[null]": bytesReplaceOnce(t, raw, `"billing-agent",`, `null,`),
+		"allowed_tools.values[null]": bytesReplaceOnce(t, raw, `"calendar.read",
+              "voice.dial"`, `null,
+              "voice.dial"`),
+		"blocked_content.values[null]": bytesReplaceOnce(t, raw, `"secrets",
+              "credentials"`, `null,
+              "credentials"`),
+		// nested param pattern arrays
+		"allowed_patterns[null]": bytesReplaceOnce(t, raw, `"+1*",`, `null,`),
+		"blocked_patterns[null]": bytesReplaceOnce(t, raw, `"+1900*"`, `null`),
+		// chain rule then array
+		"chain.then[null]": bytesReplaceOnce(t, raw, `"shell.exec"
+                ]`, `null
+                ]`),
+		// per-agent egress arrays + map-of-arrays
+		"egress.blocked_categories[null]": bytesReplaceOnce(t, raw, `"secrets",
+              "pii"`, `null,
+              "pii"`),
+		"egress.integrations[null]":            bytesReplaceOnce(t, raw, `"slack",`, `null,`),
+		"egress.tool_restrictions value[null]": bytesReplaceOnce(t, raw, `"api.twilio.com"`, `null`),
+	}
+	for name, bad := range cases {
+		_, err := VerifyBundleV2(bad, fp)
+		if err == nil {
+			t.Fatalf("[%s] expected reject, got nil", name)
+		}
+		wantRejectMsg(t, err, RejectSchemaInvalid, name)
+	}
+}
