@@ -60,7 +60,9 @@ type AssignmentV2 struct {
 }
 
 // TargetV2 binds an assignment to a scope. scope is "fleet" or "node";
-// node_id is the node it targets, or "" for a fleet-wide assignment.
+// node_id is the node it targets (required, non-empty) for a node assignment,
+// and MUST be "" for a fleet-wide assignment, so a signed bundle binds to
+// exactly one unambiguous target (enforced by the verifier).
 type TargetV2 struct {
 	Scope  string `json:"scope"`
 	NodeID string `json:"node_id"`

@@ -111,7 +111,12 @@ func TestV2_UnknownField(t *testing.T) {
 	wantReject(t, err, RejectDecode)
 }
 
-// (5) duplicate object key -> reject.
+// (5) duplicate object key -> reject. A duplicated key defeats the v2 signed
+// body's guarantees, since encoding/json silently keeps the last value while a
+// JSON reader may take the first; the verifier and a reader could then disagree
+// on exactly the anti-rollback/target fields the signature is meant to bind.
+// Cover a top-level key, a nested metadata key, and the security-critical
+// anti-rollback/target fields (sequence, assignment_id, target.scope).
 func TestV2_DuplicateKeysRejected(t *testing.T) {
 	raw, fp := loadFixtureV2(t)
 	dup := append([]byte(`{"policy_hash":"sha256:0000000000000000000000000000000000000000000000000000000000000000",`), raw[1:]...)
@@ -121,6 +126,61 @@ func TestV2_DuplicateKeysRejected(t *testing.T) {
 	nested := bytesReplaceOnce(t, raw, `"created_by"`, `"created_by":"x","created_by"`)
 	_, err = VerifyBundleV2(nested, fp)
 	wantReject(t, err, RejectSchemaInvalid)
+
+	// Anti-rollback field: a second "sequence" inside the assignment object.
+	seqDup := bytesReplaceOnce(t, raw, `"sequence": 1`, `"sequence": 999,"sequence": 1`)
+	_, err = VerifyBundleV2(seqDup, fp)
+	wantRejectMsg(t, err, RejectSchemaInvalid, "duplicate sequence")
+
+	// Target-binding field: a second "assignment_id" inside the assignment object.
+	aidDup := bytesReplaceOnce(t, raw, `"assignment_id": "assign-0001"`, `"assignment_id": "assign-evil","assignment_id": "assign-0001"`)
+	_, err = VerifyBundleV2(aidDup, fp)
+	wantRejectMsg(t, err, RejectSchemaInvalid, "duplicate assignment_id")
+
+	// Target scope is also part of the signed binding.
+	scopeDup := bytesReplaceOnce(t, raw, `"scope": "node"`, `"scope": "fleet","scope": "node"`)
+	_, err = VerifyBundleV2(scopeDup, fp)
+	wantRejectMsg(t, err, RejectSchemaInvalid, "duplicate target scope")
+}
+
+// (5b) target.node_id must be bound to scope: a fleet assignment must carry no
+// node_id, a node assignment must carry one, so a signed bundle names exactly
+// one unambiguous target. The fixture is node-scoped with a real node_id and
+// stays valid; fleet+empty stays valid; only fleet+non-empty is rejected.
+func TestV2_FleetScopeRejectsNodeID(t *testing.T) {
+	_, fp := loadFixtureV2(t)
+
+	// fleet + stray node_id -> rejected.
+	bad := remarshalV2(t, func(b *PolicyBundleV2) {
+		b.Policy.Assignment.Target.Scope = "fleet"
+		b.Policy.Assignment.Target.NodeID = "node-east-1"
+	})
+	_, err := VerifyBundleV2(bad, fp)
+	wantRejectMsg(t, err, RejectSchemaInvalid, "fleet scope with node_id")
+
+	// fleet + empty node_id is structurally valid (it fails later at the hash
+	// recompute, not at the scope/node_id check, which is the contract we assert).
+	fleetOK := remarshalV2(t, func(b *PolicyBundleV2) {
+		b.Policy.Assignment.Target.Scope = "fleet"
+		b.Policy.Assignment.Target.NodeID = ""
+	})
+	_, err = VerifyBundleV2(fleetOK, fp)
+	wantReject(t, err, RejectHashMismatch)
+
+	// node + non-empty node_id is structurally valid (the fixture's own shape);
+	// the no-op remarshal still passes scope/node_id and verifies end to end.
+	nodeOK := remarshalV2(t, func(b *PolicyBundleV2) {})
+	if _, err := VerifyBundleV2(nodeOK, fp); err != nil {
+		t.Fatalf("node scope with node_id must stay valid: %v", err)
+	}
+
+	// node + empty node_id -> rejected.
+	nodeBad := remarshalV2(t, func(b *PolicyBundleV2) {
+		b.Policy.Assignment.Target.Scope = "node"
+		b.Policy.Assignment.Target.NodeID = ""
+	})
+	_, err = VerifyBundleV2(nodeBad, fp)
+	wantRejectMsg(t, err, RejectSchemaInvalid, "node scope without node_id")
 }
 
 // (6) trailing JSON after the bundle -> reject.
@@ -283,7 +343,10 @@ func TestV2_IssuedAtCovered(t *testing.T) {
 
 // (12) verifier does NOT normalize timestamp bytes before hashing: a
 // non-canonical-but-parseable timestamp is rejected at the canonical-form
-// check, before the hash. Covers both created_at and issued_at.
+// check, before the hash. Covers created_at, issued_at, and signed_at.
+// signed_at is not bound by the v2 signature (v2 binds issued_at), so without
+// this check a malformed signed_at would ride through to a verified bundle; the
+// canonical-form check is what stops it.
 func TestV2_NonCanonicalTimestampsRejected(t *testing.T) {
 	_, fp := loadFixtureV2(t)
 	for _, ts := range nonCanonicalTimestamps {
@@ -294,6 +357,10 @@ func TestV2_NonCanonicalTimestampsRejected(t *testing.T) {
 		rawI := remarshalV2(t, func(b *PolicyBundleV2) { b.Policy.Assignment.IssuedAt = ts })
 		_, err = VerifyBundleV2(rawI, fp)
 		wantRejectMsg(t, err, RejectSchemaInvalid, "issued_at "+ts)
+
+		rawS := remarshalV2(t, func(b *PolicyBundleV2) { b.Signature.SignedAt = ts })
+		_, err = VerifyBundleV2(rawS, fp)
+		wantRejectMsg(t, err, RejectSchemaInvalid, "signed_at "+ts)
 	}
 }
 

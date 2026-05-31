@@ -33,7 +33,7 @@ type VerifiedBundleV2 struct {
 //  2. schema_version / bundle_version / canonicalization / signature.alg
 //     (all the v2 constants)
 //  3. canonical-form + schema checks (all policy_schema_invalid): timestamps
-//     (created_at, issued_at) canonical; ALL containers present as []/{};
+//     (created_at, issued_at, signed_at) canonical; ALL containers present as []/{};
 //     required scalar fields non-empty; signed-model enums in range (bundle
 //     mode, every dimension mode incl. rejecting "merge", redaction.level,
 //     override actions, target.scope); sequence >= 1; decimal strings canonical
@@ -86,13 +86,20 @@ func VerifyBundleV2(raw []byte, trustFingerprint string) (*VerifiedBundleV2, err
 
 	// (3) canonical-form checks. created_at and issued_at are both required and
 	// must be in the single canonical wire form (a byte-different but parseable
-	// timestamp is rejected here, before the hash). Containers must be []/{}.
+	// timestamp is rejected here, before the hash). signed_at is validated for
+	// canonical form too: unlike v1 it is NOT bound by the v2 signature (v2 binds
+	// issued_at instead), so a malformed or mutable signed_at would otherwise ride
+	// through to a "verified" bundle. Catching it here as a schema reject keeps
+	// every timestamp the verifier exposes canonical. Containers must be []/{}.
 	// Enums and sequence are range-checked. Decimal strings must be canonical.
 	if err := validateCanonicalPolicyTimestamp(b.Policy.Metadata.CreatedAt); err != nil {
 		return nil, reject(RejectSchemaInvalid, "policy.metadata.created_at %s", err)
 	}
 	if err := validateCanonicalPolicyTimestamp(b.Policy.Assignment.IssuedAt); err != nil {
 		return nil, reject(RejectSchemaInvalid, "policy.assignment.issued_at %s", err)
+	}
+	if err := validateCanonicalPolicyTimestamp(b.Signature.SignedAt); err != nil {
+		return nil, reject(RejectSchemaInvalid, "signature.signed_at %s", err)
 	}
 	if err := validateCanonicalPolicyContainersV2(b.Policy); err != nil {
 		return nil, reject(RejectSchemaInvalid, "%s", err)
@@ -167,6 +174,8 @@ func VerifyBundleV2(raw []byte, trustFingerprint string) (*VerifiedBundleV2, err
 // alg tags, policy_hash, created_at/issued_at, public_key/fingerprint/value,
 // and container presence.
 func validatePolicySchemaV2(b *PolicyBundleV2) error {
+	// TODO(9A.2): reject self-referential rollback_of (rollback_of ==
+	// assignment_id) at apply validation; it has no verify-time effect here.
 	for _, f := range []struct{ name, val string }{
 		{"policy.policy_id", b.Policy.PolicyID},
 		{"policy.policy_version", b.Policy.PolicyVersion},
@@ -185,10 +194,28 @@ func validatePolicySchemaV2(b *PolicyBundleV2) error {
 		return fmt.Errorf("policy.mode %q not in {enforce, observe}", b.Policy.Mode)
 	}
 
-	// Assignment binding.
-	if !validTargetScope[b.Policy.Assignment.Target.Scope] {
-		return fmt.Errorf("policy.assignment.target.scope %q not in {fleet, node}", b.Policy.Assignment.Target.Scope)
+	// Assignment binding. scope is closed-set; node_id is bound to scope so a
+	// node assignment names its node and a fleet assignment carries none. A
+	// stray node_id on a fleet bundle is still signed, so it is not a forgery,
+	// but it lets two byte-different signed artifacts mean the same thing and
+	// muddies the target contract 9A.2 apply builds on, so it is rejected.
+	scope := b.Policy.Assignment.Target.Scope
+	nodeID := b.Policy.Assignment.Target.NodeID
+	if !validTargetScope[scope] {
+		return fmt.Errorf("policy.assignment.target.scope %q not in {fleet, node}", scope)
 	}
+	switch scope {
+	case "node":
+		if nodeID == "" {
+			return fmt.Errorf("policy.assignment.target.node_id must not be empty when scope is node")
+		}
+	case "fleet":
+		if nodeID != "" {
+			return fmt.Errorf("policy.assignment.target.node_id must be empty when scope is fleet, got %q", nodeID)
+		}
+	}
+	// TODO(9A.2): normalize/validate target.node_id charset and shape at apply,
+	// where it is compared to the local node id.
 	if b.Policy.Assignment.Sequence < 1 {
 		return fmt.Errorf("policy.assignment.sequence %d must be >= 1", b.Policy.Assignment.Sequence)
 	}
