@@ -4,33 +4,45 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/oktsec/oktsec/internal/audit"
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
+	"github.com/stretchr/testify/require"
 )
 
-// denyAllGateway builds a minimal gateway (no real backends) for exercising the
-// handler's deny paths, which return BEFORE any backend session is contacted.
-func denyAllGateway(t *testing.T, cfg *config.Config) *Gateway {
+// discoveryGateway builds a gateway with synthetic (non-connected) backends for
+// exercising buildToolMap discovery directly. Unlike newTestGateway it does not
+// require live in-process backends, so callers can stuff arbitrary tool names
+// (including the reserved sentinel) into g.backends before building the tool map.
+func discoveryGateway(t *testing.T, backends map[string]*Backend) *Gateway {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	scanner := engine.NewScanner("")
-	t.Cleanup(scanner.Close)
-	return newGatewayForTest(cfg, scanner, nil, logger)
+	auditStore, err := audit.NewStore(filepath.Join(t.TempDir(), "audit.db"), logger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		scanner.Close()
+		_ = auditStore.Close()
+	})
+	g := newGatewayForTest(defaultGatewayConfig(), scanner, auditStore, logger)
+	g.backends = backends
+	return g
 }
 
 // denyAllCallIsError drives a tool through the gateway handler for principal
-// `agent` and reports whether it was denied. A policy denial returns a non-nil
-// error result (IsError) with err == nil, BEFORE the backend is contacted, so a
-// session-less stub backend is sufficient for the deny paths.
-func denyAllCallIsError(t *testing.T, g *Gateway, agent, originalName string) bool {
+// `agent` via the given mapping and reports whether it was denied. A policy
+// denial returns a non-nil error result (IsError) with err == nil. The gateway
+// is built with the full newTestGateway harness so g.audit and the real backend
+// session are wired (the handler logs audit and may forward on the allow path).
+func denyAllCallIsError(t *testing.T, g *Gateway, agent string, m toolMapping, callName string) bool {
 	t.Helper()
-	b := &Backend{Name: "backend1", Tools: []*mcp.Tool{{Name: originalName}}}
-	handler := g.makeHandler(toolMapping{Backend: b, OriginalName: originalName})
+	handler := g.makeHandler(m)
 	ctx := context.WithValue(context.Background(), agentContextKey, agent)
-	res, err := handler(ctx, makeHandlerRequest(originalName, map[string]any{"text": "x"}))
+	res, err := handler(ctx, makeHandlerRequest(callName, map[string]any{"text": "x"}))
 	if err != nil {
 		t.Fatalf("handler returned transport error: %v", err)
 	}
@@ -38,23 +50,27 @@ func denyAllCallIsError(t *testing.T, g *Gateway, agent, originalName string) bo
 }
 
 // FIX 2 gateway runtime test 2: with the deny-all allowlist (the lone sentinel),
-// any NORMAL tool call is blocked at runtime before reaching the backend.
+// any NORMAL tool call is blocked at runtime.
 func TestGateway_DenyAllSentinelBlocksNormalTool(t *testing.T) {
-	g := denyAllGateway(t, &config.Config{Agents: map[string]config.Agent{
-		"agent1": {AllowedTools: []string{config.DenyAllToolsSentinel}},
-	}})
-	if !denyAllCallIsError(t, g, "agent1", "search") {
+	cfg := defaultGatewayConfig()
+	cfg.Agents["test-agent"] = config.Agent{AllowedTools: []string{config.DenyAllToolsSentinel}}
+	g := newTestGateway(t, cfg, map[string]*mcp.Server{"echo": echoServer()})
+	if !denyAllCallIsError(t, g, "test-agent", g.toolMap["echo"], "echo") {
 		t.Fatalf("deny-all sentinel allowlist must block a normal tool call")
 	}
 }
 
 // FIX 2 gateway runtime test 3: with the deny-all allowlist, a backend tool
-// literally named the reserved sentinel is ALSO blocked.
+// literally named the reserved sentinel is ALSO blocked. The handler keys
+// deny-all on OriginalName, so we route to the real echo backend (for a non-nil
+// audit/session) but present the sentinel as the original tool name.
 func TestGateway_DenyAllSentinelBlocksSentinelNamedTool(t *testing.T) {
-	g := denyAllGateway(t, &config.Config{Agents: map[string]config.Agent{
-		"agent1": {AllowedTools: []string{config.DenyAllToolsSentinel}},
-	}})
-	if !denyAllCallIsError(t, g, "agent1", config.DenyAllToolsSentinel) {
+	cfg := defaultGatewayConfig()
+	cfg.Agents["test-agent"] = config.Agent{AllowedTools: []string{config.DenyAllToolsSentinel}}
+	g := newTestGateway(t, cfg, map[string]*mcp.Server{"echo": echoServer()})
+	m := g.toolMap["echo"]
+	m.OriginalName = config.DenyAllToolsSentinel
+	if !denyAllCallIsError(t, g, "test-agent", m, config.DenyAllToolsSentinel) {
 		t.Fatalf("a tool named the deny-all sentinel must be blocked under a deny-all allowlist")
 	}
 }
@@ -62,10 +78,12 @@ func TestGateway_DenyAllSentinelBlocksSentinelNamedTool(t *testing.T) {
 // FIX 2 reinforcement: a tool literally named the reserved sentinel is denied
 // even when the agent's allowlist is broad and NOT the deny-all form.
 func TestGateway_SentinelNamedToolBlockedEvenWithBroadAllowlist(t *testing.T) {
-	g := denyAllGateway(t, &config.Config{Agents: map[string]config.Agent{
-		"agent1": {AllowedTools: []string{"search", config.DenyAllToolsSentinel}},
-	}})
-	if !denyAllCallIsError(t, g, "agent1", config.DenyAllToolsSentinel) {
+	cfg := defaultGatewayConfig()
+	cfg.Agents["test-agent"] = config.Agent{AllowedTools: []string{"echo", config.DenyAllToolsSentinel}}
+	g := newTestGateway(t, cfg, map[string]*mcp.Server{"echo": echoServer()})
+	m := g.toolMap["echo"]
+	m.OriginalName = config.DenyAllToolsSentinel
+	if !denyAllCallIsError(t, g, "test-agent", m, config.DenyAllToolsSentinel) {
 		t.Fatalf("a tool named the deny-all sentinel must always be blocked")
 	}
 }
@@ -74,8 +92,11 @@ func TestGateway_SentinelNamedToolBlockedEvenWithBroadAllowlist(t *testing.T) {
 // an UNKNOWN principal with no agent config entry (the sentinel-name denial is
 // hoisted above the agent lookup).
 func TestGateway_SentinelNamedToolBlockedForUnknownPrincipal(t *testing.T) {
-	g := denyAllGateway(t, &config.Config{}) // no agent entries
-	if !denyAllCallIsError(t, g, "ghost", config.DenyAllToolsSentinel) {
+	cfg := defaultGatewayConfig() // no agent entries
+	g := newTestGateway(t, cfg, map[string]*mcp.Server{"echo": echoServer()})
+	m := g.toolMap["echo"]
+	m.OriginalName = config.DenyAllToolsSentinel
+	if !denyAllCallIsError(t, g, "ghost", m, config.DenyAllToolsSentinel) {
 		t.Fatalf("a tool named the deny-all sentinel must be blocked even for an unknown principal")
 	}
 }
@@ -83,13 +104,12 @@ func TestGateway_SentinelNamedToolBlockedForUnknownPrincipal(t *testing.T) {
 // FIX 2 discovery test 5: discovery containing the reserved tool name excludes it
 // (never registered as callable) while keeping normal tools.
 func TestGateway_DiscoveryExcludesReservedToolName(t *testing.T) {
-	g := denyAllGateway(t, &config.Config{})
-	g.backends = map[string]*Backend{
+	g := discoveryGateway(t, map[string]*Backend{
 		"backend1": {Name: "backend1", Tools: []*mcp.Tool{
 			{Name: "search"},
 			{Name: config.DenyAllToolsSentinel}, // reserved: must be excluded
 		}},
-	}
+	})
 	if err := g.buildToolMap(); err != nil {
 		t.Fatalf("buildToolMap: %v", err)
 	}
@@ -105,11 +125,10 @@ func TestGateway_DiscoveryExcludesReservedToolName(t *testing.T) {
 // sentinel is also excluded. Backend "__oktsec" + a conflicting tool "deny_all__"
 // would namespace to "__oktsec_deny_all__" (the sentinel); it must not register.
 func TestGateway_DiscoveryExcludesNamespacedSentinelCollision(t *testing.T) {
-	g := denyAllGateway(t, &config.Config{})
-	g.backends = map[string]*Backend{
+	g := discoveryGateway(t, map[string]*Backend{
 		"__oktsec": {Name: "__oktsec", Tools: []*mcp.Tool{{Name: "deny_all__"}}},
 		"other":    {Name: "other", Tools: []*mcp.Tool{{Name: "deny_all__"}}},
-	}
+	})
 	if err := g.buildToolMap(); err != nil {
 		t.Fatalf("buildToolMap: %v", err)
 	}
