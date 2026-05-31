@@ -124,16 +124,27 @@ var (
 // deferred to 9A.2 apply.
 var canonicalDecimal = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?$`)
 
+// allZeroDecimal matches the all-zero canonical decimal forms ("0", "0.0",
+// "0.00", ...). Because canonicalDecimal already forbids leading zeros (the
+// integer part is "0" or starts 1-9), a value whose integer part is "0" can
+// only be zero, and any nonzero value has at least one nonzero digit, so a
+// value is zero iff its integer part is "0" and every fractional digit is "0".
+// This lets the strictly-positive check stay pure-stdlib and float-free.
+var allZeroDecimal = regexp.MustCompile(`^0(\.0+)?$`)
+
 // validateCanonicalDecimal rejects a v2 decimal-string value that is not in
 // the single canonical wire form. An empty string is allowed and means
-// "unset" (the field carries no value); a present value must be canonical.
+// "unset" (the field carries no value), which is the only way to express
+// "no limit"; a present value must be canonical AND strictly positive.
 //
-// Non-negative is also required for the monetary/limit fields it guards: the
-// runtime tool-policy enforcer treats a non-positive limit as "unset", so a
-// signed bundle carrying a negative limit would silently DISABLE a limit if
-// applied. Rejecting it at verify time keeps a "verified" bundle from meaning
-// the opposite of what it declares. (A leading "-" is the only way to express a
-// negative here; canonicalDecimal already forbids "-0".)
+// Strictly positive is required for the monetary/limit fields it guards: the
+// runtime tool-policy enforcer treats a non-positive limit as "unset"
+// (unlimited), so a signed bundle carrying "0" or a negative limit would look
+// restrictive while actually REMOVING the cap if applied. v2's central rule is
+// no silent widening, so rejecting non-positive values at verify time keeps a
+// "verified" bundle from meaning the opposite of what it declares. (A leading
+// "-" is the only way to express a negative here; canonicalDecimal already
+// forbids "-0". Zero is rejected via the all-zero canonical forms.)
 func validateCanonicalDecimal(field, s string) error {
 	if s == "" {
 		return nil // unset
@@ -143,6 +154,9 @@ func validateCanonicalDecimal(field, s string) error {
 	}
 	if strings.HasPrefix(s, "-") {
 		return fmt.Errorf("%s %q must not be negative", field, s)
+	}
+	if allZeroDecimal.MatchString(s) {
+		return fmt.Errorf("%s %q must be strictly positive (zero means unset, which would widen access; use \"\" to express no limit)", field, s)
 	}
 	return nil
 }

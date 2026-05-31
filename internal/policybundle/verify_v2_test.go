@@ -654,6 +654,53 @@ func TestV2_NegativeDecimalRejected(t *testing.T) {
 	}
 }
 
+// Monetary guardrail decimals must be STRICTLY POSITIVE when present. The
+// runtime treats a non-positive limit as "unset" (unlimited), so a "verified"
+// bundle carrying "0" would look restrictive while actually removing the cap
+// (silent widening). "" still means explicit unset (the only way to express no
+// limit). Accept cases pass schema validation and then fail at the hash check
+// (the body changed); reject cases fail earlier as schema-invalid.
+func TestV2_MonetaryGuardrailsStrictlyPositive(t *testing.T) {
+	_, fp := loadFixtureV2(t)
+	fields := []struct {
+		name string
+		set  func(*ToolPolicyV2, string)
+	}{
+		{"max_amount", func(tp *ToolPolicyV2, v string) { tp.MaxAmount = v }},
+		{"daily_limit", func(tp *ToolPolicyV2, v string) { tp.DailyLimit = v }},
+		{"require_approval_above", func(tp *ToolPolicyV2, v string) { tp.RequireApprovalAbove = v }},
+	}
+	apply := func(set func(*ToolPolicyV2, string), v string) []byte {
+		return remarshalV2(t, func(b *PolicyBundleV2) {
+			tp := b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"]
+			set(&tp, v)
+			b.Policy.Governance.Agents[0].ToolPolicies.ByTool["voice.dial"] = tp
+		})
+	}
+
+	// Schema-accepted values: "" (explicit unset) and strictly-positive
+	// decimals. Schema passes, so verification proceeds to the hash check and
+	// fails there because the body bytes no longer match the signed hash.
+	accept := []string{"", "0.01", "1", "1.00", "250", "1000.50"}
+	for _, f := range fields {
+		for _, v := range accept {
+			_, err := VerifyBundleV2(apply(f.set, v), fp)
+			wantRejectMsg(t, err, RejectHashMismatch, f.name+"="+v)
+		}
+	}
+
+	// Schema-rejected values: zero (the silent-unset/widen value, the core
+	// fix), negatives (regression of prior behavior), and a non-canonical form
+	// already rejected before.
+	reject := []string{"0", "0.0", "0.00", "-1", "01"}
+	for _, f := range fields {
+		for _, v := range reject {
+			_, err := VerifyBundleV2(apply(f.set, v), fp)
+			wantRejectMsg(t, err, RejectSchemaInvalid, f.name+"="+v)
+		}
+	}
+}
+
 // Negative integer guardrails across the agent surface are rejected: the
 // runtime activates these only when positive, so a signed negative value would
 // fail open if applied. Covers tool_policies.rate_limit, tool_constraints
