@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/oktsec/oktsec/internal/apply"
+	"github.com/oktsec/oktsec/internal/policybundle"
 )
 
 // errAfterCommitInjected is the sentinel a test injects through the
@@ -17,12 +18,20 @@ var errAfterCommitInjected = errors.New("injected state persist failure")
 
 // fleetBundleAtSeq builds, signs, and writes a fleet-scoped v2 bundle at the
 // given sequence with a unique assignment id, returning its on-disk path and
-// the trust fingerprint to verify it.
+// the trust fingerprint to verify it. The bundle's voice-ai allowed_tools is set
+// to a value unique to the assignment id, so each distinct apply produces a real
+// config change (not a no-op), exercising the real-change persist path.
 func fleetBundleAtSeq(t *testing.T, dir string, seq int64, assignID string) (bundlePath, fp string) {
 	t.Helper()
 	body := supportedAgentBodyV2("fleet", "")
 	body.Assignment.Sequence = seq
 	body.Assignment.AssignmentID = assignID
+	// Make the projected change unique per assignment so the apply is never a
+	// no-op (which would skip the real-change persist path and its lock-spanned
+	// recovery).
+	g := agentGovV2cmd("voice-ai")
+	g.AllowedTools = policybundle.DimStringSetV2{Mode: "replace", Values: []string{"tool." + assignID}}
+	body.Governance.Agents = []policybundle.AgentGovernanceV2{g}
 	raw, trustFP := signV2Bundle(t, body)
 	p := filepath.Join(dir, "bundle-"+assignID+".signed.json")
 	if err := os.WriteFile(p, raw, 0o600); err != nil {
