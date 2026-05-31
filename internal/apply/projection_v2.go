@@ -230,10 +230,14 @@ func failClosedIfManaged(plan *PlanV2, kind, mode, detail string) {
 
 // projectRulesV2 projects the global rules dimension. unmanaged leaves rules
 // untouched. replace governs the enabled/disabled/overrides exactly as v1 does
-// (reusing the same severity-default / observe / mapAction semantics). clear is
-// not a meaningful rules operation here (Community rules are active by default
-// and a config rules entry is an override) and there is no enumerated empty
-// form that does not widen, so a rules clear fails closed.
+// (reusing the same severity-default / observe / mapAction semantics) and treats
+// the bundle's named set as a HARD CLAIM over the node's governed rule set: any
+// pre-existing local rule not named by the bundle is either reaped (if it is a
+// stale policy-owned rule, marked managed_by_policy) or blocks the apply closed
+// (if its ownership is unknown, i.e. unmarked). clear is not a meaningful rules
+// operation here (Community rules are active by default and a config rules entry
+// is an override) and there is no enumerated empty form that does not widen, so
+// a rules clear fails closed.
 func projectRulesV2(plan *PlanV2, target *config.Config, body policybundle.PolicyBodyV2) {
 	switch body.Rules.Mode {
 	case dimUnmanaged:
@@ -261,10 +265,11 @@ func projectRulesV2(plan *PlanV2, target *config.Config, body policybundle.Polic
 		idx[ra.ID] = i
 	}
 	// governedWritten records every rule id the bundle's signed desired set writes
-	// or marks during this replace. It is the authoritative GOVERNED set: after the
-	// upserts and resets run, any EXISTING rule still marked managed_by_policy that
-	// is NOT in this set is a prior policy-owned override the new bundle no longer
-	// declares, so it is reaped (honest replace of the governed subset).
+	// or marks during this replace (it is "named by the bundle"). It is the
+	// authoritative GOVERNED set: after the upserts and resets run, any EXISTING
+	// local rule NOT in this set is reconciled against ownership below: a stale
+	// policy-owned (marked) rule is reaped, an unmarked rule of unknown ownership
+	// fails the apply closed.
 	governedWritten := map[string]struct{}{}
 	// upsert writes (or updates) a rule id to action and marks it
 	// managed_by_policy: this rule is now owned by the signed policy. It records the
@@ -350,22 +355,46 @@ func projectRulesV2(plan *PlanV2, target *config.Config, body policybundle.Polic
 		upsert(id, "ignore")
 	}
 
-	// Honest replace of the GOVERNED set: a rule that a PRIOR policy apply marked
-	// managed_by_policy but which this bundle no longer declares must be reaped, so
-	// the node never enforces a policy-owned override the signed desired state has
-	// dropped. Operator-authored rules (no marker) are PRESERVED, never touched. v1
-	// apply never writes the marker, so a rule v1 wrote is operator-authored from
-	// v2's perspective and is safely preserved here (v2 only reaps what v2 marked).
+	// Honest replace of the GOVERNED rule set, fail closed on unknown ownership.
+	// A v2 replace is a HARD CLAIM that the node's governed rule set equals the
+	// signed set. So for every EXISTING local rule not named by this bundle:
+	//   - marked managed_by_policy -> it is a stale policy-owned override the new
+	//     bundle no longer declares; REAP it (reset to severity default).
+	//   - NOT marked (unknown ownership) -> we cannot prove it is policy-owned and
+	//     we will not silently keep it (that would leave the node above the signed
+	//     set) nor blindly delete it (that would destroy operator config). FAIL
+	//     CLOSED: record an unsupported entry naming the rule so the apply refuses
+	//     with no config write and no state advance. The operator reconciles by
+	//     naming the rule in the policy or removing it locally first.
+	// v1 apply never writes the marker, so a rule v1 wrote is unmarked and BLOCKS
+	// under v2 replace as unknown ownership; that is the correct, safe behavior.
+	// We only ever REMOVE rules that carry the marker, so operator-authored config
+	// can never be deleted by a policy apply: unknown rules block, never vanish.
 	// Collect ids first (reaping mutates target.Rules / idx) and process them in a
-	// deterministic order so the plan is stable.
+	// deterministic order so the plan and any error are stable.
 	var reap []string
+	var unowned []string
 	for id, i := range idx {
 		if _, kept := governedWritten[id]; kept {
 			continue
 		}
 		if target.Rules[i].ManagedByPolicy {
 			reap = append(reap, id)
+		} else {
+			unowned = append(unowned, id)
 		}
+	}
+	if len(unowned) > 0 {
+		sort.Strings(unowned)
+		for _, id := range unowned {
+			plan.Unsupported = append(plan.Unsupported, Unsupported{
+				Kind:   "rules_replace_unowned_local_rule",
+				Detail: fmt.Sprintf("rule %q is a local rule of unknown ownership (not named by the bundle and not marked managed_by_policy); a v2 rules replace claims the node's governed rule set equals the signed set, so it fails closed rather than silently keep or delete it; name %q in the policy or remove it locally first", id, id),
+			})
+		}
+		// Do not reap when we are failing closed: a fail-closed apply writes
+		// nothing, so the projection must not mutate the rule set either.
+		return
 	}
 	sort.Strings(reap)
 	for _, id := range reap {
@@ -530,8 +559,10 @@ func projectAgentAllowedToolsV2(plan *PlanV2, agent *config.Agent, name string, 
 // value containing it is refused on every path (see projectAgentAllowedToolsV2),
 // and a real tool in the local config carrying it fails the apply closed (see
 // collideToolSentinel), so the sentinel can never be a real tool and the clear
-// (deny-all) form can never be defeated.
-const denyAllToolsSentinel = "__oktsec_deny_all__"
+// (deny-all) form can never be defeated. The canonical name lives in
+// internal/config so the runtime enforcement (gateway + stdio proxy) and
+// discovery rejection share one source of truth with the apply projector.
+const denyAllToolsSentinel = config.DenyAllToolsSentinel
 
 // collideToolSentinel returns a non-empty location description when a REAL tool
 // name in the local config equals the reserved deny-all sentinel. The only tool

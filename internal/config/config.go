@@ -381,10 +381,33 @@ type RuleAction struct {
 	// It is additive and omitempty so an operator config that never goes through v2
 	// apply is byte-unchanged (the field is absent at false) and the v1 apply path,
 	// which never sets it, is unaffected. v2 replace uses it to converge the
-	// GOVERNED rule subset to the signed desired state without clobbering
-	// operator-authored overrides: a marked rule absent from the new bundle is
-	// reaped; an unmarked rule is preserved.
+	// GOVERNED rule subset to the signed desired state: a marked rule absent from
+	// the new bundle is reaped; an UNMARKED local rule the bundle does not name is
+	// of unknown ownership and makes the apply FAIL CLOSED (never silently kept,
+	// never blindly deleted) so the operator reconciles it explicitly.
 	ManagedByPolicy bool `yaml:"managed_by_policy,omitempty"`
+}
+
+// DenyAllToolsSentinel is the reserved allowlist value that means "deny every
+// tool" for an agent. An empty AllowedTools list means "all tools allowed", so
+// zero access must be a non-empty list that matches no real tool. The lone
+// sentinel ([DenyAllToolsSentinel]) is the canonical deny-all form a v2 policy
+// apply writes (see internal/apply).
+//
+// The name is RESERVED end to end: it is never a callable tool. The runtime
+// allowlist enforcement (gateway and stdio proxy) special-cases it BEFORE name
+// matching so an agent whose allowlist is the lone sentinel is denied every
+// call, and a backend tool literally named the sentinel is rejected at
+// discovery and never registered. This keeps the deny-all representation
+// unspoofable.
+const DenyAllToolsSentinel = "__oktsec_deny_all__"
+
+// IsDenyAllTools reports whether an agent's AllowedTools is the canonical
+// deny-all form: exactly the lone reserved sentinel. This is the single runtime
+// predicate the gateway and stdio proxy consult before any normal tool-name
+// matching, so the sentinel can never be treated as a matchable name.
+func IsDenyAllTools(allowedTools []string) bool {
+	return len(allowedTools) == 1 && allowedTools[0] == DenyAllToolsSentinel
 }
 
 // ScanProfile constants.

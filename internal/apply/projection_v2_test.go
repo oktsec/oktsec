@@ -999,24 +999,93 @@ func TestV2_RulesReplaceReapsStalePolicyOwnedRule(t *testing.T) {
 	}
 }
 
-// FIX 1 test 2: replace with an OPERATOR-AUTHORED rule (unmarked) absent from the
-// bundle -> it is PRESERVED, never touched.
-func TestV2_RulesReplacePreservesOperatorAuthoredRule(t *testing.T) {
+// FIX 1 test 2 (architect cut): replace with a local rule of UNKNOWN ownership
+// (unmarked) absent from the bundle -> the apply FAILS CLOSED. A v2 replace is a
+// hard claim that the node's governed rule set equals the signed set, so an
+// unmarked local rule the bundle does not name blocks: no config write, no state
+// advance, and the error names the blocking rule clearly. Silent preservation is
+// no longer the contract. (This is also the first-apply reality: before any v2
+// apply no rule is marked, so a node with pre-existing local rules not in the
+// bundle fails closed on first replace until the operator reconciles.)
+func TestV2_RulesReplaceUnownedRuleFailsClosed(t *testing.T) {
 	cfg := baseConfig()
 	cfg.Rules = []config.RuleAction{
-		{ID: "OPER-1", Action: "quarantine", Severity: "high"}, // no marker
+		{ID: "OPER-1", Action: "quarantine", Severity: "high"}, // no marker = unknown ownership
+	}
+	b := rulesReplaceBody("IAP-003")
+	p, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unowned local rule must fail closed with ErrUnsupported, got %v", err)
+	}
+	if !hasUnsupportedV2(p, "rules_replace_unowned_local_rule") {
+		t.Fatalf("expected rules_replace_unowned_local_rule unsupported, got %+v", p.Unsupported)
+	}
+	// Architect regression 5: the error names the blocking rule clearly.
+	named := false
+	for _, u := range p.Unsupported {
+		if u.Kind == "rules_replace_unowned_local_rule" && strings.Contains(u.Detail, "OPER-1") {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("unsupported detail must name the blocking rule OPER-1, got %+v", p.Unsupported)
+	}
+}
+
+// FIX 1 test (architect regression 4): a CLEAN replace, where every local rule
+// is either named by the bundle or marked policy-owned, leaves EXACTLY the
+// signed desired rule set (governed rules written+marked, stale policy-owned
+// rules reaped, nothing of unknown ownership left to block).
+func TestV2_RulesReplaceCleanLeavesExactlySignedSet(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Rules = []config.RuleAction{
+		// Named by the bundle (will be written+marked).
+		{ID: "IAP-003", Action: "ignore", Severity: "high", ManagedByPolicy: true},
+		// Stale policy-owned, not named -> reaped.
+		{ID: "STALE-9", Action: "ignore", Severity: "low", ManagedByPolicy: true},
+	}
+	b := rulesReplaceBody("IAP-003")
+	p, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
+	if err != nil {
+		t.Fatalf("clean replace must succeed, got %v", err)
+	}
+	got := p.Projected().Rules
+	if len(got) != 1 {
+		t.Fatalf("clean replace must leave exactly the signed set (1 rule), got %+v", got)
+	}
+	ra, ok := ruleByID(p.Projected(), "IAP-003")
+	if !ok || !ra.ManagedByPolicy || ra.Action != "block" {
+		t.Fatalf("the only remaining rule must be the signed governed rule, got %+v ok=%v", ra, ok)
+	}
+	if _, ok := ruleByID(p.Projected(), "STALE-9"); ok {
+		t.Fatalf("stale policy-owned rule must be reaped in a clean replace, rules=%+v", got)
+	}
+}
+
+// FIX 1 test (architect regression 3): a named rule replacement clears the old
+// scoped fields (apply_to_tools/exempt_tools widened to global, as the upsert
+// does), so the projected rule is exactly the signed global override.
+func TestV2_RulesReplaceClearsScopedFields(t *testing.T) {
+	cfg := baseConfig()
+	cfg.Rules = []config.RuleAction{
+		{ID: "IAP-003", Action: "ignore", Severity: "high",
+			ApplyToTools: []string{"calendar.read"}, ExemptTools: []string{"mail.send"},
+			ManagedByPolicy: true},
 	}
 	b := rulesReplaceBody("IAP-003")
 	p, err := DryRunV2(verifiedV2(b), cfg, "", targetPath)
 	if err != nil {
 		t.Fatalf("DryRunV2: %v", err)
 	}
-	ra, ok := ruleByID(p.Projected(), "OPER-1")
+	ra, ok := ruleByID(p.Projected(), "IAP-003")
 	if !ok {
-		t.Fatalf("operator-authored rule must be preserved, got %+v", p.Projected().Rules)
+		t.Fatalf("named rule must be present, rules=%+v", p.Projected().Rules)
 	}
-	if ra.Action != "quarantine" || ra.ManagedByPolicy {
-		t.Fatalf("operator-authored rule must be untouched and unmarked, got %+v", ra)
+	if len(ra.ApplyToTools) != 0 || len(ra.ExemptTools) != 0 {
+		t.Fatalf("named replace must clear scoped fields (apply_to_tools/exempt_tools), got %+v", ra)
+	}
+	if ra.Action != "block" || !ra.ManagedByPolicy {
+		t.Fatalf("named replace must write the signed global override marked, got %+v", ra)
 	}
 }
 
