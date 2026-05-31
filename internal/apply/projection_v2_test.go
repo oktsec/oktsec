@@ -1143,17 +1143,19 @@ func TestV2_RulesReplaceDroppedOverrideDisappears(t *testing.T) {
 	}
 }
 
-// FIX 1 test 5: the marker round-trips through the YAML write path (Commit). After
-// a real apply, the written config has the governed rule marked and the operator
-// rule unmarked; loading it back preserves the distinction. Uses a config file
-// seeded with an operator-authored rule (OPER-1, no marker) so we prove operator
-// config is preserved through the real write path, not just in memory.
+// FIX 1 test 5: the marker round-trips through the YAML write path (Commit). A v2
+// replace claims the node's governed rule set, so the config is seeded with a
+// pre-existing rule the bundle NAMES (IAP-003, unmarked, as v1 would have written
+// it). After a real apply the bundle adopts that rule, marks it managed_by_policy,
+// and the marker survives a Commit + reload. This proves a v1-written (unmarked)
+// rule the bundle names is cleanly adopted through the real write path, and that
+// the resulting config is exactly the signed governed set.
 func TestV2_RulesReplaceMarkerRoundTripsThroughCommit(t *testing.T) {
-	// Reuse the proven-stable origConfigYAML fixture (identical to the reliable
-	// CommitV2 test) but with an operator-authored rule instead of an empty rules
-	// list, so the round-trip proves operator config survives the real write path.
+	// Reuse the proven-stable origConfigYAML fixture but seed a rule the bundle
+	// names so the replace is clean (no rule of unknown ownership to block) and it
+	// exercises the adopt+mark path through the real write path.
 	seeded := strings.Replace(origConfigYAML, "rules: []\n",
-		"rules:\n  - id: OPER-1\n    action: quarantine\n    severity: high\n", 1)
+		"rules:\n  - id: IAP-003\n    action: quarantine\n    severity: high\n", 1)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "oktsec.yaml")
 	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
@@ -1168,21 +1170,16 @@ func TestV2_RulesReplaceMarkerRoundTripsThroughCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("written config must load: %v", err)
 	}
-	// Governed rule is marked.
+	// Governed rule is adopted, set to the signed action, and marked.
 	ra, ok := ruleByID(cfg, "IAP-003")
-	if !ok || !ra.ManagedByPolicy {
-		t.Fatalf("governed rule must round-trip marked, got %+v ok=%v", ra, ok)
+	if !ok || !ra.ManagedByPolicy || ra.Action != "block" {
+		t.Fatalf("named rule must round-trip adopted+marked at the signed action, got %+v ok=%v", ra, ok)
 	}
-	// Operator rule is preserved and stays unmarked.
-	oper, ok := ruleByID(cfg, "OPER-1")
-	if !ok {
-		t.Fatalf("operator rule OPER-1 must be preserved, rules=%+v", cfg.Rules)
+	// The replace claims the governed set: only the signed rule remains.
+	if len(cfg.Rules) != 1 {
+		t.Fatalf("a clean replace must leave exactly the signed set, got %+v", cfg.Rules)
 	}
-	if oper.ManagedByPolicy {
-		t.Fatalf("operator rule must stay unmarked through round-trip, got %+v", oper)
-	}
-	// The serialized YAML must carry the marker for the governed rule and NOT for
-	// the operator rule.
+	// The serialized YAML must carry the marker for the governed rule.
 	data, _ := os.ReadFile(path)
 	if !strings.Contains(string(data), "managed_by_policy: true") {
 		t.Fatalf("written YAML must carry the marker for the governed rule:\n%s", data)

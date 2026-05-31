@@ -596,6 +596,15 @@ func (g *Gateway) buildToolMap() error {
 			if nameCounts[t.Name] > 1 {
 				frontendName = backendName + "_" + t.Name
 			}
+			// A namespaced frontend name could ALSO collide with the reserved
+			// sentinel (e.g. backend "__oktsec" + tool "deny_all__" -> the sentinel).
+			// The handler keys deny-all on OriginalName, so a sentinel-named frontend
+			// would still be callable; exclude it here too.
+			if frontendName == config.DenyAllToolsSentinel {
+				g.logger.Warn("namespaced tool name collides with reserved deny-all sentinel; excluding from gateway",
+					"backend", backendName, "tool", t.Name, "frontend", frontendName)
+				continue
+			}
 			g.toolMap[frontendName] = toolMapping{
 				BackendName:    backendName,
 				OriginalName:   t.Name,

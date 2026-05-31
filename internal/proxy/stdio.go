@@ -235,13 +235,18 @@ func (p *StdioProxy) inspectAndDecide(line []byte, from, to string) (bool, json.
 
 	// Tool allowlist check: block tools/call for tools not in the allowlist.
 	// The deny-all sentinel is special-cased BEFORE name matching so it can never
-	// execute as a tool: when the allowlist is the lone sentinel every call is
-	// denied (including a call to a tool literally named the sentinel), and a tool
-	// whose name IS the reserved sentinel is denied regardless of the allowlist.
-	if p.enforce && msg.Method == "tools/call" && len(p.allowedTools) > 0 {
+	// execute as a tool. Three denials, evaluated in this order:
+	//   - the requested tool name IS the reserved sentinel -> deny UNCONDITIONALLY,
+	//     even with an empty allowlist (an empty allowlist means "all tools", but
+	//     the sentinel is never a callable tool name);
+	//   - the allowlist is the lone deny-all sentinel -> deny EVERY call;
+	//   - a non-empty allowlist that does not list the tool -> deny.
+	if p.enforce && msg.Method == "tools/call" {
 		toolName := extractToolName(msg)
-		denyAll := len(p.allowedTools) == 1 && p.allowedTools[config.DenyAllToolsSentinel]
-		if toolName != "" && (denyAll || toolName == config.DenyAllToolsSentinel || !p.allowedTools[toolName]) {
+		denyAllList := len(p.allowedTools) == 1 && p.allowedTools[config.DenyAllToolsSentinel]
+		sentinelName := toolName == config.DenyAllToolsSentinel
+		notAllowed := len(p.allowedTools) > 0 && !p.allowedTools[toolName]
+		if toolName != "" && (sentinelName || denyAllList || notAllowed) {
 			p.logger.Warn("tool not allowed",
 				"tool", toolName,
 				"agent", p.agent,
