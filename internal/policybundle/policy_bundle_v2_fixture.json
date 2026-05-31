@@ -1,0 +1,166 @@
+{
+  "schema_version": "policy_bundle.v2",
+  "bundle_version": 2,
+  "policy_hash": "sha256:91a0912e05868740e939256fc0b58498ff1ae4b19a5d5fbf7b18730d8b9f5300",
+  "canonicalization": "oktsec-policy-v2-typed-utc-json",
+  "policy": {
+    "policy_id": "voice-ai-prod",
+    "policy_version": "1",
+    "mode": "enforce",
+    "assignment": {
+      "assignment_id": "assign-0001",
+      "target": {
+        "scope": "node",
+        "node_id": "node-east-1"
+      },
+      "issued_at": "2026-05-23T12:00:00Z",
+      "sequence": 1,
+      "rollback_of": ""
+    },
+    "rules": {
+      "mode": "replace",
+      "enabled": [
+        "IAP-001",
+        "IAP-003",
+        "IAP-007"
+      ],
+      "disabled": [
+        "IAP-004"
+      ],
+      "overrides": {
+        "IAP-007": {
+          "action": "block"
+        }
+      }
+    },
+    "gateway": {
+      "mode": "replace",
+      "tools_allowed": [
+        "calendar.read",
+        "voice.dial"
+      ],
+      "tools_denied": [
+        "shell.exec"
+      ]
+    },
+    "egress": {
+      "mode": "replace",
+      "domains_allowed": [
+        "api.openai.com",
+        "api.anthropic.com"
+      ],
+      "domains_denied": [
+        "*.suspicious.example"
+      ]
+    },
+    "governance": {
+      "server": {
+        "mode": "replace",
+        "require_intent": true,
+        "rate_limit_max": 100,
+        "rate_limit_window_s": 60
+      },
+      "agents": [
+        {
+          "selector": {
+            "name": "voice-agent",
+            "labels": {
+              "env": "prod",
+              "tier": "critical"
+            }
+          },
+          "acls": {
+            "mode": "replace",
+            "allowed_recipients": [
+              "billing-agent",
+              "calendar-agent"
+            ],
+            "blocked_recipients": [
+              "untrusted-agent"
+            ]
+          },
+          "allowed_tools": {
+            "mode": "replace",
+            "values": [
+              "calendar.read",
+              "voice.dial"
+            ]
+          },
+          "tool_policies": {
+            "mode": "replace",
+            "by_tool": {
+              "voice.dial": {
+                "max_amount": "100.00",
+                "daily_limit": "1000.00",
+                "require_approval_above": "500.00",
+                "rate_limit": 20
+              }
+            }
+          },
+          "tool_constraints": {
+            "mode": "replace",
+            "items": [
+              {
+                "tool_name": "voice.dial",
+                "max_calls": 50,
+                "window_secs": 3600,
+                "params": {
+                  "number": {
+                    "max_length": 20,
+                    "pattern": "^[0-9+]+$",
+                    "enum": [],
+                    "required": true
+                  }
+                }
+              }
+            ]
+          },
+          "tool_chain_rules": {
+            "mode": "clear",
+            "items": [
+              {
+                "trigger": "voice.dial",
+                "blocks": [
+                  "shell.exec"
+                ],
+                "reason": "no shell after a dial"
+              }
+            ]
+          },
+          "blocked_content": {
+            "mode": "replace",
+            "values": [
+              "secrets",
+              "credentials"
+            ]
+          },
+          "scan_profile": {
+            "mode": "replace",
+            "value": "strict"
+          },
+          "suspended": {
+            "mode": "replace",
+            "value": false
+          }
+        }
+      ]
+    },
+    "redaction": {
+      "mode": "replace",
+      "level": "analyst"
+    },
+    "metadata": {
+      "created_at": "2026-05-23T12:00:00Z",
+      "created_by": "fixture-generator",
+      "reason": "Vendored test fixture for policy_bundle.v2 schema drift guard."
+    }
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "key_id": "enterprise-policy-fixture-v2",
+    "public_key": "ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=",
+    "public_key_fingerprint": "sha256:65b60673d6ed884bf01c2c222d82ada0740f29ac3355d6a925c81f17f47a27b8",
+    "signed_at": "2026-05-23T12:00:01Z",
+    "value": "5H1st3G0BP9ZJyU3I2QCDxdytN8G8aPH+ChC9ui7iLpKcWHUUknHCr6GL8nM9MrYzPmbLXOKep6vPFu3wKUoBg=="
+  }
+}
