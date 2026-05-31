@@ -86,15 +86,25 @@ func (p *PlanV2) Projected() *config.Config { return p.projected }
 // Change with an explicit DimMode label so the operator sees intent (REPLACE vs
 // CLEAR) in the plan, which the spec requires for v2.
 type ChangeV2 struct {
-	Kind      string `json:"kind"`
-	DimMode   string `json:"dim_mode"`     // replace | clear (unmanaged never emits a change)
-	ID        string `json:"id,omitempty"` // rule id
-	Action    string `json:"action,omitempty"`
-	Agent     string `json:"agent,omitempty"`
-	Count     int    `json:"count,omitempty"`      // list cardinality after the change
+	Kind    string `json:"kind"`
+	DimMode string `json:"dim_mode"`     // replace | clear (unmanaged never emits a change)
+	ID      string `json:"id,omitempty"` // rule id
+	Action  string `json:"action,omitempty"`
+	Agent   string `json:"agent,omitempty"`
+	// Count and BoolValue are POINTERS so an explicit, meaningful zero/false is
+	// always emitted in --json (a clear-to-0 list, or an unsuspend to false),
+	// while staying ABSENT (nil) on change kinds where they do not apply. A plain
+	// int/bool with omitempty would hide a real 0/false from automation; without
+	// omitempty it would emit a spurious 0/false on unrelated change kinds.
+	Count     *int   `json:"count,omitempty"`      // list cardinality after the change
 	Value     string `json:"value,omitempty"`      // scalar value (scan_profile)
-	BoolValue bool   `json:"bool_value,omitempty"` // scalar bool (suspended)
+	BoolValue *bool  `json:"bool_value,omitempty"` // scalar bool (suspended)
 }
+
+// intVal and boolVal wrap an explicit count/bool so the value is always emitted
+// in --json (even 0/false), distinguishing an explicit value from an absent one.
+func intVal(n int) *int    { return &n }
+func boolVal(b bool) *bool { return &b }
 
 // DryRunV2 projects a verified v2 bundle onto a copy of cfg. nodeID is the local
 // node identity used for target binding (required when the bundle is node
@@ -560,7 +570,7 @@ func projectAgentAllowedToolsV2(plan *PlanV2, agent *config.Agent, name string, 
 		next := append([]string(nil), vals...)
 		if !slices.Equal(agent.AllowedTools, next) {
 			agent.AllowedTools = next
-			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_allowed_tools", DimMode: dimReplace, Agent: name, Count: len(next)})
+			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_allowed_tools", DimMode: dimReplace, Agent: name, Count: intVal(len(next))})
 		}
 	case dimClear:
 		// Genuine zero-access form: a single sentinel that matches no real tool.
@@ -569,7 +579,7 @@ func projectAgentAllowedToolsV2(plan *PlanV2, agent *config.Agent, name string, 
 		zero := []string{denyAllToolsSentinel}
 		if !slices.Equal(agent.AllowedTools, zero) {
 			agent.AllowedTools = zero
-			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_allowed_tools", DimMode: dimClear, Agent: name, Count: 0})
+			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_allowed_tools", DimMode: dimClear, Agent: name, Count: intVal(0)})
 		}
 	}
 }
@@ -695,12 +705,12 @@ func projectAgentEgressV2(plan *PlanV2, target *config.Config, agent *config.Age
 		ensureEgress(agent)
 		if !slices.Equal(agent.Egress.AllowedDomains, eg.AllowedDomains) {
 			agent.Egress.AllowedDomains = append([]string(nil), eg.AllowedDomains...)
-			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_egress_allowed_domains", DimMode: dimReplace, Agent: name, Count: len(eg.AllowedDomains)})
+			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_egress_allowed_domains", DimMode: dimReplace, Agent: name, Count: intVal(len(eg.AllowedDomains))})
 		}
 		// blocked under replace is additive-faithful (deny is monotonic).
 		if !slices.Equal(agent.Egress.BlockedDomains, eg.BlockedDomains) {
 			agent.Egress.BlockedDomains = append([]string(nil), eg.BlockedDomains...)
-			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_egress_denied_domains", DimMode: dimReplace, Agent: name, Count: len(eg.BlockedDomains)})
+			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_egress_denied_domains", DimMode: dimReplace, Agent: name, Count: intVal(len(eg.BlockedDomains))})
 		}
 	case dimClear:
 		// Zero egress: setting the agent's allowed_domains to the sentinel only
@@ -726,7 +736,7 @@ func projectAgentEgressV2(plan *PlanV2, target *config.Config, agent *config.Age
 		if !slices.Equal(agent.Egress.AllowedDomains, zero) || len(agent.Egress.BlockedDomains) != 0 {
 			agent.Egress.AllowedDomains = zero
 			agent.Egress.BlockedDomains = nil
-			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_egress_allowed_domains", DimMode: dimClear, Agent: name, Count: 0})
+			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_egress_allowed_domains", DimMode: dimClear, Agent: name, Count: intVal(0)})
 		}
 	}
 }
@@ -760,7 +770,7 @@ func projectAgentSuspendedV2(plan *PlanV2, agent *config.Agent, name string, gov
 	case dimReplace:
 		if agent.Suspended != gov.Suspended.Value {
 			agent.Suspended = gov.Suspended.Value
-			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_suspended", DimMode: dimReplace, Agent: name, BoolValue: gov.Suspended.Value})
+			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_suspended", DimMode: dimReplace, Agent: name, BoolValue: boolVal(gov.Suspended.Value)})
 		}
 	case dimClear:
 		plan.Unsupported = append(plan.Unsupported, Unsupported{
@@ -804,12 +814,12 @@ func projectAgentBlockedContentV2(plan *PlanV2, agent *config.Agent, name string
 		next := append([]string(nil), vals...)
 		if !slices.Equal(agent.BlockedContent, next) {
 			agent.BlockedContent = next
-			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_blocked_content", DimMode: dimReplace, Agent: name, Count: len(next)})
+			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_blocked_content", DimMode: dimReplace, Agent: name, Count: intVal(len(next))})
 		}
 	case dimClear:
 		if len(agent.BlockedContent) != 0 {
 			agent.BlockedContent = []string{}
-			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_blocked_content", DimMode: dimClear, Agent: name, Count: 0})
+			plan.Changes = append(plan.Changes, ChangeV2{Kind: "agent_blocked_content", DimMode: dimClear, Agent: name, Count: intVal(0)})
 		}
 	}
 }

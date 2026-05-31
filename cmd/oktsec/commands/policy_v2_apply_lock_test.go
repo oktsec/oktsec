@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/oktsec/oktsec/internal/apply"
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/policybundle"
 )
 
@@ -250,5 +251,110 @@ func TestPolicyApplyV2_HeldLockBlocksConcurrentApply(t *testing.T) {
 	// After release a fresh apply succeeds.
 	if err := applyFleetSeq(t, dir, configPath, 1, "afterrelease"); err != nil {
 		t.Fatalf("apply after release: %v", err)
+	}
+}
+
+// fleetBundleSuspend builds a fleet-scoped v2 bundle at seq that sets voice-ai's
+// suspended flag to the given value (a real change when it differs from config).
+func fleetBundleSuspend(t *testing.T, dir string, seq int64, assignID string, suspended bool) (bundlePath, fp string) {
+	t.Helper()
+	body := supportedAgentBodyV2("fleet", "")
+	body.Assignment.Sequence = seq
+	body.Assignment.AssignmentID = assignID
+	g := agentGovV2cmd("voice-ai")
+	g.Suspended = policybundle.DimScalarBoolV2{Mode: "replace", Value: suspended}
+	body.Governance.Agents = []policybundle.AgentGovernanceV2{g}
+	raw, trustFP := signV2Bundle(t, body)
+	p := filepath.Join(dir, "suspend-"+assignID+".signed.json")
+	if err := os.WriteFile(p, raw, 0o600); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+	return p, trustFP
+}
+
+// TestPolicyApplyV2_ProjectionUnderLock_ConfigAndStateNeverDiverge is the FIX A
+// (P1) regression: the no-op-vs-commit decision and the committed projection
+// must BOTH be derived from the config observed UNDER the lock, so the config
+// the recorded sequence corresponds to is always the config on disk.
+//
+// Deterministic construction of the Codex race. The baseline config has voice-ai
+// NOT suspended. Apply a lower-seq bundle (seq 5) that suspends it -> commits,
+// config suspended=true, floor 5. Then apply a HIGHER-seq bundle (seq 10) whose
+// desired suspended value is false -- i.e. exactly the baseline's original value,
+// so projected against the BASELINE it would be a no-op. Because the projection
+// now runs under the lock against the on-disk (post-seq-5) config, the higher
+// bundle sees suspended=true and actually applies suspended=false, committing the
+// config AND advancing the floor to 10. Config and state agree.
+//
+// Before FIX A the higher bundle, projected against a stale baseline snapshot,
+// would have taken the no-op path: the floor would advance to 10 while the config
+// stayed suspended=true (seq 5's policy) -- a divergence that this test forbids.
+func TestPolicyApplyV2_ProjectionUnderLock_ConfigAndStateNeverDiverge(t *testing.T) {
+	dir, configPath := writeV2ApplyConfig(t)
+
+	// Sanity: baseline voice-ai is not suspended (the value the higher bundle
+	// will request, so it would be a no-op against the baseline).
+	base, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("load baseline: %v", err)
+	}
+	if base.Agents["voice-ai"].Suspended {
+		t.Fatalf("baseline voice-ai must start not suspended for this race construction")
+	}
+
+	// Lower seq 5: suspend voice-ai (real change true).
+	lowPath, lowFP := fleetBundleSuspend(t, dir, 5, "low", true)
+	if _, err := runPolicyApply(t,
+		"--bundle", lowPath, "--trust-fingerprint", lowFP,
+		"--config", configPath, "--json",
+	); err != nil {
+		t.Fatalf("low apply (seq 5): %v", err)
+	}
+	if got := fleetReplayFloor(t, configPath); got != 5 {
+		t.Fatalf("floor after seq 5 = %d, want 5", got)
+	}
+
+	// Higher seq 10: desired suspended=false == baseline value. A no-op vs the
+	// baseline, a real change vs the on-disk post-seq-5 config.
+	highPath, highFP := fleetBundleSuspend(t, dir, 10, "high", false)
+	if _, err := runPolicyApply(t,
+		"--bundle", highPath, "--trust-fingerprint", highFP,
+		"--config", configPath, "--json",
+	); err != nil {
+		t.Fatalf("high apply (seq 10): %v", err)
+	}
+
+	// Config must reflect the higher bundle's desired value: suspended=false.
+	after, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if after.Agents["voice-ai"].Suspended {
+		t.Fatalf("config and state diverged: config shows suspended=true (seq-5 policy) but the higher seq-10 bundle desired suspended=false")
+	}
+
+	// State must record the higher sequence, corresponding to the config on disk.
+	if got := fleetReplayFloor(t, configPath); got != 10 {
+		t.Fatalf("floor after seq 10 = %d, want 10", got)
+	}
+}
+
+// TestPolicyApplyV2_RealApplyHonorsMalformedStateFailClosed exercises FIX A + B
+// together at the command layer: a present-but-malformed state file makes a real
+// apply refuse with no config write and no state advance (the loader fails
+// closed under the lock).
+func TestPolicyApplyV2_RealApplyHonorsMalformedStateFailClosed(t *testing.T) {
+	dir, configPath := writeV2ApplyConfig(t)
+	before, _ := os.ReadFile(configPath)
+	// Seed a present-but-malformed state file (wrong version).
+	if err := os.WriteFile(apply.PolicyStatePath(configPath), []byte(`{"version": 99, "targets": {}}`), 0o600); err != nil {
+		t.Fatalf("seed malformed state: %v", err)
+	}
+	if err := applyFleetSeq(t, dir, configPath, 1, "one"); err == nil {
+		t.Fatalf("apply must refuse on a malformed state file")
+	}
+	after, _ := os.ReadFile(configPath)
+	if string(before) != string(after) {
+		t.Fatalf("config must be unchanged when the state is malformed")
 	}
 }

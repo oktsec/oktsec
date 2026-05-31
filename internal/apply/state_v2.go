@@ -100,8 +100,19 @@ func LoadPolicyState(configPath string) (*PolicyState, error) {
 	if err := dec.Decode(&st); err != nil {
 		return nil, fmt.Errorf("decode policy state %q: %w", path, err)
 	}
+	// Fail closed on a PRESENT but malformed state file. Only a genuinely ABSENT
+	// file (handled above) may start fresh. Silently resetting a present file
+	// that decoded to the wrong version or has no targets map would treat every
+	// target as never-applied and re-open the anti-rollback gate, letting a stale
+	// lower sequence apply after an accidental or truncated state file. A
+	// truncated/garbage file already fails to decode above; here we additionally
+	// reject a well-formed JSON object that is not a valid state ("{}",
+	// "targets": null, or a wrong/missing version).
+	if st.Version != PolicyStateVersion {
+		return nil, fmt.Errorf("policy state %q has unexpected version %d (want %d); refusing to treat a malformed state as fresh", path, st.Version, PolicyStateVersion)
+	}
 	if st.Targets == nil {
-		st.Targets = map[string]TargetRecord{}
+		return nil, fmt.Errorf("policy state %q is missing its targets map; refusing to treat a malformed state as fresh", path)
 	}
 	return &st, nil
 }

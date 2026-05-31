@@ -178,6 +178,14 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 			target.Rules[i].Action = action
 			target.Rules[i].ApplyToTools = nil
 			target.Rules[i].ExemptTools = nil
+			// v1 is marker-agnostic by design: it never SETS ManagedByPolicy, but
+			// when it rewrites a rule that a prior v2 apply owned, that rule becomes
+			// operator/v1-owned, which under v2 means unowned. Clear the marker so a
+			// later v2 replace fails closed on it (treats it as unowned/local)
+			// instead of reaping a v1-applied override as policy-owned. This does NOT
+			// change v1's externally-observable YAML: ManagedByPolicy is omitempty,
+			// so false is absent, exactly as for any rule v1 writes itself.
+			target.Rules[i].ManagedByPolicy = false
 		} else {
 			target.Rules = append(target.Rules, config.RuleAction{ID: id, Action: action})
 			idx[id] = len(target.Rules) - 1

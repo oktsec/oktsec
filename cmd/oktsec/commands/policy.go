@@ -179,30 +179,32 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 			return emitApplyFailure(cmd, jsonOut, false, err)
 		}
 	}
-	cfg, err := config.Load(cfgFile)
-	if err != nil {
-		return fmt.Errorf("load config %q: %w", cfgFile, err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("current config %q is invalid: %w", cfgFile, err)
-	}
-
-	// Projection. Target binding (scope/node_id) is checked inside DryRunV2
-	// before any work, so a mismatch yields no plan and no write.
-	plan, perr := apply.DryRunV2(v, cfg, nodeID, cfgFile)
-	if perr != nil && !errors.Is(perr, apply.ErrUnsupported) {
-		// Target mismatch, missing agent, or invalid projected config: no plan.
-		return emitApplyFailure(cmd, jsonOut, dryRun, perr)
-	}
-	// Some ErrUnsupported failures occur BEFORE a plan is built (the deny-all
-	// sentinel collision in the local config fails closed in DryRunV2 and returns
-	// nil, ErrUnsupported). The plan emitters below dereference plan, so route a
-	// nil plan through emitApplyFailure rather than panicking.
-	if plan == nil {
-		return emitApplyFailure(cmd, jsonOut, dryRun, perr)
-	}
-
+	// --- Dry-run path: project against the current config and report, writing
+	// nothing. A dry-run has no critical section, so it takes no lock and never
+	// touches config or state; the pre-lock projection is authoritative for
+	// reporting only. ---
 	if dryRun {
+		cfg, err := config.Load(cfgFile)
+		if err != nil {
+			return fmt.Errorf("load config %q: %w", cfgFile, err)
+		}
+		if err := cfg.Validate(); err != nil {
+			return fmt.Errorf("current config %q is invalid: %w", cfgFile, err)
+		}
+		// Target binding (scope/node_id) is checked inside DryRunV2 before any
+		// work, so a mismatch yields no plan and no write.
+		plan, perr := apply.DryRunV2(v, cfg, nodeID, cfgFile)
+		if perr != nil && !errors.Is(perr, apply.ErrUnsupported) {
+			// Target mismatch, missing agent, or invalid projected config: no plan.
+			return emitApplyFailure(cmd, jsonOut, true, perr)
+		}
+		// Some ErrUnsupported failures occur BEFORE a plan is built (the deny-all
+		// sentinel collision fails closed in DryRunV2 and returns nil,
+		// ErrUnsupported). Route a nil plan through emitApplyFailure so the plan
+		// emitters never dereference nil.
+		if plan == nil {
+			return emitApplyFailure(cmd, jsonOut, true, perr)
+		}
 		emitPlanV2(cmd, jsonOut, plan)
 		if errors.Is(perr, apply.ErrUnsupported) && !allowPartial {
 			return perr
@@ -210,29 +212,56 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 		return nil
 	}
 
-	// Real apply. Unsupported semantics always fail with no write.
-	if errors.Is(perr, apply.ErrUnsupported) {
-		emitApplyResultV2(cmd, jsonOut, plan, "", false)
-		return perr
-	}
-
-	// Acquire the exclusive apply lock that spans the ENTIRE anti-rollback
-	// critical section: re-read state -> evaluate the rollback decision ->
-	// write config (CommitV2) -> persist state (SavePolicyState). Without it,
-	// two concurrent applies starting from the same prior state could read the
-	// same sequence, both pass the gate, and a LOWER sequence could land last,
-	// rolling the node back. The lock makes the read-decide-write-persist
-	// sequence atomic for this config/state pair. Released in every path
-	// (success, refusal, error) via defer.
+	// --- Real apply path. The lock must cover the FULL critical section: load
+	// the current config -> project it (the no-op-vs-commit decision) -> load
+	// state -> evaluate the rollback gate -> write config (CommitV2) -> persist
+	// state.
 	//
-	// The projection above (DryRunV2) only READS the config for reporting and
-	// writes nothing, so it is safe before the lock; the AUTHORITATIVE gating
-	// state read is the LoadPolicyState below, which is now post-lock.
+	// The projection MUST be computed UNDER the lock against the config as it
+	// exists on disk now. Two concurrent applies from the same file could
+	// otherwise each project against a stale pre-lock config snapshot where their
+	// desired value already matched, both take the no-op path, and advance the
+	// anti-rollback state to a higher sequence WITHOUT writing the config,
+	// leaving config and state diverged (config at the first apply's policy,
+	// state claiming the second apply's higher sequence). Projecting under the
+	// lock guarantees the plan CommitV2 writes and the plan the no-op decision
+	// uses are BOTH derived from the config observed under the lock, so the config
+	// the recorded sequence corresponds to is always the config on disk. Released
+	// in every path (success, refusal, error) via defer. ---
 	lock, lerr := apply.AcquireApplyLock(cfgFile)
 	if lerr != nil {
 		return emitApplyFailure(cmd, jsonOut, false, lerr)
 	}
 	defer func() { _ = lock.Release() }()
+
+	// Re-load the config from disk UNDER the lock: this is the authoritative
+	// config the projection and the no-op decision are computed against.
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return emitApplyFailure(cmd, jsonOut, false, fmt.Errorf("load config %q: %w", cfgFile, err))
+	}
+	if err := cfg.Validate(); err != nil {
+		return emitApplyFailure(cmd, jsonOut, false, fmt.Errorf("current config %q is invalid: %w", cfgFile, err))
+	}
+
+	// Authoritative projection under the lock. Target binding (scope/node_id) is
+	// re-checked here against the fresh config, and unsupported dimensions still
+	// fail closed with no write.
+	plan, perr := apply.DryRunV2(v, cfg, nodeID, cfgFile)
+	if perr != nil && !errors.Is(perr, apply.ErrUnsupported) {
+		// Target mismatch, missing agent, or invalid projected config: no plan.
+		return emitApplyFailure(cmd, jsonOut, false, perr)
+	}
+	// A nil plan (e.g. the deny-all sentinel collision fails closed in DryRunV2)
+	// must not reach the plan emitters; route it through emitApplyFailure.
+	if plan == nil {
+		return emitApplyFailure(cmd, jsonOut, false, perr)
+	}
+	// Unsupported semantics always fail with no write.
+	if errors.Is(perr, apply.ErrUnsupported) {
+		emitApplyResultV2(cmd, jsonOut, plan, "", false)
+		return perr
+	}
 
 	// Anti-rollback: read state AFTER the lock is held (never a pre-lock
 	// snapshot), evaluate the decision from this read, and advance it only
@@ -304,6 +333,25 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 // outside tests.
 var savePolicyStateAfterCommit = apply.SavePolicyState
 
+// derefBool and derefInt render a ChangeV2's pointer count/bool for the human
+// summary. The pointer is always set on the change kinds that print it
+// (agent_suspended sets BoolValue, list changes set Count), so a nil here only
+// occurs defensively and prints the zero value, matching the prior int/bool
+// output exactly.
+func derefBool(b *bool) bool {
+	if b == nil {
+		return false
+	}
+	return *b
+}
+
+func derefInt(n *int) int {
+	if n == nil {
+		return 0
+	}
+	return *n
+}
+
 // emitPlanV2 prints the v2 dry-run plan as JSON (when --json) or a short summary.
 func emitPlanV2(cmd *cobra.Command, jsonOut bool, p *apply.PlanV2) {
 	out := cmd.OutOrStdout()
@@ -323,11 +371,11 @@ func emitPlanV2(cmd *cobra.Command, jsonOut bool, p *apply.PlanV2) {
 		case "rule_reset_default":
 			fmt.Fprintf(out, "  - [%s] rule %s -> severity default (local override removed)\n", c.DimMode, c.ID)
 		case "agent_suspended":
-			fmt.Fprintf(out, "  - [%s] %s (agent %s): %v\n", c.DimMode, c.Kind, c.Agent, c.BoolValue)
+			fmt.Fprintf(out, "  - [%s] %s (agent %s): %v\n", c.DimMode, c.Kind, c.Agent, derefBool(c.BoolValue))
 		case "agent_scan_profile":
 			fmt.Fprintf(out, "  - [%s] %s (agent %s): %s\n", c.DimMode, c.Kind, c.Agent, c.Value)
 		default:
-			fmt.Fprintf(out, "  - [%s] %s (agent %s): %d\n", c.DimMode, c.Kind, c.Agent, c.Count)
+			fmt.Fprintf(out, "  - [%s] %s (agent %s): %d\n", c.DimMode, c.Kind, c.Agent, derefInt(c.Count))
 		}
 	}
 	for _, u := range p.Unsupported {
