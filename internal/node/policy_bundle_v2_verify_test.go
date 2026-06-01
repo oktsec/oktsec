@@ -237,6 +237,55 @@ func TestBuildPolicySection_V2NoTrustAnchorMalformedUnsupported(t *testing.T) {
 				sec.ActivePolicyVerificationStatus, PolicyVerificationUnsupportedBundle)
 		}
 	})
+
+	t.Run("unknown_field_no_anchor", func(t *testing.T) {
+		// A v2-tagged bundle with an unknown top-level field is rejected by
+		// the strict v2 decode. With no trust fingerprint it must still be
+		// unsupported_bundle, the SAME status the anchored path reports for
+		// this bundle (see TestBuildPolicySection_V2FailClosed). The status
+		// must not flip to no_trust_anchor just because no anchor is set.
+		var m map[string]any
+		if err := json.Unmarshal(vendoredPolicyBundleV2, &m); err != nil {
+			t.Fatalf("decode fixture: %v", err)
+		}
+		m["unexpected_field"] = "x"
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		sec, _ := buildPolicySection(writeV2(t, raw), "")
+		if sec.ActivePolicyVerified {
+			t.Fatal("malformed v2 bundle must not verify")
+		}
+		if sec.ActivePolicyVerificationStatus != PolicyVerificationUnsupportedBundle {
+			t.Fatalf("status = %q, want %q (strict-decode reject is unsupported, not no_trust_anchor)",
+				sec.ActivePolicyVerificationStatus, PolicyVerificationUnsupportedBundle)
+		}
+	})
+
+	t.Run("hash_flipped_no_anchor", func(t *testing.T) {
+		// A v2 bundle whose declared policy_hash was flipped after signing
+		// fails the verifier hash/signature checks. With no trust
+		// fingerprint it must report signature_invalid (fail closed), the
+		// SAME status the anchored path reports, not no_trust_anchor.
+		var m map[string]any
+		if err := json.Unmarshal(vendoredPolicyBundleV2, &m); err != nil {
+			t.Fatalf("decode fixture: %v", err)
+		}
+		m["policy_hash"] = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		sec, _ := buildPolicySection(writeV2(t, raw), "")
+		if sec.ActivePolicyVerified {
+			t.Fatal("corrupted v2 bundle must not verify")
+		}
+		if sec.ActivePolicyVerificationStatus != PolicyVerificationSignatureInvalid {
+			t.Fatalf("status = %q, want %q (hash mismatch is signature_invalid, not no_trust_anchor)",
+				sec.ActivePolicyVerificationStatus, PolicyVerificationSignatureInvalid)
+		}
+	})
 }
 
 // (7) The legitimate case stays correct: a WELL-FORMED v2 bundle with NO
