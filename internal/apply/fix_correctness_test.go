@@ -9,7 +9,6 @@ import (
 
 	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/policybundle"
-	"github.com/oktsec/oktsec/internal/policysign"
 )
 
 // ---- FIX B: LoadPolicyState fails closed on a present-but-malformed state ----
@@ -91,19 +90,12 @@ func TestLoadPolicyState_ValidPresentStillLoads(t *testing.T) {
 
 // v1OverrideBody builds a v1 PolicyBody (enforce mode) whose only rule action is
 // an override of ruleID to "block". The projector consumes the verified body, so
-// no signing is needed (verifiedV1Bundle is the shared in-package helper).
-func v1OverrideBody(ruleID string) policysign.PolicyBody {
-	return policysign.PolicyBody{
-		SchemaVersion: "policy_bundle.v1",
-		PolicyID:      "pol-1",
-		PolicyVersion: "1",
-		Mode:          ModeEnforce,
-		Rules: policysign.RuleSet{
-			Enabled:   []string{},
-			Disabled:  []string{},
-			Overrides: map[string]policysign.RuleOverride{ruleID: {Action: "block"}},
-		},
-	}
+// no signing is needed (verified is the shared in-package helper).
+func v1OverrideBody(ruleID string) policybundle.PolicyBody {
+	b := body()
+	b.PolicyID = "pol-1"
+	b.Rules.Overrides = map[string]policybundle.PolicyRuleOverride{ruleID: {Action: "block"}}
+	return b
 }
 
 // saveTestConfig writes cfg to a temp file (apply never creates a config, so the
@@ -120,14 +112,15 @@ func saveTestConfig(t *testing.T, cfg *config.Config) string {
 
 func TestV1DryRun_ClearsManagedByPolicyMarker(t *testing.T) {
 	cfg := &config.Config{
-		Version: 1,
+		Version: "1",
+		Server:  config.ServerConfig{Port: 8080},
 		Agents:  map[string]config.Agent{"voice-ai": {AllowedTools: []string{"a"}}},
 		Rules: []config.RuleAction{
 			{ID: "IAP-001", Action: "allow-and-flag", ManagedByPolicy: true},
 			{ID: "OP-LOCAL", Action: "block"}, // operator rule, never marked
 		},
 	}
-	plan, err := DryRun(verifiedV1Bundle(t, v1OverrideBody("IAP-001")), cfg, "voice-ai", "/tmp/x.yaml")
+	plan, err := DryRun(verified(v1OverrideBody("IAP-001")), cfg, "voice-ai", "/tmp/x.yaml")
 	if err != nil {
 		t.Fatalf("v1 dry-run: %v", err)
 	}
@@ -160,7 +153,8 @@ func TestV1DryRun_ClearsManagedByPolicyMarker(t *testing.T) {
 // rule) rather than treat it as policy-owned and delete it.
 func TestV1ThenV2Replace_DoesNotReapV1OwnedRule(t *testing.T) {
 	start := &config.Config{
-		Version: 1,
+		Version: "1",
+		Server:  config.ServerConfig{Port: 8080},
 		Agents:  map[string]config.Agent{"voice-ai": {AllowedTools: []string{"a"}}},
 		Rules: []config.RuleAction{
 			{ID: "IAP-001", Action: "allow-and-flag", ManagedByPolicy: true},
@@ -173,7 +167,7 @@ func TestV1ThenV2Replace_DoesNotReapV1OwnedRule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	v1plan, err := DryRun(verifiedV1Bundle(t, v1OverrideBody("IAP-001")), v1cfg, "voice-ai", cfgPath)
+	v1plan, err := DryRun(verified(v1OverrideBody("IAP-001")), v1cfg, "voice-ai", cfgPath)
 	if err != nil {
 		t.Fatalf("v1 dry-run: %v", err)
 	}
@@ -206,7 +200,8 @@ func TestV1ThenV2Replace_DoesNotReapV1OwnedRule(t *testing.T) {
 func TestV1YAMLByteFrozenWithMarker(t *testing.T) {
 	mk := func(marked bool) string {
 		cfg := &config.Config{
-			Version: 1,
+			Version: "1",
+			Server:  config.ServerConfig{Port: 8080},
 			Agents:  map[string]config.Agent{"voice-ai": {AllowedTools: []string{"a"}}},
 			Rules:   []config.RuleAction{{ID: "IAP-001", Action: "allow-and-flag", ManagedByPolicy: marked}},
 		}
@@ -215,7 +210,7 @@ func TestV1YAMLByteFrozenWithMarker(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load: %v", err)
 		}
-		plan, err := DryRun(verifiedV1Bundle(t, v1OverrideBody("IAP-001")), c, "voice-ai", p)
+		plan, err := DryRun(verified(v1OverrideBody("IAP-001")), c, "voice-ai", p)
 		if err != nil {
 			t.Fatalf("v1 dry-run: %v", err)
 		}
@@ -242,7 +237,8 @@ func TestV1YAMLByteFrozenWithMarker(t *testing.T) {
 
 func TestChangeV2_ExplicitFalseAndZeroAreEmitted(t *testing.T) {
 	cfg := &config.Config{
-		Version: 1,
+		Version: "1",
+		Server:  config.ServerConfig{Port: 8080},
 		Agents: map[string]config.Agent{
 			"voice-ai": {AllowedTools: []string{"a"}, Suspended: true, BlockedContent: []string{"pii"}},
 		},
