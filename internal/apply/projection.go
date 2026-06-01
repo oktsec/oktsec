@@ -40,6 +40,14 @@ var (
 	// narrow apply projection cannot express. The returned Plan still lists
 	// them under Unsupported; the caller refuses by default.
 	ErrUnsupported = errors.New("apply: bundle contains semantics not supported by the narrow apply projection")
+	// ErrPolicyTargetMismatch (v2): a node-scoped bundle does not target this
+	// node, or carries a self-referential rollback. Checked before projection,
+	// so it never produces a plan or touches the config.
+	ErrPolicyTargetMismatch = errors.New("apply: policy_target_mismatch")
+	// ErrPolicyRollbackRefused (v2): the bundle's sequence is not greater than
+	// the last applied sequence for this target and is not a signed rollback of
+	// the currently-applied assignment. Evaluated against the state file.
+	ErrPolicyRollbackRefused = errors.New("apply: policy_rollback_refused")
 )
 
 // mapAction maps an Enterprise override action to a Community rule action.
@@ -170,6 +178,14 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 			target.Rules[i].Action = action
 			target.Rules[i].ApplyToTools = nil
 			target.Rules[i].ExemptTools = nil
+			// v1 is marker-agnostic by design: it never SETS ManagedByPolicy, but
+			// when it rewrites a rule that a prior v2 apply owned, that rule becomes
+			// operator/v1-owned, which under v2 means unowned. Clear the marker so a
+			// later v2 replace fails closed on it (treats it as unowned/local)
+			// instead of reaping a v1-applied override as policy-owned. This does NOT
+			// change v1's externally-observable YAML: ManagedByPolicy is omitempty,
+			// so false is absent, exactly as for any rule v1 writes itself.
+			target.Rules[i].ManagedByPolicy = false
 		} else {
 			target.Rules = append(target.Rules, config.RuleAction{ID: id, Action: action})
 			idx[id] = len(target.Rules) - 1

@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/oktsec/oktsec/internal/audit"
+	"github.com/oktsec/oktsec/internal/config"
 	"github.com/oktsec/oktsec/internal/engine"
 	"github.com/oktsec/oktsec/internal/verdict"
 )
@@ -232,10 +233,20 @@ func (p *StdioProxy) inspectAndDecide(line []byte, from, to string) (bool, json.
 		return false, nil, ""
 	}
 
-	// Tool allowlist check: block tools/call for tools not in the allowlist
-	if p.enforce && msg.Method == "tools/call" && len(p.allowedTools) > 0 {
+	// Tool allowlist check: block tools/call for tools not in the allowlist.
+	// The deny-all sentinel is special-cased BEFORE name matching so it can never
+	// execute as a tool. Three denials, evaluated in this order:
+	//   - the requested tool name IS the reserved sentinel -> deny UNCONDITIONALLY,
+	//     even with an empty allowlist (an empty allowlist means "all tools", but
+	//     the sentinel is never a callable tool name);
+	//   - the allowlist is the lone deny-all sentinel -> deny EVERY call;
+	//   - a non-empty allowlist that does not list the tool -> deny.
+	if p.enforce && msg.Method == "tools/call" {
 		toolName := extractToolName(msg)
-		if toolName != "" && !p.allowedTools[toolName] {
+		denyAllList := len(p.allowedTools) == 1 && p.allowedTools[config.DenyAllToolsSentinel]
+		sentinelName := toolName == config.DenyAllToolsSentinel
+		notAllowed := len(p.allowedTools) > 0 && !p.allowedTools[toolName]
+		if toolName != "" && (sentinelName || denyAllList || notAllowed) {
 			p.logger.Warn("tool not allowed",
 				"tool", toolName,
 				"agent", p.agent,
