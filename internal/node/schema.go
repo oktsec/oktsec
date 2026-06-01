@@ -143,6 +143,16 @@ type SnapshotPolicy struct {
 	// signing_key_mismatch / signature_invalid / bundle_unreadable /
 	// unsupported_bundle. Omitted when no bundle path was supplied.
 	ActivePolicyVerificationStatus string `json:"active_policy_verification_status,omitempty"`
+	// AppliedAssignmentID / AppliedSequence echo the active v2 bundle's
+	// signed assignment binding (policybundle.AssignmentV2). They let
+	// Enterprise compare the exact assignment the node carries, not just
+	// the policy hash (Order 9B observed-vs-desired). Both are omitempty
+	// because a v1 (or no-assignment) bundle has no assignment block: an
+	// empty id / zero sequence means "absent", never a meaningful zero
+	// (v2 sequence is contractually >= 1), so omitting them keeps v1 and
+	// pre-9B snapshots byte-identical and their signed envelopes verifying.
+	AppliedAssignmentID string `json:"applied_assignment_id,omitempty"`
+	AppliedSequence     int64  `json:"applied_sequence,omitempty"`
 	// PolicyStatus is one of active / none / unreadable.
 	PolicyStatus string `json:"policy_status"`
 }

@@ -48,6 +48,17 @@ type rawPolicyBundle struct {
 	Policy           struct {
 		PolicyID      string `json:"policy_id"`
 		PolicyVersion string `json:"policy_version"`
+		// Assignment is the v2 signed assignment binding. Read via the
+		// tolerant projection but echoed by buildPolicySection ONLY when
+		// schema_version is policy_bundle.v2 (the v1 signing payload does
+		// not bind it, so it is not trustworthy on a v1 bundle). Only
+		// assignment_id + sequence are read; the snapshot echoes them so
+		// Enterprise can compare the exact assignment, not just the hash
+		// (Order 9B).
+		Assignment struct {
+			AssignmentID string `json:"assignment_id"`
+			Sequence     int64  `json:"sequence"`
+		} `json:"assignment"`
 	} `json:"policy"`
 	Signature struct {
 		Alg                  string `json:"alg"`
@@ -126,8 +137,19 @@ func buildPolicySection(bundlePath, trustFingerprint string) (*SnapshotPolicy, [
 	// above, which reads the same JSON paths for both schemas.
 	var verified bool
 	var status string
+	var assignmentID string
+	var appliedSeq int64
 	if bundle.SchemaVersion == policybundle.SchemaVersionV2 {
 		verified, status = verifyPolicyBundleV2(data, trustFingerprint)
+		// Echo the assignment binding ONLY for v2: the v2 signing payload
+		// binds policy.assignment, so it is covered by the same signature
+		// ActivePolicyVerified reflects. The v1 signing payload does NOT bind
+		// assignment, so a v1 bundle with an injected policy.assignment object
+		// still verifies under v1 — echoing it would present forged, unsigned
+		// assignment metadata next to verified=true. Leave the fields absent
+		// for v1/legacy/unknown schemas regardless of what the JSON carries.
+		assignmentID = bundle.Policy.Assignment.AssignmentID
+		appliedSeq = bundle.Policy.Assignment.Sequence
 	} else {
 		verified, status = verifyPolicyBundle(bundle, trustFingerprint)
 	}
@@ -139,6 +161,8 @@ func buildPolicySection(bundlePath, trustFingerprint string) (*SnapshotPolicy, [
 		ActivePolicyLoadedAt:           policyBundleLoadedAt(bundlePath),
 		ActivePolicyVerified:           verified,
 		ActivePolicyVerificationStatus: status,
+		AppliedAssignmentID:            assignmentID,
+		AppliedSequence:                appliedSeq,
 		PolicyStatus:                   PolicyStatusActive,
 	}, nil
 }
