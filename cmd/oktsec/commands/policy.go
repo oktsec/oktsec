@@ -487,6 +487,8 @@ func emitPlan(cmd *cobra.Command, jsonOut bool, p *apply.Plan) {
 			fmt.Fprintf(out, "  - rule %s → %s\n", c.ID, c.Action)
 		case "rule_reset_default":
 			fmt.Fprintf(out, "  - rule %s → severity default (local override removed)\n", c.ID)
+		case "rule_marker_cleared":
+			fmt.Fprintf(out, "  - rule %s → policy ownership cleared (no action change)\n", c.ID)
 		default:
 			fmt.Fprintf(out, "  - %s (agent %s): %d\n", c.Kind, c.Agent, c.Count)
 		}

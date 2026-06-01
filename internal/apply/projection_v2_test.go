@@ -811,6 +811,30 @@ func TestV2_ReservedDomainSentinelInReplaceRefused(t *testing.T) {
 	}
 }
 
+// P2 #4: the reserved deny-all sentinel in blocked_domains is refused
+// fail-closed too. Placed there it is written verbatim and matches no real host,
+// so it would silently block nothing while reading as a deny-all. The sentinel
+// is reserved on EVERY domain path, not just allowed_domains.
+func TestV2_ReservedDomainSentinelInBlockedRefused(t *testing.T) {
+	b := bodyV2()
+	g := agentGovV2("voice-ai")
+	g.Egress = policybundle.DimAgentEgressV2{Mode: dimReplace, AllowedDomains: []string{"api.openai.com"}, BlockedDomains: []string{denyAllDomainsSentinel}, ScanRequests: "unset", ScanResponses: "unset"}
+	b.Governance.Agents = []policybundle.AgentGovernanceV2{g}
+	p, err := DryRunV2(verifiedV2(b), baseConfig(), "", targetPath)
+	if !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("err = %v, want ErrUnsupported", err)
+	}
+	if !hasUnsupportedV2(p, "agent_egress_reserved_value") {
+		t.Fatalf("expected reserved-domain unsupported, got %+v", p.Unsupported)
+	}
+	// Fail-closed before any mutation: the agent's egress is left untouched.
+	if proj := p.Projected(); proj != nil {
+		if eg := proj.Agents["voice-ai"].Egress; eg != nil && len(eg.BlockedDomains) > 0 {
+			t.Fatalf("blocked_domains must not be projected when the sentinel is refused, got %+v", eg)
+		}
+	}
+}
+
 // per-agent egress with unimplemented sub-fields fails closed.
 func TestV2_AgentEgressUnsupportedFields(t *testing.T) {
 	b := bodyV2()

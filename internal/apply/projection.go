@@ -171,21 +171,34 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 	// rule already global on this action shows none.
 	upsert := func(id, action string) {
 		if i, ok := idx[id]; ok {
+			// v1 is marker-agnostic by design: it never SETS ManagedByPolicy, but
+			// when it rewrites (or re-confirms) a rule that a prior v2 apply owned,
+			// that rule becomes operator/v1-owned, which under v2 means unowned.
+			// Clear the marker so a later v2 replace fails closed on it (treats it
+			// as unowned/local) instead of reaping a v1-applied override as
+			// policy-owned. This MUST run before the no-change early return below:
+			// a v2-owned rule already at the target action would otherwise retain
+			// ownership through a v1 apply. The cleared YAML stays externally
+			// stable: ManagedByPolicy is omitempty, so false is absent, exactly as
+			// for any rule v1 writes itself.
+			clearedMarker := target.Rules[i].ManagedByPolicy
+			target.Rules[i].ManagedByPolicy = false
 			scoped := len(target.Rules[i].ApplyToTools) > 0 || len(target.Rules[i].ExemptTools) > 0
 			if target.Rules[i].Action == action && !scoped {
-				return // already global on policy — no change
+				// No action change. But clearing a v2 ownership marker IS a real
+				// on-disk change (managed_by_policy is removed), so it must reach
+				// Commit/patchConfigYAML or the marker survives on disk and a later
+				// v2 replace can reap the rule. Record it as a distinct, committable
+				// change — not a false action change. If nothing was owned, there is
+				// genuinely no change to report.
+				if clearedMarker {
+					plan.Changes = append(plan.Changes, Change{Kind: "rule_marker_cleared", ID: id})
+				}
+				return
 			}
 			target.Rules[i].Action = action
 			target.Rules[i].ApplyToTools = nil
 			target.Rules[i].ExemptTools = nil
-			// v1 is marker-agnostic by design: it never SETS ManagedByPolicy, but
-			// when it rewrites a rule that a prior v2 apply owned, that rule becomes
-			// operator/v1-owned, which under v2 means unowned. Clear the marker so a
-			// later v2 replace fails closed on it (treats it as unowned/local)
-			// instead of reaping a v1-applied override as policy-owned. This does NOT
-			// change v1's externally-observable YAML: ManagedByPolicy is omitempty,
-			// so false is absent, exactly as for any rule v1 writes itself.
-			target.Rules[i].ManagedByPolicy = false
 		} else {
 			target.Rules = append(target.Rules, config.RuleAction{ID: id, Action: action})
 			idx[id] = len(target.Rules) - 1

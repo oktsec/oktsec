@@ -150,7 +150,7 @@ func patchConfigYAML(original []byte, plan *Plan) ([]byte, error) {
 	var patchRules, patchTools, patchEgress bool
 	for _, c := range plan.Changes {
 		switch c.Kind {
-		case "rule_override", "rule_reset_default":
+		case "rule_override", "rule_reset_default", "rule_marker_cleared":
 			patchRules = true
 		case "agent_allowed_tools":
 			patchTools = true

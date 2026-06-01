@@ -101,3 +101,25 @@ func TestRedactMCPServerConfig(t *testing.T) {
 		}
 	}
 }
+
+// P2 #1: args_count must always be present in --json, including an explicit 0,
+// so "0 args configured" is distinguishable from "field absent". This mirrors
+// env_count, which already always emits its 0.
+func TestRedactMCPServerConfig_ArgsCountZeroEmitted(t *testing.T) {
+	in := config.MCPServerConfig{
+		Transport: "stdio",
+		Command:   "/usr/bin/server", // no Args, no Env
+	}
+	got := RedactMCPServerConfig("backend", in)
+	if got.ArgsCount != 0 {
+		t.Fatalf("expected args count 0, got %d", got.ArgsCount)
+	}
+	raw, _ := toJSON(got)
+	if !strings.Contains(raw, `"args_count":0`) {
+		t.Errorf("expected explicit args_count:0 in JSON, got %s", raw)
+	}
+	// env_count already always emits; assert the two ints are now symmetric.
+	if !strings.Contains(raw, `"env_count":0`) {
+		t.Errorf("expected explicit env_count:0 in JSON, got %s", raw)
+	}
+}
