@@ -6,11 +6,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/oktsec/oktsec/internal/policybundle"
 	"github.com/oktsec/oktsec/internal/safefile"
 )
 
@@ -106,7 +108,10 @@ func buildPolicySection(bundlePath, trustFingerprint string) (*SnapshotPolicy, [
 		return unreadable("invalid JSON: " + err.Error())
 	}
 	// A bundle that does not declare the minimal identity Enterprise
-	// compares against (hash + id) is not a usable active policy.
+	// compares against (hash + id) is not a usable active policy. This
+	// tolerant projection shares the policy_hash / policy.policy_id /
+	// policy.policy_version JSON paths with both the v1 and v2 envelopes,
+	// so the minimal-identity guard is schema-agnostic.
 	if bundle.PolicyHash == "" {
 		return unreadable("bundle declares no policy_hash")
 	}
@@ -114,7 +119,18 @@ func buildPolicySection(bundlePath, trustFingerprint string) (*SnapshotPolicy, [
 		return unreadable("bundle declares no policy.policy_id")
 	}
 
-	verified, status := verifyPolicyBundle(bundle, trustFingerprint)
+	// Dispatch verification by the declared schema_version. v1 (and any
+	// legacy/unknown shape) keeps the byte-for-byte Order 4C.1 path; v2
+	// reuses the already-merged policybundle.VerifyBundleV2 verifier. The
+	// reported hash/id/version always come from the tolerant projection
+	// above, which reads the same JSON paths for both schemas.
+	var verified bool
+	var status string
+	if bundle.SchemaVersion == policybundle.SchemaVersionV2 {
+		verified, status = verifyPolicyBundleV2(data, trustFingerprint)
+	} else {
+		verified, status = verifyPolicyBundle(bundle, trustFingerprint)
+	}
 	return &SnapshotPolicy{
 		ActivePolicyHash:               bundle.PolicyHash,
 		ActivePolicyID:                 bundle.Policy.PolicyID,
@@ -125,6 +141,63 @@ func buildPolicySection(bundlePath, trustFingerprint string) (*SnapshotPolicy, [
 		ActivePolicyVerificationStatus: status,
 		PolicyStatus:                   PolicyStatusActive,
 	}, nil
+}
+
+// verifyPolicyBundleV2 runs the Order 9A.4.1 signature verification for a
+// policy_bundle.v2 bundle, reusing the merged policybundle.VerifyBundleV2
+// verifier. It maps the result into the SAME ActivePolicyVerificationStatus
+// vocabulary the v1 path uses; no new status strings are introduced.
+//
+// As with v1, "verified" means exactly "the Ed25519 signature over the v2
+// signing payload verified against the operator-configured trust
+// fingerprint". The body is not applied here.
+//
+// Trust-anchor handling mirrors v1: with no configured trust fingerprint the
+// node reports the present-but-unverified bundle as no_trust_anchor rather
+// than attempting a verification it cannot anchor. VerifyBundleV2 itself
+// requires a trust fingerprint, so the no-anchor case is handled before
+// calling it.
+func verifyPolicyBundleV2(raw []byte, trustFingerprint string) (bool, string) {
+	// Mirror v1: a present bundle with no trust anchor is reported
+	// no_trust_anchor, not verified. VerifyBundleV2 rejects an empty
+	// trust fingerprint outright, so short-circuit here.
+	if trustFingerprint == "" {
+		return false, PolicyVerificationNoTrustAnchor
+	}
+	if _, err := policybundle.VerifyBundleV2(raw, trustFingerprint); err != nil {
+		return false, policyV2RejectToStatus(err)
+	}
+	return true, PolicyVerificationVerified
+}
+
+// policyV2RejectToStatus maps a policybundle.VerifyBundleV2 reject code onto
+// the existing ActivePolicyVerificationStatus vocabulary, mirroring how the
+// v1 path classifies the equivalent failures. No new status strings.
+//
+//	policy_signing_key_mismatch -> signing_key_mismatch
+//	policy_hash_mismatch        -> signature_invalid (the declared hash the
+//	                               signature covers did not match the body)
+//	policy_signature_invalid    -> signature_invalid
+//	policy_decode / policy_schema_invalid / policy_unsupported_bundle
+//	                            -> unsupported_bundle
+//
+// A non-reject error (none is expected from VerifyBundleV2 once the trust
+// fingerprint is non-empty) falls back to unsupported_bundle so the node
+// fails closed rather than claiming verification.
+func policyV2RejectToStatus(err error) string {
+	var re *policybundle.RejectError
+	if !errors.As(err, &re) {
+		return PolicyVerificationUnsupportedBundle
+	}
+	switch re.Code {
+	case policybundle.RejectSigningKeyMismatch:
+		return PolicyVerificationSigningKeyMismatch
+	case policybundle.RejectHashMismatch, policybundle.RejectSignatureInvalid:
+		return PolicyVerificationSignatureInvalid
+	default:
+		// policy_decode, policy_schema_invalid, policy_unsupported_bundle.
+		return PolicyVerificationUnsupportedBundle
+	}
 }
 
 // verifyPolicyBundle runs the Order 4C.1 verification state machine
