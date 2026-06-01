@@ -685,6 +685,19 @@ func projectAgentEgressV2(plan *PlanV2, target *config.Config, agent *config.Age
 			})
 			return
 		}
+		// The deny-all sentinel is RESERVED on EVERY domain path, not just
+		// allowed_domains. Placed in blocked_domains it is written verbatim and
+		// matches no real host (deny-all.invalid), so it silently blocks nothing
+		// while reading as a deny-all. Refuse fail-closed rather than let a bundle
+		// smuggle a misleading no-op block. (mirrors the allowed_tools sentinel,
+		// which is reserved on every path.)
+		if slices.Contains(eg.BlockedDomains, denyAllDomainsSentinel) {
+			plan.Unsupported = append(plan.Unsupported, Unsupported{
+				Kind:   "agent_egress_reserved_value",
+				Detail: fmt.Sprintf("agent %q egress blocked_domains contains the reserved sentinel %q, which matches no real host and blocks nothing; remove it (use allowed_domains clear for zero egress)", name, denyAllDomainsSentinel),
+			})
+			return
+		}
 		// Additive-source guard (mirrors v1): the egress resolver UNIONS the
 		// agent's allowed_domains with the global forward_proxy allowlist and any
 		// integration presets the agent already carries. Setting the agent's list

@@ -145,6 +145,103 @@ func TestV1DryRun_ClearsManagedByPolicyMarker(t *testing.T) {
 	}
 }
 
+// P2 #2: a v2-owned rule already AT the override's target action and global hits
+// the no-action-change early return in upsert. The marker must STILL be cleared
+// (so a later v2 replace cannot reap it), and that clear must be recorded as a
+// distinct committable change (not a false action change) so it persists.
+func TestV1DryRun_ClearsManagedByPolicyMarker_NoActionChange(t *testing.T) {
+	cfg := &config.Config{
+		Version: "1",
+		Server:  config.ServerConfig{Port: 8080},
+		Agents:  map[string]config.Agent{"voice-ai": {AllowedTools: []string{"a"}}},
+		Rules: []config.RuleAction{
+			// already global, already at the override target action ("block"),
+			// and v2-owned: the upsert no-action-change early-return path.
+			{ID: "IAP-001", Action: "block", ManagedByPolicy: true},
+		},
+	}
+	plan, err := DryRun(verified(v1OverrideBody("IAP-001")), cfg, "voice-ai", "/tmp/x.yaml")
+	if err != nil {
+		t.Fatalf("v1 dry-run: %v", err)
+	}
+	proj := plan.Projected()
+	if proj == nil {
+		t.Fatalf("expected a projected config")
+	}
+	var got *config.RuleAction
+	for i := range proj.Rules {
+		if proj.Rules[i].ID == "IAP-001" {
+			got = &proj.Rules[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("IAP-001 should still exist")
+	}
+	if got.ManagedByPolicy {
+		t.Fatalf("marker must be cleared even when the action already matches")
+	}
+	// The clear is recorded as a marker-cleared change (so Commit runs and the
+	// rules section is re-encoded) but never as a false rule_override.
+	var markerCleared, falseOverride bool
+	for _, c := range plan.Changes {
+		if c.ID == "IAP-001" {
+			switch c.Kind {
+			case "rule_marker_cleared":
+				markerCleared = true
+			case "rule_override":
+				falseOverride = true
+			}
+		}
+	}
+	if !markerCleared {
+		t.Fatalf("expected a rule_marker_cleared change for IAP-001, got %+v", plan.Changes)
+	}
+	if falseOverride {
+		t.Fatalf("must not report a false rule_override for an already-matching global rule")
+	}
+}
+
+// P2 #2 (persistence): the marker clear must survive a real Commit even when it
+// is the ONLY change. Without recording it as a committable change, the CLI skips
+// Commit on an empty change set and the marker lingers on disk, leaving the
+// v2-reap hazard in place. This is the end-to-end gap a projection-only test misses.
+func TestV1Commit_PersistsMarkerClear_WhenOnlyChange(t *testing.T) {
+	start := &config.Config{
+		Version: "1",
+		Server:  config.ServerConfig{Port: 8080},
+		Agents:  map[string]config.Agent{"voice-ai": {AllowedTools: []string{"a"}}},
+		Rules: []config.RuleAction{
+			// already at the override target action, global, v2-owned: marker clear
+			// is the sole change.
+			{ID: "IAP-001", Action: "block", ManagedByPolicy: true},
+		},
+	}
+	cfgPath := saveTestConfig(t, start)
+	c, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	plan, err := DryRun(verified(v1OverrideBody("IAP-001")), c, "voice-ai", cfgPath)
+	if err != nil {
+		t.Fatalf("v1 dry-run: %v", err)
+	}
+	if len(plan.Changes) == 0 {
+		t.Fatalf("marker-only clear must produce a committable change so Commit is not skipped")
+	}
+	if _, err := Commit(plan, cfgPath); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	after, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	for _, r := range after.Rules {
+		if r.ID == "IAP-001" && r.ManagedByPolicy {
+			t.Fatalf("v1 commit must persist the cleared marker on disk, found managed_by_policy still set")
+		}
+	}
+}
+
 // TestV1ThenV2Replace_DoesNotReapV1OwnedRule asserts the end-to-end FIX C
 // invariant: a rule first marked by v2, then rewritten by a v1 apply (which
 // clears the marker and Commit-writes it), is NOT silently reaped by a later v2

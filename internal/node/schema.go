@@ -269,7 +269,7 @@ type InventoryMCPServer struct {
 	Name        string `json:"name"`
 	Transport   string `json:"transport"`
 	CommandTail string `json:"command_tail,omitempty"`
-	ArgsCount   int    `json:"args_count,omitempty"`
+	ArgsCount   int    `json:"args_count"`
 	URLHostHash string `json:"url_host_hash,omitempty"`
 	EnvCount    int    `json:"env_count"`
 }
