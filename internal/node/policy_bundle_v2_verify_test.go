@@ -179,3 +179,80 @@ func TestBuildPolicySection_V2NoTrustAnchor(t *testing.T) {
 		t.Fatalf("identity not echoed for present-but-unverified v2: id=%q version=%q", sec.ActivePolicyID, sec.ActivePolicyVersion)
 	}
 }
+
+// (6) Parity regression: a MALFORMED v2 bundle with NO trust fingerprint
+// must report unsupported_bundle, NOT no_trust_anchor. The verification
+// status has to be accurate regardless of whether a trust anchor is
+// configured, so shape is decided before the no-anchor classification,
+// mirroring the v1 path. Before the fix, the empty-fingerprint case
+// short-circuited to no_trust_anchor and mis-labeled these bundles.
+func TestBuildPolicySection_V2NoTrustAnchorMalformedUnsupported(t *testing.T) {
+	t.Run("corrupt_signature_block_no_anchor", func(t *testing.T) {
+		// Garble the embedded signature block so it is no longer a
+		// well-formed v2 signature (the public key fingerprint no longer
+		// matches the embedded key). With no trust fingerprint this is a
+		// shape failure, not a missing anchor.
+		var m map[string]any
+		if err := json.Unmarshal(vendoredPolicyBundleV2, &m); err != nil {
+			t.Fatalf("decode fixture: %v", err)
+		}
+		sig, ok := m["signature"].(map[string]any)
+		if !ok {
+			t.Fatal("fixture has no signature object")
+		}
+		sig["public_key_fingerprint"] = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		sec, _ := buildPolicySection(writeV2(t, raw), "")
+		if sec.ActivePolicyVerified {
+			t.Fatal("malformed v2 bundle must not verify")
+		}
+		if sec.ActivePolicyVerificationStatus != PolicyVerificationUnsupportedBundle {
+			t.Fatalf("status = %q, want %q (malformed shape wins over missing anchor)",
+				sec.ActivePolicyVerificationStatus, PolicyVerificationUnsupportedBundle)
+		}
+	})
+
+	t.Run("wrong_bundle_version_no_anchor", func(t *testing.T) {
+		// A v2-tagged bundle with the wrong bundle_version is structurally
+		// unsupported. With no trust fingerprint it is unsupported_bundle,
+		// not no_trust_anchor.
+		var m map[string]any
+		if err := json.Unmarshal(vendoredPolicyBundleV2, &m); err != nil {
+			t.Fatalf("decode fixture: %v", err)
+		}
+		m["bundle_version"] = 99
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		sec, _ := buildPolicySection(writeV2(t, raw), "")
+		if sec.ActivePolicyVerified {
+			t.Fatal("malformed v2 bundle must not verify")
+		}
+		if sec.ActivePolicyVerificationStatus != PolicyVerificationUnsupportedBundle {
+			t.Fatalf("status = %q, want %q (wrong bundle_version is unsupported, not no_trust_anchor)",
+				sec.ActivePolicyVerificationStatus, PolicyVerificationUnsupportedBundle)
+		}
+	})
+}
+
+// (7) The legitimate case stays correct: a WELL-FORMED v2 bundle with NO
+// trust fingerprint is still no_trust_anchor (present-but-unanchored), not
+// unsupported_bundle. This is the companion to the malformed regression
+// above and pins the shape-then-anchor ordering from the other side.
+func TestBuildPolicySection_V2NoTrustAnchorWellFormed(t *testing.T) {
+	sec, warns := buildPolicySection(writeV2(t, vendoredPolicyBundleV2), "")
+	if len(warns) != 0 {
+		t.Fatalf("present well-formed v2 bundle must not warn, got %v", warns)
+	}
+	if sec.ActivePolicyVerified {
+		t.Fatal("no trust anchor means not verified")
+	}
+	if sec.ActivePolicyVerificationStatus != PolicyVerificationNoTrustAnchor {
+		t.Fatalf("status = %q, want %q (well-formed + no anchor stays no_trust_anchor)",
+			sec.ActivePolicyVerificationStatus, PolicyVerificationNoTrustAnchor)
+	}
+}

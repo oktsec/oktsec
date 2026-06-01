@@ -152,22 +152,68 @@ func buildPolicySection(bundlePath, trustFingerprint string) (*SnapshotPolicy, [
 // signing payload verified against the operator-configured trust
 // fingerprint". The body is not applied here.
 //
-// Trust-anchor handling mirrors v1: with no configured trust fingerprint the
-// node reports the present-but-unverified bundle as no_trust_anchor rather
-// than attempting a verification it cannot anchor. VerifyBundleV2 itself
-// requires a trust fingerprint, so the no-anchor case is handled before
-// calling it.
+// Trust-anchor handling mirrors v1's ordering exactly: shape/structure
+// FIRST, then the no-trust-anchor decision, then signature verification.
+// VerifyBundleV2 entangles the trust match with its shape checks (it
+// rejects an empty trust fingerprint outright), so the no-anchor case
+// cannot route through it. To keep the reported status accurate even
+// without a configured trust anchor, the empty-fingerprint case runs the
+// minimal structural checks inline below before classifying the bundle:
+// a malformed/unsupported v2 bundle is unsupported_bundle (fail closed)
+// EVEN WITH no trust fingerprint, and only a well-shaped bundle whose
+// only missing piece is the trust anchor is no_trust_anchor. These inline
+// checks deliberately mirror v1's pre-anchor checks (the schema/bundle/
+// canonicalization/alg constants plus a present, well-formed signature
+// block); they are NOT a reimplementation of signature verification, which
+// stays in VerifyBundleV2 for the anchored path.
 func verifyPolicyBundleV2(raw []byte, trustFingerprint string) (bool, string) {
-	// Mirror v1: a present bundle with no trust anchor is reported
-	// no_trust_anchor, not verified. VerifyBundleV2 rejects an empty
-	// trust fingerprint outright, so short-circuit here.
 	if trustFingerprint == "" {
+		// Shape first, then the no-trust-anchor decision. Mirror v1's
+		// pre-anchor checks so a malformed v2 bundle is unsupported_bundle
+		// and only a well-shaped one with no anchor is no_trust_anchor.
+		if !isSupportedV2Shape(raw) {
+			return false, PolicyVerificationUnsupportedBundle
+		}
 		return false, PolicyVerificationNoTrustAnchor
 	}
 	if _, err := policybundle.VerifyBundleV2(raw, trustFingerprint); err != nil {
 		return false, policyV2RejectToStatus(err)
 	}
 	return true, PolicyVerificationVerified
+}
+
+// isSupportedV2Shape reports whether raw is a structurally-supported
+// policy_bundle.v2 bundle, mirroring the class of pre-anchor checks v1's
+// verifyPolicyBundle does before its no_trust_anchor return: the v2 schema/
+// bundle/canonicalization/alg constants plus a present, well-formed
+// signature block (a base64-decodable Ed25519 public key of the right
+// length, a self-consistent claimed fingerprint, and a non-empty signature
+// value). It does NOT verify the signature; that is VerifyBundleV2's job on
+// the anchored path. A malformed bundle returns false so the caller fails
+// closed to unsupported_bundle.
+func isSupportedV2Shape(raw []byte) bool {
+	var b rawPolicyBundle
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return false
+	}
+	sig := b.Signature
+	pub, err := base64.StdEncoding.DecodeString(sig.PublicKey)
+	if b.SchemaVersion != policybundle.SchemaVersionV2 ||
+		b.BundleVersion != policybundle.BundleVersionV2 ||
+		b.Canonicalization != policybundle.CanonicalizationV2 ||
+		sig.Alg != policybundle.SignatureAlg ||
+		sig.Value == "" ||
+		err != nil ||
+		len(pub) != ed25519.PublicKeySize {
+		return false
+	}
+	// Self-consistency: the embedded key must hash to the claimed
+	// fingerprint, the same malformed-signature-block guard v1 applies
+	// before its trust decision.
+	if sig.PublicKeyFingerprint != policyKeyFingerprint(pub) {
+		return false
+	}
+	return true
 }
 
 // policyV2RejectToStatus maps a policybundle.VerifyBundleV2 reject code onto
