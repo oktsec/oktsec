@@ -27,6 +27,7 @@ func newPolicyCmd() *cobra.Command {
 		Short: "Apply signed policy bundles to the local Oktsec runtime config",
 	}
 	cmd.AddCommand(newPolicyApplyCmd())
+	cmd.AddCommand(newPolicyPullCmd())
 	return cmd
 }
 
