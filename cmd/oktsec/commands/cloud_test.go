@@ -32,12 +32,9 @@ func runCloud(t *testing.T, args ...string) (string, error) {
 // httptest server (which the guard would otherwise correctly refuse).
 func withLocalCloudDialer(t *testing.T) {
 	t.Helper()
-	prevCloud, prevPull := cloudDialContext, pullDialContext
+	prev := cloudDialContext
 	cloudDialContext = (&net.Dialer{}).DialContext
-	// Restore BOTH seams: the dev dial escape inside the command also
-	// mutates pullDialContext, and a leak across tests would silently
-	// change later tests' guard assumptions.
-	t.Cleanup(func() { cloudDialContext, pullDialContext = prevCloud, prevPull })
+	t.Cleanup(func() { cloudDialContext = prev })
 	// httptest serves plain http; the product default refuses it.
 	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "1")
 }
@@ -313,8 +310,6 @@ func TestCloudDevEscapeReachesLoopback(t *testing.T) {
 	if _, err := store.Init("dev"); err != nil {
 		t.Fatal(err)
 	}
-	prevCloud, prevPull := cloudDialContext, pullDialContext
-	t.Cleanup(func() { cloudDialContext, pullDialContext = prevCloud, prevPull })
 	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "1")
 	srv, _ := fakeCloud(t)
 
@@ -327,13 +322,10 @@ func TestCloudDevEscapeReachesLoopback(t *testing.T) {
 	}
 }
 
-// Without the env escape the SSRF guard stays in force: the escape
-// helper is a no-op and loopback dials are refused.
+// Without the env escape the SSRF guard stays in force: cloudDial
+// returns the guarded dialer and loopback dials are refused.
 func TestCloudDevEscapeNoOpWithoutEnv(t *testing.T) {
-	prevCloud, prevPull := cloudDialContext, pullDialContext
-	t.Cleanup(func() { cloudDialContext, pullDialContext = prevCloud, prevPull })
 	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "")
-	cloudApplyDevDialEscape()
 
 	srv, _ := fakeCloud(t)
 	_, err := cloudHTTPClient().Get(srv.URL + "/v1/node/register")

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -61,7 +62,7 @@ func newPolicyPullCmd() *cobra.Command {
 				return fmt.Errorf("--node-id <id> is required (selects this node's target and binds a node-scoped bundle)")
 			}
 
-			raw, res, _, found, perr := pullVerifiedBundle(source, nodeID, trustFP)
+			raw, res, _, found, perr := pullVerifiedBundle(source, nodeID, trustFP, pullDialContext)
 			_ = raw
 			if perr != nil {
 				if perr.verifyStage {
@@ -112,12 +113,14 @@ func (e *pullStageError) Unwrap() error { return e.err }
 // and bind it to the signed entry. The ordering is part of the security
 // contract: signature before parse, path check before fetch, bind
 // before any apply. found=false means the store publishes nothing for
-// this node (a clean no-op for callers).
-func pullVerifiedBundle(source, nodeID, trustFP string) (raw []byte, res *policybundle.VerifyResult, entry policybundle.PullIndexEntry, found bool, perr *pullStageError) {
+// this node (a clean no-op for callers). dial is the dialer an https
+// source fetches through — each caller passes its own guard so no
+// caller's relaxation can leak into another's.
+func pullVerifiedBundle(source, nodeID, trustFP string, dial dialContextFunc) (raw []byte, res *policybundle.VerifyResult, entry policybundle.PullIndexEntry, found bool, perr *pullStageError) {
 	fail := func(verify bool, err error) ([]byte, *policybundle.VerifyResult, policybundle.PullIndexEntry, bool, *pullStageError) {
 		return nil, nil, policybundle.PullIndexEntry{}, false, &pullStageError{err: err, verifyStage: verify}
 	}
-	fetch, err := newStoreFetcher(source)
+	fetch, err := newStoreFetcher(source, dial)
 	if err != nil {
 		return fail(false, fmt.Errorf("--source: %w", err))
 	}
@@ -196,7 +199,7 @@ func bindPulledBundle(res *policybundle.VerifyResult, entry policybundle.PullInd
 // safefile (symlink-rejecting, size-capped); https:// URLs fetch over an
 // SSRF-guarded client. http:// is allowed too (operator-chosen plaintext store)
 // but runs through the same SSRF guard.
-func newStoreFetcher(source string) (func(rel string) ([]byte, error), error) {
+func newStoreFetcher(source string, dial dialContextFunc) (func(rel string) ([]byte, error), error) {
 	// Only route RECOGNIZED URL schemes through the URL branch. Anything else —
 	// no scheme, or a Windows drive path like `C:\store` that url.Parse reads as
 	// scheme "c" — is a local filesystem path.
@@ -208,7 +211,7 @@ func newStoreFetcher(source string) (func(rel string) ([]byte, error), error) {
 			}
 			return localFetcher(u.Path), nil
 		case "http", "https":
-			return httpFetcher(source), nil
+			return httpFetcher(source, dial), nil
 		}
 	}
 	return localFetcher(source), nil
@@ -224,16 +227,19 @@ func localFetcher(root string) func(rel string) ([]byte, error) {
 	}
 }
 
-// pullDialContext is the dialer the HTTPS store fetcher uses. It defaults to the
-// SSRF-guarded dialer (blocks loopback, link-local, and cloud metadata IPs);
-// tests override it to reach a local test server, which the guard would
-// otherwise (correctly) refuse.
-var pullDialContext = netutil.SafeDialContext
+// dialContextFunc is the dial signature the URL fetchers take.
+type dialContextFunc = func(ctx context.Context, network, addr string) (net.Conn, error)
 
-func httpFetcher(base string) func(rel string) ([]byte, error) {
+// pullDialContext is the dialer `policy pull` fetches HTTPS stores through.
+// It defaults to the SSRF-guarded dialer (blocks loopback, link-local, and
+// cloud metadata IPs); tests override it to reach a local test server, which
+// the guard would otherwise (correctly) refuse.
+var pullDialContext dialContextFunc = netutil.SafeDialContext
+
+func httpFetcher(base string, dial dialContextFunc) func(rel string) ([]byte, error) {
 	client := &http.Client{
 		Timeout:   pullHTTPTimeout,
-		Transport: &http.Transport{DialContext: pullDialContext},
+		Transport: &http.Transport{DialContext: dial},
 	}
 	return func(rel string) ([]byte, error) {
 		u, err := url.Parse(base)

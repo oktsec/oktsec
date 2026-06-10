@@ -44,22 +44,19 @@ var cloudDialContext = netutil.SafeDialContext
 // generous, but a sub-minute loop is never needed).
 const cloudMinInterval = time.Minute
 
-// cloudApplyDevDialEscape relaxes the SSRF dial guard for the running
-// `cloud` command when OKTSEC_CLOUD_INSECURE_HTTP=1 — the same
-// dev-only escape that admits a plaintext --url. A local or LAN test
-// Cloud sits in address ranges the guard refuses by design, so the
-// escape that already declares "this is a development environment"
-// covers both relaxations. It mutates the dial seams of THIS process
-// only, from `cloud` entry points only: `policy pull` invocations and
-// every server-side surface keep the hard guard regardless of
-// environment.
-func cloudApplyDevDialEscape() {
-	if os.Getenv("OKTSEC_CLOUD_INSECURE_HTTP") != "1" {
-		return
+// cloudDial picks the dialer for one cloud command invocation. When
+// OKTSEC_CLOUD_INSECURE_HTTP=1 — the same dev-only escape that admits
+// a plaintext --url — it returns a plain dialer, because a local or
+// LAN test Cloud sits in address ranges the SSRF guard refuses by
+// design and the escape already declares "this is a development
+// environment". The choice is per-call and mutates nothing: `policy
+// pull` invocations and every server-side surface keep the hard guard
+// regardless of environment.
+func cloudDial() dialContextFunc {
+	if os.Getenv("OKTSEC_CLOUD_INSECURE_HTTP") == "1" {
+		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext
 	}
-	plain := (&net.Dialer{Timeout: 5 * time.Second}).DialContext
-	cloudDialContext = plain
-	pullDialContext = plain
+	return cloudDialContext
 }
 
 // cloudHTTPClient builds the SSRF-guarded client for Cloud API calls.
@@ -68,7 +65,7 @@ func cloudApplyDevDialEscape() {
 func cloudHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout:   cloudHTTPTimeout,
-		Transport: &http.Transport{DialContext: cloudDialContext},
+		Transport: &http.Transport{DialContext: cloudDial()},
 	}
 }
 
@@ -133,7 +130,6 @@ func newCloudEnrollCmd() *cobra.Command {
 			if cloudURL == "" || token == "" {
 				return fmt.Errorf("--url and --token are required")
 			}
-			cloudApplyDevDialEscape()
 			base, err := normalizeCloudURL(cloudURL)
 			if err != nil {
 				return err
@@ -274,7 +270,6 @@ func newCloudSyncCmd() *cobra.Command {
 			if once == (interval != 0) {
 				return fmt.Errorf("pass exactly one of --once or --interval")
 			}
-			cloudApplyDevDialEscape()
 			store := nodeStoreForTest()
 			client := cloudHTTPClient()
 			if once {
@@ -414,7 +409,7 @@ func runCloudSyncOnce(cmd *cobra.Command, store node.IdentityStore, client *http
 // snapshots echo the active policy. A store with no entry for this
 // node is a clean no-op.
 func cloudPullApply(cmd *cobra.Command, store node.IdentityStore, st *node.CloudState, nodeID string) error {
-	raw, res, entry, found, perr := pullVerifiedBundle(st.PullURL, nodeID, st.TrustFingerprint)
+	raw, res, entry, found, perr := pullVerifiedBundle(st.PullURL, nodeID, st.TrustFingerprint, cloudDial())
 	if perr != nil {
 		return perr.err
 	}
