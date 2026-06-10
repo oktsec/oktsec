@@ -83,7 +83,8 @@ func newPolicyApplyCmd() *cobra.Command {
 				return emitApplyFailure(cmd, jsonOut, dryRun, verr)
 			}
 			if res.SchemaVersion == policybundle.SchemaVersionV2 {
-				return runPolicyApplyV2(cmd, res.V2, nodeID, dryRun, jsonOut, allowPartial)
+				_, err := runPolicyApplyV2(cmd, res.V2, nodeID, dryRun, jsonOut, allowPartial)
+				return err
 			}
 
 			if agent == "" {
@@ -168,16 +169,16 @@ func newPolicyApplyCmd() *cobra.Command {
 // projection, anti-rollback against the adjacent state file, no-partial apply,
 // and the post-success state write. Same flag contract as v1 (--dry-run,
 // --allow-partial dry-run only, --json), plus --node-id for target binding.
-func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, nodeID string, dryRun, jsonOut, allowPartial bool) error {
+func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, nodeID string, dryRun, jsonOut, allowPartial bool) (applied bool, err error) {
 	if cfgFile == "" {
-		return fmt.Errorf("could not resolve a config path (set --config or $OKTSEC_CONFIG)")
+		return false, fmt.Errorf("could not resolve a config path (set --config or $OKTSEC_CONFIG)")
 	}
 	if !dryRun {
 		if !cfgFileExplicit {
-			return fmt.Errorf("real apply requires an explicit, non-empty --config <path> (refusing to mutate a cascaded default config)")
+			return false, fmt.Errorf("real apply requires an explicit, non-empty --config <path> (refusing to mutate a cascaded default config)")
 		}
 		if err := ensureWritableConfigPath(cfgFile); err != nil {
-			return emitApplyFailure(cmd, jsonOut, false, err)
+			return false, emitApplyFailure(cmd, jsonOut, false, err)
 		}
 	}
 	// --- Dry-run path: project against the current config and report, writing
@@ -187,30 +188,30 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 	if dryRun {
 		cfg, err := config.Load(cfgFile)
 		if err != nil {
-			return fmt.Errorf("load config %q: %w", cfgFile, err)
+			return false, fmt.Errorf("load config %q: %w", cfgFile, err)
 		}
 		if err := cfg.Validate(); err != nil {
-			return fmt.Errorf("current config %q is invalid: %w", cfgFile, err)
+			return false, fmt.Errorf("current config %q is invalid: %w", cfgFile, err)
 		}
 		// Target binding (scope/node_id) is checked inside DryRunV2 before any
 		// work, so a mismatch yields no plan and no write.
 		plan, perr := apply.DryRunV2(v, cfg, nodeID, cfgFile)
 		if perr != nil && !errors.Is(perr, apply.ErrUnsupported) {
 			// Target mismatch, missing agent, or invalid projected config: no plan.
-			return emitApplyFailure(cmd, jsonOut, true, perr)
+			return false, emitApplyFailure(cmd, jsonOut, true, perr)
 		}
 		// Some ErrUnsupported failures occur BEFORE a plan is built (the deny-all
 		// sentinel collision fails closed in DryRunV2 and returns nil,
 		// ErrUnsupported). Route a nil plan through emitApplyFailure so the plan
 		// emitters never dereference nil.
 		if plan == nil {
-			return emitApplyFailure(cmd, jsonOut, true, perr)
+			return false, emitApplyFailure(cmd, jsonOut, true, perr)
 		}
 		emitPlanV2(cmd, jsonOut, plan)
 		if errors.Is(perr, apply.ErrUnsupported) && !allowPartial {
-			return perr
+			return false, perr
 		}
-		return nil
+		return false, nil
 	}
 
 	// --- Real apply path. The lock must cover the FULL critical section: load
@@ -231,7 +232,7 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 	// in every path (success, refusal, error) via defer. ---
 	lock, lerr := apply.AcquireApplyLock(cfgFile)
 	if lerr != nil {
-		return emitApplyFailure(cmd, jsonOut, false, lerr)
+		return false, emitApplyFailure(cmd, jsonOut, false, lerr)
 	}
 	defer func() { _ = lock.Release() }()
 
@@ -239,10 +240,10 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 	// config the projection and the no-op decision are computed against.
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		return emitApplyFailure(cmd, jsonOut, false, fmt.Errorf("load config %q: %w", cfgFile, err))
+		return false, emitApplyFailure(cmd, jsonOut, false, fmt.Errorf("load config %q: %w", cfgFile, err))
 	}
 	if err := cfg.Validate(); err != nil {
-		return emitApplyFailure(cmd, jsonOut, false, fmt.Errorf("current config %q is invalid: %w", cfgFile, err))
+		return false, emitApplyFailure(cmd, jsonOut, false, fmt.Errorf("current config %q is invalid: %w", cfgFile, err))
 	}
 
 	// Authoritative projection under the lock. Target binding (scope/node_id) is
@@ -251,17 +252,17 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 	plan, perr := apply.DryRunV2(v, cfg, nodeID, cfgFile)
 	if perr != nil && !errors.Is(perr, apply.ErrUnsupported) {
 		// Target mismatch, missing agent, or invalid projected config: no plan.
-		return emitApplyFailure(cmd, jsonOut, false, perr)
+		return false, emitApplyFailure(cmd, jsonOut, false, perr)
 	}
 	// A nil plan (e.g. the deny-all sentinel collision fails closed in DryRunV2)
 	// must not reach the plan emitters; route it through emitApplyFailure.
 	if plan == nil {
-		return emitApplyFailure(cmd, jsonOut, false, perr)
+		return false, emitApplyFailure(cmd, jsonOut, false, perr)
 	}
 	// Unsupported semantics always fail with no write.
 	if errors.Is(perr, apply.ErrUnsupported) {
 		emitApplyResultV2(cmd, jsonOut, plan, "", false)
-		return perr
+		return false, perr
 	}
 
 	// Anti-rollback: read state AFTER the lock is held (never a pre-lock
@@ -269,7 +270,7 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 	// after a successful write.
 	state, serr := apply.LoadPolicyState(cfgFile)
 	if serr != nil {
-		return emitApplyFailure(cmd, jsonOut, false, serr)
+		return false, emitApplyFailure(cmd, jsonOut, false, serr)
 	}
 	switch state.EvaluateRollback(plan.Scope, plan.NodeID, plan.AssignmentID, plan.RollbackOf, plan.Sequence) {
 	case apply.RollbackRefuse:
@@ -277,7 +278,7 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 		// --json stdout stays one JSON document.
 		err := fmt.Errorf("%w: sequence %d is not greater than the last applied sequence for this target and rollback_of does not name the current assignment",
 			apply.ErrPolicyRollbackRefused, plan.Sequence)
-		return emitApplyFailure(cmd, jsonOut, false, err)
+		return false, emitApplyFailure(cmd, jsonOut, false, err)
 	default:
 		// fresh, advance, signed rollback, or idempotent reapply: proceed.
 	}
@@ -293,16 +294,16 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 	if len(plan.Changes) == 0 {
 		state.Record(plan.Scope, plan.NodeID, plan.AssignmentID, time.Now().UTC().Format(time.RFC3339), plan.Sequence)
 		if err := apply.SavePolicyState(cfgFile, state); err != nil {
-			return emitApplyFailure(cmd, jsonOut, false,
+			return false, emitApplyFailure(cmd, jsonOut, false,
 				fmt.Errorf("no config change, but anti-rollback state write failed: %w", err))
 		}
 		emitApplyResultV2(cmd, jsonOut, plan, "", false)
-		return nil
+		return false, nil
 	}
 
 	backupPath, cerr := apply.CommitV2(plan, cfgFile)
 	if cerr != nil {
-		return emitApplyFailure(cmd, jsonOut, false, cerr)
+		return false, emitApplyFailure(cmd, jsonOut, false, cerr)
 	}
 
 	// Advance the anti-rollback state ONLY after CommitV2 succeeded.
@@ -316,14 +317,14 @@ func runPolicyApplyV2(cmd *cobra.Command, v *policybundle.VerifiedBundleV2, node
 		// no lower sequence can ever win. Whatever the outcome, never report
 		// success: return a non-nil error naming the inconsistency.
 		if rerr := apply.RestoreConfigV2FromBackup(cfgFile, backupPath); rerr != nil {
-			return emitApplyFailure(cmd, jsonOut, false,
+			return false, emitApplyFailure(cmd, jsonOut, false,
 				fmt.Errorf("anti-rollback state write failed (%v) AND config rollback failed (%v): config and apply state are inconsistent; restore config from backup %q manually", err, rerr, backupPath))
 		}
-		return emitApplyFailure(cmd, jsonOut, false,
+		return false, emitApplyFailure(cmd, jsonOut, false,
 			fmt.Errorf("anti-rollback state write failed; config rolled back to the prior sequence from backup %q: %w", backupPath, err))
 	}
 	emitApplyResultV2(cmd, jsonOut, plan, backupPath, true)
-	return nil
+	return true, nil
 }
 
 // savePolicyStateAfterCommit persists the v2 anti-rollback state on the

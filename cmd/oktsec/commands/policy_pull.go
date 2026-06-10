@@ -61,31 +61,15 @@ func newPolicyPullCmd() *cobra.Command {
 				return fmt.Errorf("--node-id <id> is required (selects this node's target and binds a node-scoped bundle)")
 			}
 
-			fetch, err := newStoreFetcher(source)
-			if err != nil {
-				return fmt.Errorf("--source: %w", err)
+			raw, res, _, found, perr := pullVerifiedBundle(source, nodeID, trustFP)
+			_ = raw
+			if perr != nil {
+				if perr.verifyStage {
+					return emitApplyFailure(cmd, jsonOut, dryRun, perr.err)
+				}
+				return perr.err
 			}
-
-			// 1. Fetch + signature-verify the index BEFORE trusting any entry.
-			indexBytes, err := fetch("index.json")
-			if err != nil {
-				return fmt.Errorf("fetch index.json: %w", err)
-			}
-			sigBytes, err := fetch("index.json.sig")
-			if err != nil {
-				return fmt.Errorf("fetch index.json.sig: %w", err)
-			}
-			if err := policybundle.VerifyPullIndexSig(indexBytes, sigBytes, trustFP); err != nil {
-				return emitApplyFailure(cmd, jsonOut, dryRun, err)
-			}
-			idx, err := policybundle.ParsePullIndex(indexBytes)
-			if err != nil {
-				return emitApplyFailure(cmd, jsonOut, dryRun, err)
-			}
-
-			// 2. Select this node's target entry.
-			entry, ok := policybundle.SelectPullEntry(idx, nodeID)
-			if !ok {
+			if !found {
 				if jsonOut {
 					enc := json.NewEncoder(cmd.OutOrStdout())
 					enc.SetIndent("", "  ")
@@ -97,43 +81,8 @@ func newPolicyPullCmd() *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "no bundle to pull: the store index targets neither node %q nor the fleet\n", nodeID)
 				return nil
 			}
-
-			// 3. Fetch the selected bundle from a store-contained relative path.
-			if err := safeStoreRelPath(entry.BundleFile); err != nil {
-				return fmt.Errorf("index bundle_file %q: %w", entry.BundleFile, err)
-			}
-			bundleRaw, err := fetch(entry.BundleFile)
-			if err != nil {
-				return fmt.Errorf("fetch bundle %q: %w", entry.BundleFile, err)
-			}
-
-			// 4. The bundle is the authority: verify it and route through the
-			// existing v2 apply pipeline (target binding + anti-rollback + write).
-			res, verr := policybundle.Verify(bundleRaw, trustFP)
-			if verr != nil {
-				return emitApplyFailure(cmd, jsonOut, dryRun, verr)
-			}
-			if res.SchemaVersion != policybundle.SchemaVersionV2 {
-				return fmt.Errorf("pull supports policy_bundle.v2 only; store bundle is %q", res.SchemaVersion)
-			}
-			// Bind the fetched bundle to the SIGNED index entry. Without this, an
-			// attacker who can swap the bundle file (but not the signed index)
-			// could serve a different validly-signed bundle — e.g. an older one
-			// signed by the same key — and a fresh node with no anti-rollback
-			// floor would apply it. The signed index names exactly one bundle;
-			// the fetched bytes must be that bundle.
-			a := res.V2.Bundle.Policy.Assignment
-			if res.V2.Bundle.PolicyHash != entry.PolicyHash ||
-				a.AssignmentID != entry.AssignmentID ||
-				a.Sequence != entry.Sequence ||
-				a.Target.Scope != entry.TargetScope ||
-				a.Target.NodeID != entry.TargetNodeID {
-				return fmt.Errorf("fetched bundle does not match the signed index entry "+
-					"(index hash=%s seq=%d assignment=%s target=%s/%s; bundle hash=%s seq=%d assignment=%s target=%s/%s)",
-					entry.PolicyHash, entry.Sequence, entry.AssignmentID, entry.TargetScope, entry.TargetNodeID,
-					res.V2.Bundle.PolicyHash, a.Sequence, a.AssignmentID, a.Target.Scope, a.Target.NodeID)
-			}
-			return runPolicyApplyV2(cmd, res.V2, nodeID, dryRun, jsonOut, false)
+			_, err := runPolicyApplyV2(cmd, res.V2, nodeID, dryRun, jsonOut, false)
+			return err
 		},
 	}
 	f := cmd.Flags()
@@ -143,6 +92,103 @@ func newPolicyPullCmd() *cobra.Command {
 	f.BoolVar(&dryRun, "dry-run", false, "compute and print the projection without writing")
 	f.BoolVar(&jsonOut, "json", false, "emit result as JSON")
 	return cmd
+}
+
+// pullStageError distinguishes verification failures (which `policy
+// pull --json` routes through emitApplyFailure for a structured JSON
+// document) from plain fetch/transport failures.
+type pullStageError struct {
+	err         error
+	verifyStage bool
+}
+
+func (e *pullStageError) Error() string { return e.err.Error() }
+func (e *pullStageError) Unwrap() error { return e.err }
+
+// pullVerifiedBundle is the SINGLE pull pipeline shared by
+// `policy pull` and `cloud sync`: fetch index.json + signature, verify
+// the index signature against the trust fingerprint, select nodeID's
+// entry, fetch the named bundle from a store-contained path, verify it,
+// and bind it to the signed entry. The ordering is part of the security
+// contract: signature before parse, path check before fetch, bind
+// before any apply. found=false means the store publishes nothing for
+// this node (a clean no-op for callers).
+func pullVerifiedBundle(source, nodeID, trustFP string) (raw []byte, res *policybundle.VerifyResult, entry policybundle.PullIndexEntry, found bool, perr *pullStageError) {
+	fail := func(verify bool, err error) ([]byte, *policybundle.VerifyResult, policybundle.PullIndexEntry, bool, *pullStageError) {
+		return nil, nil, policybundle.PullIndexEntry{}, false, &pullStageError{err: err, verifyStage: verify}
+	}
+	fetch, err := newStoreFetcher(source)
+	if err != nil {
+		return fail(false, fmt.Errorf("--source: %w", err))
+	}
+
+	// 1. Fetch + signature-verify the index BEFORE trusting any entry.
+	indexBytes, err := fetch("index.json")
+	if err != nil {
+		return fail(false, fmt.Errorf("fetch index.json: %w", err))
+	}
+	sigBytes, err := fetch("index.json.sig")
+	if err != nil {
+		return fail(false, fmt.Errorf("fetch index.json.sig: %w", err))
+	}
+	if err := policybundle.VerifyPullIndexSig(indexBytes, sigBytes, trustFP); err != nil {
+		return fail(true, err)
+	}
+	idx, err := policybundle.ParsePullIndex(indexBytes)
+	if err != nil {
+		return fail(true, err)
+	}
+
+	// 2. Select this node's target entry.
+	entry, ok := policybundle.SelectPullEntry(idx, nodeID)
+	if !ok {
+		return nil, nil, policybundle.PullIndexEntry{}, false, nil
+	}
+
+	// 3. Fetch the selected bundle from a store-contained relative path.
+	if err := safeStoreRelPath(entry.BundleFile); err != nil {
+		return fail(false, fmt.Errorf("index bundle_file %q: %w", entry.BundleFile, err))
+	}
+	raw, err = fetch(entry.BundleFile)
+	if err != nil {
+		return fail(false, fmt.Errorf("fetch bundle %q: %w", entry.BundleFile, err))
+	}
+
+	// 4. The bundle is the authority: verify it, then bind it to the
+	// SIGNED index entry. Without the binding, an attacker who can swap
+	// the bundle file (but not the signed index) could serve a different
+	// validly-signed bundle — e.g. an older one signed by the same key —
+	// and a fresh node with no anti-rollback floor would apply it.
+	res, verr := policybundle.Verify(raw, trustFP)
+	if verr != nil {
+		return fail(true, verr)
+	}
+	if err := bindPulledBundle(res, entry); err != nil {
+		return fail(true, err)
+	}
+	return raw, res, entry, true, nil
+}
+
+// bindPulledBundle is the single source of the fetched-bundle-vs-signed-
+// index-entry binding check, shared by `policy pull` and `cloud sync`:
+// the verified bundle's hash and full assignment binding must equal the
+// entry the SIGNED index named. v2-only is enforced here too.
+func bindPulledBundle(res *policybundle.VerifyResult, entry policybundle.PullIndexEntry) error {
+	if res.SchemaVersion != policybundle.SchemaVersionV2 {
+		return fmt.Errorf("pull supports policy_bundle.v2 only; store bundle is %q", res.SchemaVersion)
+	}
+	a := res.V2.Bundle.Policy.Assignment
+	if res.V2.Bundle.PolicyHash != entry.PolicyHash ||
+		a.AssignmentID != entry.AssignmentID ||
+		a.Sequence != entry.Sequence ||
+		a.Target.Scope != entry.TargetScope ||
+		a.Target.NodeID != entry.TargetNodeID {
+		return fmt.Errorf("fetched bundle does not match the signed index entry "+
+			"(index hash=%s seq=%d assignment=%s target=%s/%s; bundle hash=%s seq=%d assignment=%s target=%s/%s)",
+			entry.PolicyHash, entry.Sequence, entry.AssignmentID, entry.TargetScope, entry.TargetNodeID,
+			res.V2.Bundle.PolicyHash, a.Sequence, a.AssignmentID, a.Target.Scope, a.Target.NodeID)
+	}
+	return nil
 }
 
 // newStoreFetcher returns a function that reads a store object by its relative
