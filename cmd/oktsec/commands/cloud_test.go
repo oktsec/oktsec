@@ -35,6 +35,8 @@ func withLocalCloudDialer(t *testing.T) {
 	prev := cloudDialContext
 	cloudDialContext = (&net.Dialer{}).DialContext
 	t.Cleanup(func() { cloudDialContext = prev })
+	// httptest serves plain http; the product default refuses it.
+	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "1")
 }
 
 // fakeCloud is a minimal Cloud: register issues a token once, evidence
@@ -131,6 +133,33 @@ func TestCloudEnrollPersistsStateAndIsIdempotent(t *testing.T) {
 	}
 	if state.Registers != 2 {
 		t.Fatalf("registers = %d", state.Registers)
+	}
+
+	// Re-enroll WITHOUT flags must not wipe previously stored pull
+	// settings (flags > response > existing state).
+	st2, _ := store.LoadCloudState()
+	st2.PullURL = "https://cloud.example.com/pull/o/f/cap/"
+	if err := store.SaveCloudState(st2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCloud(t, "enroll", "--url", srv.URL, "--token", "enroll-secret"); err != nil {
+		t.Fatalf("third enroll: %v", err)
+	}
+	st3, _ := store.LoadCloudState()
+	if st3.PullURL != st2.PullURL || st3.TrustFingerprint == "" {
+		t.Fatalf("re-enroll wiped pull state: %+v", st3)
+	}
+}
+
+func TestCloudEnrollRefusesPlaintextHTTP(t *testing.T) {
+	store := withTestNodeStore(t)
+	if _, err := store.Init("dev"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "0")
+	_, err := runCloud(t, "enroll", "--url", "http://cloud.example.com", "--token", "x")
+	if err == nil || !strings.Contains(err.Error(), "https") {
+		t.Fatalf("plaintext URL must be refused: %v", err)
 	}
 }
 

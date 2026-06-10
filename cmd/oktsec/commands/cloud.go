@@ -161,16 +161,32 @@ func newCloudEnrollCmd() *cobra.Command {
 				return fmt.Errorf("register failed: HTTP %d", status)
 			}
 
-			// Trust fingerprint: explicit flag wins; else Cloud's answer
-			// (newer Clouds include it once custody is configured).
+			// Merge, never wipe: explicit flags win, then Cloud's
+			// register response, then whatever a previous enroll
+			// stored — so an idempotent re-enroll without --pull-url
+			// cannot silently disable policy pulls.
+			prev, _ := store.LoadCloudState() // nil on first enroll
 			if trustFP == "" {
 				trustFP, _ = body["trust_fingerprint"].(string)
+			}
+			if pullURL == "" {
+				pullURL, _ = body["pull_url"].(string)
+			}
+			enrolledAt := time.Now().UTC().Format(time.RFC3339)
+			if prev != nil {
+				if trustFP == "" {
+					trustFP = prev.TrustFingerprint
+				}
+				if pullURL == "" {
+					pullURL = prev.PullURL
+				}
+				enrolledAt = prev.EnrolledAt
 			}
 			st := &node.CloudState{
 				URL:              base,
 				PullURL:          pullURL,
 				TrustFingerprint: trustFP,
-				EnrolledAt:       time.Now().UTC().Format(time.RFC3339),
+				EnrolledAt:       enrolledAt,
 			}
 			if err := store.SaveCloudState(st); err != nil {
 				return err
@@ -201,6 +217,12 @@ func normalizeCloudURL(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimRight(raw, "/"))
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		return "", fmt.Errorf("--url must be an http(s) base URL, got %q", raw)
+	}
+	// Bearer tokens travel in every Cloud call: plaintext HTTP would
+	// leak them to any on-path network. https only, with an explicit
+	// dev-only escape for local test servers.
+	if u.Scheme == "http" && os.Getenv("OKTSEC_CLOUD_INSECURE_HTTP") != "1" {
+		return "", fmt.Errorf("--url must be https (set OKTSEC_CLOUD_INSECURE_HTTP=1 only for local development)")
 	}
 	return u.String(), nil
 }
