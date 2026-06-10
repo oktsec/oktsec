@@ -32,9 +32,12 @@ func runCloud(t *testing.T, args ...string) (string, error) {
 // httptest server (which the guard would otherwise correctly refuse).
 func withLocalCloudDialer(t *testing.T) {
 	t.Helper()
-	prev := cloudDialContext
+	prevCloud, prevPull := cloudDialContext, pullDialContext
 	cloudDialContext = (&net.Dialer{}).DialContext
-	t.Cleanup(func() { cloudDialContext = prev })
+	// Restore BOTH seams: the dev dial escape inside the command also
+	// mutates pullDialContext, and a leak across tests would silently
+	// change later tests' guard assumptions.
+	t.Cleanup(func() { cloudDialContext, pullDialContext = prevCloud, prevPull })
 	// httptest serves plain http; the product default refuses it.
 	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "1")
 }
@@ -299,6 +302,43 @@ func TestCloudSyncExitStagesAndValidation(t *testing.T) {
 	var syncErr *cloudSyncError
 	if !errors.As(err, &syncErr) || syncErr.code != 2 {
 		t.Fatalf("pull failure must carry exit code 2: %v", err)
+	}
+}
+
+// The dev escape alone (no test dialer seam) must let `cloud enroll`
+// reach a loopback Cloud — this is exactly what a real-binary smoke
+// against a local server relies on.
+func TestCloudDevEscapeReachesLoopback(t *testing.T) {
+	store := withTestNodeStore(t)
+	if _, err := store.Init("dev"); err != nil {
+		t.Fatal(err)
+	}
+	prevCloud, prevPull := cloudDialContext, pullDialContext
+	t.Cleanup(func() { cloudDialContext, pullDialContext = prevCloud, prevPull })
+	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "1")
+	srv, _ := fakeCloud(t)
+
+	out, err := runCloud(t, "enroll", "--url", srv.URL, "--token", "enroll-secret")
+	if err != nil {
+		t.Fatalf("enroll through the dev escape: %v\n%s", err, out)
+	}
+	if _, err := store.LoadCloudToken(); err != nil {
+		t.Fatalf("token not persisted: %v", err)
+	}
+}
+
+// Without the env escape the SSRF guard stays in force: the escape
+// helper is a no-op and loopback dials are refused.
+func TestCloudDevEscapeNoOpWithoutEnv(t *testing.T) {
+	prevCloud, prevPull := cloudDialContext, pullDialContext
+	t.Cleanup(func() { cloudDialContext, pullDialContext = prevCloud, prevPull })
+	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "")
+	cloudApplyDevDialEscape()
+
+	srv, _ := fakeCloud(t)
+	_, err := cloudHTTPClient().Get(srv.URL + "/v1/node/register")
+	if err == nil || !strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("loopback must stay blocked without the escape: %v", err)
 	}
 }
 

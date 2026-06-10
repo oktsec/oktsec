@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,6 +43,24 @@ var cloudDialContext = netutil.SafeDialContext
 // cloudMinInterval keeps daemon mode polite (Cloud rate limits are
 // generous, but a sub-minute loop is never needed).
 const cloudMinInterval = time.Minute
+
+// cloudApplyDevDialEscape relaxes the SSRF dial guard for the running
+// `cloud` command when OKTSEC_CLOUD_INSECURE_HTTP=1 — the same
+// dev-only escape that admits a plaintext --url. A local or LAN test
+// Cloud sits in address ranges the guard refuses by design, so the
+// escape that already declares "this is a development environment"
+// covers both relaxations. It mutates the dial seams of THIS process
+// only, from `cloud` entry points only: `policy pull` invocations and
+// every server-side surface keep the hard guard regardless of
+// environment.
+func cloudApplyDevDialEscape() {
+	if os.Getenv("OKTSEC_CLOUD_INSECURE_HTTP") != "1" {
+		return
+	}
+	plain := (&net.Dialer{Timeout: 5 * time.Second}).DialContext
+	cloudDialContext = plain
+	pullDialContext = plain
+}
 
 // cloudHTTPClient builds the SSRF-guarded client for Cloud API calls.
 // Daemon mode constructs it ONCE per run (keep-alive across ticks);
@@ -114,6 +133,7 @@ func newCloudEnrollCmd() *cobra.Command {
 			if cloudURL == "" || token == "" {
 				return fmt.Errorf("--url and --token are required")
 			}
+			cloudApplyDevDialEscape()
 			base, err := normalizeCloudURL(cloudURL)
 			if err != nil {
 				return err
@@ -254,6 +274,7 @@ func newCloudSyncCmd() *cobra.Command {
 			if once == (interval != 0) {
 				return fmt.Errorf("pass exactly one of --once or --interval")
 			}
+			cloudApplyDevDialEscape()
 			store := nodeStoreForTest()
 			client := cloudHTTPClient()
 			if once {
