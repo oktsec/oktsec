@@ -13,28 +13,28 @@ import (
 )
 
 // Stable envelope schema version. Bumping is a contract break and
-// must come with a coordinated Enterprise-side release; this constant
+// must come with a coordinated consumer-side release; this constant
 // is the single source of truth on the Community side and the value
-// Enterprise vendors into its JSON Schema fixtures.
+// downstream verifiers vendor into their JSON Schema fixtures.
 const SchemaSnapshotEnvelope = "node_snapshot_envelope.v1"
 
 // EnvelopeVersion is the integer envelope-shape version. Distinct
 // from SchemaSnapshotEnvelope so a future field-only addition can
 // bump the integer without rotating the schema name; current
-// Enterprise verifiers should still accept it under the same
+// verifiers should still accept it under the same
 // schema string, refusing fields they do not understand.
 const EnvelopeVersion = 1
 
 // CanonicalizationTag identifies the exact canonicalization
 // algorithm used to compute the snapshot hash that goes into the
-// envelope. Enterprise must verify against this exact tag so an
+// envelope. Verifiers must check this exact tag so an
 // untagged or differently-tagged envelope is rejected outright.
 const CanonicalizationTag = "node_snapshot.v1.canonical_json.utc_minified"
 
 // SnapshotSignature is the cryptographic-evidence half of the
 // envelope. The public key is carried in raw base64 form because
 // node_identity.v1 only exposes the fingerprint; without the raw
-// bytes Enterprise cannot verify the Ed25519 signature.
+// bytes a verifier cannot check the Ed25519 signature.
 type SnapshotSignature struct {
 	Alg                  string `json:"alg"`
 	KeyID                string `json:"key_id"`
@@ -64,7 +64,7 @@ type SnapshotEnvelope struct {
 	Snapshot              Snapshot          `json:"snapshot"`
 }
 
-// CanonicalSnapshotBytes returns the bytes Enterprise must reproduce
+// CanonicalSnapshotBytes returns the bytes a verifier must reproduce
 // to verify the signature. The contract:
 //
 //  1. RFC3339 timestamps that the snapshot uses for time bounds
@@ -101,7 +101,7 @@ func CanonicalSnapshotBytes(s Snapshot) ([]byte, error) {
 
 // SnapshotSHA256 returns the lowercase-hex SHA-256 of the canonical
 // snapshot bytes, paired with those bytes. The hash has NO sha256:
-// prefix because Enterprise's snapshots.id already uses raw hex; the
+// prefix because consumer snapshot IDs already use raw hex; the
 // fingerprint prefix is reserved for identity-shaped values.
 func SnapshotSHA256(s Snapshot) (string, []byte, error) {
 	canon, err := CanonicalSnapshotBytes(s)
@@ -218,11 +218,11 @@ func SealSnapshotEnvelope(store IdentityStore, snap Snapshot, signedAt time.Time
 	return env, nil
 }
 
-// verifyEnvelopeSelf runs the same Ed25519 verification a future
-// Enterprise verifier would run, against the IdentityStore's
+// verifyEnvelopeSelf runs the same Ed25519 verification a
+// downstream verifier would run, against the IdentityStore's
 // current public key. It catches an entire class of subtle
 // breakage (mismatched key files, accidental key rotation
-// mid-process) without depending on Enterprise being installed.
+// mid-process) without depending on any external verifier.
 func verifyEnvelopeSelf(env *SnapshotEnvelope, pub ed25519.PublicKey) error {
 	sigBytes, err := base64.StdEncoding.DecodeString(env.Signature.Value)
 	if err != nil {

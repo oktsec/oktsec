@@ -21,7 +21,7 @@ import (
 // truncated index (e.g. one hiding the newest bundle) is refused rather than
 // silently followed. The signature is detached and covers the LITERAL index
 // bytes (not a re-canonicalization), so no shared JSON canonicalizer is needed
-// between the signer (Enterprise) and this verifier — byte-exactness is the
+// between the signer and this verifier — byte-exactness is the
 // file's own bytes. The bundle's own signature remains the final authority for
 // what is applied; the index only decides which bundle the node fetches.
 

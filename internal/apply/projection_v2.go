@@ -21,7 +21,7 @@ package apply
 // governed (mode != unmanaged) but not yet implemented:
 //   - body-level egress (fleet/global forward-proxy domain lists)
 //   - server governance (require_intent, rate limits)
-//   - redaction (Enterprise report concern, but a managed mode is refused so it
+//   - redaction (control-plane report concern, but a managed mode is refused so it
 //     is never silently dropped)
 //   - per-agent acls, tool_policies, tool_constraints, tool_chain_rules, and
 //     per-agent egress fields beyond allowed/blocked domains (scope,
@@ -210,7 +210,7 @@ func DryRunV2(verified *policybundle.VerifiedBundleV2, cfg *config.Config, nodeI
 	failClosedIfManaged(plan, "server_governance", body.Governance.Server.Mode,
 		"server governance (require_intent, rate limits) is not projected by Community apply in this PR")
 	failClosedIfManaged(plan, "redaction", body.Redaction.Mode,
-		"redaction is an Enterprise report concern and is not projected onto Community runtime")
+		"redaction is a control-plane report concern and is not projected onto Community runtime")
 
 	// --- Per-agent governance via selectors. Selector overlap on the SAME
 	// dimension fails closed; matched agents are projected. ---

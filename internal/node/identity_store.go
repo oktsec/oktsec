@@ -130,7 +130,7 @@ func (s IdentityStore) Init(profile string) (*Identity, error) {
 // Load reads identity.json AND verifies that node.key + node.pub
 // exist and are consistent with the fingerprint in identity.json.
 //
-// The signed-checkpoint contract that future Enterprise depends on
+// The signed-checkpoint contract downstream verifiers depend on
 // requires all three to be usable together: identity.json on its own
 // (without keys, or with mismatched keys) must not be reported as
 // present. If only identity.json exists, Load returns a real error

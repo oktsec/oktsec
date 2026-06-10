@@ -1,7 +1,7 @@
 package node
 
 // Stable schema versions emitted in JSON output. Bumping a version is a
-// breaking-change signal to Enterprise consumers and must be done in a
+// breaking-change signal to downstream consumers and must be done in a
 // dedicated PR with a migration note.
 const (
 	SchemaIdentity = "node_identity.v1"
@@ -65,7 +65,7 @@ const (
 	PolicyStatusNone = "none"
 	// PolicyStatusUnreadable: a path was supplied but the bundle could
 	// not be read or parsed, or it lacked the minimal fields. Distinct
-	// from PolicyStatusNone so Enterprise does not mistake "I could not
+	// from PolicyStatusNone so a consumer does not mistake "I could not
 	// read it" for "there is no policy here".
 	PolicyStatusUnreadable = "unreadable"
 )
@@ -145,7 +145,7 @@ type SnapshotPolicy struct {
 	ActivePolicyVerificationStatus string `json:"active_policy_verification_status,omitempty"`
 	// AppliedAssignmentID / AppliedSequence echo the active v2 bundle's
 	// signed assignment binding (policybundle.AssignmentV2). They let
-	// Enterprise compare the exact assignment the node carries, not just
+	// a verifier compare the exact assignment the node carries, not just
 	// the policy hash (Order 9B observed-vs-desired). Both are omitempty
 	// because a v1 (or no-assignment) bundle has no assignment block: an
 	// empty id / zero sequence means "absent", never a meaningful zero
@@ -195,8 +195,8 @@ type SnapshotConfig struct {
 }
 
 // SnapshotSurfaces is the per-surface configured/observed view used by
-// the dashboard coverage matrix and by the planned Enterprise fleet
-// report. Booleans are conservative: false when the section cannot
+// the dashboard coverage matrix and by downstream fleet
+// reports. Booleans are conservative: false when the section cannot
 // prove the affirmative.
 type SnapshotSurfaces struct {
 	MCPGateway      SurfaceGateway  `json:"mcp_gateway"`
@@ -339,7 +339,7 @@ type PostureCounts struct {
 // proxy_signature AND every one of those signatures verified
 // against the configured proxy public key. Anything weaker —
 // no key reachable, no signed rows, or mixed signed/unsigned
-// coverage — leaves this field false. Enterprise compliance
+// coverage — leaves this field false. Compliance
 // evidence must read both fields together: AuditChainVerified
 // tells you nothing tampered; AuditChainSignaturesChecked tells
 // you the proxy actually signed every row in scope.

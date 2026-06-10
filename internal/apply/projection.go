@@ -10,8 +10,8 @@
 // subset that would change runtime meaning are reported as unsupported and
 // refused by default — never silently applied or ignored.
 //
-// The signed bundle carries the Enterprise policy vocabulary
-// (flag/quarantine/block); the Enterprise→Community action mapping happens
+// The signed bundle carries the control-plane policy vocabulary
+// (flag/quarantine/block); the bundle→Community action mapping happens
 // here, at projection time, NOT in the bundle.
 package apply
 
@@ -50,12 +50,12 @@ var (
 	ErrPolicyRollbackRefused = errors.New("apply: policy_rollback_refused")
 )
 
-// mapAction maps an Enterprise override action to a Community rule action.
-// Returns ok=false for an action outside the Enterprise vocabulary (a
+// mapAction maps a bundle override action to a Community rule action.
+// Returns ok=false for an action outside the bundle vocabulary (a
 // verified bundle never carries one, but the projection refuses rather than
 // silently mis-mapping).
-func mapAction(enterprise string) (string, bool) {
-	switch enterprise {
+func mapAction(action string) (string, bool) {
+	switch action {
 	case "flag":
 		return "allow-and-flag", true
 	case "quarantine":
@@ -398,7 +398,7 @@ func DryRun(verified *policybundle.VerifiedBundle, cfg *config.Config, agentName
 
 	target.Agents[agentName] = agent
 
-	// redaction.level and metadata are Enterprise report/display + audit
+	// redaction.level and metadata are control-plane report/display + audit
 	// concerns, not Community runtime settings — intentionally not projected,
 	// and NOT "unsupported": they do not change runtime meaning here.
 

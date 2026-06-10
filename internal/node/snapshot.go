@@ -259,7 +259,7 @@ func Build(ctx context.Context, opts Options) (Snapshot, error) {
 		//
 		//   partial coverage: at least one row carries a
 		//   signature, but the scope also contains unsigned rows.
-		//   Calling this "signed" would overclaim — Enterprise
+		//   Calling this "signed" would overclaim — compliance
 		//   evidence needs a separate code so the consumer can
 		//   distinguish "no key reachable" from "mixed coverage".
 		//

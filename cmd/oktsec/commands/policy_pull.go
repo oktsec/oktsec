@@ -29,7 +29,7 @@ const pullHTTPTimeout = 15 * time.Second
 // signed pull store from an operator-controlled source, verifies the index
 // signature against its pinned trust fingerprint, selects the bundle for its
 // target, and routes that bundle through the SAME verify + target-binding +
-// anti-rollback + apply pipeline `policy apply` uses. Enterprise never contacts
+// anti-rollback + apply pipeline `policy apply` uses. The store operator never contacts
 // the node; the node initiates everything here.
 func newPolicyPullCmd() *cobra.Command {
 	var (
