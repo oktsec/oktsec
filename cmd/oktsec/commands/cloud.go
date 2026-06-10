@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -43,13 +44,28 @@ var cloudDialContext = netutil.SafeDialContext
 // generous, but a sub-minute loop is never needed).
 const cloudMinInterval = time.Minute
 
+// cloudDial picks the dialer for one cloud command invocation. When
+// OKTSEC_CLOUD_INSECURE_HTTP=1 — the same dev-only escape that admits
+// a plaintext --url — it returns a plain dialer, because a local or
+// LAN test Cloud sits in address ranges the SSRF guard refuses by
+// design and the escape already declares "this is a development
+// environment". The choice is per-call and mutates nothing: `policy
+// pull` invocations and every server-side surface keep the hard guard
+// regardless of environment.
+func cloudDial() dialContextFunc {
+	if os.Getenv("OKTSEC_CLOUD_INSECURE_HTTP") == "1" {
+		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext
+	}
+	return cloudDialContext
+}
+
 // cloudHTTPClient builds the SSRF-guarded client for Cloud API calls.
 // Daemon mode constructs it ONCE per run (keep-alive across ticks);
 // the seam stays a var so tests can point it at a local server.
 func cloudHTTPClient() *http.Client {
 	return &http.Client{
 		Timeout:   cloudHTTPTimeout,
-		Transport: &http.Transport{DialContext: cloudDialContext},
+		Transport: &http.Transport{DialContext: cloudDial()},
 	}
 }
 
@@ -393,7 +409,7 @@ func runCloudSyncOnce(cmd *cobra.Command, store node.IdentityStore, client *http
 // snapshots echo the active policy. A store with no entry for this
 // node is a clean no-op.
 func cloudPullApply(cmd *cobra.Command, store node.IdentityStore, st *node.CloudState, nodeID string) error {
-	raw, res, entry, found, perr := pullVerifiedBundle(st.PullURL, nodeID, st.TrustFingerprint)
+	raw, res, entry, found, perr := pullVerifiedBundle(st.PullURL, nodeID, st.TrustFingerprint, cloudDial())
 	if perr != nil {
 		return perr.err
 	}

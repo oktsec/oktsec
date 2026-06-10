@@ -302,6 +302,38 @@ func TestCloudSyncExitStagesAndValidation(t *testing.T) {
 	}
 }
 
+// The dev escape alone (no test dialer seam) must let `cloud enroll`
+// reach a loopback Cloud — this is exactly what a real-binary smoke
+// against a local server relies on.
+func TestCloudDevEscapeReachesLoopback(t *testing.T) {
+	store := withTestNodeStore(t)
+	if _, err := store.Init("dev"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "1")
+	srv, _ := fakeCloud(t)
+
+	out, err := runCloud(t, "enroll", "--url", srv.URL, "--token", "enroll-secret")
+	if err != nil {
+		t.Fatalf("enroll through the dev escape: %v\n%s", err, out)
+	}
+	if _, err := store.LoadCloudToken(); err != nil {
+		t.Fatalf("token not persisted: %v", err)
+	}
+}
+
+// Without the env escape the SSRF guard stays in force: cloudDial
+// returns the guarded dialer and loopback dials are refused.
+func TestCloudDevEscapeNoOpWithoutEnv(t *testing.T) {
+	t.Setenv("OKTSEC_CLOUD_INSECURE_HTTP", "")
+
+	srv, _ := fakeCloud(t)
+	_, err := cloudHTTPClient().Get(srv.URL + "/v1/node/register")
+	if err == nil || !strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("loopback must stay blocked without the escape: %v", err)
+	}
+}
+
 func TestCloudStatusShowsNoSecrets(t *testing.T) {
 	store := withTestNodeStore(t)
 	if _, err := store.Init("dev"); err != nil {
