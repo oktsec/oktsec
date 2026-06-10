@@ -14,9 +14,9 @@ func main() {
 		// Commands may tag failures with a distinct exit code (e.g.
 		// `cloud sync --once`: 2 = pull/apply, 3 = report) so systemd
 		// units and scripts can branch on the failing stage.
-		var coded interface{ ExitCode() int }
+		var coded interface{ CommandExitCode() int }
 		if errors.As(err, &coded) {
-			os.Exit(coded.ExitCode())
+			os.Exit(coded.CommandExitCode())
 		}
 		os.Exit(1)
 	}

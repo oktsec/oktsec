@@ -173,7 +173,12 @@ func newCloudEnrollCmd() *cobra.Command {
 				pullURL, _ = body["pull_url"].(string)
 			}
 			enrolledAt := time.Now().UTC().Format(time.RFC3339)
-			if prev != nil {
+			// Previous settings are only trustworthy for the SAME
+			// control plane: carrying the old Cloud's pull capability
+			// and trust anchor into an enrollment against a different
+			// URL would leave the node reporting to one Cloud while
+			// applying the other's policy.
+			if prev != nil && prev.URL == base {
 				if trustFP == "" {
 					trustFP = prev.TrustFingerprint
 				}
@@ -292,8 +297,11 @@ type cloudSyncError struct {
 func (e *cloudSyncError) Error() string { return e.stage + ": " + e.err.Error() }
 func (e *cloudSyncError) Unwrap() error { return e.err }
 
-// ExitCode lets main map sync failures to distinct process exit codes.
-func (e *cloudSyncError) ExitCode() int { return e.code }
+// CommandExitCode lets main map sync failures to distinct process
+// exit codes. Deliberately NOT named ExitCode: os/exec.ExitError has
+// that method, and wrapped subprocess errors must not leak a child's
+// exit code as ours.
+func (e *cloudSyncError) CommandExitCode() int { return e.code }
 
 // stampSync records the cycle result in cloud.json (best effort on
 // failure paths; the ok path surfaces the write error).

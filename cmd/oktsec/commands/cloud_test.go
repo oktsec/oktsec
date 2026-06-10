@@ -149,6 +149,17 @@ func TestCloudEnrollPersistsStateAndIsIdempotent(t *testing.T) {
 	if st3.PullURL != st2.PullURL || st3.TrustFingerprint == "" {
 		t.Fatalf("re-enroll wiped pull state: %+v", st3)
 	}
+
+	// Enrolling against a DIFFERENT Cloud must NOT inherit the old
+	// plane's pull capability or trust anchor.
+	srv2, _ := fakeCloud(t)
+	if _, err := runCloud(t, "enroll", "--url", srv2.URL, "--token", "enroll-secret"); err != nil {
+		t.Fatalf("enroll new cloud: %v", err)
+	}
+	st4, _ := store.LoadCloudState()
+	if st4.PullURL == st2.PullURL {
+		t.Fatalf("pull state must reset when the Cloud URL changes: %+v", st4)
+	}
 }
 
 func TestCloudEnrollRefusesPlaintextHTTP(t *testing.T) {
