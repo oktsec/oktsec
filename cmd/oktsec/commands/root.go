@@ -94,6 +94,7 @@ func NewRoot() *cobra.Command {
 		newScanOpenClawCmd(),
 		newTokensCmd(),
 		newNodeCmd(),
+		newCloudCmd(),
 	)
 
 	// Internal/advanced commands — hidden from help
