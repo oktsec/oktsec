@@ -21,9 +21,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// `oktsec cloud` connects this node to an Oktsec Cloud control plane.
+// `oktsec cloud` connects this node to an operator control plane.
 // The trust model is the node's, unchanged: the node INITIATES every
-// exchange (register, report, pull); Cloud never reaches in. Apply runs
+// exchange (register, report, pull); the plane never reaches in. Apply runs
 // through the exact same verify + target-binding + anti-rollback
 // pipeline as `policy apply` / `policy pull` — these commands only
 // orchestrate steps that already exist.
@@ -47,7 +47,7 @@ const cloudMinInterval = time.Minute
 // cloudDial picks the dialer for one cloud command invocation. When
 // OKTSEC_CLOUD_INSECURE_HTTP=1 — the same dev-only escape that admits
 // a plaintext --url — it returns a plain dialer, because a local or
-// LAN test Cloud sits in address ranges the SSRF guard refuses by
+// LAN test plane sits in address ranges the SSRF guard refuses by
 // design and the escape already declares "this is a development
 // environment". The choice is per-call and mutates nothing: `policy
 // pull` invocations and every server-side surface keep the hard guard
@@ -100,10 +100,10 @@ func cloudPost(client *http.Client, rawURL, bearer string, body []byte) (int, ma
 func newCloudCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cloud",
-		Short: "Connect this node to an Oktsec Cloud control plane",
-		Long: "Enroll this node with Oktsec Cloud, then keep it in sync: report signed " +
+		Short: "Connect this node to a control plane",
+		Long: "Enroll this node with a control plane, then keep it in sync: report signed " +
 			"evidence and pull + verify + apply the signed policy published for it. The node " +
-			"initiates everything; Cloud has no way to reach in.",
+			"initiates everything; the control plane has no way to reach in.",
 	}
 	cmd.AddCommand(newCloudEnrollCmd(), newCloudSyncCmd(), newCloudStatusCmd())
 	return cmd
@@ -120,11 +120,11 @@ func newCloudEnrollCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "enroll",
-		Short: "Register this node with Oktsec Cloud",
-		Long: "Registers this node's identity with Cloud using an enrollment token and stores " +
+		Short: "Register this node with the control plane",
+		Long: "Registers this node's identity with the control plane using an enrollment token and stores " +
 			"the connection state beside the node identity. The pull store URL and policy trust " +
-			"fingerprint are taken from Cloud's response when available, or from flags.",
-		Example:      "  oktsec cloud enroll --url https://cloud.oktsec.com --token <enrollment-token>",
+			"fingerprint are taken from the control plane's response when available, or from flags.",
+		Example:      "  oktsec cloud enroll --url https://cloud.example.com --token <enrollment-token>",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cloudURL == "" || token == "" {
@@ -167,17 +167,17 @@ func newCloudEnrollCmd() *cobra.Command {
 			case http.StatusOK:
 				// Idempotent re-register: no new token. Keep the stored one.
 				if _, err := store.LoadCloudToken(); err != nil {
-					return fmt.Errorf("node already registered but no local token is stored — rotate it from Cloud and re-enroll: %w", err)
+					return fmt.Errorf("node already registered but no local token is stored — rotate it from the control plane and re-enroll: %w", err)
 				}
 			case http.StatusUnauthorized:
 				return fmt.Errorf("enrollment token rejected (expired or revoked)")
 			case http.StatusConflict:
-				return fmt.Errorf("registration conflicts with Cloud's state for this node (identity pin mismatch)")
+				return fmt.Errorf("registration conflicts with the control plane's state for this node (identity pin mismatch)")
 			default:
 				return fmt.Errorf("register failed: HTTP %d", status)
 			}
 
-			// Merge, never wipe: explicit flags win, then Cloud's
+			// Merge, never wipe: explicit flags win, then the plane's
 			// register response, then whatever a previous enroll
 			// stored — so an idempotent re-enroll without --pull-url
 			// cannot silently disable policy pulls.
@@ -190,9 +190,9 @@ func newCloudEnrollCmd() *cobra.Command {
 			}
 			enrolledAt := time.Now().UTC().Format(time.RFC3339)
 			// Previous settings are only trustworthy for the SAME
-			// control plane: carrying the old Cloud's pull capability
+			// control plane: carrying the old plane's pull capability
 			// and trust anchor into an enrollment against a different
-			// URL would leave the node reporting to one Cloud while
+			// URL would leave the node reporting to one plane while
 			// applying the other's policy.
 			if prev != nil && prev.URL == base {
 				if trustFP == "" {
@@ -228,9 +228,9 @@ func newCloudEnrollCmd() *cobra.Command {
 	}
 	f := cmd.Flags()
 	f.StringVar(&cloudURL, "url", "", "Cloud base URL (https://cloud.example.com)")
-	f.StringVar(&token, "token", "", "enrollment token issued by Cloud (shown once at creation)")
-	f.StringVar(&pullURL, "pull-url", "", "this fleet's pull store URL (from the Cloud console)")
-	f.StringVar(&trustFP, "trust-fingerprint", "", "policy signing trust fingerprint sha256:<hex> (defaults to Cloud's answer)")
+	f.StringVar(&token, "token", "", "enrollment token (shown once at creation)")
+	f.StringVar(&pullURL, "pull-url", "", "this fleet's pull store URL (shown once at capability creation)")
+	f.StringVar(&trustFP, "trust-fingerprint", "", "policy signing trust fingerprint sha256:<hex> (defaults to the control plane's answer)")
 	return cmd
 }
 
@@ -239,7 +239,7 @@ func normalizeCloudURL(raw string) (string, error) {
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		return "", fmt.Errorf("--url must be an http(s) base URL, got %q", raw)
 	}
-	// Bearer tokens travel in every Cloud call: plaintext HTTP would
+	// Bearer tokens travel in every call: plaintext HTTP would
 	// leak them to any on-path network. https only, with an explicit
 	// dev-only escape for local test servers.
 	if u.Scheme == "http" && os.Getenv("OKTSEC_CLOUD_INSECURE_HTTP") != "1" {
@@ -440,7 +440,7 @@ func newCloudStatusCmd() *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:          "status",
-		Short:        "Show this node's Cloud connection state",
+		Short:        "Show this node's control plane connection state",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store := nodeStoreForTest()

@@ -10,7 +10,7 @@ import (
 	"github.com/oktsec/oktsec/internal/safefile"
 )
 
-// Cloud connection state lives beside the node identity and goes
+// Control plane connection state lives beside the node identity and goes
 // through the SAME file discipline the identity uses: reads open with
 // O_NOFOLLOW (safefile), writes are atomic tmp+rename and refuse
 // pre-planted symlinks (writeFileSafe). cloud.json carries the policy
@@ -53,7 +53,7 @@ func (s IdentityStore) LoadCloudState() (*CloudState, error) {
 	raw, err := safefile.ReadFileMax(p, maxCloudStateBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("this node is not enrolled with a Cloud (run `oktsec cloud enroll --url <cloud> --token <enrollment-token>`)")
+			return nil, fmt.Errorf("this node is not enrolled with a control plane (run `oktsec cloud enroll --url <url> --token <enrollment-token>`)")
 		}
 		return nil, err
 	}

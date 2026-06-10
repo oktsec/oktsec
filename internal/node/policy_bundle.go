@@ -53,7 +53,7 @@ type rawPolicyBundle struct {
 		// schema_version is policy_bundle.v2 (the v1 signing payload does
 		// not bind it, so it is not trustworthy on a v1 bundle). Only
 		// assignment_id + sequence are read; the snapshot echoes them so
-		// Enterprise can compare the exact assignment, not just the hash
+		// a verifier can compare the exact assignment, not just the hash
 		// (Order 9B).
 		Assignment struct {
 			AssignmentID string `json:"assignment_id"`
@@ -118,7 +118,7 @@ func buildPolicySection(bundlePath, trustFingerprint string) (*SnapshotPolicy, [
 	if err := json.Unmarshal(data, &bundle); err != nil {
 		return unreadable("invalid JSON: " + err.Error())
 	}
-	// A bundle that does not declare the minimal identity Enterprise
+	// A bundle that does not declare the minimal identity a verifier
 	// compares against (hash + id) is not a usable active policy. This
 	// tolerant projection shares the policy_hash / policy.policy_id /
 	// policy.policy_version JSON paths with both the v1 and v2 envelopes,

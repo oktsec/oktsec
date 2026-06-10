@@ -21,7 +21,7 @@ func pullTestKey(t *testing.T) (ed25519.PrivateKey, string) {
 }
 
 // signIndexForTest builds a valid index.json.sig for the given index bytes,
-// mirroring exactly what the Enterprise publisher must produce.
+// mirroring exactly what a store publisher must produce.
 func signIndexForTest(t *testing.T, key ed25519.PrivateKey, indexBytes []byte, signedAt, fp string) []byte {
 	t.Helper()
 	sum := sha256.Sum256(indexBytes)

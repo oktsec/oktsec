@@ -17,8 +17,8 @@ import (
 
 // newNodeCmd builds the `oktsec node` command group. Order 1 shipped
 // init / status / snapshot; Phase 5 Order 3A adds sign-snapshot for
-// producing signed envelopes that downstream consumers (e.g.
-// `oktsec-enterprise ingest`) can verify against the local node key.
+// producing signed envelopes that downstream consumers (e.g. a
+// fleet ingest tool) can verify against the local node key.
 // All subcommands are local-only and read-only with respect to the
 // Oktsec runtime — none of them open a network socket or modify
 // running enforcement.
