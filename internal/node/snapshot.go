@@ -117,6 +117,7 @@ func Build(ctx context.Context, opts Options) (Snapshot, error) {
 			Profile:        ProfileLocal,
 		},
 		Config: SnapshotConfig{Status: "missing"},
+		Host:   CollectHostFacts(),
 		Inventory: SnapshotInventory{
 			Agents:     []InventoryAgent{},
 			Principals: []InventoryPrincipal{},

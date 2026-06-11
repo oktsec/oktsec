@@ -134,9 +134,9 @@ func TestClassifyDecision(t *testing.T) {
 		{"blocked", "rate_limited", "blocked"},
 		{"quarantined", "content_quarantined", "quarantined"},
 		{"rejected", "identity_rejected", "rejected"},
-		{"delivered", "", "allowed"},     // legacy: status only
-		{"flagged", "", "flagged"},        // legacy: status only
-		{"", "", ""},                       // unknown
+		{"delivered", "", "allowed"}, // legacy: status only
+		{"flagged", "", "flagged"},   // legacy: status only
+		{"", "", ""},                 // unknown
 	}
 	for _, c := range cases {
 		if got := classifyDecision(c.status, c.decision); got != c.want {
