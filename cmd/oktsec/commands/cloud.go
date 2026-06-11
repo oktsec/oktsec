@@ -178,6 +178,10 @@ func newCloudEnrollCmd() *cobra.Command {
 					if err := store.SaveCloudToken(nodeToken); err != nil {
 						return err
 					}
+				} else if rotate {
+					// --rotate promised a fresh credential; silently
+					// keeping the old one would be a failed rotation.
+					return fmt.Errorf("the control plane did not issue a replacement token — rotation did not happen")
 				} else if _, err := store.LoadCloudToken(); err != nil {
 					return fmt.Errorf("node is registered but holds no local token — re-run with --rotate to issue a fresh one: %w", err)
 				}
