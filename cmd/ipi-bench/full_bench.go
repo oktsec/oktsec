@@ -28,20 +28,20 @@ type fullResult struct {
 }
 
 type fullReport struct {
-	Timestamp       string       `json:"timestamp"`
-	Model           string       `json:"model"`
-	RuleCount       int          `json:"rule_count"`
-	TotalAttacks    int          `json:"total_attacks"`
-	DetDetected     int          `json:"det_detected"`
-	DetMissed       int          `json:"det_missed"`
-	LLMTested       int          `json:"llm_tested"`
-	LLMCaught       int          `json:"llm_caught"`
-	LLMMissed       int          `json:"llm_missed"`
-	LLMErrors       int          `json:"llm_errors"`
-	CombinedDetect  int          `json:"combined_detected"`
-	CombinedMissed  int          `json:"combined_missed"`
-	CombinedRate    float64      `json:"combined_detection_rate_pct"`
-	Results         []fullResult `json:"results"`
+	Timestamp      string       `json:"timestamp"`
+	Model          string       `json:"model"`
+	RuleCount      int          `json:"rule_count"`
+	TotalAttacks   int          `json:"total_attacks"`
+	DetDetected    int          `json:"det_detected"`
+	DetMissed      int          `json:"det_missed"`
+	LLMTested      int          `json:"llm_tested"`
+	LLMCaught      int          `json:"llm_caught"`
+	LLMMissed      int          `json:"llm_missed"`
+	LLMErrors      int          `json:"llm_errors"`
+	CombinedDetect int          `json:"combined_detected"`
+	CombinedMissed int          `json:"combined_missed"`
+	CombinedRate   float64      `json:"combined_detection_rate_pct"`
+	Results        []fullResult `json:"results"`
 }
 
 func runFullBenchmark(datasetPath, outputPath string) {
@@ -89,9 +89,9 @@ func runFullBenchmark(datasetPath, outputPath string) {
 	fmt.Printf("Strategy: Run deterministic first. If clean, run LLM.\n\n")
 
 	report := fullReport{
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Model:       analyzer.Name(),
-		RuleCount:   ruleCount,
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
+		Model:        analyzer.Name(),
+		RuleCount:    ruleCount,
 		TotalAttacks: len(attacks),
 	}
 

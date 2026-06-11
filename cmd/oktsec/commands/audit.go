@@ -28,12 +28,12 @@ const (
 
 // auditReport is the full audit output.
 type auditReport struct {
-	ConfigPath string              `json:"config_path"`
+	ConfigPath string               `json:"config_path"`
 	Findings   []auditcheck.Finding `json:"findings"`
-	KeysLoaded int                 `json:"keys_loaded"`
-	AgentCount int                 `json:"agent_count"`
-	Detected   []string            `json:"detected"`
-	Summary    auditcheck.Summary  `json:"summary"`
+	KeysLoaded int                  `json:"keys_loaded"`
+	AgentCount int                  `json:"agent_count"`
+	Detected   []string             `json:"detected"`
+	Summary    auditcheck.Summary   `json:"summary"`
 }
 
 func newAuditCmd() *cobra.Command {

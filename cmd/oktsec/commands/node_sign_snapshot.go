@@ -112,8 +112,8 @@ func readSnapshotInput(path string) ([]byte, error) {
 //     the operator handed us;
 //   - trailing JSON tokens after the first object would be lost
 //     completely. A file like
-//         { "schema_version": "node_snapshot.v1", ... }
-//         { "extra": "not signed" }
+//     { "schema_version": "node_snapshot.v1", ... }
+//     { "extra": "not signed" }
 //     decodes the first object cleanly under DisallowUnknownFields,
 //     and without the EOF check we would happily sign that first
 //     object and discard the second. Same threat model, different

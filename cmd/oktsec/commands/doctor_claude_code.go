@@ -26,13 +26,13 @@ import (
 // state or oktsec config.
 func newDoctorClaudeCodeCmd() *cobra.Command {
 	var (
-		jsonOut         bool
-		projectDir      string
-		installHooks    bool
-		uninstallHooks  bool
-		emitHeartbeat   bool
-		followSymlink   bool
-		dryRun          bool
+		jsonOut        bool
+		projectDir     string
+		installHooks   bool
+		uninstallHooks bool
+		emitHeartbeat  bool
+		followSymlink  bool
+		dryRun         bool
 	)
 	cmd := &cobra.Command{
 		Use:   "claude-code",
@@ -161,8 +161,8 @@ func lookupLastEvent() string {
 // can consume one stable shape.
 func emitDoctorJSON(inv claudecode.Inventory, health claudecode.ConnectorHealth) error {
 	out := struct {
-		Inventory claudecode.Inventory        `json:"inventory"`
-		Health    claudecode.ConnectorHealth  `json:"health"`
+		Inventory claudecode.Inventory       `json:"inventory"`
+		Health    claudecode.ConnectorHealth `json:"health"`
 	}{Inventory: inv, Health: health}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -358,8 +358,8 @@ func runDoctorClaudeCodeHeartbeat(jsonOut bool) error {
 	id, latency, err := EmitHeartbeat(port)
 	if jsonOut {
 		out := map[string]any{
-			"event_id":    id,
-			"latency_ms":  latency.Milliseconds(),
+			"event_id":     id,
+			"latency_ms":   latency.Milliseconds(),
 			"gateway_port": port,
 		}
 		if err != nil {
