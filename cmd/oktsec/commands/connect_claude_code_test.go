@@ -224,4 +224,3 @@ func TestConnectClaudeCode_LegacyConfigKeepsCustomGatewayPort(t *testing.T) {
 		t.Errorf("custom endpoint must be preserved; got %q", saved.Gateway.EndpointPath)
 	}
 }
-

@@ -35,7 +35,7 @@ func TestKeysRotate_BumpsKeyVersion(t *testing.T) {
 
 	cfgPath := filepath.Join(dir, "oktsec.yaml")
 	seed := &config.Config{
-		Version: "1",
+		Version:  "1",
 		Identity: config.IdentityConfig{KeysDir: keysDir},
 		Agents: map[string]config.Agent{
 			"alice": {CanMessage: []string{"*"}, KeyVersion: 3},
@@ -98,7 +98,7 @@ func TestKeysRotate_SeedsKeyVersionFromZero(t *testing.T) {
 
 	cfgPath := filepath.Join(dir, "oktsec.yaml")
 	seed := &config.Config{
-		Version: "1",
+		Version:  "1",
 		Identity: config.IdentityConfig{KeysDir: keysDir},
 		Agents: map[string]config.Agent{
 			"bob": {CanMessage: []string{"*"}}, // KeyVersion omitted -> 0

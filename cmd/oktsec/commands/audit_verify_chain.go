@@ -21,8 +21,8 @@ type verifyChainResult struct {
 	BrokenAt       int    `json:"broken_at,omitempty"`
 	BrokenID       string `json:"broken_id,omitempty"`
 	Reason         string `json:"reason,omitempty"`
-	LastTimestamp   string `json:"last_timestamp,omitempty"`
-	SignatureCheck  string `json:"signature_check"` // "valid", "skipped", "invalid"
+	LastTimestamp  string `json:"last_timestamp,omitempty"`
+	SignatureCheck string `json:"signature_check"` // "valid", "skipped", "invalid"
 	KeyFingerprint string `json:"key_fingerprint,omitempty"`
 }
 

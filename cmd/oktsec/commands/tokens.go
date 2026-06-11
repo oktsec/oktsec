@@ -430,4 +430,3 @@ func sanitizeIDPart(s string) string {
 	// Trim leading/trailing dashes so the id is tidy.
 	return strings.Trim(string(collapsed), "-")
 }
-

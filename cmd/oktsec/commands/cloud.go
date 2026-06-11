@@ -117,6 +117,7 @@ func newCloudEnrollCmd() *cobra.Command {
 		token    string
 		pullURL  string
 		trustFP  string
+		rotate   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "enroll",
@@ -143,10 +144,14 @@ func newCloudEnrollCmd() *cobra.Command {
 				return err
 			}
 
-			payload, err := json.Marshal(map[string]string{
+			req := map[string]any{
 				"node_id":                id.NodeID,
 				"public_key_fingerprint": id.PublicKeyFingerprint,
-			})
+			}
+			if rotate {
+				req["rotate_token"] = true
+			}
+			payload, err := json.Marshal(req)
 			if err != nil {
 				return err
 			}
@@ -165,9 +170,16 @@ func newCloudEnrollCmd() *cobra.Command {
 					return err
 				}
 			case http.StatusOK:
-				// Idempotent re-register: no new token. Keep the stored one.
-				if _, err := store.LoadCloudToken(); err != nil {
-					return fmt.Errorf("node already registered but no local token is stored — rotate it from the control plane and re-enroll: %w", err)
+				// Idempotent re-register. The control plane re-issues a
+				// node token when this node has none active (or when
+				// --rotate asked for one) — store it; otherwise keep
+				// the stored token.
+				if nodeToken, _ := body["token"].(string); nodeToken != "" {
+					if err := store.SaveCloudToken(nodeToken); err != nil {
+						return err
+					}
+				} else if _, err := store.LoadCloudToken(); err != nil {
+					return fmt.Errorf("node is registered but holds no local token — re-run with --rotate to issue a fresh one: %w", err)
 				}
 			case http.StatusUnauthorized:
 				return fmt.Errorf("enrollment token rejected (expired or revoked)")
@@ -231,6 +243,7 @@ func newCloudEnrollCmd() *cobra.Command {
 	f.StringVar(&token, "token", "", "enrollment token (shown once at creation)")
 	f.StringVar(&pullURL, "pull-url", "", "this fleet's pull store URL (shown once at capability creation)")
 	f.StringVar(&trustFP, "trust-fingerprint", "", "policy signing trust fingerprint sha256:<hex> (defaults to the control plane's answer)")
+	f.BoolVar(&rotate, "rotate", false, "revoke this node's previous tokens and issue a fresh one (use when the local token was lost or compromised)")
 	return cmd
 }
 
