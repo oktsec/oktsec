@@ -82,8 +82,8 @@ func TestCanonicalSnapshotBytes_NormalizesZoneOffset(t *testing.T) {
 	_, id := seedIdentity(t)
 	utc := baseSnapshot(id)
 	offset := baseSnapshot(id)
-	offset.GeneratedAt = "2026-05-21T21:00:00-03:00"     // same instant as utc.GeneratedAt
-	offset.Range.Since = "2026-05-20T21:00:00-03:00"     // same instant as utc.Range.Since
+	offset.GeneratedAt = "2026-05-21T21:00:00-03:00" // same instant as utc.GeneratedAt
+	offset.Range.Since = "2026-05-20T21:00:00-03:00" // same instant as utc.Range.Since
 	hashUTC, _, err := SnapshotSHA256(utc)
 	if err != nil {
 		t.Fatalf("hash utc: %v", err)
@@ -301,7 +301,7 @@ func TestSealSnapshotEnvelope_RefusesWhenIdentityMissing(t *testing.T) {
 	// scrape together.
 	store := IdentityStore{Dir: filepath.Join(t.TempDir(), "empty-node")}
 	snap := Snapshot{SchemaVersion: SchemaSnapshot, Node: SnapshotNode{
-		NodeID: "node_" + strings.Repeat("a", 36),
+		NodeID:         "node_" + strings.Repeat("a", 36),
 		IdentityStatus: "present",
 	}}
 	_, err := SealSnapshotEnvelope(store, snap, time.Now())

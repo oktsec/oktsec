@@ -42,17 +42,21 @@ type IdentityStatus struct {
 // `oktsec node snapshot --json`. Sections are populated on a best-effort
 // basis; partial state is reported via Warnings instead of failing.
 type Snapshot struct {
-	SchemaVersion string           `json:"schema_version"`
-	GeneratedAt   string           `json:"generated_at"`
-	Range         SnapshotRange    `json:"range"`
-	Node          SnapshotNode     `json:"node"`
-	Config        SnapshotConfig   `json:"config"`
-	Surfaces      SnapshotSurfaces `json:"surfaces"`
+	SchemaVersion string            `json:"schema_version"`
+	GeneratedAt   string            `json:"generated_at"`
+	Range         SnapshotRange     `json:"range"`
+	Node          SnapshotNode      `json:"node"`
+	Config        SnapshotConfig    `json:"config"`
+	Surfaces      SnapshotSurfaces  `json:"surfaces"`
 	Inventory     SnapshotInventory `json:"inventory"`
-	Posture       SnapshotPosture  `json:"posture"`
-	Evidence      SnapshotEvidence `json:"evidence"`
-	Policy        *SnapshotPolicy  `json:"policy,omitempty"`
-	Warnings      []Warning        `json:"warnings"`
+	Posture       SnapshotPosture   `json:"posture"`
+	Evidence      SnapshotEvidence  `json:"evidence"`
+	Policy        *SnapshotPolicy   `json:"policy,omitempty"`
+	// Host is the additive host-environment block (see hostfacts.go).
+	// Pointer + omitempty: snapshots signed before this field existed
+	// canonicalize to the same bytes, so old envelopes keep verifying.
+	Host     *SnapshotHost `json:"host,omitempty"`
+	Warnings []Warning     `json:"warnings"`
 }
 
 // Policy status values reported in SnapshotPolicy.PolicyStatus.
@@ -183,15 +187,15 @@ type SnapshotNode struct {
 // secrets or full paths. ConfigHash is SHA-256 of the raw file bytes;
 // PathHash is SHA-256 of the absolute path.
 type SnapshotConfig struct {
-	Status              string `json:"status"`
-	PathTail            string `json:"path_tail,omitempty"`
-	PathHash            string `json:"path_hash,omitempty"`
-	ConfigHash          string `json:"config_hash,omitempty"`
-	DefaultPolicy       string `json:"default_policy,omitempty"`
-	SignatureRequired   bool   `json:"signature_required"`
-	DelegationRequired  bool   `json:"delegation_required"`
-	DBBackend           string `json:"db_backend,omitempty"`
-	DBAvailable         bool   `json:"db_available"`
+	Status             string `json:"status"`
+	PathTail           string `json:"path_tail,omitempty"`
+	PathHash           string `json:"path_hash,omitempty"`
+	ConfigHash         string `json:"config_hash,omitempty"`
+	DefaultPolicy      string `json:"default_policy,omitempty"`
+	SignatureRequired  bool   `json:"signature_required"`
+	DelegationRequired bool   `json:"delegation_required"`
+	DBBackend          string `json:"db_backend,omitempty"`
+	DBAvailable        bool   `json:"db_available"`
 }
 
 // SnapshotSurfaces is the per-surface configured/observed view used by
@@ -208,11 +212,11 @@ type SnapshotSurfaces struct {
 
 // SurfaceGateway summarizes the MCP gateway surface.
 type SurfaceGateway struct {
-	Configured     bool `json:"configured"`
-	Enabled        bool `json:"enabled"`
-	AuthRequired   bool `json:"auth_required"`
-	BackendCount   int  `json:"backend_count"`
-	ScanResponses  bool `json:"scan_responses"`
+	Configured    bool `json:"configured"`
+	Enabled       bool `json:"enabled"`
+	AuthRequired  bool `json:"auth_required"`
+	BackendCount  int  `json:"backend_count"`
+	ScanResponses bool `json:"scan_responses"`
 }
 
 // SurfaceStdio summarizes the stdio proxy surface. Source is
@@ -233,11 +237,11 @@ type SurfaceHooks struct {
 
 // SurfaceEgress summarizes the HTTP egress proxy surface.
 type SurfaceEgress struct {
-	Configured          bool `json:"configured"`
-	Enabled             bool `json:"enabled"`
-	AuthRequired        bool `json:"auth_required"`
-	AllowedDomainCount  int  `json:"allowed_domain_count"`
-	BlockedDomainCount  int  `json:"blocked_domain_count"`
+	Configured         bool `json:"configured"`
+	Enabled            bool `json:"enabled"`
+	AuthRequired       bool `json:"auth_required"`
+	AllowedDomainCount int  `json:"allowed_domain_count"`
+	BlockedDomainCount int  `json:"blocked_domain_count"`
 }
 
 // SurfaceAgentMsg summarizes the inter-agent message API surface.
@@ -307,12 +311,12 @@ type InventoryClient struct {
 // same vocabulary as the dashboard coverage matrix. Overall is one of
 // protected/observing/blind/setup_pending/degraded.
 type SnapshotPosture struct {
-	Overall            string         `json:"overall"`
-	SurfaceCounts      PostureCounts  `json:"surface_counts"`
-	RuntimeSessions    int            `json:"runtime_sessions"`
-	ActivePrincipals   int            `json:"active_principals"`
-	BlockedActions     int            `json:"blocked_actions"`
-	QuarantinedActions int            `json:"quarantined_actions"`
+	Overall            string        `json:"overall"`
+	SurfaceCounts      PostureCounts `json:"surface_counts"`
+	RuntimeSessions    int           `json:"runtime_sessions"`
+	ActivePrincipals   int           `json:"active_principals"`
+	BlockedActions     int           `json:"blocked_actions"`
+	QuarantinedActions int           `json:"quarantined_actions"`
 }
 
 // PostureCounts breaks down configured surfaces by coverage state.
@@ -344,22 +348,22 @@ type PostureCounts struct {
 // tells you nothing tampered; AuditChainSignaturesChecked tells
 // you the proxy actually signed every row in scope.
 type SnapshotEvidence struct {
-	AuditAvailable               bool             `json:"audit_available"`
-	AuditEntries                 int              `json:"audit_entries"`
-	AuditChainHead               string           `json:"audit_chain_head,omitempty"`
-	AuditChainVerified           bool             `json:"audit_chain_verified"`
-	AuditChainVerificationScope  string           `json:"audit_chain_verification_scope,omitempty"`
-	AuditChainSignaturesChecked  bool             `json:"audit_chain_signatures_checked"`
-	AuditChainKeyFingerprint     string           `json:"audit_chain_key_fingerprint,omitempty"`
-	AuditOldestAt                string           `json:"audit_oldest_at,omitempty"`
-	AuditNewestAt                string           `json:"audit_newest_at,omitempty"`
-	RuntimeAvailable             bool             `json:"runtime_available"`
-	RuntimeSessions              int              `json:"runtime_sessions"`
-	RuntimeEvents                int              `json:"runtime_events"`
-	RuntimeToolEvents            int              `json:"runtime_tool_events"`
-	ActivityAvailable            bool             `json:"activity_available"`
-	ActivityEvents               int              `json:"activity_events"`
-	Decisions                    DecisionCounts   `json:"decisions"`
+	AuditAvailable              bool           `json:"audit_available"`
+	AuditEntries                int            `json:"audit_entries"`
+	AuditChainHead              string         `json:"audit_chain_head,omitempty"`
+	AuditChainVerified          bool           `json:"audit_chain_verified"`
+	AuditChainVerificationScope string         `json:"audit_chain_verification_scope,omitempty"`
+	AuditChainSignaturesChecked bool           `json:"audit_chain_signatures_checked"`
+	AuditChainKeyFingerprint    string         `json:"audit_chain_key_fingerprint,omitempty"`
+	AuditOldestAt               string         `json:"audit_oldest_at,omitempty"`
+	AuditNewestAt               string         `json:"audit_newest_at,omitempty"`
+	RuntimeAvailable            bool           `json:"runtime_available"`
+	RuntimeSessions             int            `json:"runtime_sessions"`
+	RuntimeEvents               int            `json:"runtime_events"`
+	RuntimeToolEvents           int            `json:"runtime_tool_events"`
+	ActivityAvailable           bool           `json:"activity_available"`
+	ActivityEvents              int            `json:"activity_events"`
+	Decisions                   DecisionCounts `json:"decisions"`
 }
 
 // DecisionCounts breaks audit entries down by policy_decision /

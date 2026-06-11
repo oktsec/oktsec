@@ -234,13 +234,13 @@ func inspectAuditSQLite(ctx context.Context, db *sql.DB, since, until time.Time,
 
 // runtimeDBInspection holds runtime_* table aggregates.
 type runtimeDBInspection struct {
-	Available        bool
-	Sessions         int
-	Events           int
-	ToolEvents       int
-	BlockEvents      int
-	LastRealEventAt  string
-	LastHeartbeatAt  string
+	Available          bool
+	Sessions           int
+	Events             int
+	ToolEvents         int
+	BlockEvents        int
+	LastRealEventAt    string
+	LastHeartbeatAt    string
 	HasFreshRealEvent  bool
 	HasRecentHeartbeat bool
 }
