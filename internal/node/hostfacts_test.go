@@ -161,3 +161,27 @@ func TestSnapshotHostBlockAdditive(t *testing.T) {
 		t.Fatalf("host block round-trip: %+v", back.Host)
 	}
 }
+
+// Vendor strings that merely contain a cloud company name must not
+// read as cloud: a Surface, a Chromebook and an on-prem Hyper-V guest
+// are not cloud instances.
+func TestHostFactsNotCloud(t *testing.T) {
+	cases := []struct{ vendor, product, assetTag string }{
+		{"Microsoft Corporation", "Surface Pro 9", ""},   // physical Surface
+		{"Microsoft Corporation", "Virtual Machine", ""}, // on-prem Hyper-V
+		{"Google", "Lazor", ""},                          // Chromebook
+	}
+	for _, c := range cases {
+		writeDMI, _, _ := fakeHostFS(t)
+		writeDMI("sys_vendor", c.vendor)
+		writeDMI("product_name", c.product)
+		if c.assetTag != "" {
+			writeDMI("chassis_asset_tag", c.assetTag)
+		}
+		h := &SnapshotHost{Machine: "unknown", Virtualization: "unknown"}
+		collectLinux(h)
+		if h.CloudProvider != "" {
+			t.Fatalf("%s/%s misread as cloud %q", c.vendor, c.product, h.CloudProvider)
+		}
+	}
+}

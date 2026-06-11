@@ -150,14 +150,17 @@ func isVirtualMachine(vendor, product string) bool {
 	return false
 }
 
+// cloudFromDMI requires cloud-SPECIFIC markers: a Surface (vendor
+// "Microsoft Corporation"), a Chromebook (vendor "Google") or an
+// on-prem Hyper-V guest must never read as a cloud instance.
 func cloudFromDMI(vendor, product, assetTag string) string {
-	v := strings.ToLower(vendor + " " + product + " " + assetTag)
+	v := strings.ToLower(vendor + " " + product)
 	switch {
-	case strings.Contains(v, "amazon") || strings.Contains(v, "ec2"):
+	case strings.Contains(v, "amazon ec2") || strings.Contains(strings.ToLower(assetTag), "amazon ec2"):
 		return "aws"
-	case strings.Contains(v, "google"):
+	case strings.Contains(v, "google compute engine"):
 		return "gcp"
-	case strings.Contains(v, "microsoft") || strings.Contains(v, "7783-7084-3265-9085-8269-3286-77"): // Azure chassis asset tag
+	case strings.TrimSpace(assetTag) == "7783-7084-3265-9085-8269-3286-77": // Azure's documented chassis asset tag
 		return "azure"
 	}
 	return ""
