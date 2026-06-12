@@ -436,12 +436,16 @@ func classifyDecision(status, decision string) string {
 	switch d {
 	case "content_flagged":
 		return "flagged"
+	case "content_redacted":
+		// Modified delivery (AARM MODIFY): proceeded with a caveat,
+		// same bucket as flagged.
+		return "flagged"
 	case "content_blocked", "rate_limited", "tool_not_allowed",
 		"constraint_violated", "concurrency_exceeded",
 		"delegation_invalid", "delegation_scope_violation",
 		"delegation_depth_exceeded":
 		return "blocked"
-	case "content_quarantined":
+	case "content_quarantined", "step_up_approval":
 		return "quarantined"
 	case "acl_denied", "agent_suspended", "recipient_suspended",
 		"identity_rejected", "signature_required",
@@ -453,9 +457,9 @@ func classifyDecision(status, decision string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "delivered", "allowed", "clean":
 		return "allowed"
-	case "flagged", "flag":
+	case "flagged", "flag", "modified":
 		return "flagged"
-	case "quarantined":
+	case "quarantined", "step_up":
 		return "quarantined"
 	case "blocked":
 		return "blocked"
