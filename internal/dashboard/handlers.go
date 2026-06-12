@@ -2324,6 +2324,8 @@ var decisionLabels = map[string]string{
 	"content_blocked":       "Blocked — dangerous content detected",
 	"content_flagged":       "Delivered with warning — content flagged",
 	"content_quarantined":   "Held for review — suspicious content detected",
+	"content_redacted":      "Delivered with detected content redacted",
+	"step_up_approval":      "Held — awaiting approval above the policy threshold",
 	"quarantine_approved":   "Reviewed and approved for delivery",
 	"quarantine_rejected":   "Reviewed and rejected",
 	"signature_required":    "Rejected — message was not signed",

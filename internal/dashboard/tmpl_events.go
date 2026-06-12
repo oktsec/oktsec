@@ -28,6 +28,8 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     {{else if eq .Entry.Status "blocked"}}<span class="badge-blocked">blocked</span>
     {{else if eq .Entry.Status "rejected"}}<span class="badge-rejected">rejected</span>
     {{else if eq .Entry.Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
+    {{else if eq .Entry.Status "step_up"}}<span class="badge-quarantined">awaiting approval</span>
+    {{else if eq .Entry.Status "modified"}}<span class="badge-delivered">delivered (redacted)</span>
     {{else}}<span style="color:var(--text2);font-size:0.75rem">{{.Entry.Status}}</span>{{end}}
   </div>
   <span style="flex:1;font-family:var(--mono);font-size:var(--text-sm);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Entry.FromAgent}} &rarr; {{.Entry.ToAgent}}</span>
