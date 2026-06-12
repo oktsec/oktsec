@@ -148,12 +148,12 @@ var sessionTraceTmpl = template.Must(template.New("session-trace").Funcs(tmplFun
     {{if .Trace.Steps}}
     <div class="st-timeline">
       {{range .Trace.Steps}}
-      <div class="st-step{{if eq .Verdict "blocked"}} s-blocked{{end}}{{if eq .Verdict "quarantined"}} s-quarantined{{end}}{{if eq .ToolName "message"}} s-human{{end}}">
+      <div class="st-step{{if eq .Verdict "blocked"}} s-blocked{{end}}{{if or (eq .Verdict "quarantined") (eq .Verdict "step_up")}} s-quarantined{{end}}{{if eq .ToolName "message"}} s-human{{end}}">
         <div class="st-step-header">
           {{if eq .ToolName "message"}}<span class="st-role r-human">human</span>{{else if gt .AgentDepth 0}}<span class="st-role r-agent" style="color:var(--text3)">sub-agent</span>{{else}}<span class="st-role r-agent">agent</span>{{end}}
           <span style="font-size:var(--text-xs);color:var(--text3);font-family:var(--mono)">{{.FromAgent}}</span>
           <span class="st-tool">{{.ToolName}}</span>
-          <span class="st-verdict{{if eq .Verdict "blocked"}} v-blocked{{else if eq .Verdict "quarantined"}} v-quarantined{{else}} v-clean{{end}}">{{.Verdict}}</span>
+          <span class="st-verdict{{if eq .Verdict "blocked"}} v-blocked{{else if or (eq .Verdict "quarantined") (eq .Verdict "step_up")}} v-quarantined{{else}} v-clean{{end}}">{{.Verdict}}</span>
           {{if gt .PlanStep 0}}<span class="st-plan">Step {{.PlanStep}}/{{.PlanTotal}}</span>{{end}}
           <span class="st-time" data-ts="{{.Timestamp}}">{{.Timestamp}}</span>
           {{if gt .GapMs 1000}}<span class="st-gap">+{{printf "%.1f" (divf .GapMs 1000)}}s</span>{{else if gt .GapMs 0}}<span class="st-gap">+{{.GapMs}}ms</span>{{end}}
@@ -386,7 +386,7 @@ var runtimeSessionDetailTmpl = template.Must(template.New("runtime-session-detai
   {{if .Detail.Events}}
   <div class="rt-timeline">
     {{range .Detail.Events}}
-    <div class="rt-row{{if .IsHeartbeat}} s-heartbeat{{end}}{{if eq .Status "blocked"}} s-blocked{{end}}{{if eq .Status "quarantined"}} s-quarantined{{end}}">
+    <div class="rt-row{{if .IsHeartbeat}} s-heartbeat{{end}}{{if eq .Status "blocked"}} s-blocked{{end}}{{if or (eq .Status "quarantined") (eq .Status "step_up")}} s-quarantined{{end}}">
       <div class="rt-row-header">
         <span class="rt-event">{{.HookEventName}}</span>
         {{if .ActorLabel}}<span class="rt-actor-tag">{{.ActorLabel}}</span>{{end}}

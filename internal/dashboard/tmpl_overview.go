@@ -668,10 +668,10 @@ var graphTablesTmpl = template.Must(template.New("graph-tables").Funcs(tmplFuncs
 
 var graphEventsTmpl = template.Must(template.New("graph-events").Funcs(tmplFuncs).Parse(`
 {{range .}}
-<div style="padding:6px 0;border-left:3px solid {{if eq .Status "blocked"}}#f85149{{else if eq .Status "quarantined"}}#d29922{{else}}var(--border){{end}};padding-left:10px;margin-bottom:6px">
+<div style="padding:6px 0;border-left:3px solid {{if eq .Status "blocked"}}#f85149{{else if or (eq .Status "quarantined") (eq .Status "step_up")}}#d29922{{else}}var(--border){{end}};padding-left:10px;margin-bottom:6px">
   <div style="color:var(--text3);font-size:0.68rem" data-ts="{{.Timestamp}}">{{.Timestamp}}</div>
-  {{if .ToolName}}<div style="display:flex;align-items:center;gap:5px">{{if .FromAgent}}<span style="color:var(--text2);font-size:0.7rem;font-weight:500">{{.FromAgent}}:</span> {{end}}{{toolDot .ToolName}} <span style="color:var(--text3);font-size:0.7rem">{{if eq .Status "blocked"}}blocked{{else if eq .Status "quarantined"}}quarantined{{else}}processed{{end}}</span></div>
-  {{else}}<span style="color:{{if eq .Status "blocked"}}#f85149{{else if eq .Status "quarantined"}}#d29922{{else}}var(--text2){{end}};font-weight:{{if ne .Status "delivered"}}600{{else}}400{{end}}">{{.FromAgent}} &rarr; {{.ToAgent}}</span>{{end}}
+  {{if .ToolName}}<div style="display:flex;align-items:center;gap:5px">{{if .FromAgent}}<span style="color:var(--text2);font-size:0.7rem;font-weight:500">{{.FromAgent}}:</span> {{end}}{{toolDot .ToolName}} <span style="color:var(--text3);font-size:0.7rem">{{if eq .Status "blocked"}}blocked{{else if eq .Status "quarantined"}}quarantined{{else if eq .Status "step_up"}}awaiting approval{{else}}processed{{end}}</span></div>
+  {{else}}<span style="color:{{if eq .Status "blocked"}}#f85149{{else if or (eq .Status "quarantined") (eq .Status "step_up")}}#d29922{{else}}var(--text2){{end}};font-weight:{{if ne .Status "delivered"}}600{{else}}400{{end}}">{{.FromAgent}} &rarr; {{.ToAgent}}</span>{{end}}
 </div>
 {{else}}
 <div style="color:var(--text3);padding:20px 0;text-align:center">No events yet</div>

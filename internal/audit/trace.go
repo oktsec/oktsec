@@ -120,8 +120,8 @@ func (s *Store) BuildSessionTrace(sessionID string) (*SessionTrace, error) {
 			step.PlanTotal = r.PlanTotal
 		}
 
-		// Count threats
-		if e.Status == StatusBlocked || e.Status == StatusQuarantined {
+		// Count threats: held actions (quarantine, step-up) and denials.
+		if e.Status == StatusBlocked || e.Status == StatusQuarantined || e.Status == StatusStepUp {
 			trace.Threats++
 		}
 

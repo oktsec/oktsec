@@ -1849,7 +1849,7 @@ func (s *Server) handleSessionSARIF(w http.ResponseWriter, r *http.Request) {
 	// Build SARIF results from threat steps
 	results := make([]map[string]any, 0)
 	for _, step := range trace.Steps {
-		if step.Verdict == "blocked" || step.Verdict == "quarantined" {
+		if step.Verdict == "blocked" || step.Verdict == "quarantined" || step.Verdict == "step_up" {
 			result := map[string]any{
 				"ruleId": step.Verdict,
 				"level":  "error",
