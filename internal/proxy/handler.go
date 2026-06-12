@@ -412,13 +412,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Stage 10: Async LLM analysis (non-blocking, after response sent)
 	if h.llmQueue != nil {
-		h.submitToLLM(msgID, req, outcome)
+		// A redacted message ships its REDACTED body to the analysis
+		// provider: redact_content promises the matched content does
+		// not leave the proxy, and the LLM provider is external.
+		analyzed := req.Content
+		if modifiedContent != "" {
+			analyzed = modifiedContent
+		}
+		h.submitToLLM(msgID, req, outcome, analyzed)
 	}
 }
 
-// submitToLLM sends a message to the async LLM analysis queue if configured.
-func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine.ScanOutcome) {
-	if h.cfg.LLM.MinContentLength > 0 && len(req.Content) < h.cfg.LLM.MinContentLength {
+// submitToLLM sends a message to the async LLM analysis queue if
+// configured. content is the body safe to analyze — the redacted form
+// when in-transit redaction modified the delivery.
+func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine.ScanOutcome, content string) {
+	if h.cfg.LLM.MinContentLength > 0 && len(content) < h.cfg.LLM.MinContentLength {
 		return
 	}
 
@@ -431,7 +440,7 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 	// When no signal detector is attached, the analyze config controls
 	// which verdict types are sent to the LLM (original behavior).
 	if h.signalDetector != nil {
-		sig := h.signalDetector.Detect(req.From, req.To, req.Content, string(outcome.Verdict))
+		sig := h.signalDetector.Detect(req.From, req.To, content, string(outcome.Verdict))
 		if !sig.ShouldAnalyze {
 			return
 		}
@@ -467,7 +476,7 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 		MessageID:      msgID,
 		FromAgent:      req.From,
 		ToAgent:        req.To,
-		Content:        req.Content,
+		Content:        content,
 		Intent:         req.Intent,
 		CurrentVerdict: outcome.Verdict,
 		Findings:       outcome.Findings,
