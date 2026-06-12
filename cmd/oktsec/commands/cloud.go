@@ -405,10 +405,22 @@ func runCloudSyncOnce(cmd *cobra.Command, store node.IdentityStore, client *http
 	result, _ := body["status"].(string)
 	switch result {
 	case "accepted", "accepted_signed", "idempotent":
+		// 4. Ship new audit events (redacted; metadata only). Best
+		// effort: live telemetry must never fail the evidence cycle —
+		// the cursor only advances on an accepted batch, so anything
+		// missed ships next cycle.
+		shipped, serr := shipCloudEvents(client, store, st, id.NodeID, token)
+		if serr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "cloud sync: events: %v\n", serr)
+		}
 		if err := stampSync(store, st, "ok"); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "sync ok (evidence %s)\n", result)
+		if shipped > 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "sync ok (evidence %s, %d event(s) shipped)\n", result, shipped)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "sync ok (evidence %s)\n", result)
+		}
 		return nil
 	default:
 		_ = stampSync(store, st, "report_failed")
@@ -417,6 +429,45 @@ func runCloudSyncOnce(cmd *cobra.Command, store node.IdentityStore, client *http
 			code = fmt.Sprintf("http_%d", status)
 		}
 		return &cloudSyncError{stage: "report", code: 3, err: fmt.Errorf("evidence refused (%s)", code)}
+	}
+}
+
+// shipCloudEvents sends audit entries newer than the cursor, in one
+// bounded batch per cycle (the next cycle picks up the rest). The
+// cursor advances ONLY after the control plane accepted the batch.
+func shipCloudEvents(client *http.Client, store node.IdentityStore, st *node.CloudState, nodeID, token string) (int, error) {
+	const batchLimit = 500
+	entries, next, err := node.CollectRecentEvents(cfgFile, nodeSnapshotDBPathOverride, st.EventsCursor, batchLimit)
+	if err != nil {
+		return 0, err
+	}
+	if len(entries) == 0 {
+		return 0, nil
+	}
+	payload, err := json.Marshal(node.EventsBatch{
+		SchemaVersion: node.SchemaEvents, NodeID: nodeID, Entries: entries,
+	})
+	if err != nil {
+		return 0, err
+	}
+	status, body, err := cloudPost(client, st.URL+"/v1/evidence/events", token, payload)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case status == http.StatusNotFound:
+		// An older control plane without the events endpoint: skip
+		// quietly, never advance the cursor.
+		return 0, nil
+	case status >= 200 && status < 300:
+		st.EventsCursor = next
+		return len(entries), nil
+	default:
+		code, _ := body["code"].(string)
+		if code == "" {
+			code = fmt.Sprintf("http_%d", status)
+		}
+		return 0, fmt.Errorf("events refused (%s)", code)
 	}
 }
 

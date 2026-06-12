@@ -37,6 +37,9 @@ type CloudState struct {
 	EnrolledAt       string `json:"enrolled_at"`
 	LastSyncAt       string `json:"last_sync_at,omitempty"`
 	LastSyncResult   string `json:"last_sync_result,omitempty"`
+	// EventsCursor is the timestamp of the last audit entry shipped to
+	// the control plane (additive local state; absent on old files).
+	EventsCursor string `json:"events_cursor,omitempty"`
 }
 
 func (s IdentityStore) cloudStatePath() string { return filepath.Join(s.Dir, "cloud.json") }
