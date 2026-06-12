@@ -803,9 +803,13 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 				result := g.policyEnforcer.Check(policyAgent, m.OriginalName, amount, policy)
 				if !result.Allowed && result.Decision == "step_up_approval" {
 					// An operator approval spends here: the retried
-					// call proceeds exactly once per approval.
+					// call proceeds exactly once per approval. No
+					// audit write yet — the call still runs the rest
+					// of the pipeline and gets ONE receipt at the
+					// normal decision point; the consumed queue item
+					// (approved -> consumed) is the approval's own
+					// evidence.
 					if ok, err := g.audit.ConsumeStepUpApproval(policyAgent, m.OriginalName); err == nil && ok {
-						g.logAudit(msgID, id, m.OriginalName, audit.StatusDelivered, audit.DecisionStepUpApproved, "[]", toolArgs, sessionID, start)
 						result.Allowed = true
 					}
 				}
