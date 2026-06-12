@@ -49,8 +49,8 @@ func TestToolPolicyEnforcer_RequireApproval(t *testing.T) {
 	if r.Allowed {
 		t.Fatal("expected quarantine for amount above approval threshold")
 	}
-	if r.Decision != "quarantine_approval" {
-		t.Fatalf("expected quarantine_approval, got %s", r.Decision)
+	if r.Decision != "step_up_approval" {
+		t.Fatalf("expected step_up_approval, got %s", r.Decision)
 	}
 }
 
@@ -143,8 +143,8 @@ func TestToolPolicyEnforcer_CombinedPolicies(t *testing.T) {
 	if r.Allowed {
 		t.Fatal("expected quarantine for amount above approval threshold")
 	}
-	if r.Decision != "quarantine_approval" {
-		t.Fatalf("expected quarantine_approval, got %s", r.Decision)
+	if r.Decision != "step_up_approval" {
+		t.Fatalf("expected step_up_approval, got %s", r.Decision)
 	}
 
 	// Amount 30: passes all checks

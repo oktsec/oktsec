@@ -52,9 +52,9 @@ func Severity(v engine.ScanVerdict) int {
 	switch v {
 	case engine.VerdictBlock:
 		return 3
-	case engine.VerdictQuarantine:
+	case engine.VerdictQuarantine, engine.VerdictStepUp:
 		return 2
-	case engine.VerdictFlag:
+	case engine.VerdictFlag, engine.VerdictModify:
 		return 1
 	default:
 		return 0
@@ -70,6 +70,10 @@ func ToAuditStatus(v engine.ScanVerdict) (status, decision string) {
 		return audit.StatusQuarantined, audit.DecisionContentQuarantined
 	case engine.VerdictFlag:
 		return audit.StatusDelivered, audit.DecisionContentFlagged
+	case engine.VerdictModify:
+		return audit.StatusModified, audit.DecisionContentRedacted
+	case engine.VerdictStepUp:
+		return audit.StatusStepUp, audit.DecisionStepUpApproval
 	default:
 		return audit.StatusDelivered, audit.DecisionAllow
 	}
@@ -316,4 +320,41 @@ func ApplyBlockedContent(agent config.Agent, outcome *engine.ScanOutcome) {
 			return
 		}
 	}
+}
+
+// ApplyRedactContent redacts findings whose category is listed in the
+// agent's redact_content from the delivered content (AARM decision
+// MODIFY). It returns the content to deliver and whether anything was
+// redacted. It never lowers a verdict: block, quarantine and step_up
+// stand — redaction only upgrades clean/flag to modify. The receipt
+// keeps the ORIGINAL content hash (what the sender signed); the
+// modification is evidenced by status, decision and findings.
+func ApplyRedactContent(agent config.Agent, outcome *engine.ScanOutcome, content string) (string, bool) {
+	if len(agent.RedactContent) == 0 || len(outcome.RedactionTargets) == 0 {
+		return content, false
+	}
+	if Severity(outcome.Verdict) >= Severity(engine.VerdictQuarantine) {
+		// The action is not being delivered; nothing to modify.
+		return content, false
+	}
+	redact := make(map[string]bool, len(agent.RedactContent))
+	for _, cat := range agent.RedactContent {
+		redact[cat] = true
+	}
+	modified := content
+	changed := false
+	for _, t := range outcome.RedactionTargets {
+		if t.Match == "" || !redact[t.Category] {
+			continue
+		}
+		next := strings.ReplaceAll(modified, t.Match, "[REDACTED]")
+		if next != modified {
+			modified = next
+			changed = true
+		}
+	}
+	if changed {
+		outcome.Verdict = engine.VerdictModify
+	}
+	return modified, changed
 }

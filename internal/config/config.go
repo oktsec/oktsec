@@ -283,6 +283,7 @@ type Agent struct {
 	CanMessage      []string                `yaml:"can_message"`
 	ACLEntries      []ACLEntryConfig        `yaml:"acl_entries,omitempty"`
 	BlockedContent  []string                `yaml:"blocked_content"`
+	RedactContent   []string                `yaml:"redact_content,omitempty"`  // categories redacted in transit, then delivered (verdict modify)
 	AllowedTools    []string                `yaml:"allowed_tools,omitempty"`    // tool names the agent can call (empty = all)
 	ToolPolicies    map[string]ToolPolicy   `yaml:"tool_policies,omitempty"`   // per-tool enforcement policies
 	ToolConstraints []ToolConstraintConfig  `yaml:"tool_constraints,omitempty"` // per-tool parameter constraints
@@ -775,6 +776,20 @@ func (c *Config) Validate() error {
 			// valid
 		default:
 			return fmt.Errorf("agent %q has invalid scan_profile %q (valid: strict, content-aware, minimal)", name, agent.ScanProfile)
+		}
+		if len(agent.RedactContent) > 0 && len(agent.BlockedContent) > 0 {
+			blockedCats := make(map[string]bool, len(agent.BlockedContent))
+			for _, cat := range agent.BlockedContent {
+				blockedCats[cat] = true
+			}
+			for _, cat := range agent.RedactContent {
+				if blockedCats[cat] {
+					// Block always wins over redact, so listing a category
+					// in both makes the redaction unreachable — refuse the
+					// contradiction instead of silently ignoring half of it.
+					return fmt.Errorf("agent %q lists category %q in both blocked_content and redact_content — blocked wins; remove one", name, cat)
+				}
+			}
 		}
 	}
 	seen := make(map[string]bool, len(c.Rules))

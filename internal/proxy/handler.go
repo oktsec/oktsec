@@ -46,23 +46,26 @@ type MessageResponse struct {
 	ExpiresAt      string                  `json:"expires_at,omitempty"`
 	Remediation    string                  `json:"remediation,omitempty"`
 	Suggestion     string                  `json:"suggestion,omitempty"`
+	// ModifiedContent carries the redacted content the caller must
+	// deliver when status is "modified" (AARM decision MODIFY).
+	ModifiedContent string `json:"modified_content,omitempty"`
 }
 
 // Handler processes /v1/message requests through the full pipeline.
 type Handler struct {
-	cfg         *config.Config
-	keys        *identity.KeyStore
-	policy      *policy.Evaluator
-	scanner     *engine.Scanner
-	audit       *audit.Store
-	webhooks    *WebhookNotifier
-	rateLimiter RateStore
-	window      *MessageWindow
-	sessions            *sessionStore
-	llmQueue            *llm.Queue              // nil if LLM disabled
-	signalDetector      *llm.SignalDetector     // nil if triage disabled
-	escalationTracker   *llm.EscalationTracker  // nil if LLM escalation disabled
-	logger              *slog.Logger
+	cfg               *config.Config
+	keys              *identity.KeyStore
+	policy            *policy.Evaluator
+	scanner           *engine.Scanner
+	audit             *audit.Store
+	webhooks          *WebhookNotifier
+	rateLimiter       RateStore
+	window            *MessageWindow
+	sessions          *sessionStore
+	llmQueue          *llm.Queue             // nil if LLM disabled
+	signalDetector    *llm.SignalDetector    // nil if triage disabled
+	escalationTracker *llm.EscalationTracker // nil if LLM escalation disabled
+	logger            *slog.Logger
 
 	denialMu           sync.Mutex
 	consecutiveDenials map[string]int // key: "agent:session"
@@ -337,6 +340,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		outcome.Verdict = verdict.EscalateOneLevel(outcome.Verdict)
 	}
 
+	// Step 7c: In-transit redaction (AARM MODIFY). Runs after every
+	// escalation so a final block/quarantine is never softened; only
+	// content that would otherwise deliver is modified.
+	modifiedContent := ""
+	if agentCfg, ok := h.cfg.Agents[req.From]; ok {
+		if mod, changed := verdict.ApplyRedactContent(agentCfg, outcome, req.Content); changed {
+			modifiedContent = mod
+			h.logger.Info("content redacted in transit", "from", req.From, "to", req.To, "message_id", msgID)
+		}
+	}
+
 	// Step 8: Apply verdict
 	status, policyDecision, httpStatus := verdictToResponse(outcome.Verdict)
 	rulesJSON := verdict.EncodeFindings(outcome.Findings)
@@ -359,13 +373,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.notifyByRuleOverrides(msgID, req, outcome.Findings)
 
 	resp := MessageResponse{
-		Status:         status,
-		MessageID:      msgID,
-		PolicyDecision: policyDecision,
-		RulesTriggered: outcome.Findings,
-		VerifiedSender: verified,
-		QuarantineID:   qr.ID,
-		ExpiresAt:      qr.ExpiresAt,
+		Status:          status,
+		MessageID:       msgID,
+		PolicyDecision:  policyDecision,
+		RulesTriggered:  outcome.Findings,
+		VerifiedSender:  verified,
+		QuarantineID:    qr.ID,
+		ExpiresAt:       qr.ExpiresAt,
+		ModifiedContent: modifiedContent,
 	}
 
 	// Add remediation guidance for block/quarantine verdicts
@@ -613,6 +628,10 @@ func verdictToResponse(v engine.ScanVerdict) (status, policyDecision string, htt
 		return audit.StatusQuarantined, audit.DecisionContentQuarantined, http.StatusAccepted
 	case engine.VerdictFlag:
 		return audit.StatusDelivered, audit.DecisionContentFlagged, http.StatusOK
+	case engine.VerdictModify:
+		return audit.StatusModified, audit.DecisionContentRedacted, http.StatusOK
+	case engine.VerdictStepUp:
+		return audit.StatusStepUp, audit.DecisionStepUpApproval, http.StatusAccepted
 	default:
 		return audit.StatusDelivered, audit.DecisionAllow, http.StatusOK
 	}

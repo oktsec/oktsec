@@ -26,7 +26,7 @@ type spend struct {
 // PolicyResult holds the outcome of a tool policy check.
 type PolicyResult struct {
 	Allowed  bool
-	Decision string // "allow", "rate_limited", "amount_exceeded", "daily_limit_exceeded", "quarantine_approval"
+	Decision string // "allow", "rate_limited", "amount_exceeded", "daily_limit_exceeded", "step_up_approval"
 	Reason   string
 }
 
@@ -52,11 +52,12 @@ func (e *ToolPolicyEnforcer) Check(agent, tool string, amount float64, policy co
 		}
 	}
 
-	// 2. Approval threshold → quarantine
+	// 2. Approval threshold → step-up (AARM STEP_UP: the action needs
+	// explicit additional approval; distinct from content quarantine)
 	if policy.RequireApprovalAbove > 0 && amount > policy.RequireApprovalAbove {
 		return PolicyResult{
 			Allowed:  false,
-			Decision: "quarantine_approval",
+			Decision: "step_up_approval",
 			Reason:   fmt.Sprintf("amount %.2f exceeds approval threshold %.2f for tool %q", amount, policy.RequireApprovalAbove, tool),
 		}
 	}

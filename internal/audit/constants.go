@@ -6,6 +6,13 @@ const (
 	StatusBlocked     = "blocked"
 	StatusRejected    = "rejected"
 	StatusQuarantined = "quarantined"
+	// StatusModified: delivered with detected content redacted in
+	// transit (AARM decision MODIFY).
+	StatusModified = "modified"
+	// StatusStepUp: held pending explicit additional approval (AARM
+	// decision STEP_UP) — distinct from quarantined, which is
+	// content-driven review (AARM DEFER).
+	StatusStepUp = "step_up"
 )
 
 // Quarantine status constants.
@@ -50,6 +57,8 @@ const (
 	DecisionContentBlocked     = "content_blocked"
 	DecisionContentQuarantined = "content_quarantined"
 	DecisionContentFlagged     = "content_flagged"
+	DecisionContentRedacted    = "content_redacted"
+	DecisionStepUpApproval     = "step_up_approval"
 	DecisionACLDenied          = "acl_denied"
 	DecisionAgentSuspended     = "agent_suspended"
 	DecisionRecipientSuspended = "recipient_suspended"

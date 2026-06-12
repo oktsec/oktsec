@@ -12,9 +12,9 @@ func EscalateOneLevel(v engine.ScanVerdict) engine.ScanVerdict {
 	switch v {
 	case engine.VerdictClean:
 		return engine.VerdictFlag
-	case engine.VerdictFlag:
+	case engine.VerdictFlag, engine.VerdictModify:
 		return engine.VerdictQuarantine
-	case engine.VerdictQuarantine:
+	case engine.VerdictQuarantine, engine.VerdictStepUp:
 		return engine.VerdictBlock
 	default:
 		return v // block stays block

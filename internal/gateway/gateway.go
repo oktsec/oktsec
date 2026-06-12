@@ -803,8 +803,8 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 				result := g.policyEnforcer.Check(policyAgent, m.OriginalName, amount, policy)
 				if !result.Allowed {
 					status := audit.StatusBlocked
-					if result.Decision == "quarantine_approval" {
-						status = audit.StatusQuarantined
+					if result.Decision == "step_up_approval" {
+						status = audit.StatusStepUp
 					}
 					g.logAudit(msgID, id, m.OriginalName, status, result.Decision, "[]", toolArgs, sessionID, start)
 					return toolError(fmt.Sprintf("tool policy: %s", result.Reason)), nil
