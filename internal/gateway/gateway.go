@@ -796,6 +796,12 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			}
 		}
 
+		// stepUpApproved marks a call that proceeded by spending an
+		// operator approval, so its final receipt says so — an executed
+		// over-threshold call must never read like one that needed no
+		// approval.
+		stepUpApproved := false
+
 		// 3b. Tool policy enforcement (spending limits, rate limits, approval thresholds)
 		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok && agentCfg.ToolPolicies != nil {
 			if policy, hasPolicy := agentCfg.ToolPolicies[m.OriginalName]; hasPolicy {
@@ -813,6 +819,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 					// evidence.
 					if ok, err := g.audit.ConsumeStepUpApproval(policyAgent, m.OriginalName, fullArgs); err == nil && ok {
 						result.Allowed = true
+						stepUpApproved = true
 					}
 				}
 				if !result.Allowed {
@@ -911,6 +918,11 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		// 8. Determine verdict
 		findingsJSON := verdict.EncodeFindings(outcome.Findings)
 		status, decision := verdictToGateway(outcome.Verdict)
+		if stepUpApproved && decision == audit.DecisionAllow {
+			// The receipt links the executed call to its spent
+			// approval instead of reading like a plain allow.
+			decision = audit.DecisionStepUpApproved
+		}
 
 		// 9. Audit log (with delegation chain if verified)
 		g.logAudit(msgID, id, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start, delegationChainHash, delegationChainSummary)
