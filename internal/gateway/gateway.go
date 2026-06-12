@@ -826,10 +826,18 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 						if expiryHours <= 0 {
 							expiryHours = 24
 						}
+						// The reviewer approves the FULL arguments —
+						// the 512-byte audit summary could hide
+						// fields that the retried call would still
+						// send to the backend.
+						fullArgs := string(req.Params.Arguments)
+						if fullArgs == "" {
+							fullArgs = toolArgs
+						}
 						_ = g.audit.Enqueue(audit.QuarantineItem{
 							ID:             msgID,
 							AuditEntryID:   msgID,
-							Content:        toolArgs,
+							Content:        fullArgs,
 							FromAgent:      policyAgent,
 							ToAgent:        m.OriginalName,
 							Status:         audit.QStatusPending,
