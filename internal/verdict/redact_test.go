@@ -114,3 +114,21 @@ func TestToAuditStatusNewVerdicts(t *testing.T) {
 		t.Fatalf("step_up -> %s/%s", s, d)
 	}
 }
+
+// Overlapping targets redact longest first: a generic detector
+// matching a substring of a specific secret must not leave the
+// longer value's suffix behind.
+func TestApplyRedactContentOverlappingMatches(t *testing.T) {
+	agent := config.Agent{RedactContent: []string{"credentials"}}
+	outcome := redactOutcome(engine.VerdictFlag,
+		engine.RedactionTarget{Category: "credentials", Match: "secret"},
+		engine.RedactionTarget{Category: "credentials", Match: "sk-secret-12345"})
+
+	got, changed := ApplyRedactContent(agent, outcome, "key sk-secret-12345 here")
+	if !changed {
+		t.Fatal("expected redaction")
+	}
+	if strings.Contains(got, "12345") {
+		t.Fatalf("longer secret's suffix survived: %q", got)
+	}
+}

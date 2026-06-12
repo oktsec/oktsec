@@ -2,6 +2,7 @@ package verdict
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -373,12 +374,21 @@ func ApplyRedactContent(agent config.Agent, outcome *engine.ScanOutcome, content
 	for _, cat := range agent.RedactContent {
 		redact[cat] = true
 	}
+	// Longest match first: an overlapping shorter target (a generic
+	// detector matching a substring of a specific one) must not split
+	// the longer secret and leave its suffix behind.
+	targets := make([]engine.RedactionTarget, 0, len(outcome.RedactionTargets))
+	for _, t := range outcome.RedactionTargets {
+		if t.Match != "" && redact[t.Category] {
+			targets = append(targets, t)
+		}
+	}
+	sort.SliceStable(targets, func(i, j int) bool {
+		return len(targets[i].Match) > len(targets[j].Match)
+	})
 	modified := content
 	changed := false
-	for _, t := range outcome.RedactionTargets {
-		if t.Match == "" || !redact[t.Category] {
-			continue
-		}
+	for _, t := range targets {
 		next := strings.ReplaceAll(modified, t.Match, "[REDACTED]")
 		if next != modified {
 			modified = next
