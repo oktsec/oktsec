@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,6 +76,12 @@ func CollectRecentEvents(cfgPath, dbPathOverride, cursor string, limit int) ([]a
 		curTS, curRow := cursor, "0"
 		if i := strings.IndexByte(cursor, '|'); i >= 0 {
 			curTS, curRow = cursor[:i], cursor[i+1:]
+		}
+		// A malformed or foreign tiebreak (this field has only ever
+		// held a rowid, but be safe) degrades to 0: the same-second
+		// set re-ships and the receiver dedupes by entry ID.
+		if _, perr := strconv.ParseInt(curRow, 10, 64); perr != nil {
+			curRow = "0"
 		}
 		// rowid is SQLite's monotonic insertion key: a same-second row
 		// committed after the last sync always has a larger rowid, so
