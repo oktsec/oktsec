@@ -16,12 +16,12 @@ func renderQuarantineDetailScript(t *testing.T) string {
 	var buf bytes.Buffer
 	if err := quarantineDetailTmpl.Execute(&buf, map[string]any{
 		"Item": map[string]any{
-			"ID":         "q-test",
-			"FromAgent":  "from-agent",
-			"ToAgent":    "to-agent",
-			"Status":     "pending",
-			"Content":    "hello",
-			"CreatedAt":  "2026-05-13T00:00:00Z",
+			"ID":             "q-test",
+			"FromAgent":      "from-agent",
+			"ToAgent":        "to-agent",
+			"Status":         "pending",
+			"Content":        "hello",
+			"CreatedAt":      "2026-05-13T00:00:00Z",
 			"RulesTriggered": "[]",
 		},
 	}); err != nil {

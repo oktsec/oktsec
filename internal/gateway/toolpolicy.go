@@ -26,7 +26,7 @@ type spend struct {
 // PolicyResult holds the outcome of a tool policy check.
 type PolicyResult struct {
 	Allowed  bool
-	Decision string // "allow", "rate_limited", "amount_exceeded", "daily_limit_exceeded", "quarantine_approval"
+	Decision string // "allow", "rate_limited", "amount_exceeded", "daily_limit_exceeded", "step_up_approval"
 	Reason   string
 }
 
@@ -52,21 +52,12 @@ func (e *ToolPolicyEnforcer) Check(agent, tool string, amount float64, policy co
 		}
 	}
 
-	// 2. Approval threshold → quarantine
-	if policy.RequireApprovalAbove > 0 && amount > policy.RequireApprovalAbove {
-		return PolicyResult{
-			Allowed:  false,
-			Decision: "quarantine_approval",
-			Reason:   fmt.Sprintf("amount %.2f exceeds approval threshold %.2f for tool %q", amount, policy.RequireApprovalAbove, tool),
-		}
-	}
-
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	key := agent + ":" + tool
 
-	// 3. Rate limit (calls per hour)
+	// 2. Rate limit (calls per hour)
 	if policy.RateLimit > 0 {
 		cutoff := now.Add(-1 * time.Hour)
 		calls := e.calls[key]
@@ -81,7 +72,7 @@ func (e *ToolPolicyEnforcer) Check(agent, tool string, amount float64, policy co
 		}
 	}
 
-	// 4. Daily spending limit
+	// 3. Daily spending limit
 	if policy.DailyLimit > 0 && amount > 0 {
 		cutoff := now.Add(-24 * time.Hour)
 		spends := e.spends[key]
@@ -97,6 +88,19 @@ func (e *ToolPolicyEnforcer) Check(agent, tool string, amount float64, policy co
 				Decision: "daily_limit_exceeded",
 				Reason:   fmt.Sprintf("daily spend %.2f + %.2f exceeds limit %.2f for tool %q", total, amount, policy.DailyLimit, tool),
 			}
+		}
+	}
+
+	// Approval threshold runs LAST (AARM STEP_UP: the action needs
+	// explicit additional approval; distinct from content quarantine).
+	// Ordering matters: a step_up_approval result means every hard
+	// limit above already passed, so a consumed operator approval can
+	// safely turn it into an allow without re-checking.
+	if policy.RequireApprovalAbove > 0 && amount > policy.RequireApprovalAbove {
+		return PolicyResult{
+			Allowed:  false,
+			Decision: "step_up_approval",
+			Reason:   fmt.Sprintf("amount %.2f exceeds approval threshold %.2f for tool %q", amount, policy.RequireApprovalAbove, tool),
 		}
 	}
 

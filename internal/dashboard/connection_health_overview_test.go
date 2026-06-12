@@ -223,7 +223,7 @@ func TestOverview_VeryOldEventCellDoesNotSayObserved(t *testing.T) {
 	if idx < 0 {
 		t.Fatal("Real events cell not rendered")
 	}
-	cell := body[idx:idx+200]
+	cell := body[idx : idx+200]
 	if strings.Contains(cell, ">observed<") {
 		t.Errorf("Real events cell says 'observed' for 25h-old event; expected 'none recent'. excerpt: %s", cell)
 	}
@@ -268,7 +268,7 @@ func TestOverview_StaleHeartbeatCellDoesNotSayReceived(t *testing.T) {
 	if idx < 0 {
 		t.Fatal("Heartbeat cell not rendered")
 	}
-	cell := body[idx:idx+200]
+	cell := body[idx : idx+200]
 	if strings.Contains(cell, ">received<") {
 		t.Errorf("Heartbeat cell says 'received' for 30m-old heartbeat; expected 'none recent'. excerpt: %s", cell)
 	}

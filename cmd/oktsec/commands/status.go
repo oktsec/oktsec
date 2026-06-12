@@ -107,13 +107,13 @@ func newStatusCmd() *cobra.Command {
 					var delivered, blocked, rejected, quarantined int
 					for _, e := range all {
 						switch e.Status {
-						case audit.StatusDelivered:
+						case audit.StatusDelivered, audit.StatusModified:
 							delivered++
 						case audit.StatusBlocked:
 							blocked++
 						case audit.StatusRejected:
 							rejected++
-						case audit.StatusQuarantined:
+						case audit.StatusQuarantined, audit.StatusStepUp:
 							quarantined++
 						}
 					}

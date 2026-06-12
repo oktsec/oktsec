@@ -1336,9 +1336,9 @@ func TestAuditMCPServers_HookInjectionNodeEval(t *testing.T) {
 func TestAuditMCPServers_CleanEnvNoMCP006(t *testing.T) {
 	result := mcpResult(mcpClient("cursor",
 		mcpServer("safe-server", "npx", []string{"-y", "@modelcontextprotocol/server-fs"}, map[string]string{
-			"NODE_ENV":   "production",
-			"LOG_LEVEL":  "info",
-			"CACHE_DIR":  "/tmp/mcp-cache",
+			"NODE_ENV":  "production",
+			"LOG_LEVEL": "info",
+			"CACHE_DIR": "/tmp/mcp-cache",
 		}),
 	))
 	findings := auditMCPServersFromResult(result)

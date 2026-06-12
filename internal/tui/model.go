@@ -21,13 +21,13 @@ type StatsQuerier interface {
 
 type Config struct {
 	Version    string
-	Mode       string           // "observe" or "enforce" (initial value)
+	Mode       string // "observe" or "enforce" (initial value)
 	DashURL    string
 	DashCode   string
 	AgentCount int
 	Hub        audit.EventHub
-	Stats      StatsQuerier     // DB-backed stats (optional, for accurate counters)
-	LiveCfg    *config.Config   // live config pointer — TUI reads current mode on each render
+	Stats      StatsQuerier   // DB-backed stats (optional, for accurate counters)
+	LiveCfg    *config.Config // live config pointer — TUI reads current mode on each render
 }
 
 // EventRow is a displayable event in the live feed.
@@ -71,7 +71,7 @@ type Model struct {
 
 	// Interactive state
 	scrollPos   int
-	cursorPos   int  // position within visible events (0 = bottom)
+	cursorPos   int // position within visible events (0 = bottom)
 	autoScroll  bool
 	paused      bool
 	selectedIdx int

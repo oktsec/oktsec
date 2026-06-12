@@ -21,9 +21,9 @@ import (
 
 func TestVerdictToGateway(t *testing.T) {
 	tests := []struct {
-		verdict        engine.ScanVerdict
-		wantStatus     string
-		wantDecision   string
+		verdict      engine.ScanVerdict
+		wantStatus   string
+		wantDecision string
 	}{
 		{engine.VerdictBlock, "blocked", "content_blocked"},
 		{engine.VerdictQuarantine, "quarantined", "content_quarantined"},

@@ -183,7 +183,7 @@ var tmplFuncs = template.FuncMap{
 		}
 		return template.HTML(fmt.Sprintf(`<span style="display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%%;background:%s;flex-shrink:0"></span>%s</span>`, c, template.HTMLEscapeString(toolName)))
 	},
-	"hasRules":    func(s string) bool { return s != "" && s != "[]" && s != "null" },
+	"hasRules":       func(s string) bool { return s != "" && s != "[]" && s != "null" },
 	"maskWebhookURL": maskWebhookURL,
 	"seq": func(n int) []int {
 		s := make([]int, n)
@@ -243,7 +243,7 @@ var tmplFuncs = template.FuncMap{
 		return false
 	},
 	"lower": strings.ToLower,
-	"inc": func(i int) int { return i + 1 },
+	"inc":   func(i int) int { return i + 1 },
 	"divf": func(a, b any) float64 {
 		fb := toFloat64(b)
 		if fb == 0 {
@@ -269,11 +269,11 @@ var tmplFuncs = template.FuncMap{
 			return 0
 		}
 	},
-	"add":      func(a, b int) int { return a + b },
+	"add":       func(a, b int) int { return a + b },
 	"isFixable": func(checkID string) bool { _, ok := fixableChecks[checkID]; return ok },
-	"safeJS":   func(s string) template.JS { return template.JS(s) },
-	"contains": strings.Contains,
-	"printf":   fmt.Sprintf,
+	"safeJS":    func(s string) template.JS { return template.JS(s) },
+	"contains":  strings.Contains,
+	"printf":    fmt.Sprintf,
 	"buildInfo": func() string {
 		if Commit != "" {
 			return Version + " (" + Commit + ")"
@@ -965,4 +965,3 @@ function agentCellHTML(name){if(!name)return'';return '<span class="agent-cell">
 </script>
 </body>
 </html>`
-

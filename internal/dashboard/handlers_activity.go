@@ -561,7 +561,7 @@ var safePrincipalCharsRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 // single shell argument. Plain identifiers pass through unchanged so
 // the common command stays readable; anything else gets POSIX
 // single-quote escaping (wrap in '...', then replace embedded '
-// with '\''). Empty string becomes '' so the operator sees an
+// with '\”). Empty string becomes ” so the operator sees an
 // obviously-blank slot rather than a silently-missing argument.
 //
 // We cannot use shell-specific helpers (no shellescape package) so

@@ -60,7 +60,7 @@ func TestHooksAuth_TokenWinsOverPayloadAgent(t *testing.T) {
 	body, _ := json.Marshal(ToolEvent{
 		ToolName:  "Read",
 		ToolInput: json.RawMessage(`{"file_path":"/tmp/x"}`),
-		Agent:     "admin",        // attacker spoof
+		Agent:     "admin", // attacker spoof
 		AgentType: "review-subagent",
 		SessionID: "sess-1",
 		Event:     "pre_tool_use",

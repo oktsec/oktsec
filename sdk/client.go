@@ -92,6 +92,9 @@ type MessageResponse struct {
 	RulesTriggered []FindingSummary `json:"rules_triggered"`
 	VerifiedSender bool             `json:"verified_sender"`
 	QuarantineID   string           `json:"quarantine_id,omitempty"`
+	// ModifiedContent carries the redacted content to deliver when
+	// status is "modified".
+	ModifiedContent string `json:"modified_content,omitempty"`
 }
 
 // FindingSummary describes a triggered detection rule.

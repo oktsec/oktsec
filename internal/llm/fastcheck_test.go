@@ -50,8 +50,8 @@ type mockFastCheckAnalyzer struct {
 	fastErr    error
 	fastCalls  atomic.Int64
 
-	result      *AnalysisResult
-	analyzeErr  error
+	result       *AnalysisResult
+	analyzeErr   error
 	analyzeCalls atomic.Int64
 }
 

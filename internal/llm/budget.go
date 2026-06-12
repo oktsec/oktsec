@@ -8,20 +8,20 @@ import (
 
 // BudgetStatus describes the current budget state.
 type BudgetStatus struct {
-	DailySpent      float64 `json:"daily_spent_usd"`
-	DailyLimit      float64 `json:"daily_limit_usd"`
-	DailyRemaining  float64 `json:"daily_remaining_usd"`
-	DailyPercent    float64 `json:"daily_percent"`
-	MonthlySpent    float64 `json:"monthly_spent_usd"`
-	MonthlyLimit    float64 `json:"monthly_limit_usd"`
-	MonthlyRemain   float64 `json:"monthly_remaining_usd"`
-	MonthlyPercent  float64 `json:"monthly_percent"`
-	DailyWarning    bool    `json:"daily_warning"`
-	MonthlyWarning  bool    `json:"monthly_warning"`
-	DailyExhausted  bool    `json:"daily_exhausted"`
-	MonthlyExhaust  bool    `json:"monthly_exhausted"`
-	TotalCalls      int64   `json:"total_calls"`
-	DroppedBudget   int64   `json:"dropped_budget"`
+	DailySpent     float64 `json:"daily_spent_usd"`
+	DailyLimit     float64 `json:"daily_limit_usd"`
+	DailyRemaining float64 `json:"daily_remaining_usd"`
+	DailyPercent   float64 `json:"daily_percent"`
+	MonthlySpent   float64 `json:"monthly_spent_usd"`
+	MonthlyLimit   float64 `json:"monthly_limit_usd"`
+	MonthlyRemain  float64 `json:"monthly_remaining_usd"`
+	MonthlyPercent float64 `json:"monthly_percent"`
+	DailyWarning   bool    `json:"daily_warning"`
+	MonthlyWarning bool    `json:"monthly_warning"`
+	DailyExhausted bool    `json:"daily_exhausted"`
+	MonthlyExhaust bool    `json:"monthly_exhausted"`
+	TotalCalls     int64   `json:"total_calls"`
+	DroppedBudget  int64   `json:"dropped_budget"`
 }
 
 // BudgetTracker tracks LLM spending against daily and monthly limits.
@@ -124,11 +124,11 @@ func (b *BudgetTracker) Status() BudgetStatus {
 	b.maybeReset()
 
 	s := BudgetStatus{
-		DailySpent:   b.dailySpent,
-		DailyLimit:   b.cfg.DailyLimitUSD,
-		MonthlySpent: b.monthlySpent,
-		MonthlyLimit: b.cfg.MonthlyLimitUSD,
-		TotalCalls:   b.dailyCalls,
+		DailySpent:    b.dailySpent,
+		DailyLimit:    b.cfg.DailyLimitUSD,
+		MonthlySpent:  b.monthlySpent,
+		MonthlyLimit:  b.cfg.MonthlyLimitUSD,
+		TotalCalls:    b.dailyCalls,
 		DroppedBudget: b.droppedCount,
 	}
 

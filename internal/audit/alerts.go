@@ -8,20 +8,20 @@ import (
 type AlertEntry struct {
 	ID        string `json:"id"`
 	Timestamp string `json:"timestamp"`
-	Event     string `json:"event"`     // blocked, quarantined, llm_threat, anomaly, agent_suspended, budget_warning
-	Severity  string `json:"severity"`  // critical, high, medium, low, info
-	Agent     string `json:"agent"`     // primary agent involved
+	Event     string `json:"event"`    // blocked, quarantined, llm_threat, anomaly, agent_suspended, budget_warning
+	Severity  string `json:"severity"` // critical, high, medium, low, info
+	Agent     string `json:"agent"`    // primary agent involved
 	MessageID string `json:"message_id,omitempty"`
-	Detail    string `json:"detail"`    // human-readable description
-	Channel   string `json:"channel"`   // webhook name or URL (truncated)
-	Status    string `json:"status"`    // sent, failed
+	Detail    string `json:"detail"`  // human-readable description
+	Channel   string `json:"channel"` // webhook name or URL (truncated)
+	Status    string `json:"status"`  // sent, failed
 }
 
 // AlertStats holds aggregated alert counts.
 type AlertStats struct {
-	Total    int `json:"total"`
-	Last24h  int `json:"last_24h"`
-	ByEvent  map[string]int `json:"by_event"`
+	Total      int            `json:"total"`
+	Last24h    int            `json:"last_24h"`
+	ByEvent    map[string]int `json:"by_event"`
 	BySeverity map[string]int `json:"by_severity"`
 }
 

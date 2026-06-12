@@ -62,10 +62,10 @@ func TestAudit_BearerPrincipalSeparatesReportedActor(t *testing.T) {
 	gw := newTestGateway(t, cfg, echoBackends())
 
 	ctx := ctxWithIdentity(
-		"local-codex",                            // principal
-		string(resolve.AuthMethodBearerToken),    // auth method
-		string(resolve.TrustAuthenticated),       // trust level
-		"admin",                                  // spoofed reported actor
+		"local-codex",                         // principal
+		string(resolve.AuthMethodBearerToken), // auth method
+		string(resolve.TrustAuthenticated),    // trust level
+		"admin",                               // spoofed reported actor
 	)
 	handler := gw.makeHandler(gw.toolMap["echo"])
 	_, err := handler(ctx, makeHandlerRequest("echo", map[string]any{"text": "hi"}))

@@ -1284,8 +1284,8 @@ func TestServer_SaveRateLimitValidation(t *testing.T) {
 	cookie := loginSession(t, srv, handler)
 
 	cases := []struct {
-		name    string
-		form    url.Values
+		name string
+		form url.Values
 	}{
 		{"negative per_agent", url.Values{"per_agent": {"-1"}, "window": {"60"}}},
 		{"zero window", url.Values{"per_agent": {"10"}, "window": {"0"}}},

@@ -347,7 +347,7 @@ func accumulateOutcome(e *graph.EdgeInput, ev runtime.HookEvent) {
 	case "blocked":
 		e.Blocked++
 		return
-	case "quarantined":
+	case "quarantined", "step_up":
 		e.Quarantined++
 		return
 	case "rejected":

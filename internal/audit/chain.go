@@ -112,4 +112,3 @@ type ChainEntry struct {
 	EntryHash      string `json:"entry_hash"`
 	ProxySignature string `json:"proxy_signature"`
 }
-

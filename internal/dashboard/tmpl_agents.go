@@ -460,7 +460,7 @@ document.querySelector('[role="tablist"]').addEventListener('keydown',function(e
         <td style="font-weight:600;font-family:var(--mono);font-size:0.82rem">{{$tool}}</td>
         <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.MaxAmount}}{{printf "$%.0f" $p.MaxAmount}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
         <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.DailyLimit}}{{printf "$%.0f" $p.DailyLimit}}{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
-        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RequireApprovalAbove}}{{printf "$%.0f" $p.RequireApprovalAbove}} <span style="color:var(--warn);font-size:0.68rem">quarantine</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
+        <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RequireApprovalAbove}}{{printf "$%.0f" $p.RequireApprovalAbove}} <span style="color:var(--warn);font-size:0.68rem">step-up</span>{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
         <td style="font-family:var(--mono);font-size:0.82rem">{{if $p.RateLimit}}{{$p.RateLimit}}/hr{{else}}<span style="color:var(--text3)">-</span>{{end}}</td>
       </tr>
       {{end}}

@@ -514,4 +514,3 @@ func newScannerWithMockOSV(srv *httptest.Server) *Scanner {
 	}
 	return scanner
 }
-

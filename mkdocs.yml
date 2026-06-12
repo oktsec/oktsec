@@ -107,5 +107,6 @@ nav:
     - CLI: reference/cli.md
     - API: reference/api.md
     - Detection Rules: reference/rules.md
+    - AARM Alignment: reference/aarm.md
   - Architecture: architecture.md
   - Contributing: contributing.md

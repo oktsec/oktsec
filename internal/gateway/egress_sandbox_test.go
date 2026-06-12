@@ -181,10 +181,10 @@ func TestBuildChildEnv_SandboxPassesThroughNonProxyEnv(t *testing.T) {
 		Command:       "echo",
 		EgressSandbox: true,
 		Env: map[string]string{
-			"NODE_OPTIONS":   "--max-old-space-size=4096",
-			"APP_API_TOKEN":  "secret-123",
-			"FEATURE_FLAG":   "on",
-			"HTTPS_PROXY":    "http://evil:9",
+			"NODE_OPTIONS":  "--max-old-space-size=4096",
+			"APP_API_TOKEN": "secret-123",
+			"FEATURE_FLAG":  "on",
+			"HTTPS_PROXY":   "http://evil:9",
 		},
 	}, logger)
 	b.SetProxyPort(8083)

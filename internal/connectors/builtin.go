@@ -90,18 +90,18 @@ func builtinConnectors() map[string]Connector {
 			// trusted_loopback auth method is recorded).
 			Surfaces: []SurfaceCapability{
 				{
-					Surface: "mcp_http",
-					AuthMethods: []string{"trusted_loopback"},
-					EventTypes:  []string{"mcp.tool_call"},
-					CanBlock:    false, // header-asserted identity, no token
+					Surface:         "mcp_http",
+					AuthMethods:     []string{"trusted_loopback"},
+					EventTypes:      []string{"mcp.tool_call"},
+					CanBlock:        false, // header-asserted identity, no token
 					DefaultCoverage: "observed",
 					Caveat:          "loopback header only — issue a gateway_bearer token for stronger auth",
 				},
 				{
-					Surface: "http_egress_proxy",
-					AuthMethods: []string{"trusted_loopback"},
-					EventTypes:  []string{"egress.request"},
-					CanBlock:    false,
+					Surface:         "http_egress_proxy",
+					AuthMethods:     []string{"trusted_loopback"},
+					EventTypes:      []string{"egress.request"},
+					CanBlock:        false,
 					DefaultCoverage: "observed",
 					Caveat:          "loopback header only — issue a proxy_basic token for stronger auth",
 				},

@@ -87,8 +87,8 @@ type Inventory struct {
 // MCPServerRef is one Claude Code MCP server entry.
 type MCPServerRef struct {
 	Name      string            `json:"name"`
-	Scope     string            `json:"scope"`             // user | project | local | mcp_json | global
-	Source    string            `json:"source"`            // path to the file the entry came from
+	Scope     string            `json:"scope"`               // user | project | local | mcp_json | global
+	Source    string            `json:"source"`              // path to the file the entry came from
 	Transport string            `json:"transport,omitempty"` // stdio | http (when known)
 	Command   string            `json:"command,omitempty"`
 	Args      []string          `json:"args,omitempty"`
@@ -101,16 +101,16 @@ type MCPServerRef struct {
 // just enough for the doctor to say "this hook would run X for event Y
 // in scope Z" without taking any action.
 type HookRef struct {
-	Scope        string `json:"scope"`             // user | project | local
-	Path         string `json:"path"`              // settings file the entry came from
-	Event        string `json:"event"`             // PreToolUse, PostToolUse, SessionStart, etc.
-	Matcher      string `json:"matcher,omitempty"` // tool-name matcher (regex/glob)
-	Type         string `json:"type"`              // command | http | mcp_tool | prompt | agent
-	Command      string `json:"command,omitempty"`
-	URL          string `json:"url,omitempty"`
-	IsOktsec     bool   `json:"is_oktsec"`         // command points at the `oktsec hook` subcommand
-	Expected     bool   `json:"expected"`          // event family Phase 2 will install (informational)
-	BlockingCap  bool   `json:"blocking_cap"`      // event family can deny the action (PreToolUse, etc.)
+	Scope       string `json:"scope"`             // user | project | local
+	Path        string `json:"path"`              // settings file the entry came from
+	Event       string `json:"event"`             // PreToolUse, PostToolUse, SessionStart, etc.
+	Matcher     string `json:"matcher,omitempty"` // tool-name matcher (regex/glob)
+	Type        string `json:"type"`              // command | http | mcp_tool | prompt | agent
+	Command     string `json:"command,omitempty"`
+	URL         string `json:"url,omitempty"`
+	IsOktsec    bool   `json:"is_oktsec"`    // command points at the `oktsec hook` subcommand
+	Expected    bool   `json:"expected"`     // event family Phase 2 will install (informational)
+	BlockingCap bool   `json:"blocking_cap"` // event family can deny the action (PreToolUse, etc.)
 }
 
 // SubagentRef is one .claude/agents/*.md file.

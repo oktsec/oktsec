@@ -111,16 +111,16 @@ type Heartbeat struct {
 // projection of these rows so it stays client-agnostic per the
 // Phase 3 invariants.
 type ActorEdge struct {
-	ParentActorID    string
-	ParentLabel      string
-	ParentKind       string
-	ChildActorID     string
-	ChildLabel       string
-	ChildKind        string
-	SessionID        string
-	PrincipalID      string
-	EventCount       int64
-	LastSeenAt       time.Time
+	ParentActorID string
+	ParentLabel   string
+	ParentKind    string
+	ChildActorID  string
+	ChildLabel    string
+	ChildKind     string
+	SessionID     string
+	PrincipalID   string
+	EventCount    int64
+	LastSeenAt    time.Time
 }
 
 // SessionQuery filters the Sessions list. Empty fields mean "no

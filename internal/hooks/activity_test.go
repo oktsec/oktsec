@@ -303,4 +303,3 @@ func TestHooksActivity_InsertErrorDoesNotAffectRequest(t *testing.T) {
 		t.Errorf("recorder should hold zero events on Insert error; got %d", len(got))
 	}
 }
-

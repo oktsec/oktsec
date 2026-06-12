@@ -81,8 +81,8 @@ type Server struct {
 	// httptest server.
 	analysisHTTPClient *http.Client
 
-	gwMu      sync.Mutex
-	gwCmd     *exec.Cmd
+	gwMu  sync.Mutex
+	gwCmd *exec.Cmd
 	// gwManaged is true when an in-process gateway owns cfg.Gateway.Port
 	// (the gateway updates the cfg pointer to its actual listener port
 	// after binding). The dashboard reads this flag to decide whether
@@ -91,7 +91,7 @@ type Server struct {
 	// the dashboard starts serving without racing the first request.
 	gwManaged atomic.Bool
 	llmQueue  *llm.Queue
-	ruleGen  *llm.RuleGenerator
+	ruleGen   *llm.RuleGenerator
 
 	// Gateway tool classification callback (set when gateway runs in-process)
 	gwToolsFunc func() []GatewayToolInfo

@@ -863,13 +863,17 @@ func (s *Store) QueryAgentStats(agent string) (*StatusCounts, error) {
 		sc.Total += count
 		switch status {
 		case StatusDelivered:
-			sc.Delivered = count
+			sc.Delivered += count
+		case StatusModified:
+			// A redacted message still proceeded: modified counts as
+			// delivered everywhere totals are reported.
+			sc.Delivered += count
 		case StatusBlocked:
 			sc.Blocked = count
 		case StatusRejected:
 			sc.Rejected = count
-		case StatusQuarantined:
-			sc.Quarantined = count
+		case StatusQuarantined, StatusStepUp:
+			sc.Quarantined += count
 		}
 	}
 	return sc, rows.Err()
@@ -893,13 +897,17 @@ func (s *Store) QueryStats() (*StatusCounts, error) {
 		sc.Total += count
 		switch status {
 		case StatusDelivered:
-			sc.Delivered = count
+			sc.Delivered += count
+		case StatusModified:
+			// A redacted message still proceeded: modified counts as
+			// delivered everywhere totals are reported.
+			sc.Delivered += count
 		case StatusBlocked:
 			sc.Blocked = count
 		case StatusRejected:
 			sc.Rejected = count
-		case StatusQuarantined:
-			sc.Quarantined = count
+		case StatusQuarantined, StatusStepUp:
+			sc.Quarantined += count
 		}
 	}
 	return sc, rows.Err()
@@ -1071,6 +1079,62 @@ func (s *Store) Enqueue(item QuarantineItem) error {
 	return nil
 }
 
+// StepUpMarker is the typed finding stored on step-up queue items.
+// It renders meaningfully in the review UI and distinguishes step-up
+// holds from content quarantines, so an approved content item can
+// never be spent as a step-up pass.
+const StepUpMarker = `[{"rule_id":"STEP_UP_APPROVAL","name":"Approval threshold exceeded","severity":"info","category":"tool-policy"}]`
+
+// ConsumeStepUpApproval atomically spends one APPROVED step-up item
+// for this exact (agent, tool, arguments) triple. Binding to the
+// reviewed arguments means the retry must carry what the operator
+// saw — approving one call never authorizes a different one. The
+// conditional UPDATE makes approvals single-use even under
+// concurrent retries; expired approvals never consume.
+func (s *Store) ConsumeStepUpApproval(agent, tool, args string) (bool, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	selectQ := fmt.Sprintf(
+		`SELECT id FROM quarantine_queue WHERE status = %s AND from_agent = %s AND to_agent = %s AND content = %s AND rules_triggered = %s AND expires_at > %s ORDER BY created_at DESC LIMIT 5`,
+		s.dialect.Placeholder(1), s.dialect.Placeholder(2), s.dialect.Placeholder(3),
+		s.dialect.Placeholder(4), s.dialect.Placeholder(5), s.dialect.Placeholder(6),
+	)
+	rows, err := s.db.Query(selectQ,
+		QStatusApproved, agent, tool, args, StepUpMarker, now,
+	)
+	if err != nil {
+		return false, fmt.Errorf("step-up approval lookup: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return false, fmt.Errorf("step-up approval scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	updateQ := fmt.Sprintf(
+		`UPDATE quarantine_queue SET status = %s WHERE id = %s AND status = %s`,
+		s.dialect.Placeholder(1), s.dialect.Placeholder(2), s.dialect.Placeholder(3),
+	)
+	for _, id := range ids {
+		res, err := s.db.Exec(updateQ,
+			QStatusConsumed, id, QStatusApproved,
+		)
+		if err != nil {
+			return false, fmt.Errorf("step-up approval consume: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // QuarantineByID fetches a single quarantine item by ID.
 func (s *Store) QuarantineByID(id string) (*QuarantineItem, error) {
 	row := s.db.QueryRow(
@@ -1163,9 +1227,15 @@ func (s *Store) QuarantineApprove(id, reviewedBy string) error {
 		return fmt.Errorf("quarantine item %q not found or not pending", id)
 	}
 
-	// Update the audit entry to reflect approval
+	// Update the audit entry to reflect approval. A quarantined
+	// MESSAGE is released by approval, so its receipt becomes
+	// delivered. A step-up TOOL CALL is different: approval only
+	// authorizes a future retry — the held call never ran, so its
+	// hash-chained receipt stays exactly as written and the approval's
+	// record is the queue item itself (status, reviewed_by,
+	// reviewed_at). The retry writes its own delivered receipt.
 	if _, err := tx.Exec(
-		`UPDATE audit_log SET status='delivered', policy_decision='quarantine_approved' WHERE id=?`, id,
+		`UPDATE audit_log SET status='delivered', policy_decision='quarantine_approved' WHERE id=? AND status='quarantined'`, id,
 	); err != nil {
 		return fmt.Errorf("update audit entry: %w", err)
 	}
@@ -1199,7 +1269,19 @@ func (s *Store) QuarantineExpireOld() (int, error) {
 		return 0, fmt.Errorf("expire quarantine: %w", err)
 	}
 	n, _ := res.RowsAffected()
-	return int(n), nil
+	// Approved STEP-UP items are spendable tokens, not terminal release
+	// records like content approvals — past expiry they can never be
+	// consumed, so leaving them "approved" would advertise an approval
+	// that cannot work. Only step-up rows flip; content approvals stay.
+	res2, err := s.db.Exec(
+		`UPDATE quarantine_queue SET status='expired' WHERE status='approved' AND rules_triggered = ? AND expires_at < ?`,
+		StepUpMarker, now,
+	)
+	if err != nil {
+		return int(n), fmt.Errorf("expire step-up approvals: %w", err)
+	}
+	n2, _ := res2.RowsAffected()
+	return int(n + n2), nil
 }
 
 // QuarantineStats returns counts grouped by quarantine status.
@@ -1417,7 +1499,7 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 		switch status {
 		case StatusBlocked:
 			ar.Blocked += count
-		case StatusQuarantined:
+		case StatusQuarantined, StatusStepUp:
 			ar.Quarantined += count
 		}
 	}
@@ -1513,11 +1595,11 @@ func (s *Store) QueryEdgeStats(since string) ([]EdgeStat, error) {
 		acc.totalCount += count
 		acc.latencySum += avgLat * float64(count)
 		switch status {
-		case StatusDelivered:
+		case StatusDelivered, StatusModified:
 			acc.stat.Delivered += count
 		case StatusBlocked:
 			acc.stat.Blocked += count
-		case StatusQuarantined:
+		case StatusQuarantined, StatusStepUp:
 			acc.stat.Quarantined += count
 		case StatusRejected:
 			acc.stat.Rejected += count
@@ -1586,8 +1668,8 @@ func (s *Store) QuerySessions(since string, limit int) ([]SessionSummary, error)
 			COUNT(DISTINCT from_agent) as agent_count,
 			GROUP_CONCAT(DISTINCT from_agent) as agents,
 			SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocks,
-			SUM(CASE WHEN status = 'quarantined' THEN 1 ELSE 0 END) as quarantines,
-			SUM(CASE WHEN policy_decision = 'content_flagged' THEN 1 ELSE 0 END) as flags,
+			SUM(CASE WHEN status IN ('quarantined','step_up') THEN 1 ELSE 0 END) as quarantines,
+			SUM(CASE WHEN policy_decision IN ('content_flagged','content_redacted') THEN 1 ELSE 0 END) as flags,
 			SUM(COALESCE(latency_ms, 0)) as total_latency_ms
 		FROM audit_log
 		WHERE session_id <> '' AND timestamp >= ?

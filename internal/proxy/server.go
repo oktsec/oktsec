@@ -33,24 +33,24 @@ var Version = "dev"
 
 // Server is the oktsec HTTP proxy server.
 type Server struct {
-	cfg           *config.Config
-	cfgPath       string
-	srv           *http.Server
-	ln            net.Listener
-	keys          *identity.KeyStore
-	scanner       *engine.Scanner
-	audit         *audit.Store
-	handler       *Handler
-	webhooks      *WebhookNotifier
-	dashboard     *dashboard.Server
-	llmQueue           *llm.Queue              // nil if LLM disabled
-	escalationTracker  *llm.EscalationTracker  // nil if LLM escalation disabled
-	logger             *slog.Logger
-	anomalyCancel context.CancelFunc
-	guardCancel   context.CancelFunc
-	guardInst     *guard.Guard   // nil if guard disabled
-	fwdSrv        *http.Server   // forward proxy (nil if disabled)
-	fwdLn         net.Listener   // forward proxy listener
+	cfg               *config.Config
+	cfgPath           string
+	srv               *http.Server
+	ln                net.Listener
+	keys              *identity.KeyStore
+	scanner           *engine.Scanner
+	audit             *audit.Store
+	handler           *Handler
+	webhooks          *WebhookNotifier
+	dashboard         *dashboard.Server
+	llmQueue          *llm.Queue             // nil if LLM disabled
+	escalationTracker *llm.EscalationTracker // nil if LLM escalation disabled
+	logger            *slog.Logger
+	anomalyCancel     context.CancelFunc
+	guardCancel       context.CancelFunc
+	guardInst         *guard.Guard // nil if guard disabled
+	fwdSrv            *http.Server // forward proxy (nil if disabled)
+	fwdLn             net.Listener // forward proxy listener
 }
 
 // NewServer creates and wires the proxy server.

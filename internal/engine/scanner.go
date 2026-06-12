@@ -71,12 +71,32 @@ const (
 	VerdictBlock      ScanVerdict = "block"
 	VerdictQuarantine ScanVerdict = "quarantine"
 	VerdictFlag       ScanVerdict = "flag"
+	// VerdictModify delivers the message with detected content
+	// redacted in transit (AARM decision MODIFY).
+	VerdictModify ScanVerdict = "modify"
+	// VerdictStepUp holds the action pending explicit additional
+	// approval (AARM decision STEP_UP) — distinct from quarantine,
+	// which is content-driven human review (AARM DEFER).
+	VerdictStepUp ScanVerdict = "step_up"
 )
+
+// RedactionTarget is one raw matched span an in-transit redaction
+// policy may remove from the delivered content. It carries the
+// ORIGINAL matched text, so it must never be serialized — exported
+// findings stay redacted.
+type RedactionTarget struct {
+	RuleID   string `json:"-"`
+	Category string `json:"-"`
+	Match    string `json:"-"`
+}
 
 // ScanOutcome holds the result of content scanning.
 type ScanOutcome struct {
 	Verdict  ScanVerdict
 	Findings []FindingSummary
+	// RedactionTargets feeds in-transit redaction (verdict modify).
+	// Excluded from JSON so raw matches never reach audit or export.
+	RedactionTargets []RedactionTarget `json:"-"`
 }
 
 // FindingSummary is a simplified finding for the proxy response.
@@ -218,6 +238,11 @@ func buildOutcome(result *aguara.ScanResult) *ScanOutcome {
 			Remediation: f.Remediation,
 		}
 		outcome.Findings = append(outcome.Findings, summary)
+		if f.MatchedText != "" {
+			outcome.RedactionTargets = append(outcome.RedactionTargets, RedactionTarget{
+				RuleID: f.RuleID, Category: f.Category, Match: f.MatchedText,
+			})
+		}
 
 		// Escalate verdict based on severity
 		switch {

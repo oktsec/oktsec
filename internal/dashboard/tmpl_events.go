@@ -28,6 +28,8 @@ var eventDetailTmpl = template.Must(template.New("event-detail").Funcs(tmplFuncs
     {{else if eq .Entry.Status "blocked"}}<span class="badge-blocked">blocked</span>
     {{else if eq .Entry.Status "rejected"}}<span class="badge-rejected">rejected</span>
     {{else if eq .Entry.Status "quarantined"}}<span class="badge-quarantined">quarantined</span>
+    {{else if eq .Entry.Status "step_up"}}<span class="badge-quarantined">awaiting approval</span>
+    {{else if eq .Entry.Status "modified"}}<span class="badge-delivered">delivered (redacted)</span>
     {{else}}<span style="color:var(--text2);font-size:0.75rem">{{.Entry.Status}}</span>{{end}}
   </div>
   <span style="flex:1;font-family:var(--mono);font-size:var(--text-sm);color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{.Entry.FromAgent}} &rarr; {{.Entry.ToAgent}}</span>
@@ -163,6 +165,7 @@ function edSwitchTab(name,el){
 }
 </script>
 `))
+
 // ciCSS is the shared CSS for "case investigation" style pages (Threat Intel, Event Detail).
 const ciCSS = `
 .ci-back{color:var(--text3);text-decoration:none;font-size:var(--text-sm);display:inline-flex;align-items:center;gap:6px;transition:color var(--ease-default);touch-action:manipulation}
@@ -324,7 +327,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
         <div class="ep-pipe-step">
           <span class="ep-pipe-dot" style="background:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}"></span>
           <span class="ep-pipe-name">Final verdict</span>
-          <span class="ep-pipe-val" style="color:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}">{{if eq .Entry.Status "delivered"}}Allowed{{else if eq .Entry.Status "blocked"}}Blocked{{else if eq .Entry.Status "quarantined"}}Quarantined{{else}}Rejected{{end}}</span>
+          <span class="ep-pipe-val" style="color:{{if or (eq .Entry.Status "delivered") (eq .Entry.Status "modified")}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}">{{if eq .Entry.Status "delivered"}}Allowed{{else if eq .Entry.Status "modified"}}Allowed (redacted){{else if eq .Entry.Status "blocked"}}Blocked{{else if eq .Entry.Status "quarantined"}}Quarantined{{else if eq .Entry.Status "step_up"}}Awaiting approval{{else}}Rejected{{end}}</span>
         </div>
         {{if ge .LLMRiskScore 0.0}}
         <div class="ep-pipe-step">

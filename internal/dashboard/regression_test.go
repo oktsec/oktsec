@@ -502,15 +502,15 @@ func TestRegression_OverviewRendersCoverageMatrix(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		"Coverage matrix",       // section header
-		"local-codex",           // principal #1
-		"researcher",            // principal #2
-		"Generic MCP HTTP",      // humanized connector for gateway_bearer-only
-		"Generic egress proxy",  // humanized connector for proxy_basic-only
+		"Coverage matrix",      // section header
+		"local-codex",          // principal #1
+		"researcher",           // principal #2
+		"Generic MCP HTTP",     // humanized connector for gateway_bearer-only
+		"Generic egress proxy", // humanized connector for proxy_basic-only
 		"cov-badge protected",
-		"cov-badge blind",       // researcher has no gateway_bearer → mcp_http blind in enterprise
-		"Bearer token",          // humanized identity for local-codex
-		"Proxy token",           // humanized identity for researcher
+		"cov-badge blind", // researcher has no gateway_bearer → mcp_http blind in enterprise
+		"Bearer token",    // humanized identity for local-codex
+		"Proxy token",     // humanized identity for researcher
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Overview missing %q in coverage matrix; first 400 chars after Coverage:\n%s",

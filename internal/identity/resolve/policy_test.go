@@ -47,11 +47,11 @@ func TestDerivePolicy_RequireSurfaceAuthForcesAuthInLocal(t *testing.T) {
 // and RequireSurfaceAuth. The override is the operator's last word.
 func TestDerivePolicy_ExplicitOverrideWins(t *testing.T) {
 	cases := []struct {
-		name              string
-		profile           Profile
-		surfaceAuth       bool
-		override          string
-		wantRequireAuth   bool
+		name            string
+		profile         Profile
+		surfaceAuth     bool
+		override        string
+		wantRequireAuth bool
 	}{
 		// "false" override beats enterprise default.
 		{"override-false-beats-enterprise", ProfileEnterprise, false, "false", false},

@@ -46,23 +46,26 @@ type MessageResponse struct {
 	ExpiresAt      string                  `json:"expires_at,omitempty"`
 	Remediation    string                  `json:"remediation,omitempty"`
 	Suggestion     string                  `json:"suggestion,omitempty"`
+	// ModifiedContent carries the redacted content the caller must
+	// deliver when status is "modified" (AARM decision MODIFY).
+	ModifiedContent string `json:"modified_content,omitempty"`
 }
 
 // Handler processes /v1/message requests through the full pipeline.
 type Handler struct {
-	cfg         *config.Config
-	keys        *identity.KeyStore
-	policy      *policy.Evaluator
-	scanner     *engine.Scanner
-	audit       *audit.Store
-	webhooks    *WebhookNotifier
-	rateLimiter RateStore
-	window      *MessageWindow
-	sessions            *sessionStore
-	llmQueue            *llm.Queue              // nil if LLM disabled
-	signalDetector      *llm.SignalDetector     // nil if triage disabled
-	escalationTracker   *llm.EscalationTracker  // nil if LLM escalation disabled
-	logger              *slog.Logger
+	cfg               *config.Config
+	keys              *identity.KeyStore
+	policy            *policy.Evaluator
+	scanner           *engine.Scanner
+	audit             *audit.Store
+	webhooks          *WebhookNotifier
+	rateLimiter       RateStore
+	window            *MessageWindow
+	sessions          *sessionStore
+	llmQueue          *llm.Queue             // nil if LLM disabled
+	signalDetector    *llm.SignalDetector    // nil if triage disabled
+	escalationTracker *llm.EscalationTracker // nil if LLM escalation disabled
+	logger            *slog.Logger
 
 	denialMu           sync.Mutex
 	consecutiveDenials map[string]int // key: "agent:session"
@@ -337,6 +340,41 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		outcome.Verdict = verdict.EscalateOneLevel(outcome.Verdict)
 	}
 
+	// Step 7c: In-transit redaction (AARM MODIFY). Runs after every
+	// escalation so a final block/quarantine is never softened; only
+	// content that would otherwise deliver is modified.
+	modifiedContent := ""
+	if agentCfg, ok := h.cfg.Agents[req.From]; ok {
+		mod, changed, needsVerify := verdict.ApplyRedactContent(agentCfg, outcome, req.Content)
+		if changed && needsVerify {
+			// A pattern-pass redaction cannot prove it removed the
+			// actual detection — re-scan the modified content and
+			// require the redacted categories to come back clean.
+			// Any failure here fails closed.
+			redactSet := make(map[string]bool, len(agentCfg.RedactContent))
+			for _, cat := range agentCfg.RedactContent {
+				redactSet[cat] = true
+			}
+			recheck, rerr := h.scanContent(r.Context(), mod)
+			if rerr != nil {
+				changed = false
+				outcome.Verdict = engine.VerdictQuarantine
+			} else {
+				for _, f := range recheck.Findings {
+					if redactSet[f.Category] {
+						changed = false
+						outcome.Verdict = engine.VerdictQuarantine
+						break
+					}
+				}
+			}
+		}
+		if changed {
+			modifiedContent = mod
+			h.logger.Info("content redacted in transit", "from", req.From, "to", req.To, "message_id", msgID)
+		}
+	}
+
 	// Step 8: Apply verdict
 	status, policyDecision, httpStatus := verdictToResponse(outcome.Verdict)
 	rulesJSON := verdict.EncodeFindings(outcome.Findings)
@@ -359,13 +397,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.notifyByRuleOverrides(msgID, req, outcome.Findings)
 
 	resp := MessageResponse{
-		Status:         status,
-		MessageID:      msgID,
-		PolicyDecision: policyDecision,
-		RulesTriggered: outcome.Findings,
-		VerifiedSender: verified,
-		QuarantineID:   qr.ID,
-		ExpiresAt:      qr.ExpiresAt,
+		Status:          status,
+		MessageID:       msgID,
+		PolicyDecision:  policyDecision,
+		RulesTriggered:  outcome.Findings,
+		VerifiedSender:  verified,
+		QuarantineID:    qr.ID,
+		ExpiresAt:       qr.ExpiresAt,
+		ModifiedContent: modifiedContent,
 	}
 
 	// Add remediation guidance for block/quarantine verdicts
@@ -397,13 +436,39 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Stage 10: Async LLM analysis (non-blocking, after response sent)
 	if h.llmQueue != nil {
-		h.submitToLLM(msgID, req, outcome)
+		// A redacted message ships its REDACTED body to the analysis
+		// provider: redact_content promises the matched content does
+		// not leave the proxy, and the LLM provider is external.
+		analyzed := req.Content
+		if modifiedContent != "" {
+			analyzed = modifiedContent
+		} else if agentCfg, ok := h.cfg.Agents[req.From]; ok && len(agentCfg.RedactContent) > 0 {
+			// A held verdict (or a failed-closed redaction) has no
+			// verified redacted body. If any finding sits in a
+			// redacted category, the original must not reach the
+			// provider — the held message gets HUMAN review anyway.
+			redactSet := make(map[string]bool, len(agentCfg.RedactContent))
+			for _, cat := range agentCfg.RedactContent {
+				redactSet[cat] = true
+			}
+			for _, f := range outcome.Findings {
+				if redactSet[f.Category] {
+					analyzed = ""
+					break
+				}
+			}
+		}
+		if analyzed != "" {
+			h.submitToLLM(msgID, req, outcome, analyzed)
+		}
 	}
 }
 
-// submitToLLM sends a message to the async LLM analysis queue if configured.
-func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine.ScanOutcome) {
-	if h.cfg.LLM.MinContentLength > 0 && len(req.Content) < h.cfg.LLM.MinContentLength {
+// submitToLLM sends a message to the async LLM analysis queue if
+// configured. content is the body safe to analyze — the redacted form
+// when in-transit redaction modified the delivery.
+func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine.ScanOutcome, content string) {
+	if h.cfg.LLM.MinContentLength > 0 && len(content) < h.cfg.LLM.MinContentLength {
 		return
 	}
 
@@ -416,7 +481,7 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 	// When no signal detector is attached, the analyze config controls
 	// which verdict types are sent to the LLM (original behavior).
 	if h.signalDetector != nil {
-		sig := h.signalDetector.Detect(req.From, req.To, req.Content, string(outcome.Verdict))
+		sig := h.signalDetector.Detect(req.From, req.To, content, string(outcome.Verdict))
 		if !sig.ShouldAnalyze {
 			return
 		}
@@ -427,11 +492,13 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 			if !analyze.Clean {
 				return
 			}
-		case engine.VerdictFlag:
+		case engine.VerdictFlag, engine.VerdictModify:
+			// Modified messages gate like flagged: same severity rank,
+			// same "delivered with a caveat" semantics.
 			if !analyze.Flagged {
 				return
 			}
-		case engine.VerdictQuarantine:
+		case engine.VerdictQuarantine, engine.VerdictStepUp:
 			if !analyze.Quarantined {
 				return
 			}
@@ -439,6 +506,10 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 			if !analyze.Blocked {
 				return
 			}
+		default:
+			// A future verdict outside the analyze config never
+			// auto-submits content to the LLM.
+			return
 		}
 	}
 
@@ -446,7 +517,7 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 		MessageID:      msgID,
 		FromAgent:      req.From,
 		ToAgent:        req.To,
-		Content:        req.Content,
+		Content:        content,
 		Intent:         req.Intent,
 		CurrentVerdict: outcome.Verdict,
 		Findings:       outcome.Findings,
@@ -613,6 +684,10 @@ func verdictToResponse(v engine.ScanVerdict) (status, policyDecision string, htt
 		return audit.StatusQuarantined, audit.DecisionContentQuarantined, http.StatusAccepted
 	case engine.VerdictFlag:
 		return audit.StatusDelivered, audit.DecisionContentFlagged, http.StatusOK
+	case engine.VerdictModify:
+		return audit.StatusModified, audit.DecisionContentRedacted, http.StatusOK
+	case engine.VerdictStepUp:
+		return audit.StatusStepUp, audit.DecisionStepUpApproval, http.StatusAccepted
 	default:
 		return audit.StatusDelivered, audit.DecisionAllow, http.StatusOK
 	}

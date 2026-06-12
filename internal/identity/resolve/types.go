@@ -95,11 +95,11 @@ const (
 type Evidence struct {
 	Surface     Surface
 	Header      http.Header
-	RemoteAddr  string             // raw RemoteAddr; resolver decides if loopback
-	TLSPeer     *x509.Certificate  // nil unless mTLS handshake completed
-	Payload     map[string]any     // surface-supplied parsed payload (e.g. hook body, JSON-RPC params)
-	LocalSource string             // for stdio wrapper: the wrapper config that started the process
-	ConfigAgent string             // legacy: agent name from request context (e.g. X-Oktsec-Agent)
+	RemoteAddr  string            // raw RemoteAddr; resolver decides if loopback
+	TLSPeer     *x509.Certificate // nil unless mTLS handshake completed
+	Payload     map[string]any    // surface-supplied parsed payload (e.g. hook body, JSON-RPC params)
+	LocalSource string            // for stdio wrapper: the wrapper config that started the process
+	ConfigAgent string            // legacy: agent name from request context (e.g. X-Oktsec-Agent)
 }
 
 // Principal is the authenticated security identity used for all policy

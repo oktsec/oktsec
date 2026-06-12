@@ -39,15 +39,15 @@ const activityInsertTimeout = 2 * time.Second
 // ForwardProxy implements an HTTP forward proxy that scans traffic with Aguara.
 // It handles CONNECT tunneling (HTTPS) and plain HTTP forwarding.
 type ForwardProxy struct {
-	cfg             *config.ForwardProxyConfig
-	scanner         *engine.Scanner
-	audit           *audit.Store
-	rateLimiter     RateStore
-	egressEval      *EgressEvaluator
-	agentLimiters   map[string]RateStore
-	logger          *slog.Logger
-	transport       *http.Transport
-	upstreamProxy   bool // true when HTTP_PROXY/HTTPS_PROXY is set
+	cfg           *config.ForwardProxyConfig
+	scanner       *engine.Scanner
+	audit         *audit.Store
+	rateLimiter   RateStore
+	egressEval    *EgressEvaluator
+	agentLimiters map[string]RateStore
+	logger        *slog.Logger
+	transport     *http.Transport
+	upstreamProxy bool // true when HTTP_PROXY/HTTPS_PROXY is set
 
 	// Identity stack: same shape as the gateway. The resolver is always
 	// non-nil (empty principal store when nothing is configured) so the
@@ -96,7 +96,7 @@ func NewForwardProxy(cfg *config.ForwardProxyConfig, scanner *engine.Scanner, au
 		transport: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
 			DialContext:           dialFn,
-			TLSHandshakeTimeout:  5 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 			MaxIdleConns:          100,
 			IdleConnTimeout:       90 * time.Second,

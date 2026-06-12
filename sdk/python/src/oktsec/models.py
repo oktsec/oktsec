@@ -52,6 +52,8 @@ class MessageResponse:
     verified_sender: bool = False
     quarantine_id: str = ""
     expires_at: str = ""
+    # The redacted content to deliver when status is "modified".
+    modified_content: str = ""
 
     @classmethod
     def from_dict(cls, data: dict) -> MessageResponse:
@@ -73,6 +75,7 @@ class MessageResponse:
             verified_sender=data.get("verified_sender", False),
             quarantine_id=data.get("quarantine_id", ""),
             expires_at=data.get("expires_at", ""),
+            modified_content=data.get("modified_content", ""),
         )
 
 

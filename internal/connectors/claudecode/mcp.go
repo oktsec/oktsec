@@ -31,8 +31,8 @@ type rawMCPServer struct {
 // Everything else (history, plugin state, etc.) stays as raw JSON in
 // the parent map and is ignored.
 type rawClaudeJSON struct {
-	MCPServers map[string]rawMCPServer            `json:"mcpServers,omitempty"`
-	Projects   map[string]rawClaudeJSONProject    `json:"projects,omitempty"`
+	MCPServers map[string]rawMCPServer         `json:"mcpServers,omitempty"`
+	Projects   map[string]rawClaudeJSONProject `json:"projects,omitempty"`
 }
 
 type rawClaudeJSONProject struct {

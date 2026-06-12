@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"crypto/ed25519"
 	"encoding/base64"
+	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
@@ -796,15 +796,75 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			}
 		}
 
+		// stepUpApproved marks a call that proceeded by spending an
+		// operator approval, so its final receipt says so — an executed
+		// over-threshold call must never read like one that needed no
+		// approval.
+		stepUpApproved := false
+
 		// 3b. Tool policy enforcement (spending limits, rate limits, approval thresholds)
 		if agentCfg, ok := g.cfg.Agents[policyAgent]; ok && agentCfg.ToolPolicies != nil {
 			if policy, hasPolicy := agentCfg.ToolPolicies[m.OriginalName]; hasPolicy {
 				amount := ExtractAmount(mcputil.GetArguments(req.Params.Arguments))
 				result := g.policyEnforcer.Check(policyAgent, m.OriginalName, amount, policy)
+				fullArgs := string(req.Params.Arguments)
+				if !result.Allowed && result.Decision == "step_up_approval" {
+					// An operator approval spends here: the retried
+					// call proceeds exactly once per approval, and
+					// ONLY with the exact arguments the operator
+					// reviewed. No audit write yet — the call still
+					// runs the rest of the pipeline and gets ONE
+					// receipt at the normal decision point; the
+					// consumed queue item is the approval's own
+					// evidence.
+					// The approval keys on the FRONTEND tool name (the
+					// namespaced, unique one the client called): two
+					// backends exposing the same original name must
+					// never spend each other's approvals.
+					if ok, err := g.audit.ConsumeStepUpApproval(policyAgent, req.Params.Name, fullArgs); err == nil && ok {
+						result.Allowed = true
+						stepUpApproved = true
+					}
+				}
 				if !result.Allowed {
 					status := audit.StatusBlocked
-					if result.Decision == "quarantine_approval" {
-						status = audit.StatusQuarantined
+					if result.Decision == "step_up_approval" {
+						status = audit.StatusStepUp
+						// STEP_UP means held for approval, not just
+						// refused: persist a pending item so the
+						// approval queue has something to act on.
+						// The caller retries after an operator
+						// approves; the approval is single-use.
+						expiryHours := g.cfg.Quarantine.ExpiryHours
+						if expiryHours <= 0 {
+							expiryHours = 24
+						}
+						// The reviewer approves the FULL arguments —
+						// the 512-byte audit summary could hide
+						// fields that the retried call would still
+						// send to the backend. The same exact bytes
+						// bind the eventual approval to this call.
+						if qErr := g.audit.Enqueue(audit.QuarantineItem{
+							ID:             msgID,
+							AuditEntryID:   msgID,
+							Content:        fullArgs,
+							FromAgent:      policyAgent,
+							ToAgent:        req.Params.Name,
+							Status:         audit.QStatusPending,
+							ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
+							CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+							RulesTriggered: audit.StepUpMarker,
+							Timestamp:      time.Now().UTC().Format(time.RFC3339),
+						}); qErr != nil {
+							// No queue row means no approval path:
+							// refuse as a plain block instead of
+							// advertising a step-up that nobody can
+							// approve.
+							g.logger.Error("step-up enqueue failed", "error", qErr, "agent", policyAgent, "tool", m.OriginalName)
+							status = audit.StatusBlocked
+							result.Decision = "step_up_unavailable"
+							result.Reason = "approval queue unavailable — call refused"
+						}
 					}
 					g.logAudit(msgID, id, m.OriginalName, status, result.Decision, "[]", toolArgs, sessionID, start)
 					return toolError(fmt.Sprintf("tool policy: %s", result.Reason)), nil
@@ -871,6 +931,11 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 		// 8. Determine verdict
 		findingsJSON := verdict.EncodeFindings(outcome.Findings)
 		status, decision := verdictToGateway(outcome.Verdict)
+		if stepUpApproved && decision == audit.DecisionAllow {
+			// The receipt links the executed call to its spent
+			// approval instead of reading like a plain allow.
+			decision = audit.DecisionStepUpApproved
+		}
 
 		// 9. Audit log (with delegation chain if verified)
 		g.logAudit(msgID, id, m.OriginalName, status, decision, findingsJSON, toolArgs, sessionID, start, delegationChainHash, delegationChainSummary)
@@ -1439,7 +1504,6 @@ func extractAndStripAgentParam(req *mcp.CallToolRequest) string {
 	return name
 }
 
-
 // buildConstraintMaps extracts per-agent tool constraints and chain rules
 // from the config, converting config types to gateway types.
 func buildConstraintMaps(cfg *config.Config) (map[string][]ToolConstraint, map[string][]ToolChainRule) {
@@ -1528,4 +1592,3 @@ func (g *Gateway) verifyDelegationHeader(header string) identity.ChainVerifyResu
 
 	return identity.VerifyChain(chain, resolver)
 }
-

@@ -2,6 +2,7 @@ package verdict
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -52,9 +53,9 @@ func Severity(v engine.ScanVerdict) int {
 	switch v {
 	case engine.VerdictBlock:
 		return 3
-	case engine.VerdictQuarantine:
+	case engine.VerdictQuarantine, engine.VerdictStepUp:
 		return 2
-	case engine.VerdictFlag:
+	case engine.VerdictFlag, engine.VerdictModify:
 		return 1
 	default:
 		return 0
@@ -70,6 +71,10 @@ func ToAuditStatus(v engine.ScanVerdict) (status, decision string) {
 		return audit.StatusQuarantined, audit.DecisionContentQuarantined
 	case engine.VerdictFlag:
 		return audit.StatusDelivered, audit.DecisionContentFlagged
+	case engine.VerdictModify:
+		return audit.StatusModified, audit.DecisionContentRedacted
+	case engine.VerdictStepUp:
+		return audit.StatusStepUp, audit.DecisionStepUpApproval
 	default:
 		return audit.StatusDelivered, audit.DecisionAllow
 	}
@@ -125,6 +130,22 @@ func ApplyRuleOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome) 
 
 	outcome.Findings = kept
 	outcome.Verdict = newVerdict
+
+	// Redaction targets follow their findings: an ignored rule's raw
+	// match must not keep driving in-transit redaction.
+	if len(outcome.RedactionTargets) > 0 {
+		surviving := make(map[string]bool, len(kept))
+		for _, f := range kept {
+			surviving[f.RuleID] = true
+		}
+		var keptTargets []engine.RedactionTarget
+		for _, t := range outcome.RedactionTargets {
+			if surviving[t.RuleID] {
+				keptTargets = append(keptTargets, t)
+			}
+		}
+		outcome.RedactionTargets = keptTargets
+	}
 }
 
 // ApplyToolScopedOverrides applies tool-aware rule filtering including
@@ -229,6 +250,22 @@ func applyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOut
 
 	outcome.Findings = kept
 	outcome.Verdict = newVerdict
+
+	// Redaction targets follow their findings: an ignored rule's raw
+	// match must not keep driving in-transit redaction.
+	if len(outcome.RedactionTargets) > 0 {
+		surviving := make(map[string]bool, len(kept))
+		for _, f := range kept {
+			surviving[f.RuleID] = true
+		}
+		var keptTargets []engine.RedactionTarget
+		for _, t := range outcome.RedactionTargets {
+			if surviving[t.RuleID] {
+				keptTargets = append(keptTargets, t)
+			}
+		}
+		outcome.RedactionTargets = keptTargets
+	}
 }
 
 // ApplyScanProfile adjusts the verdict based on the agent's scan profile
@@ -284,11 +321,11 @@ func ApplyScanProfile(profile string, outcome *engine.ScanOutcome, toolName stri
 // configured an explicit override for the rule.
 var BuiltinToolExemptions = map[string][]string{
 	"TC-005":         {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent"}, // Shell patterns in content/agent tools are not injection
-	"IAP-011":        {"Bash"},                                               // bash -c, eval(), subprocess — expected in shell commands
+	"IAP-011":        {"Bash"},                                                        // bash -c, eval(), subprocess — expected in shell commands
 	"MCPCFG_002":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent"}, // Shell metacharacters in content/agent tools
-	"MCPCFG_006":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"}, // Inline code execution in content tools
-	"MCPCFG_004":     {"WebFetch", "Fetch", "WebSearch"},                     // Remote URLs — expected in web tools
-	"THIRDPARTY_001": {"WebFetch", "Fetch", "WebSearch"},                     // Runtime URL — expected in web tools
+	"MCPCFG_006":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"},          // Inline code execution in content tools
+	"MCPCFG_004":     {"WebFetch", "Fetch", "WebSearch"},                              // Remote URLs — expected in web tools
+	"THIRDPARTY_001": {"WebFetch", "Fetch", "WebSearch"},                              // Runtime URL — expected in web tools
 }
 
 func containsTool(tools []string, name string) bool {
@@ -316,4 +353,133 @@ func ApplyBlockedContent(agent config.Agent, outcome *engine.ScanOutcome) {
 			return
 		}
 	}
+}
+
+// ApplyRedactContent redacts findings whose category is listed in the
+// agent's redact_content from the delivered content (AARM decision
+// MODIFY). It returns the content to deliver, whether anything was
+// redacted, and whether the caller MUST verify the result by
+// re-scanning (true when a pre-redacted match forced the pattern
+// pass — a pattern hit elsewhere cannot prove the actual detection
+// was removed). It never lowers a verdict: block, quarantine and
+// step_up stand — redaction only upgrades clean/flag to modify. The
+// receipt keeps the ORIGINAL content hash (what the sender signed);
+// the modification is evidenced by status, decision and findings.
+func ApplyRedactContent(agent config.Agent, outcome *engine.ScanOutcome, content string) (string, bool, bool) {
+	if len(agent.RedactContent) == 0 {
+		return content, false, false
+	}
+	redact := make(map[string]bool, len(agent.RedactContent))
+	for _, cat := range agent.RedactContent {
+		redact[cat] = true
+	}
+	// The promise covers every exit — including held verdicts that
+	// return before any body modification: findings in redacted
+	// categories must not carry their matched value out of the proxy
+	// (audit row, API response, webhooks, LLM request).
+	defer func() {
+		for i := range outcome.Findings {
+			if redact[outcome.Findings[i].Category] && outcome.Findings[i].Match != "" {
+				outcome.Findings[i].Match = "[REDACTED]"
+			}
+		}
+	}()
+	if Severity(outcome.Verdict) >= Severity(engine.VerdictQuarantine) {
+		// The action is not being delivered; nothing to modify.
+		return content, false, false
+	}
+	// Findings decide whether redaction is owed at all — targets can
+	// be missing for a finding (split-injection scans add findings
+	// without carrying targets), and a listed finding without a
+	// usable target must fail closed, not slip through as flagged.
+	anyListed := false
+	for _, f := range outcome.Findings {
+		if redact[f.Category] {
+			anyListed = true
+			break
+		}
+	}
+	if !anyListed {
+		return content, false, false
+	}
+	// Longest match first: an overlapping shorter target (a generic
+	// detector matching a substring of a specific one) must not split
+	// the longer secret and leave its suffix behind. Targets whose
+	// match the upstream engine already redacted (credential findings
+	// arrive as "[REDACTED]") carry no searchable text — those fall
+	// through to the pattern pass below.
+	targets := make([]engine.RedactionTarget, 0, len(outcome.RedactionTargets))
+	usable := make(map[string]bool, len(outcome.RedactionTargets))
+	pendingPattern := false
+	for _, t := range outcome.RedactionTargets {
+		if !redact[t.Category] {
+			continue
+		}
+		if t.Match == "" || strings.HasPrefix(t.Match, "[REDACTED") {
+			pendingPattern = true
+			continue
+		}
+		usable[t.RuleID] = true
+		targets = append(targets, t)
+	}
+	// A listed finding with no usable target (none at all, or only
+	// pre-redacted ones) routes through the pattern pass and its
+	// verification — never silently delivered.
+	for _, f := range outcome.Findings {
+		if redact[f.Category] && !usable[f.RuleID] {
+			pendingPattern = true
+			break
+		}
+	}
+	sort.SliceStable(targets, func(i, j int) bool {
+		return len(targets[i].Match) > len(targets[j].Match)
+	})
+	modified := content
+	changed := false
+	for _, t := range targets {
+		next := strings.ReplaceAll(modified, t.Match, "[REDACTED]")
+		if next != modified {
+			modified = next
+			changed = true
+			continue
+		}
+		if strings.Contains(content, t.Match) {
+			// The span existed in the original and is gone from the
+			// working copy: an earlier (longer, overlapping)
+			// replacement already covered it.
+			continue
+		}
+		// The reported span never occurred byte-for-byte in the
+		// original (the scanner may report a normalized form). The
+		// detection still exists — route it through the pattern pass
+		// and its verification instead of silently delivering.
+		pendingPattern = true
+	}
+	needsVerify := false
+	if pendingPattern {
+		// The raw match is unavailable, so run the typed credential
+		// pattern pass over the content instead. Its own result
+		// decides: a successful exact-match replacement above must
+		// never mask a pattern pass that located nothing — that
+		// would deliver the unlocated detection as "modified". Even
+		// when it did change something, only a re-scan can prove the
+		// ACTUAL detection was removed (an unrelated credential
+		// elsewhere also changes the content), so the caller must
+		// verify.
+		if next := engine.RedactContent(modified); next != modified {
+			modified = next
+			changed = true
+			needsVerify = true
+		} else {
+			// The policy asked to redact this detection and nothing
+			// could locate it. Delivering would silently break the
+			// promise — hold for review instead (fail closed).
+			outcome.Verdict = engine.VerdictQuarantine
+			return content, false, false
+		}
+	}
+	if changed {
+		outcome.Verdict = engine.VerdictModify
+	}
+	return modified, changed, needsVerify
 }

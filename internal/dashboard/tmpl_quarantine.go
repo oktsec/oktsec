@@ -15,10 +15,11 @@ var quarantineDetailTmpl = template.Must(template.New("quarantine-detail").Funcs
     {{else if eq .Item.Status "approved"}}background:rgba(63,185,80,0.08);border:1px solid rgba(63,185,80,0.2);color:var(--success)
     {{else if eq .Item.Status "rejected"}}background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.2);color:var(--danger)
     {{else}}background:var(--surface2);border:1px solid var(--border);color:var(--text3){{end}}">
-    {{if eq .Item.Status "pending"}}This message is held for review. Approve to deliver or reject to discard.
-    {{else if eq .Item.Status "approved"}}Approved by {{.Item.ReviewedBy}} — message was delivered.
-    {{else if eq .Item.Status "rejected"}}Rejected by {{.Item.ReviewedBy}} — message was not delivered.
-    {{else if eq .Item.Status "expired"}}Expired without review — message was not delivered.
+    {{if eq .Item.Status "pending"}}{{if .IsStepUp}}This tool call exceeded its approval threshold. Approving lets the agent's NEXT retry of the exact same call proceed once.{{else}}This message is held for review. Approve to deliver or reject to discard.{{end}}
+    {{else if eq .Item.Status "approved"}}{{if .IsStepUp}}Approved by {{.Item.ReviewedBy}} — the agent's next retry of this exact call will proceed once. Nothing has run yet.{{else}}Approved by {{.Item.ReviewedBy}} — message was delivered.{{end}}
+    {{else if eq .Item.Status "rejected"}}Rejected by {{.Item.ReviewedBy}} — {{if .IsStepUp}}the call stays refused.{{else}}message was not delivered.{{end}}
+    {{else if eq .Item.Status "expired"}}Expired without review — {{if .IsStepUp}}the call stays refused.{{else}}message was not delivered.{{end}}
+    {{else if eq .Item.Status "consumed"}}Approved and already spent — the retried call proceeded once.
     {{else}}{{.Item.Status}}{{end}}
   </div>
 

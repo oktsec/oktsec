@@ -50,10 +50,10 @@ func newClaudeProvider(cfg Config) (*claudeProvider, error) {
 }
 
 type claudeRequest struct {
-	Model     string           `json:"model"`
-	MaxTokens int              `json:"max_tokens"`
-	System    string           `json:"system,omitempty"`
-	Messages  []claudeMessage  `json:"messages"`
+	Model     string          `json:"model"`
+	MaxTokens int             `json:"max_tokens"`
+	System    string          `json:"system,omitempty"`
+	Messages  []claudeMessage `json:"messages"`
 }
 
 type claudeMessage struct {

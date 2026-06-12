@@ -486,11 +486,11 @@ func TestRuntimePosture_AuditFixDoesNotReintroduceLegacyScoreUI(t *testing.T) {
 	body := w.Body.String()
 
 	for _, banned := range []string{
-		`class="ps-ring"`,         // legacy score ring markup
-		`ps-grade-label`,          // legacy grade chip class name
-		`id="posture-score"`,      // legacy OOB target id
-		`class="ps-hero-score"`,   // legacy hero score wrapper
-		`class="ps-celebrate"`,    // legacy celebration block
+		`class="ps-ring"`,       // legacy score ring markup
+		`ps-grade-label`,        // legacy grade chip class name
+		`id="posture-score"`,    // legacy OOB target id
+		`class="ps-hero-score"`, // legacy hero score wrapper
+		`class="ps-celebrate"`,  // legacy celebration block
 	} {
 		if strings.Contains(body, banned) {
 			t.Errorf("fix endpoint reintroduced legacy artefact %q; body=%.500s", banned, body)
