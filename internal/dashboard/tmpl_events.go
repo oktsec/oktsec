@@ -327,7 +327,7 @@ var eventPageTmpl = template.Must(template.New("event-page").Funcs(tmplFuncs).Pa
         <div class="ep-pipe-step">
           <span class="ep-pipe-dot" style="background:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}"></span>
           <span class="ep-pipe-name">Final verdict</span>
-          <span class="ep-pipe-val" style="color:{{if eq .Entry.Status "delivered"}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}">{{if eq .Entry.Status "delivered"}}Allowed{{else if eq .Entry.Status "blocked"}}Blocked{{else if eq .Entry.Status "quarantined"}}Quarantined{{else}}Rejected{{end}}</span>
+          <span class="ep-pipe-val" style="color:{{if or (eq .Entry.Status "delivered") (eq .Entry.Status "modified")}}var(--success){{else if eq .Entry.Status "blocked"}}var(--danger){{else}}var(--warn){{end}}">{{if eq .Entry.Status "delivered"}}Allowed{{else if eq .Entry.Status "modified"}}Allowed (redacted){{else if eq .Entry.Status "blocked"}}Blocked{{else if eq .Entry.Status "quarantined"}}Quarantined{{else if eq .Entry.Status "step_up"}}Awaiting approval{{else}}Rejected{{end}}</span>
         </div>
         {{if ge .LLMRiskScore 0.0}}
         <div class="ep-pipe-step">
