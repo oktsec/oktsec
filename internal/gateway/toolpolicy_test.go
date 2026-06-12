@@ -215,3 +215,24 @@ func TestExtractAmount(t *testing.T) {
 		})
 	}
 }
+
+// The approval threshold evaluates LAST: an over-threshold call that
+// also breaks a hard limit refuses on the hard limit, never as a
+// step-up — so a consumed approval can't bypass rate or daily caps.
+func TestStepUpNeverMasksHardLimits(t *testing.T) {
+	e := NewToolPolicyEnforcer()
+	policy := config.ToolPolicy{RequireApprovalAbove: 100, RateLimit: 1}
+	e.Record("payments-agent", "transfer", 0) // exhaust the 1/hr rate limit
+	r := e.Check("payments-agent", "transfer", 500, policy)
+	if r.Allowed || r.Decision != "rate_limited" {
+		t.Fatalf("got %s, want rate_limited", r.Decision)
+	}
+
+	daily := config.ToolPolicy{RequireApprovalAbove: 100, DailyLimit: 400}
+	e2 := NewToolPolicyEnforcer()
+	e2.Record("payments-agent", "transfer", 350)
+	r = e2.Check("payments-agent", "transfer", 200, daily)
+	if r.Allowed || r.Decision != "daily_limit_exceeded" {
+		t.Fatalf("got %s, want daily_limit_exceeded", r.Decision)
+	}
+}
