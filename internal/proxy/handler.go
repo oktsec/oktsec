@@ -442,11 +442,13 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 			if !analyze.Clean {
 				return
 			}
-		case engine.VerdictFlag:
+		case engine.VerdictFlag, engine.VerdictModify:
+			// Modified messages gate like flagged: same severity rank,
+			// same "delivered with a caveat" semantics.
 			if !analyze.Flagged {
 				return
 			}
-		case engine.VerdictQuarantine:
+		case engine.VerdictQuarantine, engine.VerdictStepUp:
 			if !analyze.Quarantined {
 				return
 			}
@@ -454,6 +456,10 @@ func (h *Handler) submitToLLM(msgID string, req *MessageRequest, outcome *engine
 			if !analyze.Blocked {
 				return
 			}
+		default:
+			// A future verdict outside the analyze config never
+			// auto-submits content to the LLM.
+			return
 		}
 	}
 
