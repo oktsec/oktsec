@@ -801,15 +801,17 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			if policy, hasPolicy := agentCfg.ToolPolicies[m.OriginalName]; hasPolicy {
 				amount := ExtractAmount(mcputil.GetArguments(req.Params.Arguments))
 				result := g.policyEnforcer.Check(policyAgent, m.OriginalName, amount, policy)
+				fullArgs := string(req.Params.Arguments)
 				if !result.Allowed && result.Decision == "step_up_approval" {
 					// An operator approval spends here: the retried
-					// call proceeds exactly once per approval. No
-					// audit write yet — the call still runs the rest
-					// of the pipeline and gets ONE receipt at the
-					// normal decision point; the consumed queue item
-					// (approved -> consumed) is the approval's own
+					// call proceeds exactly once per approval, and
+					// ONLY with the exact arguments the operator
+					// reviewed. No audit write yet — the call still
+					// runs the rest of the pipeline and gets ONE
+					// receipt at the normal decision point; the
+					// consumed queue item is the approval's own
 					// evidence.
-					if ok, err := g.audit.ConsumeStepUpApproval(policyAgent, m.OriginalName); err == nil && ok {
+					if ok, err := g.audit.ConsumeStepUpApproval(policyAgent, m.OriginalName, fullArgs); err == nil && ok {
 						result.Allowed = true
 					}
 				}
@@ -829,11 +831,8 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 						// The reviewer approves the FULL arguments —
 						// the 512-byte audit summary could hide
 						// fields that the retried call would still
-						// send to the backend.
-						fullArgs := string(req.Params.Arguments)
-						if fullArgs == "" {
-							fullArgs = toolArgs
-						}
+						// send to the backend. The same exact bytes
+						// bind the eventual approval to this call.
 						_ = g.audit.Enqueue(audit.QuarantineItem{
 							ID:             msgID,
 							AuditEntryID:   msgID,
@@ -843,7 +842,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 							Status:         audit.QStatusPending,
 							ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
 							CreatedAt:      time.Now().UTC().Format(time.RFC3339),
-							RulesTriggered: "[]",
+							RulesTriggered: audit.StepUpMarker,
 							Timestamp:      time.Now().UTC().Format(time.RFC3339),
 						})
 					}

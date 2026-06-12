@@ -1079,14 +1079,23 @@ func (s *Store) Enqueue(item QuarantineItem) error {
 	return nil
 }
 
+// StepUpMarker is the typed finding stored on step-up queue items.
+// It renders meaningfully in the review UI and distinguishes step-up
+// holds from content quarantines, so an approved content item can
+// never be spent as a step-up pass.
+const StepUpMarker = `[{"rule_id":"STEP_UP_APPROVAL","name":"Approval threshold exceeded","severity":"info","category":"tool-policy"}]`
+
 // ConsumeStepUpApproval atomically spends one APPROVED step-up item
-// for (agent, tool). The conditional UPDATE makes approvals
-// single-use even under concurrent retries: only one caller flips
-// approved -> consumed.
-func (s *Store) ConsumeStepUpApproval(agent, tool string) (bool, error) {
+// for this exact (agent, tool, arguments) triple. Binding to the
+// reviewed arguments means the retry must carry what the operator
+// saw — approving one call never authorizes a different one. The
+// conditional UPDATE makes approvals single-use even under
+// concurrent retries; expired approvals never consume.
+func (s *Store) ConsumeStepUpApproval(agent, tool, args string) (bool, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
 	rows, err := s.db.Query(
-		`SELECT id FROM quarantine_queue WHERE status = ? AND from_agent = ? AND to_agent = ? ORDER BY created_at DESC LIMIT 5`,
-		QStatusApproved, agent, tool,
+		`SELECT id FROM quarantine_queue WHERE status = ? AND from_agent = ? AND to_agent = ? AND content = ? AND rules_triggered = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 5`,
+		QStatusApproved, agent, tool, args, StepUpMarker, now,
 	)
 	if err != nil {
 		return false, fmt.Errorf("step-up approval lookup: %w", err)
