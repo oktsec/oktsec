@@ -195,7 +195,7 @@ func TestGatewayAuth_ExpiredTokenRejected(t *testing.T) {
 			Enabled:           true,
 			SurfaceAuthConfig: config.SurfaceAuthConfig{RequireAuth: "true"},
 		},
-		Agents:  map[string]config.Agent{},
+		Agents: map[string]config.Agent{},
 	}
 	raw, hash, err := resolve.GenerateRawToken(resolve.TokenTypeGatewayBearer)
 	if err != nil {

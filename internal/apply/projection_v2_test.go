@@ -781,7 +781,6 @@ func TestV2_MissingNamedAgent(t *testing.T) {
 	}
 }
 
-
 // Reserved deny-all sentinel in a replace value is refused (P2 guard).
 func TestV2_ReservedToolSentinelInReplaceRefused(t *testing.T) {
 	b := bodyV2()

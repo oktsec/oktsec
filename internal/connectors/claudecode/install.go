@@ -17,12 +17,12 @@ import (
 // write. Exposed so callers (the doctor command, future dashboard
 // preview) can render the planned manifest before it touches disk.
 type PlannedHookEntry struct {
-	Event       string  `json:"event"`
-	Matcher     string  `json:"matcher,omitempty"`
-	Type        string  `json:"type"`
-	Command     string  `json:"command"`
-	TimeoutSecs int     `json:"timeout,omitempty"`
-	Status      string  `json:"statusMessage,omitempty"`
+	Event       string `json:"event"`
+	Matcher     string `json:"matcher,omitempty"`
+	Type        string `json:"type"`
+	Command     string `json:"command"`
+	TimeoutSecs int    `json:"timeout,omitempty"`
+	Status      string `json:"statusMessage,omitempty"`
 }
 
 // InstallOptions controls where and how the Phase 2 manifest is
@@ -30,11 +30,11 @@ type PlannedHookEntry struct {
 // for: user scope only, refuse symlinks, refuse when global disable
 // knobs are present.
 type InstallOptions struct {
-	HomeDir        string // override $HOME for tests; "" => os.UserHomeDir
-	BinaryPath     string // absolute path to the oktsec binary; "" => auto-detect
-	GatewayPort    int    // gateway port the hook will POST to; required (>0)
-	FollowSymlink  bool   // when true, write through symlinks instead of refusing
-	DryRun         bool   // when true, return the planned actions without writing
+	HomeDir       string // override $HOME for tests; "" => os.UserHomeDir
+	BinaryPath    string // absolute path to the oktsec binary; "" => auto-detect
+	GatewayPort   int    // gateway port the hook will POST to; required (>0)
+	FollowSymlink bool   // when true, write through symlinks instead of refusing
+	DryRun        bool   // when true, return the planned actions without writing
 }
 
 // InstallResult summarises what InstallV2 did (or would do, in dry-run).

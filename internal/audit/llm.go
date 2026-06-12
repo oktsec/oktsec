@@ -126,8 +126,8 @@ func (s *Store) QueryLLMStats() (*LLMStats, error) {
 		COALESCE(SUM(tokens_used), 0),
 		COALESCE(AVG(latency_ms), 0),
 		COALESCE(AVG(risk_score), 0),
-		` + llmThreatCountExpr + `,
-		` + llmRuleGenCountExpr + `
+		`+llmThreatCountExpr+`,
+		`+llmRuleGenCountExpr+`
 		FROM llm_analysis`).Scan(
 		&stats.TotalAnalyses, &stats.TotalTokens, &stats.AvgLatencyMs,
 		&stats.AvgRiskScore, &stats.TotalThreats, &stats.RulesGenerated,

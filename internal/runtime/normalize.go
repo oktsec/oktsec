@@ -68,30 +68,30 @@ type IdentityResolution struct {
 // as a JSON string so a generic post_tool_use lands a non-empty
 // tool_output_hash on the runtime row.
 type rawClaudePayload struct {
-	HookEventName  string          `json:"hook_event_name"`
-	Event          string          `json:"event"`
-	SessionID      string          `json:"session_id"`
-	TranscriptPath string          `json:"transcript_path"`
-	AgentTranscriptPath string     `json:"agent_transcript_path"`
-	CWD            string          `json:"cwd"`
-	Source         string          `json:"source"`
-	Model          string          `json:"model"`
-	AgentID        string          `json:"agent_id"`
-	AgentType      string          `json:"agent_type"`
-	ToolName       string          `json:"tool_name"`
-	ToolUseID      string          `json:"tool_use_id"`
-	ToolInput      json.RawMessage `json:"tool_input"`
-	ToolResponse   json.RawMessage `json:"tool_response"`
-	ToolOutput     string          `json:"tool_output"`
-	TaskID         string          `json:"task_id"`
-	TaskSubject    string          `json:"task_subject"`
-	TaskDescription string         `json:"task_description"`
-	Teammate       string          `json:"teammate_name"`
-	Team           string          `json:"team_name"`
-	ConfigSource   string          `json:"config_source"`
-	ConfigPath     string          `json:"config_path"`
-	FilePath       string          `json:"file_path"`
-	FileEvent      string          `json:"file_event"`
+	HookEventName       string          `json:"hook_event_name"`
+	Event               string          `json:"event"`
+	SessionID           string          `json:"session_id"`
+	TranscriptPath      string          `json:"transcript_path"`
+	AgentTranscriptPath string          `json:"agent_transcript_path"`
+	CWD                 string          `json:"cwd"`
+	Source              string          `json:"source"`
+	Model               string          `json:"model"`
+	AgentID             string          `json:"agent_id"`
+	AgentType           string          `json:"agent_type"`
+	ToolName            string          `json:"tool_name"`
+	ToolUseID           string          `json:"tool_use_id"`
+	ToolInput           json.RawMessage `json:"tool_input"`
+	ToolResponse        json.RawMessage `json:"tool_response"`
+	ToolOutput          string          `json:"tool_output"`
+	TaskID              string          `json:"task_id"`
+	TaskSubject         string          `json:"task_subject"`
+	TaskDescription     string          `json:"task_description"`
+	Teammate            string          `json:"teammate_name"`
+	Team                string          `json:"team_name"`
+	ConfigSource        string          `json:"config_source"`
+	ConfigPath          string          `json:"config_path"`
+	FilePath            string          `json:"file_path"`
+	FileEvent           string          `json:"file_event"`
 }
 
 // Normalize converts a raw Claude Code hook payload + the

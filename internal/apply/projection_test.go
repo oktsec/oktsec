@@ -161,8 +161,8 @@ func TestDryRun_NoChangesWhenConfigAlreadyOnPolicy(t *testing.T) {
 	// dry-run reports exact diffs, so automation never treats a clean node
 	// as drifted.
 	b := body()
-	b.Rules.Enabled = []string{"IAP-001"}    // no local override → severity default → no-op
-	b.Rules.Disabled = []string{"IAP-002"}   // → ignore
+	b.Rules.Enabled = []string{"IAP-001"}  // no local override → severity default → no-op
+	b.Rules.Disabled = []string{"IAP-002"} // → ignore
 	b.Rules.Overrides = map[string]policybundle.PolicyRuleOverride{"IAP-003": {Action: "block"}}
 	b.Rules.Enabled = []string{"IAP-001", "IAP-003"}
 	b.Gateway.ToolsAllowed = []string{"calendar.read", "mail.read"}

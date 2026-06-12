@@ -10,12 +10,12 @@ import (
 
 func TestApplyToolScopedOverrides_BuiltinExemptions(t *testing.T) {
 	tests := []struct {
-		name         string
-		ruleID       string
-		severity     string
-		toolName     string
-		wantDropped  bool
-		wantVerdict  engine.ScanVerdict
+		name        string
+		ruleID      string
+		severity    string
+		toolName    string
+		wantDropped bool
+		wantVerdict engine.ScanVerdict
 	}{
 		{
 			name:        "TC-005 dropped on Bash",

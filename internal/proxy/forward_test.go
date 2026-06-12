@@ -237,8 +237,8 @@ func TestForwardProxy_DomainAllowedMixed(t *testing.T) {
 	}{
 		{"api.anthropic.com", true},
 		{"api.anthropic.com:443", true},
-		{"good.example.com", false},      // blocked takes precedence
-		{"other.example.com", false},     // not in allowlist
+		{"good.example.com", false},  // blocked takes precedence
+		{"other.example.com", false}, // not in allowlist
 	}
 
 	policy := fp.resolvePolicy("")

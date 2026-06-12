@@ -20,32 +20,32 @@ type TrustBoundaries struct {
 
 // Config is the top-level oktsec configuration.
 type Config struct {
-	Version          string                         `yaml:"version"`
-	Deployment       DeploymentConfig               `yaml:"deployment,omitempty"`
-	Server           ServerConfig                   `yaml:"server"`
-	Identity         IdentityConfig                 `yaml:"identity"`
-	TrustBoundaries  TrustBoundaries                `yaml:"trust_boundaries,omitempty"`
-	DefaultPolicy    string                         `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
-	Agents           map[string]Agent               `yaml:"agents"`
-	Rules            []RuleAction                   `yaml:"rules"`
-	Webhooks         []Webhook                      `yaml:"webhooks"`
-	CategoryWebhooks []CategoryWebhook              `yaml:"category_webhooks,omitempty"`
-	DBBackend        string                         `yaml:"db_backend,omitempty"`  // "sqlite" (default) or "postgres"
-	DBPath           string                         `yaml:"db_path,omitempty"`     // SQLite file path
-	DBDSN            string                         `yaml:"db_dsn,omitempty"`      // PostgreSQL connection string
-	CustomRulesDir string                         `yaml:"custom_rules_dir,omitempty"`
-	Quarantine     QuarantineConfig               `yaml:"quarantine,omitempty"`
-	RateLimit      RateLimitConfig                `yaml:"rate_limit,omitempty"`
-	Anomaly        AnomalyConfig                  `yaml:"anomaly,omitempty"`
-	ForwardProxy   ForwardProxyConfig             `yaml:"forward_proxy,omitempty"`
-	Alerting       AlertingConfig                 `yaml:"alerting,omitempty"`
-	Gateway        GatewayConfig                  `yaml:"gateway,omitempty"`
-	Hooks          HooksConfig                    `yaml:"hooks,omitempty"`
-	MCPServers     map[string]MCPServerConfig     `yaml:"mcp_servers,omitempty"`
-	LLM            LLMConfig                      `yaml:"llm,omitempty"`
-	Telemetry      TelemetryConfig                `yaml:"telemetry,omitempty"`
-	Guard          GuardConfig                    `yaml:"guard,omitempty"`
-	Audit          AuditExportConfig              `yaml:"audit,omitempty"`
+	Version          string                     `yaml:"version"`
+	Deployment       DeploymentConfig           `yaml:"deployment,omitempty"`
+	Server           ServerConfig               `yaml:"server"`
+	Identity         IdentityConfig             `yaml:"identity"`
+	TrustBoundaries  TrustBoundaries            `yaml:"trust_boundaries,omitempty"`
+	DefaultPolicy    string                     `yaml:"default_policy,omitempty"` // "allow" (default) or "deny"
+	Agents           map[string]Agent           `yaml:"agents"`
+	Rules            []RuleAction               `yaml:"rules"`
+	Webhooks         []Webhook                  `yaml:"webhooks"`
+	CategoryWebhooks []CategoryWebhook          `yaml:"category_webhooks,omitempty"`
+	DBBackend        string                     `yaml:"db_backend,omitempty"` // "sqlite" (default) or "postgres"
+	DBPath           string                     `yaml:"db_path,omitempty"`    // SQLite file path
+	DBDSN            string                     `yaml:"db_dsn,omitempty"`     // PostgreSQL connection string
+	CustomRulesDir   string                     `yaml:"custom_rules_dir,omitempty"`
+	Quarantine       QuarantineConfig           `yaml:"quarantine,omitempty"`
+	RateLimit        RateLimitConfig            `yaml:"rate_limit,omitempty"`
+	Anomaly          AnomalyConfig              `yaml:"anomaly,omitempty"`
+	ForwardProxy     ForwardProxyConfig         `yaml:"forward_proxy,omitempty"`
+	Alerting         AlertingConfig             `yaml:"alerting,omitempty"`
+	Gateway          GatewayConfig              `yaml:"gateway,omitempty"`
+	Hooks            HooksConfig                `yaml:"hooks,omitempty"`
+	MCPServers       map[string]MCPServerConfig `yaml:"mcp_servers,omitempty"`
+	LLM              LLMConfig                  `yaml:"llm,omitempty"`
+	Telemetry        TelemetryConfig            `yaml:"telemetry,omitempty"`
+	Guard            GuardConfig                `yaml:"guard,omitempty"`
+	Audit            AuditExportConfig          `yaml:"audit,omitempty"`
 }
 
 // AuditExportConfig controls production event export for rule test cases.
@@ -74,24 +74,24 @@ type TracingConfig struct {
 // The user selects their own provider: commercial APIs (OpenAI, Claude)
 // or local open-source models (Ollama, vLLM, llama.cpp, LM Studio).
 type LLMConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	Provider      string `yaml:"provider"`                // openai | claude | webhook
-	Model         string `yaml:"model"`                   // model name/ID
-	BaseURL       string `yaml:"base_url,omitempty"`      // override for Ollama, vLLM, Azure, etc.
-	APIKey        string `yaml:"api_key,omitempty"`       // direct API key (takes precedence)
-	APIKeyEnv     string `yaml:"api_key_env,omitempty"`   // env var name
-	APIVersion    string `yaml:"api_version,omitempty"`   // for Azure OpenAI
+	Enabled    bool   `yaml:"enabled"`
+	Provider   string `yaml:"provider"`              // openai | claude | webhook
+	Model      string `yaml:"model"`                 // model name/ID
+	BaseURL    string `yaml:"base_url,omitempty"`    // override for Ollama, vLLM, Azure, etc.
+	APIKey     string `yaml:"api_key,omitempty"`     // direct API key (takes precedence)
+	APIKeyEnv  string `yaml:"api_key_env,omitempty"` // env var name
+	APIVersion string `yaml:"api_version,omitempty"` // for Azure OpenAI
 
-	MaxTokens     int     `yaml:"max_tokens,omitempty"`     // per-analysis (default: 2048)
-	Temperature   float64 `yaml:"temperature,omitempty"`    // low = more deterministic (default: 0.1)
-	MaxConcurrent int     `yaml:"max_concurrent,omitempty"` // analysis workers (default: 3)
-	QueueSize     int     `yaml:"queue_size,omitempty"`     // buffer before drop (default: 100)
+	MaxTokens     int     `yaml:"max_tokens,omitempty"`         // per-analysis (default: 2048)
+	Temperature   float64 `yaml:"temperature,omitempty"`        // low = more deterministic (default: 0.1)
+	MaxConcurrent int     `yaml:"max_concurrent,omitempty"`     // analysis workers (default: 3)
+	QueueSize     int     `yaml:"queue_size,omitempty"`         // buffer before drop (default: 100)
 	MaxDailyReqs  int64   `yaml:"max_daily_requests,omitempty"` // 0 = unlimited
-	Timeout       string  `yaml:"timeout,omitempty"`        // duration string (default: "30s")
+	Timeout       string  `yaml:"timeout,omitempty"`            // duration string (default: "30s")
 
-	Analyze          LLMAnalyzeConfig  `yaml:"analyze,omitempty"`
-	Triage           LLMTriageConfig   `yaml:"triage,omitempty"`
-	TwoStage         bool              `yaml:"two_stage,omitempty"`          // enable two-stage classification (fast check + full analysis)
+	Analyze          LLMAnalyzeConfig `yaml:"analyze,omitempty"`
+	Triage           LLMTriageConfig  `yaml:"triage,omitempty"`
+	TwoStage         bool             `yaml:"two_stage,omitempty"`          // enable two-stage classification (fast check + full analysis)
 	MinContentLength int              `yaml:"min_content_length,omitempty"` // skip short messages
 
 	Budget     LLMBudgetConfig     `yaml:"budget,omitempty"`
@@ -114,7 +114,7 @@ type LLMEscalationConfig struct {
 // LLMFallbackConfig configures a secondary LLM provider used when the
 // primary fails. Supports the same provider types as the primary.
 type LLMFallbackConfig struct {
-	Provider   string `yaml:"provider,omitempty"`      // openai | claude | webhook
+	Provider   string `yaml:"provider,omitempty"` // openai | claude | webhook
 	Model      string `yaml:"model,omitempty"`
 	BaseURL    string `yaml:"base_url,omitempty"`
 	APIKey     string `yaml:"api_key,omitempty"`
@@ -175,18 +175,18 @@ type LLMWebhookConfig struct {
 // ServerConfig holds proxy server settings.
 type ServerConfig struct {
 	Port          int    `yaml:"port"`
-	Bind          string `yaml:"bind"`           // Address to bind (default: 127.0.0.1)
+	Bind          string `yaml:"bind"` // Address to bind (default: 127.0.0.1)
 	LogLevel      string `yaml:"log_level"`
-	RequireIntent bool   `yaml:"require_intent"`                        // Require agents to declare intent in messages
+	RequireIntent bool   `yaml:"require_intent"`                             // Require agents to declare intent in messages
 	APIKey        string `yaml:"api_key,omitempty" json:"api_key,omitempty"` // API key for /v1/* and /metrics endpoints (empty = no auth)
 }
 
 // IdentityConfig configures agent identity verification.
 type IdentityConfig struct {
-	KeysDir            string             `yaml:"keys_dir"`
-	RequireSignature   bool               `yaml:"require_signature"`
-	RequireDelegation  bool               `yaml:"require_delegation,omitempty"`
-	Ephemeral          EphemeralConfig    `yaml:"ephemeral,omitempty"`
+	KeysDir           string          `yaml:"keys_dir"`
+	RequireSignature  bool            `yaml:"require_signature"`
+	RequireDelegation bool            `yaml:"require_delegation,omitempty"`
+	Ephemeral         EphemeralConfig `yaml:"ephemeral,omitempty"`
 
 	// Principals declares authenticated identities (agents, services) that
 	// surface adapters can resolve from bearer/proxy/hook tokens, mTLS
@@ -239,8 +239,8 @@ type PrincipalContextConfig struct {
 // `sha256:<hex_salt>:<hex_digest>`. The raw token is never persisted.
 type PrincipalTokenConfig struct {
 	ID         string `yaml:"id"`
-	Type       string `yaml:"type"`              // gateway_bearer, proxy_basic, hook_bearer
-	Hash       string `yaml:"hash"`              // sha256:<salt>:<hex>
+	Type       string `yaml:"type"` // gateway_bearer, proxy_basic, hook_bearer
+	Hash       string `yaml:"hash"` // sha256:<salt>:<hex>
 	CreatedAt  string `yaml:"created_at,omitempty"`
 	ExpiresAt  string `yaml:"expires_at,omitempty"`
 	RevokedAt  string `yaml:"revoked_at,omitempty"`
@@ -261,13 +261,13 @@ type DeploymentConfig struct {
 type EphemeralConfig struct {
 	Enabled    bool   `yaml:"enabled"`
 	MaxTTL     string `yaml:"max_ttl,omitempty"`      // duration string, default "4h"
-	MaxPerTask int    `yaml:"max_per_task,omitempty"`  // default 10
+	MaxPerTask int    `yaml:"max_per_task,omitempty"` // default 10
 }
 
 // ACLEntryConfig defines a permission with optional rate/ttl constraints.
 type ACLEntryConfig struct {
-	Target      string              `yaml:"target" json:"target"`
-	Constraints []ACLConstraint     `yaml:"constraints,omitempty" json:"constraints,omitempty"`
+	Target      string          `yaml:"target" json:"target"`
+	Constraints []ACLConstraint `yaml:"constraints,omitempty" json:"constraints,omitempty"`
 }
 
 // ACLConstraint defines a rate or ttl condition on an ACL entry.
@@ -280,22 +280,22 @@ type ACLConstraint struct {
 
 // Agent defines per-agent access control and metadata.
 type Agent struct {
-	CanMessage      []string                `yaml:"can_message"`
-	ACLEntries      []ACLEntryConfig        `yaml:"acl_entries,omitempty"`
-	BlockedContent  []string                `yaml:"blocked_content"`
-	RedactContent   []string                `yaml:"redact_content,omitempty"`  // categories redacted in transit, then delivered (verdict modify)
-	AllowedTools    []string                `yaml:"allowed_tools,omitempty"`    // tool names the agent can call (empty = all)
-	ToolPolicies    map[string]ToolPolicy   `yaml:"tool_policies,omitempty"`   // per-tool enforcement policies
-	ToolConstraints []ToolConstraintConfig  `yaml:"tool_constraints,omitempty"` // per-tool parameter constraints
-	ToolChainRules  []ToolChainRuleConfig   `yaml:"tool_chain_rules,omitempty"` // sequential tool blocking rules
-	ScanProfile     string                  `yaml:"scan_profile,omitempty"`     // strict (default), content-aware, minimal
-	Suspended       bool                    `yaml:"suspended,omitempty"`
-	Description     string                  `yaml:"description,omitempty"`
-	CreatedBy       string                  `yaml:"created_by,omitempty"`
-	CreatedAt       string                  `yaml:"created_at,omitempty"`
-	Location        string                  `yaml:"location,omitempty"`
-	Tags            []string                `yaml:"tags,omitempty"`
-	Egress          *EgressPolicy           `yaml:"egress,omitempty"`
+	CanMessage      []string               `yaml:"can_message"`
+	ACLEntries      []ACLEntryConfig       `yaml:"acl_entries,omitempty"`
+	BlockedContent  []string               `yaml:"blocked_content"`
+	RedactContent   []string               `yaml:"redact_content,omitempty"`   // categories redacted in transit, then delivered (verdict modify)
+	AllowedTools    []string               `yaml:"allowed_tools,omitempty"`    // tool names the agent can call (empty = all)
+	ToolPolicies    map[string]ToolPolicy  `yaml:"tool_policies,omitempty"`    // per-tool enforcement policies
+	ToolConstraints []ToolConstraintConfig `yaml:"tool_constraints,omitempty"` // per-tool parameter constraints
+	ToolChainRules  []ToolChainRuleConfig  `yaml:"tool_chain_rules,omitempty"` // sequential tool blocking rules
+	ScanProfile     string                 `yaml:"scan_profile,omitempty"`     // strict (default), content-aware, minimal
+	Suspended       bool                   `yaml:"suspended,omitempty"`
+	Description     string                 `yaml:"description,omitempty"`
+	CreatedBy       string                 `yaml:"created_by,omitempty"`
+	CreatedAt       string                 `yaml:"created_at,omitempty"`
+	Location        string                 `yaml:"location,omitempty"`
+	Tags            []string               `yaml:"tags,omitempty"`
+	Egress          *EgressPolicy          `yaml:"egress,omitempty"`
 
 	// Concurrency and delegation caps. Zero means "use gateway default".
 	MaxConcurrentCalls int `yaml:"max_concurrent_calls,omitempty"` // 0 = default (5), <0 = unlimited
@@ -311,10 +311,10 @@ type Agent struct {
 
 // ToolConstraintConfig defines per-tool parameter and usage limits.
 type ToolConstraintConfig struct {
-	Tool             string                          `yaml:"tool" json:"tool"`
+	Tool             string                           `yaml:"tool" json:"tool"`
 	Parameters       map[string]ParamConstraintConfig `yaml:"parameters,omitempty" json:"parameters,omitempty"`
-	MaxResponseBytes int                             `yaml:"max_response_bytes,omitempty" json:"max_response_bytes,omitempty"`
-	CooldownSecs     int                             `yaml:"cooldown_secs,omitempty" json:"cooldown_secs,omitempty"`
+	MaxResponseBytes int                              `yaml:"max_response_bytes,omitempty" json:"max_response_bytes,omitempty"`
+	CooldownSecs     int                              `yaml:"cooldown_secs,omitempty" json:"cooldown_secs,omitempty"`
 }
 
 // ParamConstraintConfig defines validation rules for a single tool parameter.
@@ -344,13 +344,13 @@ type ToolPolicy struct {
 type EgressPolicy struct {
 	AllowedDomains    []string            `yaml:"allowed_domains,omitempty"`
 	BlockedDomains    []string            `yaml:"blocked_domains,omitempty"`
-	Scope             string              `yaml:"scope,omitempty"` // "internal" or "internal+domain1,domain2"; uses trust_boundaries
+	Scope             string              `yaml:"scope,omitempty"`             // "internal" or "internal+domain1,domain2"; uses trust_boundaries
 	ToolRestrictions  map[string][]string `yaml:"tool_restrictions,omitempty"` // tool -> allowed domains (empty = no egress for that tool)
 	ScanRequests      *bool               `yaml:"scan_requests,omitempty"`
 	ScanResponses     *bool               `yaml:"scan_responses,omitempty"`
 	BlockedCategories []string            `yaml:"blocked_categories,omitempty"`
 	RateLimit         int                 `yaml:"rate_limit,omitempty"`
-	RateWindow        int                 `yaml:"rate_window,omitempty"` // seconds (default: 60)
+	RateWindow        int                 `yaml:"rate_window,omitempty"`  // seconds (default: 60)
 	Integrations      []string            `yaml:"integrations,omitempty"` // preset names: "slack", "github", "telegram", etc.
 }
 
@@ -364,7 +364,7 @@ type EgressPolicy struct {
 type QuarantineConfig struct {
 	Enabled       bool   `yaml:"enabled"`
 	ExpiryHours   int    `yaml:"expiry_hours"`
-	RetentionDays int    `yaml:"retention_days"` // auto-purge audit entries older than N days (0 = keep forever)
+	RetentionDays int    `yaml:"retention_days"`        // auto-purge audit entries older than N days (0 = keep forever)
 	ArchiveDir    string `yaml:"archive_dir,omitempty"` // directory where archive-before-delete writes .jsonl.gz files
 }
 
@@ -451,8 +451,8 @@ var MinimalEnforceRules = map[string]bool{
 // rotating payloads. PerAgent still runs after parse because the agent name
 // lives inside the body.
 type RateLimitConfig struct {
-	PerAgent int `yaml:"per_agent"`       // max messages per window per agent (0 = disabled)
-	WindowS  int `yaml:"window"`          // window size in seconds (default: 60)
+	PerAgent int `yaml:"per_agent"`        // max messages per window per agent (0 = disabled)
+	WindowS  int `yaml:"window"`           // window size in seconds (default: 60)
 	PerIP    int `yaml:"per_ip,omitempty"` // max requests per window per source IP (0 = disabled, default: 10x per_agent)
 
 	// Backend selects the rate-limit storage. "memory" (default) keeps
@@ -480,22 +480,22 @@ type GuardConfig struct {
 
 // AlertingConfig controls alert notification behavior.
 type AlertingConfig struct {
-	Cooldown    string `yaml:"cooldown,omitempty"`     // min interval between duplicate alerts (default: "5m")
-	LLMThreats bool   `yaml:"llm_threats,omitempty"`   // alert on LLM-detected threats
-	Anomalies  bool   `yaml:"anomalies,omitempty"`     // alert on anomaly detection (default: true via anomaly config)
-	Suspensions bool  `yaml:"suspensions,omitempty"`   // alert on agent auto-suspension
+	Cooldown    string `yaml:"cooldown,omitempty"`    // min interval between duplicate alerts (default: "5m")
+	LLMThreats  bool   `yaml:"llm_threats,omitempty"` // alert on LLM-detected threats
+	Anomalies   bool   `yaml:"anomalies,omitempty"`   // alert on anomaly detection (default: true via anomaly config)
+	Suspensions bool   `yaml:"suspensions,omitempty"` // alert on agent auto-suspension
 }
 
 // ForwardProxyConfig configures the HTTP forward proxy for Docker Sandbox integration.
 type ForwardProxyConfig struct {
-	Enabled        bool     `yaml:"enabled"`                    // Default: false
-	Port           int      `yaml:"port,omitempty"`             // Default: 8083
-	Bind           string   `yaml:"bind,omitempty"`             // Default: 127.0.0.1
-	AllowedDomains []string `yaml:"allowed_domains,omitempty"`  // Empty = allow all
-	BlockedDomains []string `yaml:"blocked_domains,omitempty"`  // Takes precedence over allowed
-	ScanRequests   bool     `yaml:"scan_requests"`              // Scan outbound HTTP bodies (default: true)
-	ScanResponses  bool     `yaml:"scan_responses"`             // Scan inbound HTTP bodies (default: false)
-	MaxBodySize    int64    `yaml:"max_body_size,omitempty"`    // Max body to scan in bytes (default: 1MB)
+	Enabled        bool     `yaml:"enabled"`                   // Default: false
+	Port           int      `yaml:"port,omitempty"`            // Default: 8083
+	Bind           string   `yaml:"bind,omitempty"`            // Default: 127.0.0.1
+	AllowedDomains []string `yaml:"allowed_domains,omitempty"` // Empty = allow all
+	BlockedDomains []string `yaml:"blocked_domains,omitempty"` // Takes precedence over allowed
+	ScanRequests   bool     `yaml:"scan_requests"`             // Scan outbound HTTP bodies (default: true)
+	ScanResponses  bool     `yaml:"scan_responses"`            // Scan inbound HTTP bodies (default: false)
+	MaxBodySize    int64    `yaml:"max_body_size,omitempty"`   // Max body to scan in bytes (default: 1MB)
 
 	// Per-surface auth (proxy_basic tokens). Reads forward_proxy.require_auth,
 	// forward_proxy.auth_methods, forward_proxy.trusted_loopback_headers in YAML.
@@ -539,13 +539,13 @@ type SurfaceAuthConfig struct {
 }
 
 type GatewayConfig struct {
-	Enabled                bool   `yaml:"enabled"`
-	Port                   int    `yaml:"port"`                      // default 9090
-	Bind                   string `yaml:"bind"`                      // default 127.0.0.1
-	EndpointPath           string `yaml:"endpoint_path"`             // default /mcp
-	ScanResponses          bool   `yaml:"scan_responses"`            // scan backend responses
-	DepCheck               bool   `yaml:"dep_check,omitempty"`       // hash dependency manifests on startup
-	VerifyDelegationScope  bool   `yaml:"verify_delegation_scope,omitempty"` // check response stays within delegated tool/agent scope
+	Enabled               bool   `yaml:"enabled"`
+	Port                  int    `yaml:"port"`                              // default 9090
+	Bind                  string `yaml:"bind"`                              // default 127.0.0.1
+	EndpointPath          string `yaml:"endpoint_path"`                     // default /mcp
+	ScanResponses         bool   `yaml:"scan_responses"`                    // scan backend responses
+	DepCheck              bool   `yaml:"dep_check,omitempty"`               // hash dependency manifests on startup
+	VerifyDelegationScope bool   `yaml:"verify_delegation_scope,omitempty"` // check response stays within delegated tool/agent scope
 
 	// DisableAutoRegister rejects tool calls from agents that aren't
 	// declared in cfg.Agents, instead of silently adding them with
@@ -561,14 +561,14 @@ type GatewayConfig struct {
 
 // MCPServerConfig defines a backend MCP server to proxy through the gateway.
 type MCPServerConfig struct {
-	Transport     string            `yaml:"transport"`               // "stdio" or "http"
-	Command       string            `yaml:"command,omitempty"`       // for stdio
+	Transport     string            `yaml:"transport"`         // "stdio" or "http"
+	Command       string            `yaml:"command,omitempty"` // for stdio
 	Args          []string          `yaml:"args,omitempty"`
-	URL           string            `yaml:"url,omitempty"`           // for http
+	URL           string            `yaml:"url,omitempty"` // for http
 	Headers       map[string]string `yaml:"headers,omitempty"`
-	Env           map[string]string `yaml:"env,omitempty"`           // env vars for stdio
-	WorkingDir    string            `yaml:"working_dir,omitempty"`   // working directory for dep_check
-	EgressSandbox bool             `yaml:"egress_sandbox,omitempty"` // force HTTP traffic through oktsec's forward proxy
+	Env           map[string]string `yaml:"env,omitempty"`            // env vars for stdio
+	WorkingDir    string            `yaml:"working_dir,omitempty"`    // working directory for dep_check
+	EgressSandbox bool              `yaml:"egress_sandbox,omitempty"` // force HTTP traffic through oktsec's forward proxy
 }
 
 // CategoryWebhook binds a rule category to default notification channels.

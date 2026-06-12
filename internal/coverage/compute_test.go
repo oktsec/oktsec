@@ -221,8 +221,8 @@ func TestCompute_RevokedTokenDoesNotProtect(t *testing.T) {
 	p := principalWith("local-codex", "gateway_bearer")
 	p.Tokens[0].RevokedAt = time.Now().UTC().Format(time.RFC3339)
 	cfg := &config.Config{
-		Identity: config.IdentityConfig{Principals: []config.PrincipalConfig{p}},
-		Gateway:  config.GatewayConfig{Enabled: true},
+		Identity:   config.IdentityConfig{Principals: []config.PrincipalConfig{p}},
+		Gateway:    config.GatewayConfig{Enabled: true},
 		Deployment: config.DeploymentConfig{Profile: "enterprise"}, // turn off loopback fallback
 	}
 	cells := Compute(cfg, nil)
@@ -243,8 +243,8 @@ func TestCompute_ExpiredTokenDoesNotInferConnector(t *testing.T) {
 	p := principalWith("local-codex", "gateway_bearer")
 	p.Tokens[0].ExpiresAt = "2026-01-02T00:00:00Z" // already in the past
 	cfg := &config.Config{
-		Identity: config.IdentityConfig{Principals: []config.PrincipalConfig{p}},
-		Gateway:  config.GatewayConfig{Enabled: true},
+		Identity:   config.IdentityConfig{Principals: []config.PrincipalConfig{p}},
+		Gateway:    config.GatewayConfig{Enabled: true},
 		Deployment: config.DeploymentConfig{Profile: "enterprise"},
 	}
 	cells := Compute(cfg, nil)

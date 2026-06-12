@@ -18,9 +18,9 @@ import (
 // narrows scope and carries a reference to the parent token, creating a
 // cryptographically verifiable chain back to the original human authorization.
 type DelegationToken struct {
-	Delegator string    `json:"delegator"`           // parent agent name
-	Delegate  string    `json:"delegate"`            // child agent name
-	Scope     []string  `json:"scope"`               // allowed recipients, or ["*"] for all
+	Delegator string    `json:"delegator"` // parent agent name
+	Delegate  string    `json:"delegate"`  // child agent name
+	Scope     []string  `json:"scope"`     // allowed recipients, or ["*"] for all
 	IssuedAt  time.Time `json:"issued_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 	Signature string    `json:"signature,omitempty"` // base64(ed25519 sig by delegator)
@@ -123,13 +123,13 @@ type DelegationVerifyResult struct {
 
 // ChainVerifyResult holds the outcome of a full chain verification.
 type ChainVerifyResult struct {
-	Valid      bool
-	Reason     string
-	Depth      int      // total chain depth
-	Root       string   // root delegator (human/origin)
-	Delegate   string   // final delegate (current agent)
-	Tools      []string // effective tool scope (intersection of all hops)
-	ChainHash  string   // SHA-256 of the serialized chain for audit
+	Valid     bool
+	Reason    string
+	Depth     int      // total chain depth
+	Root      string   // root delegator (human/origin)
+	Delegate  string   // final delegate (current agent)
+	Tools     []string // effective tool scope (intersection of all hops)
+	ChainHash string   // SHA-256 of the serialized chain for audit
 }
 
 // VerifyDelegation checks that a single delegation token is valid:

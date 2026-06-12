@@ -82,19 +82,19 @@ type ToolEvent struct {
 	ToolInput json.RawMessage `json:"tool_input,omitempty"`
 
 	// Lifecycle
-	Event      string `json:"event,omitempty"`           // "pre_tool_use" or "post_tool_use"
-	ToolOutput string `json:"tool_output,omitempty"`     // post_tool_use only
-	ExitCode   *int   `json:"exit_code,omitempty"`       // post_tool_use only (Bash)
+	Event      string `json:"event,omitempty"`       // "pre_tool_use" or "post_tool_use"
+	ToolOutput string `json:"tool_output,omitempty"` // post_tool_use only
+	ExitCode   *int   `json:"exit_code,omitempty"`   // post_tool_use only (Bash)
 
 	// Identity
-	Agent     string `json:"agent,omitempty"`           // agent name (from header or payload)
-	Client    string `json:"client,omitempty"`          // source client: "claude-code", "cursor", etc.
+	Agent     string `json:"agent,omitempty"`  // agent name (from header or payload)
+	Client    string `json:"client,omitempty"` // source client: "claude-code", "cursor", etc.
 	SessionID string `json:"session_id,omitempty"`
 	ToolUseID string `json:"tool_use_id,omitempty"`
 
 	// Subagent identity (Claude Code sends these when running inside a subagent)
-	AgentID   string `json:"agent_id,omitempty"`        // unique subagent instance ID
-	AgentType string `json:"agent_type,omitempty"`      // subagent type: "Explore", "Plan", or custom name
+	AgentID   string `json:"agent_id,omitempty"`   // unique subagent instance ID
+	AgentType string `json:"agent_type,omitempty"` // subagent type: "Explore", "Plan", or custom name
 
 	// Context
 	CWD string `json:"cwd,omitempty"`

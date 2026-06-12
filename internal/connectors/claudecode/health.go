@@ -85,13 +85,13 @@ type ConnectorHealth struct {
 
 	// Surface flags reported verbatim from the inventory so the UI
 	// does not have to re-read it.
-	Installed        bool `json:"installed"`
-	HookInstalled    bool `json:"hook_installed"`
+	Installed         bool `json:"installed"`
+	HookInstalled     bool `json:"hook_installed"`
 	GatewayConfigured bool `json:"gateway_configured"`
 
 	// Counts let the UI render "X subagent files, Y MCP servers"
 	// without exposing the full inventory.
-	SubagentsFound int `json:"subagents_found"`
+	SubagentsFound  int `json:"subagents_found"`
 	MCPServersFound int `json:"mcp_servers_found"`
 
 	// LastEvent is the most recent activity timestamp the audit store

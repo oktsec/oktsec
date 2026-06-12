@@ -468,8 +468,8 @@ func TestTriage_VerdictPassedCorrectly(t *testing.T) {
 	// Verify that the handler passes the correct verdict string to the detector.
 	// The signal detector uses string comparison, so "clean" must match exactly.
 	cfg := llm.TriageConfig{
-		Enabled:      true,
-		SkipVerdicts: []string{"clean"}, // Skip clean verdicts (unusual but tests the path)
+		Enabled:          true,
+		SkipVerdicts:     []string{"clean"}, // Skip clean verdicts (unusual but tests the path)
 		MinContentLength: 50,
 		NewAgentPairs:    true,
 		SampleRate:       0,

@@ -29,9 +29,9 @@ import (
 	"github.com/oktsec/oktsec/internal/coverage"
 	"github.com/oktsec/oktsec/internal/discover"
 	"github.com/oktsec/oktsec/internal/graph"
-	"github.com/oktsec/oktsec/internal/runtime"
 	"github.com/oktsec/oktsec/internal/identity"
 	"github.com/oktsec/oktsec/internal/llm"
+	"github.com/oktsec/oktsec/internal/runtime"
 	"gopkg.in/yaml.v3"
 )
 
@@ -261,32 +261,32 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Active":        "overview",
-		"Stats":         stats,
-		"Recent":        recent,
-		"Chart":         chart,
-		"AgentCount":    len(s.cfg.Agents),
-		"RequireSig":    s.cfg.Identity.RequireSignature,
-		"PendingReview": pendingReview,
-		"Score":         score,
-		"Grade":         grade,
-		"TopRules":      topRules,
-		"AgentRisks":    agentRisks,
-		"DetectionRate": detectionRate,
-		"UnsignedCount":   unsigned,
-		"UnsignedPct":     unsignedPct,
-		"UnsignedByAgent": unsignedByAgent,
-		"AvgLatency":      avgLatency,
-		"ChainValid":      chainResult.Valid,
-		"ChainCount":      chainResult.Entries,
-		"ChainReason":     chainResult.Reason,
-		"PipelineStages":  pipelineStages,
-		"RuleCount":       ruleCount,
-		"MemPoisonCount":  memPoisonCount,
-		"GuardEnabled":    s.cfg.Guard.Enabled,
-		"GuardAlerts":     guardEventCount,
-		"CoverageRows":    coverageRows,
-		"ConnHealth":      connHealth,
+		"Active":                  "overview",
+		"Stats":                   stats,
+		"Recent":                  recent,
+		"Chart":                   chart,
+		"AgentCount":              len(s.cfg.Agents),
+		"RequireSig":              s.cfg.Identity.RequireSignature,
+		"PendingReview":           pendingReview,
+		"Score":                   score,
+		"Grade":                   grade,
+		"TopRules":                topRules,
+		"AgentRisks":              agentRisks,
+		"DetectionRate":           detectionRate,
+		"UnsignedCount":           unsigned,
+		"UnsignedPct":             unsignedPct,
+		"UnsignedByAgent":         unsignedByAgent,
+		"AvgLatency":              avgLatency,
+		"ChainValid":              chainResult.Valid,
+		"ChainCount":              chainResult.Entries,
+		"ChainReason":             chainResult.Reason,
+		"PipelineStages":          pipelineStages,
+		"RuleCount":               ruleCount,
+		"MemPoisonCount":          memPoisonCount,
+		"GuardEnabled":            s.cfg.Guard.Enabled,
+		"GuardAlerts":             guardEventCount,
+		"CoverageRows":            coverageRows,
+		"ConnHealth":              connHealth,
 		"PostureSuppressed":       postureSuppressed,
 		"PostureSuppressedReason": postureSuppressedReason,
 	}
@@ -478,29 +478,29 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	})
 
 	data := map[string]any{
-		"Active":      "audit",
-		"RequireSig":  s.cfg.Identity.RequireSignature,
-		"Posture":     posture,
-		"Score":       score,
-		"Grade":       grade,
-		"Groups":      groups,
-		"Summary":     summary,
-		"TopFixes":      topFixes,
-		"FixableCount":  fixableCount,
-		"AllFindings":   allSorted,
-		"TotalChecks":   len(findings),
-		"HasCritical": summary.Critical > 0,
-		"ChainValid":            chainResult.Valid,
-		"ChainCount":            chainResult.Entries,
-		"ChainReason":           chainResult.Reason,
-		"ChainBrokenAt":         chainResult.BrokenAt,
-		"ChainBrokenID":         chainResult.BrokenID,
-		"SignatureVerified":     sigVerified,
-		"SignatureFingerprint":  sigFingerprint,
-		"LLMEnabled":    s.cfg.LLM.Enabled,
-		"LLMModel":      s.cfg.LLM.Model,
-		"LLMThreats":    llmThreats,
-		"LLMConfirmed":  llmConfirmed,
+		"Active":               "audit",
+		"RequireSig":           s.cfg.Identity.RequireSignature,
+		"Posture":              posture,
+		"Score":                score,
+		"Grade":                grade,
+		"Groups":               groups,
+		"Summary":              summary,
+		"TopFixes":             topFixes,
+		"FixableCount":         fixableCount,
+		"AllFindings":          allSorted,
+		"TotalChecks":          len(findings),
+		"HasCritical":          summary.Critical > 0,
+		"ChainValid":           chainResult.Valid,
+		"ChainCount":           chainResult.Entries,
+		"ChainReason":          chainResult.Reason,
+		"ChainBrokenAt":        chainResult.BrokenAt,
+		"ChainBrokenID":        chainResult.BrokenID,
+		"SignatureVerified":    sigVerified,
+		"SignatureFingerprint": sigFingerprint,
+		"LLMEnabled":           s.cfg.LLM.Enabled,
+		"LLMModel":             s.cfg.LLM.Model,
+		"LLMThreats":           llmThreats,
+		"LLMConfirmed":         llmConfirmed,
 		"SavedAnalysis": func() string {
 			if store, ok := s.audit.(*audit.Store); ok {
 				if r := store.QuerySessionAnalysis("posture-analysis"); r != nil {
@@ -569,22 +569,22 @@ func (s *Server) handleAuditSandbox(w http.ResponseWriter, r *http.Request) {
 	}}
 
 	data := map[string]any{
-		"Active":       "audit",
-		"RequireSig":   s.cfg.Identity.RequireSignature,
-		"Score":        score,
-		"Grade":        grade,
-		"Groups":       groups,
-		"Summary":      summary,
-		"TopFixes":     topRemediations(findings, 3),
-		"FixableCount": 0,
-		"AllFindings":  findings,
-		"TotalChecks":  len(findings),
-		"HasCritical":        summary.Critical > 0,
-		"Sandbox":            true,
-		"LLMEnabled":         s.cfg.LLM.Enabled,
-		"ChainValid":         false,
-		"ChainCount":         0,
-		"SignatureVerified":  false,
+		"Active":            "audit",
+		"RequireSig":        s.cfg.Identity.RequireSignature,
+		"Score":             score,
+		"Grade":             grade,
+		"Groups":            groups,
+		"Summary":           summary,
+		"TopFixes":          topRemediations(findings, 3),
+		"FixableCount":      0,
+		"AllFindings":       findings,
+		"TotalChecks":       len(findings),
+		"HasCritical":       summary.Critical > 0,
+		"Sandbox":           true,
+		"LLMEnabled":        s.cfg.LLM.Enabled,
+		"ChainValid":        false,
+		"ChainCount":        0,
+		"SignatureVerified": false,
 	}
 
 	s.renderTemplate(w, auditTmpl, data)
@@ -640,18 +640,18 @@ func (s *Server) getHourlyChart() []hourlyBar {
 }
 
 type agentRow struct {
-	Name             string
-	Description      string
-	CanMessage       []string
-	Tags             []string
-	Suspended        bool
-	Total            int
-	Blocked          int
-	BlockedPct       int
-	RiskScore        float64
-	LLMThreatCount   int
-	HasKey           bool
-	LastSeen         string
+	Name           string
+	Description    string
+	CanMessage     []string
+	Tags           []string
+	Suspended      bool
+	Total          int
+	Blocked        int
+	BlockedPct     int
+	RiskScore      float64
+	LLMThreatCount int
+	HasKey         bool
+	LastSeen       string
 }
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
@@ -1165,29 +1165,29 @@ func (s *Server) handleAgentDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Active":       "agents",
-		"Name":         name,
-		"Agent":        agent,
-		"Suspended":    agent.Suspended,
-		"Entries":      entries,
-		"TotalMsgs":    stats.Total,
-		"Delivered":    stats.Delivered,
-		"Blocked":      stats.Blocked,
-		"Rejected":     stats.Rejected,
-		"Quarantined":  stats.Quarantined,
-		"BlockedPct":   blockedPct,
-		"KeyFP":        keyFP,
-		"KeyRevoked":   keyRevoked,
-		"RequireSig":   s.cfg.Identity.RequireSignature,
-		"TopRules":     topRules,
-		"RiskScore":    agentRiskData.RiskScore,
-		"AgentRisk":    agentRiskData,
-		"LLMHistory":   llmHistory,
-		"LLMEnabled":   s.cfg.LLM.Enabled,
-		"CommPartners":   commPartners,
-		"Presets":        presetsList(),
-		"AgentSessions":  agentSessions(s.audit, name),
-		"SubAgents":      agentSubAgents(s.audit, name),
+		"Active":          "agents",
+		"Name":            name,
+		"Agent":           agent,
+		"Suspended":       agent.Suspended,
+		"Entries":         entries,
+		"TotalMsgs":       stats.Total,
+		"Delivered":       stats.Delivered,
+		"Blocked":         stats.Blocked,
+		"Rejected":        stats.Rejected,
+		"Quarantined":     stats.Quarantined,
+		"BlockedPct":      blockedPct,
+		"KeyFP":           keyFP,
+		"KeyRevoked":      keyRevoked,
+		"RequireSig":      s.cfg.Identity.RequireSignature,
+		"TopRules":        topRules,
+		"RiskScore":       agentRiskData.RiskScore,
+		"AgentRisk":       agentRiskData,
+		"LLMHistory":      llmHistory,
+		"LLMEnabled":      s.cfg.LLM.Enabled,
+		"CommPartners":    commPartners,
+		"Presets":         presetsList(),
+		"AgentSessions":   agentSessions(s.audit, name),
+		"SubAgents":       agentSubAgents(s.audit, name),
 		"ParentAgentName": agentParent(s.audit, name),
 	}
 
@@ -1529,20 +1529,20 @@ func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"GeneratedAt":    time.Now().Format("2006-01-02 15:04 MST"),
-		"AgentCount":     len(s.cfg.Agents),
-		"Score":          score,
-		"Grade":          grade,
-		"FindingSummary": summary,
-		"Stats":          stats,
-		"DetectionRate":  detectionRate,
-		"UnsignedPct":    unsignedPct,
-		"AvgLatency":     avgLatency,
-		"ChainValid":     chainResult.Valid,
-		"ChainCount":     chainResult.Entries,
-		"AgentRisks":     agentRisks,
-		"TopRules":       topRules,
-		"Findings":       rptFindings,
+		"GeneratedAt":     time.Now().Format("2006-01-02 15:04 MST"),
+		"AgentCount":      len(s.cfg.Agents),
+		"Score":           score,
+		"Grade":           grade,
+		"FindingSummary":  summary,
+		"Stats":           stats,
+		"DetectionRate":   detectionRate,
+		"UnsignedPct":     unsignedPct,
+		"AvgLatency":      avgLatency,
+		"ChainValid":      chainResult.Valid,
+		"ChainCount":      chainResult.Entries,
+		"AgentRisks":      agentRisks,
+		"TopRules":        topRules,
+		"Findings":        rptFindings,
 		"QuarantineStats": qStats,
 		"RequireSig":      s.cfg.Identity.RequireSignature,
 		"DefaultPolicy":   s.cfg.DefaultPolicy,
@@ -1580,14 +1580,14 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	eventTypeCount := len(stats.ByEvent)
 
 	data := map[string]any{
-		"Active":           "alerts",
-		"RequireSig":       s.cfg.Identity.RequireSignature,
-		"Alerts":           alerts,
-		"Stats":            stats,
-		"WebhookCount":     len(s.cfg.Webhooks),
-		"WebhookChannels":  s.cfg.Webhooks,
-		"EventTypeCount":   eventTypeCount,
-		"Cooldown":         cooldown,
+		"Active":          "alerts",
+		"RequireSig":      s.cfg.Identity.RequireSignature,
+		"Alerts":          alerts,
+		"Stats":           stats,
+		"WebhookCount":    len(s.cfg.Webhooks),
+		"WebhookChannels": s.cfg.Webhooks,
+		"EventTypeCount":  eventTypeCount,
+		"Cooldown":        cooldown,
 		"LLMThreats":      s.cfg.Alerting.LLMThreats || s.cfg.LLM.Enabled,
 		"Suspensions":     s.cfg.Alerting.Suspensions,
 	}
@@ -1879,9 +1879,9 @@ func (s *Server) handleSessionSARIF(w http.ResponseWriter, r *http.Request) {
 			{
 				"tool": map[string]any{
 					"driver": map[string]any{
-						"name":           "oktsec",
+						"name":            "oktsec",
 						"semanticVersion": Version,
-						"informationUri": "https://github.com/oktsec/oktsec",
+						"informationUri":  "https://github.com/oktsec/oktsec",
 						"rules": []map[string]any{
 							{"id": "blocked", "shortDescription": map[string]string{"text": "Tool call blocked by security pipeline"}},
 							{"id": "quarantined", "shortDescription": map[string]string{"text": "Tool call quarantined for review"}},
@@ -1890,13 +1890,13 @@ func (s *Server) handleSessionSARIF(w http.ResponseWriter, r *http.Request) {
 				},
 				"results": results,
 				"properties": map[string]any{
-					"sessionId":  trace.SessionID,
-					"agent":      trace.Agent,
-					"duration":   trace.Duration,
-					"toolCalls":  trace.ToolCount,
-					"threats":    trace.Threats,
-					"startedAt":  trace.StartedAt,
-					"endedAt":    trace.EndedAt,
+					"sessionId": trace.SessionID,
+					"agent":     trace.Agent,
+					"duration":  trace.Duration,
+					"toolCalls": trace.ToolCount,
+					"threats":   trace.Threats,
+					"startedAt": trace.StartedAt,
+					"endedAt":   trace.EndedAt,
 				},
 			},
 		},
@@ -2319,21 +2319,21 @@ func (s *Server) resolveRuleCategories(rules []triggeredRule) {
 }
 
 var decisionLabels = map[string]string{
-	"allow":                  "Message delivered normally",
-	"allowed":                "Message delivered normally",
-	"content_blocked":        "Blocked — dangerous content detected",
-	"content_flagged":        "Delivered with warning — content flagged",
-	"content_quarantined":    "Held for review — suspicious content detected",
-	"quarantine_approved":    "Reviewed and approved for delivery",
-	"quarantine_rejected":    "Reviewed and rejected",
-	"signature_required":     "Rejected — message was not signed",
-	"acl_denied":             "Rejected — agent not authorized for this destination",
-	"agent_suspended":        "Rejected — sender agent is suspended",
-	"recipient_suspended":    "Rejected — recipient agent is suspended",
-	"identity_rejected":      "Rejected — identity verification failed",
-	"proxy_blocked_content":  "Blocked — proxy content filter",
-	"proxy_blocked_domain":   "Blocked — restricted domain",
-	"rate_limited":           "Rejected — rate limit exceeded",
+	"allow":                 "Message delivered normally",
+	"allowed":               "Message delivered normally",
+	"content_blocked":       "Blocked — dangerous content detected",
+	"content_flagged":       "Delivered with warning — content flagged",
+	"content_quarantined":   "Held for review — suspicious content detected",
+	"quarantine_approved":   "Reviewed and approved for delivery",
+	"quarantine_rejected":   "Reviewed and rejected",
+	"signature_required":    "Rejected — message was not signed",
+	"acl_denied":            "Rejected — agent not authorized for this destination",
+	"agent_suspended":       "Rejected — sender agent is suspended",
+	"recipient_suspended":   "Rejected — recipient agent is suspended",
+	"identity_rejected":     "Rejected — identity verification failed",
+	"proxy_blocked_content": "Blocked — proxy content filter",
+	"proxy_blocked_domain":  "Blocked — restricted domain",
+	"rate_limited":          "Rejected — rate limit exceeded",
 }
 
 func humanReadableDecision(decision string) string {
@@ -5237,10 +5237,10 @@ func (s *Server) handleAuditClear(w http.ResponseWriter, r *http.Request) {
 	// again when the gateway receives traffic.
 	s.cfg.Agents = make(map[string]config.Agent)
 	s.renderJSON(w, map[string]any{
-		"status":         "cleared",
-		"archived_rows":  count,
-		"archive":        archive,
-		"archive_dir":    archiveDir,
+		"status":        "cleared",
+		"archived_rows": count,
+		"archive":       archive,
+		"archive_dir":   archiveDir,
 	})
 }
 
@@ -5894,10 +5894,10 @@ func (s *Server) handleRuleDetailPage(w http.ResponseWriter, r *http.Request) {
 		"RequireSig":      s.cfg.Identity.RequireSignature,
 		"Detail":          detail,
 		"Category":        category,
-		"Override":         override,
+		"Override":        override,
 		"CategoryWebhook": catWebhook,
-		"Webhooks":         s.cfg.Webhooks,
-		"Disabled":         disabled,
+		"Webhooks":        s.cfg.Webhooks,
+		"Disabled":        disabled,
 	}
 
 	s.renderTemplate(w, ruleDetailPageTmpl, data)

@@ -24,8 +24,8 @@ import (
 type StdioProxy struct {
 	agent            string
 	enforce          bool
-	inspectResponses bool            // when true + enforce, block malicious server responses
-	allowedTools     map[string]bool // nil or empty = all tools allowed
+	inspectResponses bool              // when true + enforce, block malicious server responses
+	allowedTools     map[string]bool   // nil or empty = all tools allowed
 	Env              map[string]string // extra env vars injected into the child process
 	scanner          *engine.Scanner
 	audit            *audit.Store

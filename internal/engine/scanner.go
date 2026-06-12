@@ -85,6 +85,7 @@ const (
 // ORIGINAL matched text, so it must never be serialized — exported
 // findings stay redacted.
 type RedactionTarget struct {
+	RuleID   string `json:"-"`
 	Category string `json:"-"`
 	Match    string `json:"-"`
 }
@@ -239,7 +240,7 @@ func buildOutcome(result *aguara.ScanResult) *ScanOutcome {
 		outcome.Findings = append(outcome.Findings, summary)
 		if f.MatchedText != "" {
 			outcome.RedactionTargets = append(outcome.RedactionTargets, RedactionTarget{
-				Category: f.Category, Match: f.MatchedText,
+				RuleID: f.RuleID, Category: f.Category, Match: f.MatchedText,
 			})
 		}
 

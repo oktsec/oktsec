@@ -83,7 +83,7 @@ type ThreatFinding struct {
 // RuleSuggestion is an LLM-proposed deterministic rule.
 type RuleSuggestion struct {
 	Name     string `json:"name"`
-	Pattern  string `json:"pattern"`  // regex
+	Pattern  string `json:"pattern"` // regex
 	Category string `json:"category"`
 	Severity string `json:"severity"`
 }
@@ -99,13 +99,13 @@ type IntentResult struct {
 
 // Config holds LLM layer configuration.
 type Config struct {
-	Enabled     bool     `yaml:"enabled"`
-	Provider    Provider `yaml:"provider"`
-	Model       string   `yaml:"model"`
-	BaseURL     string   `yaml:"base_url,omitempty"`
-	APIKey      string   `yaml:"api_key,omitempty"`
-	APIKeyEnv   string   `yaml:"api_key_env,omitempty"`
-	APIVersion  string   `yaml:"api_version,omitempty"` // for Azure OpenAI
+	Enabled    bool     `yaml:"enabled"`
+	Provider   Provider `yaml:"provider"`
+	Model      string   `yaml:"model"`
+	BaseURL    string   `yaml:"base_url,omitempty"`
+	APIKey     string   `yaml:"api_key,omitempty"`
+	APIKeyEnv  string   `yaml:"api_key_env,omitempty"`
+	APIVersion string   `yaml:"api_version,omitempty"` // for Azure OpenAI
 
 	MaxTokens     int     `yaml:"max_tokens,omitempty"`
 	Temperature   float64 `yaml:"temperature,omitempty"`
@@ -114,13 +114,13 @@ type Config struct {
 	MaxDailyReqs  int64   `yaml:"max_daily_requests,omitempty"`
 	Timeout       string  `yaml:"timeout,omitempty"` // duration string: "30s", "1m"
 
-	Analyze          AnalyzeConfig  `yaml:"analyze,omitempty"`
-	TwoStage         bool           `yaml:"two_stage,omitempty"`
-	MinContentLength int            `yaml:"min_content_length,omitempty"`
+	Analyze          AnalyzeConfig `yaml:"analyze,omitempty"`
+	TwoStage         bool          `yaml:"two_stage,omitempty"`
+	MinContentLength int           `yaml:"min_content_length,omitempty"`
 
-	RuleGen RuleGenConfig  `yaml:"rulegen,omitempty"`
-	Intent  IntentConfig   `yaml:"intent,omitempty"`
-	Webhook WebhookConfig  `yaml:"webhook,omitempty"`
+	RuleGen RuleGenConfig `yaml:"rulegen,omitempty"`
+	Intent  IntentConfig  `yaml:"intent,omitempty"`
+	Webhook WebhookConfig `yaml:"webhook,omitempty"`
 }
 
 // Type aliases for LLM sub-configs. The canonical definitions live in

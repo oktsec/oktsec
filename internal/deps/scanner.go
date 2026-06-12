@@ -34,7 +34,7 @@ func NewScanner(client *http.Client) *Scanner {
 
 // ScanResult holds the full output of a dependency scan.
 type ScanResult struct {
-	Path      string    `json:"path"`
+	Path      string     `json:"path"`
 	Manifests []Manifest `json:"manifests"`
 	Findings  []Finding  `json:"findings"`
 	Risk      string     `json:"risk"` // "clean", "low", "medium", "high", "critical"
@@ -49,7 +49,7 @@ type Manifest struct {
 
 // Finding is a single issue found during the scan.
 type Finding struct {
-	Severity string `json:"severity"`          // "critical", "warning", "info"
+	Severity string `json:"severity"` // "critical", "warning", "info"
 	Message  string `json:"message"`
 	Package  string `json:"package,omitempty"`
 	Version  string `json:"version,omitempty"`

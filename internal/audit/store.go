@@ -863,13 +863,17 @@ func (s *Store) QueryAgentStats(agent string) (*StatusCounts, error) {
 		sc.Total += count
 		switch status {
 		case StatusDelivered:
-			sc.Delivered = count
+			sc.Delivered += count
+		case StatusModified:
+			// A redacted message still proceeded: modified counts as
+			// delivered everywhere totals are reported.
+			sc.Delivered += count
 		case StatusBlocked:
 			sc.Blocked = count
 		case StatusRejected:
 			sc.Rejected = count
-		case StatusQuarantined:
-			sc.Quarantined = count
+		case StatusQuarantined, StatusStepUp:
+			sc.Quarantined += count
 		}
 	}
 	return sc, rows.Err()
@@ -893,13 +897,17 @@ func (s *Store) QueryStats() (*StatusCounts, error) {
 		sc.Total += count
 		switch status {
 		case StatusDelivered:
-			sc.Delivered = count
+			sc.Delivered += count
+		case StatusModified:
+			// A redacted message still proceeded: modified counts as
+			// delivered everywhere totals are reported.
+			sc.Delivered += count
 		case StatusBlocked:
 			sc.Blocked = count
 		case StatusRejected:
 			sc.Rejected = count
-		case StatusQuarantined:
-			sc.Quarantined = count
+		case StatusQuarantined, StatusStepUp:
+			sc.Quarantined += count
 		}
 	}
 	return sc, rows.Err()
@@ -1417,7 +1425,7 @@ func (s *Store) QueryAgentRisk(since string) ([]AgentRisk, error) {
 		switch status {
 		case StatusBlocked:
 			ar.Blocked += count
-		case StatusQuarantined:
+		case StatusQuarantined, StatusStepUp:
 			ar.Quarantined += count
 		}
 	}
@@ -1513,11 +1521,11 @@ func (s *Store) QueryEdgeStats(since string) ([]EdgeStat, error) {
 		acc.totalCount += count
 		acc.latencySum += avgLat * float64(count)
 		switch status {
-		case StatusDelivered:
+		case StatusDelivered, StatusModified:
 			acc.stat.Delivered += count
 		case StatusBlocked:
 			acc.stat.Blocked += count
-		case StatusQuarantined:
+		case StatusQuarantined, StatusStepUp:
 			acc.stat.Quarantined += count
 		case StatusRejected:
 			acc.stat.Rejected += count
@@ -1586,7 +1594,7 @@ func (s *Store) QuerySessions(since string, limit int) ([]SessionSummary, error)
 			COUNT(DISTINCT from_agent) as agent_count,
 			GROUP_CONCAT(DISTINCT from_agent) as agents,
 			SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocks,
-			SUM(CASE WHEN status = 'quarantined' THEN 1 ELSE 0 END) as quarantines,
+			SUM(CASE WHEN status IN ('quarantined','step_up') THEN 1 ELSE 0 END) as quarantines,
 			SUM(CASE WHEN policy_decision = 'content_flagged' THEN 1 ELSE 0 END) as flags,
 			SUM(COALESCE(latency_ms, 0)) as total_latency_ms
 		FROM audit_log

@@ -9,9 +9,9 @@ import (
 
 func TestStripAgentReasoning(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    string
+		name  string
+		input string
+		want  string
 	}{
 		{
 			name:  "thinking block stripped, surrounding text preserved",
@@ -32,7 +32,7 @@ func TestStripAgentReasoning(t *testing.T) {
 			name:  "nested tags uses non-greedy matching",
 			input: "a <thinking>outer <thinking>inner</thinking> still outer</thinking> b",
 			// Non-greedy .*? matches the first closing tag, leaving "still outer" visible
-			want:  "a  still outer</thinking> b",
+			want: "a  still outer</thinking> b",
 		},
 		{
 			name:  "case insensitive THINKING",

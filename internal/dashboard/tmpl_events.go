@@ -163,6 +163,7 @@ function edSwitchTab(name,el){
 }
 </script>
 `))
+
 // ciCSS is the shared CSS for "case investigation" style pages (Threat Intel, Event Detail).
 const ciCSS = `
 .ci-back{color:var(--text3);text-decoration:none;font-size:var(--text-sm);display:inline-flex;align-items:center;gap:6px;transition:color var(--ease-default);touch-action:manipulation}

@@ -234,15 +234,15 @@ func TestIsBlockedIP(t *testing.T) {
 		{"10.0.0.1", true},
 		{"192.168.1.1", true},
 		{"172.16.0.1", true},
-		{"169.254.169.254", true},      // cloud metadata
-		{"192.0.2.1", true},            // TEST-NET-1
-		{"198.18.0.1", true},           // benchmarking
-		{"100.64.0.1", true},           // CGN
-		{"8.8.8.8", false},             // Google DNS
-		{"1.1.1.1", false},             // Cloudflare
-		{"::1", true},                  // IPv6 loopback
-		{"fc00::1", true},              // IPv6 ULA
-		{"2001:db8::1", true},          // IPv6 documentation
+		{"169.254.169.254", true},           // cloud metadata
+		{"192.0.2.1", true},                 // TEST-NET-1
+		{"198.18.0.1", true},                // benchmarking
+		{"100.64.0.1", true},                // CGN
+		{"8.8.8.8", false},                  // Google DNS
+		{"1.1.1.1", false},                  // Cloudflare
+		{"::1", true},                       // IPv6 loopback
+		{"fc00::1", true},                   // IPv6 ULA
+		{"2001:db8::1", true},               // IPv6 documentation
 		{"2607:f8b0:4004:800::200e", false}, // Google IPv6
 		{"ff02::1", true},                   // IPv6 multicast all-nodes
 		{"ff05::1", true},                   // IPv6 multicast site-local
@@ -264,14 +264,14 @@ func TestLooksLikeAlternativeIP(t *testing.T) {
 		host string
 		want bool
 	}{
-		{"0x7f000001", true},           // hex packed
-		{"0xA9FEA9FE", true},           // hex packed
-		{"0x7f.0x00.0x00.0x01", true},  // hex octets
-		{"0177.0.0.1", true},           // octal
-		{"2130706433", true},           // packed decimal
-		{"example.com", false},         // normal hostname
-		{"hooks.slack.com", false},     // normal hostname
-		{"192.168.1.1", false},         // standard dotted decimal (caught by ParseIP)
+		{"0x7f000001", true},          // hex packed
+		{"0xA9FEA9FE", true},          // hex packed
+		{"0x7f.0x00.0x00.0x01", true}, // hex octets
+		{"0177.0.0.1", true},          // octal
+		{"2130706433", true},          // packed decimal
+		{"example.com", false},        // normal hostname
+		{"hooks.slack.com", false},    // normal hostname
+		{"192.168.1.1", false},        // standard dotted decimal (caught by ParseIP)
 	}
 	for _, tc := range tests {
 		got := looksLikeAlternativeIP(tc.host)
@@ -301,8 +301,8 @@ func TestMatchesEvent(t *testing.T) {
 		event      string
 		want       bool
 	}{
-		{nil, "message_blocked", true},          // no filter = all
-		{[]string{"blocked"}, "blocked", true},  // exact match
+		{nil, "message_blocked", true},                 // no filter = all
+		{[]string{"blocked"}, "blocked", true},         // exact match
 		{[]string{"blocked"}, "message_blocked", true}, // prefix match
 		{[]string{"quarantined"}, "blocked", false},
 	}

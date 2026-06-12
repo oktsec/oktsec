@@ -19,9 +19,9 @@ func TestSecurityHeaders_SetOnEveryResponse(t *testing.T) {
 
 	expected := map[string]string{
 		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":       "DENY",
-		"Referrer-Policy":       "strict-origin-when-cross-origin",
-		"Permissions-Policy":    "interest-cohort=()",
+		"X-Frame-Options":        "DENY",
+		"Referrer-Policy":        "strict-origin-when-cross-origin",
+		"Permissions-Policy":     "interest-cohort=()",
 	}
 	for key, val := range expected {
 		got := rr.Header().Get(key)

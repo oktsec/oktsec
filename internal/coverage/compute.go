@@ -108,10 +108,10 @@ func activeTokenTypes(p config.PrincipalConfig, now time.Time) map[string]bool {
 
 // computeCell decides the (Coverage, AuthMethod, TrustLevel, Limitation)
 // for one (principal, surface) pair. The decision uses three inputs:
-//   1. Whether the surface is enabled at all.
-//   2. Whether the principal holds a token of the matching type.
-//   3. The surface's local/enterprise auth posture (loopback header on,
-//      require_auth, etc.).
+//  1. Whether the surface is enabled at all.
+//  2. Whether the principal holds a token of the matching type.
+//  3. The surface's local/enterprise auth posture (loopback header on,
+//     require_auth, etc.).
 func computeCell(cfg *config.Config, p config.PrincipalConfig, connector string, surface Surface, tokens map[string]bool) CoverageCell {
 	cell := CoverageCell{
 		PrincipalID: p.ID,

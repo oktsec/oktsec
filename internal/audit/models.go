@@ -4,22 +4,22 @@ package audit
 
 // Entry represents a single audit log record.
 type Entry struct {
-	ID                string `json:"id"`
-	Timestamp         string `json:"timestamp"`
-	FromAgent         string `json:"from_agent"`
-	ToAgent           string `json:"to_agent"`
-	ToolName          string `json:"tool_name,omitempty"`        // tool executed (e.g., "Bash", "Write") — distinct from agent
-	ContentHash       string `json:"content_hash"`
-	SignatureVerified int    `json:"signature_verified"` // 1=verified, 0=unsigned, -1=invalid
-	PubkeyFingerprint string `json:"pubkey_fingerprint,omitempty"`
-	Status            string `json:"status"`                    // delivered, blocked, quarantined, rejected
-	RulesTriggered    string `json:"rules_triggered,omitempty"` // JSON array
-	PolicyDecision    string `json:"policy_decision"`
-	LatencyMs         int64  `json:"latency_ms"`
-	Intent            string `json:"intent,omitempty"`           // declared intent from sender (tool args for gateway)
-	SessionID         string `json:"session_id,omitempty"`       // MCP session ID for sub-agent tracking
-	PrevHash          string `json:"prev_hash,omitempty"`        // hash chain: previous entry hash
-	EntryHash         string `json:"entry_hash,omitempty"`       // hash chain: this entry's hash
+	ID                  string `json:"id"`
+	Timestamp           string `json:"timestamp"`
+	FromAgent           string `json:"from_agent"`
+	ToAgent             string `json:"to_agent"`
+	ToolName            string `json:"tool_name,omitempty"` // tool executed (e.g., "Bash", "Write") — distinct from agent
+	ContentHash         string `json:"content_hash"`
+	SignatureVerified   int    `json:"signature_verified"` // 1=verified, 0=unsigned, -1=invalid
+	PubkeyFingerprint   string `json:"pubkey_fingerprint,omitempty"`
+	Status              string `json:"status"`                    // delivered, blocked, quarantined, rejected
+	RulesTriggered      string `json:"rules_triggered,omitempty"` // JSON array
+	PolicyDecision      string `json:"policy_decision"`
+	LatencyMs           int64  `json:"latency_ms"`
+	Intent              string `json:"intent,omitempty"`                // declared intent from sender (tool args for gateway)
+	SessionID           string `json:"session_id,omitempty"`            // MCP session ID for sub-agent tracking
+	PrevHash            string `json:"prev_hash,omitempty"`             // hash chain: previous entry hash
+	EntryHash           string `json:"entry_hash,omitempty"`            // hash chain: this entry's hash
 	ProxySignature      string `json:"proxy_signature,omitempty"`       // Ed25519 signature by proxy
 	DelegationChainHash string `json:"delegation_chain_hash,omitempty"` // SHA-256 of verified delegation chain
 	DelegationChain     string `json:"delegation_chain,omitempty"`      // human-readable chain: "human -> agent-a -> agent-b"
@@ -36,9 +36,9 @@ type Entry struct {
 	// FromAgent always equals the policy Principal; these fields tell the
 	// reader HOW that Principal was established and what display-only
 	// actor name (subagent, model role, hook payload) accompanied it.
-	AuthMethod        string `json:"auth_method,omitempty"`         // bearer_token | trusted_loopback | proxy_token | hook_token | ed25519 | mtls | ""
+	AuthMethod          string `json:"auth_method,omitempty"`           // bearer_token | trusted_loopback | proxy_token | hook_token | ed25519 | mtls | ""
 	PrincipalTrustLevel string `json:"principal_trust_level,omitempty"` // authenticated | trusted_local | observed | inferred | anonymous
-	ReportedActor     string `json:"reported_actor,omitempty"`      // display-only actor (subagent name, etc.); never used for policy
+	ReportedActor       string `json:"reported_actor,omitempty"`        // display-only actor (subagent name, etc.); never used for policy
 }
 
 // HierarchyEntry tracks parent-child agent relationships within a session.
@@ -158,9 +158,9 @@ type AgentRisk struct {
 	RiskScore   float64 `json:"risk_score"`
 
 	// LLM-enriched fields (populated when LLM data is available)
-	LLMAvgRisk      float64 `json:"llm_avg_risk,omitempty"`
-	LLMMaxRisk      float64 `json:"llm_max_risk,omitempty"`
-	LLMAnalysisCount int    `json:"llm_analysis_count,omitempty"`
-	LLMThreatCount  int     `json:"llm_threat_count,omitempty"`
-	LLMConfirmed    int     `json:"llm_confirmed,omitempty"`
+	LLMAvgRisk       float64 `json:"llm_avg_risk,omitempty"`
+	LLMMaxRisk       float64 `json:"llm_max_risk,omitempty"`
+	LLMAnalysisCount int     `json:"llm_analysis_count,omitempty"`
+	LLMThreatCount   int     `json:"llm_threat_count,omitempty"`
+	LLMConfirmed     int     `json:"llm_confirmed,omitempty"`
 }

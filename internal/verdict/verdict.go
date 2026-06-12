@@ -129,6 +129,22 @@ func ApplyRuleOverrides(rules []config.RuleAction, outcome *engine.ScanOutcome) 
 
 	outcome.Findings = kept
 	outcome.Verdict = newVerdict
+
+	// Redaction targets follow their findings: an ignored rule's raw
+	// match must not keep driving in-transit redaction.
+	if len(outcome.RedactionTargets) > 0 {
+		surviving := make(map[string]bool, len(kept))
+		for _, f := range kept {
+			surviving[f.RuleID] = true
+		}
+		var keptTargets []engine.RedactionTarget
+		for _, t := range outcome.RedactionTargets {
+			if surviving[t.RuleID] {
+				keptTargets = append(keptTargets, t)
+			}
+		}
+		outcome.RedactionTargets = keptTargets
+	}
 }
 
 // ApplyToolScopedOverrides applies tool-aware rule filtering including
@@ -233,6 +249,22 @@ func applyToolScopedOverrides(rules []config.RuleAction, outcome *engine.ScanOut
 
 	outcome.Findings = kept
 	outcome.Verdict = newVerdict
+
+	// Redaction targets follow their findings: an ignored rule's raw
+	// match must not keep driving in-transit redaction.
+	if len(outcome.RedactionTargets) > 0 {
+		surviving := make(map[string]bool, len(kept))
+		for _, f := range kept {
+			surviving[f.RuleID] = true
+		}
+		var keptTargets []engine.RedactionTarget
+		for _, t := range outcome.RedactionTargets {
+			if surviving[t.RuleID] {
+				keptTargets = append(keptTargets, t)
+			}
+		}
+		outcome.RedactionTargets = keptTargets
+	}
 }
 
 // ApplyScanProfile adjusts the verdict based on the agent's scan profile
@@ -288,11 +320,11 @@ func ApplyScanProfile(profile string, outcome *engine.ScanOutcome, toolName stri
 // configured an explicit override for the rule.
 var BuiltinToolExemptions = map[string][]string{
 	"TC-005":         {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent"}, // Shell patterns in content/agent tools are not injection
-	"IAP-011":        {"Bash"},                                               // bash -c, eval(), subprocess — expected in shell commands
+	"IAP-011":        {"Bash"},                                                        // bash -c, eval(), subprocess — expected in shell commands
 	"MCPCFG_002":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "Agent"}, // Shell metacharacters in content/agent tools
-	"MCPCFG_006":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"}, // Inline code execution in content tools
-	"MCPCFG_004":     {"WebFetch", "Fetch", "WebSearch"},                     // Remote URLs — expected in web tools
-	"THIRDPARTY_001": {"WebFetch", "Fetch", "WebSearch"},                     // Runtime URL — expected in web tools
+	"MCPCFG_006":     {"Bash", "Write", "Edit", "MultiEdit", "NotebookEdit"},          // Inline code execution in content tools
+	"MCPCFG_004":     {"WebFetch", "Fetch", "WebSearch"},                              // Remote URLs — expected in web tools
+	"THIRDPARTY_001": {"WebFetch", "Fetch", "WebSearch"},                              // Runtime URL — expected in web tools
 }
 
 func containsTool(tools []string, name string) bool {

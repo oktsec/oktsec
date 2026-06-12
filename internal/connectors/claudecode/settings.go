@@ -37,7 +37,7 @@ type rawHookEntry struct {
 }
 
 type rawHookHandler struct {
-	Type    string `json:"type,omitempty"`    // command | http | mcp_tool | prompt | agent
+	Type    string `json:"type,omitempty"` // command | http | mcp_tool | prompt | agent
 	Command string `json:"command,omitempty"`
 	URL     string `json:"url,omitempty"`
 }

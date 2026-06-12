@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"crypto/ed25519"
 	"encoding/base64"
+	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/oktsec/oktsec/internal/activity"
 	"github.com/oktsec/oktsec/internal/audit"
@@ -1439,7 +1439,6 @@ func extractAndStripAgentParam(req *mcp.CallToolRequest) string {
 	return name
 }
 
-
 // buildConstraintMaps extracts per-agent tool constraints and chain rules
 // from the config, converting config types to gateway types.
 func buildConstraintMaps(cfg *config.Config) (map[string][]ToolConstraint, map[string][]ToolChainRule) {
@@ -1528,4 +1527,3 @@ func (g *Gateway) verifyDelegationHeader(header string) identity.ChainVerifyResu
 
 	return identity.VerifyChain(chain, resolver)
 }
-
