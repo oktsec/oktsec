@@ -1595,7 +1595,7 @@ func (s *Store) QuerySessions(since string, limit int) ([]SessionSummary, error)
 			GROUP_CONCAT(DISTINCT from_agent) as agents,
 			SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocks,
 			SUM(CASE WHEN status IN ('quarantined','step_up') THEN 1 ELSE 0 END) as quarantines,
-			SUM(CASE WHEN policy_decision = 'content_flagged' THEN 1 ELSE 0 END) as flags,
+			SUM(CASE WHEN policy_decision IN ('content_flagged','content_redacted') THEN 1 ELSE 0 END) as flags,
 			SUM(COALESCE(latency_ms, 0)) as total_latency_ms
 		FROM audit_log
 		WHERE session_id <> '' AND timestamp >= ?
