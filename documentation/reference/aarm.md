@@ -17,18 +17,21 @@ AARM R4 requires the policy engine to be capable of five authorization decisions
 
 ### MODIFY: in-transit redaction
 
-Listing scan categories under an agent's `redact_content` delivers messages with those detections redacted instead of blocking them:
+Listing scan categories under an agent's `redact_content` delivers messages with those detections redacted instead of blocking them. Block and quarantine always win over modify — redaction only applies to content that would otherwise deliver — so redacting a category whose findings block by default (for example `credential-leak`, which is critical) is paired with a per-rule override that lowers the verdict:
 
 ```yaml
+rules:
+  - id: CRED_002          # AWS access key
+    action: allow-and-flag
 agents:
   support-agent:
     blocked_content:
       - memory-poisoning
     redact_content:
-      - credentials
+      - credential-leak
 ```
 
-A message carrying a detected credential is delivered with the match replaced by `[REDACTED]`, the response carries the modified content (`modified_content`), and the receipt records `status: modified`, `policy_decision: content_redacted` and the findings. Block and quarantine always win over modify: redaction only applies to content that would otherwise deliver. The receipt keeps the hash of the original content — what the sender signed — so the modification itself is evidenced.
+A message carrying a detected AWS key is then delivered with the match replaced by `[REDACTED]`, the response carries the modified content (`modified_content`), and the receipt records `status: modified`, `policy_decision: content_redacted` and the findings. The receipt keeps the hash of the original content — what the sender signed — so the modification itself is evidenced. Use `oktsec rules list` to see each rule's category.
 
 ### STEP_UP: approval thresholds
 
