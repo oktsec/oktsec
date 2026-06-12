@@ -54,7 +54,7 @@ func TestCollectRecentEvents(t *testing.T) {
 	if len(entries) != 3 || entries[1].Status != "blocked" {
 		t.Fatalf("entries: %+v", entries)
 	}
-	if cursor != base.Add(2*time.Minute).Format(time.RFC3339)+"|e3" {
+	if cursor != base.Add(2*time.Minute).Format(time.RFC3339)+"|3" {
 		t.Fatalf("cursor: %s", cursor)
 	}
 
@@ -72,7 +72,7 @@ func TestCollectRecentEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(two) != 2 || mid != base.Add(time.Minute).Format(time.RFC3339)+"|e2" {
+	if len(two) != 2 || mid != base.Add(time.Minute).Format(time.RFC3339)+"|2" {
 		t.Fatalf("batch: %d mid: %s", len(two), mid)
 	}
 

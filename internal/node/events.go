@@ -46,7 +46,8 @@ func CollectRecentEvents(cfgPath, dbPathOverride, cursor string, limit int) ([]a
 	// Same guard as the snapshot builder: a Postgres-backed install
 	// must not have a stale local SQLite file shipped as live
 	// telemetry.
-	if cfg != nil && strings.EqualFold(cfg.DBBackend, "postgres") {
+	if cfg != nil && strings.HasPrefix(strings.ToLower(cfg.DBBackend), "postgres") {
+		// Covers both supported aliases (postgres, postgresql).
 		return nil, cursor, nil
 	}
 	dbPath := dbPathOverride
@@ -60,7 +61,7 @@ func CollectRecentEvents(cfgPath, dbPathOverride, cursor string, limit int) ([]a
 	if err != nil {
 		return nil, cursor, nil
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -71,32 +72,36 @@ func CollectRecentEvents(cfgPath, dbPathOverride, cursor string, limit int) ([]a
 
 	where, args := "", []any{}
 	if cursor != "" {
-		curTS, curID := cursor, ""
+		curTS, curRow := cursor, "0"
 		if i := strings.IndexByte(cursor, '|'); i >= 0 {
-			curTS, curID = cursor[:i], cursor[i+1:]
+			curTS, curRow = cursor[:i], cursor[i+1:]
 		}
-		where = "WHERE (timestamp > ? OR (timestamp = ? AND id > ?))"
-		args = append(args, curTS, curTS, curID)
+		// rowid is SQLite's monotonic insertion key: a same-second row
+		// committed after the last sync always has a larger rowid, so
+		// nothing is skipped (audit IDs are random UUIDs and would be).
+		where = "WHERE (timestamp > ? OR (timestamp = ? AND rowid > ?))"
+		args = append(args, curTS, curTS, curRow)
 	}
 	args = append(args, limit)
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`
-		SELECT id, timestamp, COALESCE(from_agent,''), COALESCE(to_agent,''),
+		SELECT rowid, id, timestamp, COALESCE(from_agent,''), COALESCE(to_agent,''),
 		       COALESCE(content_hash,''), COALESCE(signature_verified,0),
 		       COALESCE(status,''), COALESCE(rules_triggered,''),
 		       COALESCE(policy_decision,''), COALESCE(latency_ms,0)
-		FROM audit_log %s ORDER BY timestamp ASC, id ASC LIMIT ?`, where), args...)
+		FROM audit_log %s ORDER BY timestamp ASC, rowid ASC LIMIT ?`, where), args...)
 	if err != nil {
 		return nil, cursor, fmt.Errorf("events query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []audit.RedactedEntry
 	last := cursor
 	for rows.Next() {
 		var e audit.Entry
+		var rowid int64
 		var sigVerified sql.NullInt64
 		var latency sql.NullInt64
-		if err := rows.Scan(&e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent,
+		if err := rows.Scan(&rowid, &e.ID, &e.Timestamp, &e.FromAgent, &e.ToAgent,
 			&e.ContentHash, &sigVerified, &e.Status, &e.RulesTriggered,
 			&e.PolicyDecision, &latency); err != nil {
 			return nil, cursor, fmt.Errorf("events scan: %w", err)
@@ -104,7 +109,7 @@ func CollectRecentEvents(cfgPath, dbPathOverride, cursor string, limit int) ([]a
 		e.SignatureVerified = int(sigVerified.Int64)
 		e.LatencyMs = latency.Int64
 		out = append(out, audit.Redact(e, audit.RedactAnalyst))
-		last = e.Timestamp + "|" + e.ID
+		last = fmt.Sprintf("%s|%d", e.Timestamp, rowid)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, cursor, err
