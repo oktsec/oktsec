@@ -1211,11 +1211,21 @@ func (s *Store) QuarantineApprove(id, reviewedBy string) error {
 		return fmt.Errorf("quarantine item %q not found or not pending", id)
 	}
 
-	// Update the audit entry to reflect approval
+	// Update the audit entry to reflect approval. A quarantined
+	// MESSAGE is released by approval, so its receipt becomes
+	// delivered. A step-up TOOL CALL is different: approval only
+	// authorizes a future retry — the held call itself never ran, so
+	// its receipt keeps status step_up and only the decision records
+	// the review. The retry writes its own delivered receipt.
 	if _, err := tx.Exec(
-		`UPDATE audit_log SET status='delivered', policy_decision='quarantine_approved' WHERE id=?`, id,
+		`UPDATE audit_log SET status='delivered', policy_decision='quarantine_approved' WHERE id=? AND status='quarantined'`, id,
 	); err != nil {
 		return fmt.Errorf("update audit entry: %w", err)
+	}
+	if _, err := tx.Exec(
+		`UPDATE audit_log SET policy_decision='step_up_approved' WHERE id=? AND status='step_up'`, id,
+	); err != nil {
+		return fmt.Errorf("update step-up audit entry: %w", err)
 	}
 
 	return tx.Commit()
