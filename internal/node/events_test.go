@@ -14,7 +14,7 @@ import (
 func TestCollectRecentEvents(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "oktsec.yaml")
-	if err := os.WriteFile(cfgPath, []byte("agents: []\n"), 0o600); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("agents: {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(dir, "audit.db")
@@ -54,7 +54,7 @@ func TestCollectRecentEvents(t *testing.T) {
 	if len(entries) != 3 || entries[1].Status != "blocked" {
 		t.Fatalf("entries: %+v", entries)
 	}
-	if cursor != base.Add(2*time.Minute).Format(time.RFC3339) {
+	if cursor != base.Add(2*time.Minute).Format(time.RFC3339)+"|e3" {
 		t.Fatalf("cursor: %s", cursor)
 	}
 
@@ -72,8 +72,29 @@ func TestCollectRecentEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(two) != 2 || mid != base.Add(time.Minute).Format(time.RFC3339) {
+	if len(two) != 2 || mid != base.Add(time.Minute).Format(time.RFC3339)+"|e2" {
 		t.Fatalf("batch: %d mid: %s", len(two), mid)
+	}
+
+	// Same-second tiebreak: rows sharing the last shipped timestamp but
+	// with later ids still ship.
+	db2, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db2.Exec(`INSERT INTO audit_log
+		(id, timestamp, from_agent, to_agent, content_hash, status, rules_triggered, policy_decision, latency_ms, signature_verified)
+		VALUES ('e4', ?, 'agent-a', 'agent-b', 'h', 'delivered', '[]', 'allow', 1, 1)`,
+		base.Add(2*time.Minute).Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	_ = db2.Close()
+	tie, _, err := CollectRecentEvents(cfgPath, dbPath, cursor, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tie) != 1 || tie[0].ID != "e4" {
+		t.Fatalf("same-second tiebreak: %+v", tie)
 	}
 
 	// A missing database is a no-op, never an error.

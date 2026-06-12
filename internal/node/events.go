@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/oktsec/oktsec/internal/audit"
@@ -28,15 +29,24 @@ type EventsBatch struct {
 	Entries       []audit.RedactedEntry `json:"entries"`
 }
 
-// CollectRecentEvents reads audit entries strictly newer than the
-// cursor (RFC3339; "" = everything), redacted for export. It returns
-// the entries and the new cursor (the last entry's timestamp).
+// CollectRecentEvents reads audit entries past the cursor, redacted
+// for export, and returns them with the new cursor. The cursor is
+// "timestamp|id" of the last shipped entry ("" = everything): the id
+// tiebreak makes same-second batches safe — a 500-row batch cutting
+// through a busy second, or a late row in an already-shipped second,
+// ships on the next cycle instead of being skipped forever.
 // A missing or unreadable audit database is a clean no-op: nodes
 // without a proxy runtime have no events, not an error.
 func CollectRecentEvents(cfgPath, dbPathOverride, cursor string, limit int) ([]audit.RedactedEntry, string, error) {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		// No config = no proxy = no events.
+		return nil, cursor, nil
+	}
+	// Same guard as the snapshot builder: a Postgres-backed install
+	// must not have a stale local SQLite file shipped as live
+	// telemetry.
+	if cfg != nil && strings.EqualFold(cfg.DBBackend, "postgres") {
 		return nil, cursor, nil
 	}
 	dbPath := dbPathOverride
@@ -61,8 +71,12 @@ func CollectRecentEvents(cfgPath, dbPathOverride, cursor string, limit int) ([]a
 
 	where, args := "", []any{}
 	if cursor != "" {
-		where = "WHERE timestamp > ?"
-		args = append(args, cursor)
+		curTS, curID := cursor, ""
+		if i := strings.IndexByte(cursor, '|'); i >= 0 {
+			curTS, curID = cursor[:i], cursor[i+1:]
+		}
+		where = "WHERE (timestamp > ? OR (timestamp = ? AND id > ?))"
+		args = append(args, curTS, curTS, curID)
 	}
 	args = append(args, limit)
 	rows, err := db.QueryContext(ctx, fmt.Sprintf(`
@@ -90,7 +104,7 @@ func CollectRecentEvents(cfgPath, dbPathOverride, cursor string, limit int) ([]a
 		e.SignatureVerified = int(sigVerified.Int64)
 		e.LatencyMs = latency.Int64
 		out = append(out, audit.Redact(e, audit.RedactAnalyst))
-		last = e.Timestamp
+		last = e.Timestamp + "|" + e.ID
 	}
 	if err := rows.Err(); err != nil {
 		return nil, cursor, err
