@@ -451,7 +451,7 @@ func classifyDecision(status, decision string) string {
 		"identity_rejected", "signature_required",
 		"delegation_required", "scan_error":
 		return "rejected"
-	case "allow":
+	case "allow", "step_up_approved":
 		return "allowed"
 	}
 	switch strings.ToLower(strings.TrimSpace(status)) {

@@ -801,6 +801,14 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 			if policy, hasPolicy := agentCfg.ToolPolicies[m.OriginalName]; hasPolicy {
 				amount := ExtractAmount(mcputil.GetArguments(req.Params.Arguments))
 				result := g.policyEnforcer.Check(policyAgent, m.OriginalName, amount, policy)
+				if !result.Allowed && result.Decision == "step_up_approval" {
+					// An operator approval spends here: the retried
+					// call proceeds exactly once per approval.
+					if ok, err := g.audit.ConsumeStepUpApproval(policyAgent, m.OriginalName); err == nil && ok {
+						g.logAudit(msgID, id, m.OriginalName, audit.StatusDelivered, audit.DecisionStepUpApproved, "[]", toolArgs, sessionID, start)
+						result.Allowed = true
+					}
+				}
 				if !result.Allowed {
 					status := audit.StatusBlocked
 					if result.Decision == "step_up_approval" {
@@ -809,7 +817,7 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 						// refused: persist a pending item so the
 						// approval queue has something to act on.
 						// The caller retries after an operator
-						// approves or raises the threshold.
+						// approves; the approval is single-use.
 						expiryHours := g.cfg.Quarantine.ExpiryHours
 						if expiryHours <= 0 {
 							expiryHours = 24

@@ -1079,6 +1079,46 @@ func (s *Store) Enqueue(item QuarantineItem) error {
 	return nil
 }
 
+// ConsumeStepUpApproval atomically spends one APPROVED step-up item
+// for (agent, tool). The conditional UPDATE makes approvals
+// single-use even under concurrent retries: only one caller flips
+// approved -> consumed.
+func (s *Store) ConsumeStepUpApproval(agent, tool string) (bool, error) {
+	rows, err := s.db.Query(
+		`SELECT id FROM quarantine_queue WHERE status = ? AND from_agent = ? AND to_agent = ? ORDER BY created_at DESC LIMIT 5`,
+		QStatusApproved, agent, tool,
+	)
+	if err != nil {
+		return false, fmt.Errorf("step-up approval lookup: %w", err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return false, fmt.Errorf("step-up approval scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	for _, id := range ids {
+		res, err := s.db.Exec(
+			`UPDATE quarantine_queue SET status = ? WHERE id = ? AND status = ?`,
+			QStatusConsumed, id, QStatusApproved,
+		)
+		if err != nil {
+			return false, fmt.Errorf("step-up approval consume: %w", err)
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // QuarantineByID fetches a single quarantine item by ID.
 func (s *Store) QuarantineByID(id string) (*QuarantineItem, error) {
 	row := s.db.QueryRow(

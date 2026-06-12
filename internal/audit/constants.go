@@ -21,6 +21,9 @@ const (
 	QStatusApproved = "approved"
 	QStatusRejected = "rejected"
 	QStatusExpired  = "expired"
+	// QStatusConsumed: an approved step-up item already spent by a
+	// retried call — approvals are single-use.
+	QStatusConsumed = "consumed"
 )
 
 // Alert event constants for webhook notifications.
@@ -59,6 +62,7 @@ const (
 	DecisionContentFlagged           = "content_flagged"
 	DecisionContentRedacted          = "content_redacted"
 	DecisionStepUpApproval           = "step_up_approval"
+	DecisionStepUpApproved           = "step_up_approved"
 	DecisionACLDenied                = "acl_denied"
 	DecisionAgentSuspended           = "agent_suspended"
 	DecisionRecipientSuspended       = "recipient_suspended"
