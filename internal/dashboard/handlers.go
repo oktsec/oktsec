@@ -1885,6 +1885,7 @@ func (s *Server) handleSessionSARIF(w http.ResponseWriter, r *http.Request) {
 						"rules": []map[string]any{
 							{"id": "blocked", "shortDescription": map[string]string{"text": "Tool call blocked by security pipeline"}},
 							{"id": "quarantined", "shortDescription": map[string]string{"text": "Tool call quarantined for review"}},
+							{"id": "step_up", "shortDescription": map[string]string{"text": "Tool call held pending step-up approval"}},
 						},
 					},
 				},
