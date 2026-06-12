@@ -805,6 +805,27 @@ func (g *Gateway) makeHandler(m toolMapping) mcp.ToolHandler {
 					status := audit.StatusBlocked
 					if result.Decision == "step_up_approval" {
 						status = audit.StatusStepUp
+						// STEP_UP means held for approval, not just
+						// refused: persist a pending item so the
+						// approval queue has something to act on.
+						// The caller retries after an operator
+						// approves or raises the threshold.
+						expiryHours := g.cfg.Quarantine.ExpiryHours
+						if expiryHours <= 0 {
+							expiryHours = 24
+						}
+						_ = g.audit.Enqueue(audit.QuarantineItem{
+							ID:             msgID,
+							AuditEntryID:   msgID,
+							Content:        toolArgs,
+							FromAgent:      policyAgent,
+							ToAgent:        m.OriginalName,
+							Status:         audit.QStatusPending,
+							ExpiresAt:      time.Now().Add(time.Duration(expiryHours) * time.Hour).UTC().Format(time.RFC3339),
+							CreatedAt:      time.Now().UTC().Format(time.RFC3339),
+							RulesTriggered: "[]",
+							Timestamp:      time.Now().UTC().Format(time.RFC3339),
+						})
 					}
 					g.logAudit(msgID, id, m.OriginalName, status, result.Decision, "[]", toolArgs, sessionID, start)
 					return toolError(fmt.Sprintf("tool policy: %s", result.Reason)), nil
